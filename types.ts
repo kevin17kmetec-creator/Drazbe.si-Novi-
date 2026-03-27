@@ -83,6 +83,22 @@ export interface BidHistory {
   timestamp: Date;
 }
 
+export enum Category {
+  Oblacila = 'Oblačila',
+  Racunalniki = 'Računalniki',
+  ProstiCasInSport = 'Prosti čas in šport',
+  DomInVrt = 'Dom in vrt',
+  Avtomobilizem = 'Avtomobilizem',
+  Nepremicnine = 'Nepremičnine',
+  LepotaInZdravje = 'Lepota in zdravje',
+  OtroškaOprema = 'Otroška oprema',
+  Kmetijstvo = 'Kmetijstvo',
+  Umetnine = 'Umetnine',
+  Glasbila = 'Glasbila',
+  Zbirateljstvo = 'Zbirateljstvo',
+  Ostalo = 'Ostalo'
+}
+
 export enum Region {
   Stajerska = 'Štajerska',
   Gorenjska = 'Gorenjska',
@@ -94,4 +110,4 @@ export enum Region {
   Osrednjeslovenska = 'Osrednjeslovenska'
 }
 
-export type ViewState = 'grid' | 'detail' | 'login' | 'onboarding' | 'terms' | 'sellerProfile' | 'createAuction' | 'settings' | 'verification' | 'winnings' | 'lastChance' | 'subscriptions';
+export type ViewState = 'grid' | 'detail' | 'login' | 'onboarding' | 'terms' | 'sellerProfile' | 'createAuction' | 'settings' | 'verification' | 'winnings' | 'lastChance' | 'subscriptions' | 'watchlist';
