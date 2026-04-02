@@ -1,4 +1,4 @@
-import { AuctionItem, Region, Seller, Review, SellerType, SubscriptionTier } from './types.ts';
+import { AuctionItem, Region, Seller, Review, SellerType, SubscriptionTier, Category } from './types.ts';
 
 const now = new Date();
 
@@ -62,7 +62,7 @@ export const MOCK_AUCTIONS: AuctionItem[] = [
       EN: 'Maribor Industrial Complex - Equipment Sale',
       DE: 'Industriekomplex Maribor - Ausrüstung im Ausverkauf'
     },
-    category: Region.Stajerska,
+    category: Category.Ostalo,
     currentBid: 42500,
     bidCount: 24,
     itemCount: 150,
@@ -84,7 +84,7 @@ export const MOCK_AUCTIONS: AuctionItem[] = [
       'Ogled': { SLO: 'Po dogovoru', EN: 'By appointment', DE: 'Nach Vereinbarung' }
     },
     biddingHistory: [],
-    sellerId: 'sell1', // Business seller -> Tax applied
+    sellerId: 'sell1',
     status: 'active'
   },
   {
@@ -94,13 +94,13 @@ export const MOCK_AUCTIONS: AuctionItem[] = [
       EN: 'Forestry Equipment and Machinery - Kranj',
       DE: 'Forstwirtschaftliche Ausrüstung und Maschinen - Kranj'
     },
-    category: Region.Gorenjska,
+    category: Category.Ostalo,
     currentBid: 12400,
     bidCount: 15,
     itemCount: 45,
     images: [
       'https://images.unsplash.com/photo-1565193566173-7a0ee3dbe261?auto=format&fit=crop&q=80&w=600',
-      'https://images.unsplash.com/photo-1581092160562-40aa08e78837?auto=format&fit=crop&q=80&w=600'
+      'https://images.unsplash.com/photo-1581092160562-40aa08e78837?auto=format&fit=crop&q=80&w=800'
     ],
     endTime: new Date(now.getTime() + 1000 * 60 * 60 * 12),
     location: { SLO: 'Kranj', EN: 'Kranj', DE: 'Kranj' },
@@ -116,7 +116,7 @@ export const MOCK_AUCTIONS: AuctionItem[] = [
       'DDV': { SLO: 'Ni obračunan (fizična oseba)', EN: 'Not included (private)', DE: 'Nicht enthalten (privat)' }
     },
     biddingHistory: [],
-    sellerId: 'sell2', // Private seller -> No Tax on item
+    sellerId: 'sell2',
     status: 'active'
   },
   {
@@ -126,7 +126,7 @@ export const MOCK_AUCTIONS: AuctionItem[] = [
       EN: 'Office and IT Equipment Ljubljana Center',
       DE: 'Büro- und IT-Ausrüstung Ljubljana Zentrum'
     },
-    category: Region.Osrednjeslovenska,
+    category: Category.Racunalniki,
     currentBid: 2850,
     bidCount: 42,
     itemCount: 200,
@@ -147,7 +147,44 @@ export const MOCK_AUCTIONS: AuctionItem[] = [
       'Garancija': { SLO: 'Delna', EN: 'Partial', DE: 'Teilweise' }
     },
     biddingHistory: [],
-    sellerId: 'sell1', // Business
+    sellerId: 'sell1',
     status: 'active'
   }
 ];
+
+export const EXTENDED_MOCK_AUCTIONS: AuctionItem[] = MOCK_AUCTIONS.map(a => ({
+  ...a,
+  images: [
+    a.images[0],
+    'https://images.unsplash.com/photo-1581092160562-40aa08e78837?auto=format&fit=crop&q=80&w=800',
+    'https://images.unsplash.com/photo-1504917595217-d4dc5ebe6122?auto=format&fit=crop&q=80&w=800'
+  ]
+}));
+
+const generateMockData = () => {
+    const regions = Object.values(Region);
+    for (let i = 0; i < 120; i++) {
+        const baseItem = MOCK_AUCTIONS[i % MOCK_AUCTIONS.length];
+        const randomTimeOffset = Math.floor(Math.random() * 1000 * 60 * 60 * 24 * 3); 
+        const randomPrice = Math.floor(Math.random() * 5000) + 100;
+        EXTENDED_MOCK_AUCTIONS.push({
+            ...baseItem,
+            id: `mock-gen-${i}`,
+            title: {
+                SLO: `${baseItem.title.SLO} (Kopija ${i+1})`,
+                EN: `${baseItem.title.EN} (Copy ${i+1})`,
+                DE: `${baseItem.title.DE} (Kopie ${i+1})`
+            },
+            currentBid: randomPrice,
+            endTime: new Date(Date.now() + randomTimeOffset),
+            region: regions[Math.floor(Math.random() * regions.length)],
+            bidCount: Math.floor(Math.random() * 50),
+            images: [
+                `https://images.unsplash.com/photo-${1500000000000 + i}?auto=format&fit=crop&q=80&w=800`,
+                `https://images.unsplash.com/photo-${1510000000000 + i}?auto=format&fit=crop&q=80&w=800`,
+                `https://images.unsplash.com/photo-${1520000000000 + i}?auto=format&fit=crop&q=80&w=800`
+            ]
+        });
+    }
+};
+generateMockData();

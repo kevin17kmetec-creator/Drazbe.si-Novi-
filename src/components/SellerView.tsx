@@ -5,7 +5,7 @@ import {
   Award, Package, ThumbsUp, AlertCircle
 } from 'lucide-react';
 import { Seller, AuctionItem, Review, Region } from '../../types';
-import { MOCK_REVIEWS, MOCK_AUCTIONS } from '../../data';
+import { MOCK_REVIEWS } from '../../data';
 
 interface SellerViewProps {
   seller: Seller;
@@ -14,19 +14,20 @@ interface SellerViewProps {
   t: any;
   language: string;
   isLoggedIn: boolean;
-  currentUserWinnings?: AuctionItem[]; // Auctions won by current user
+  currentUserWinnings?: AuctionItem[];
+  auctions: AuctionItem[];
 }
 
 const SellerView: React.FC<SellerViewProps> = ({ 
-  seller, onBack, onAuctionClick, t, language, isLoggedIn, currentUserWinnings = [] 
+  seller, onBack, onAuctionClick, t, language, isLoggedIn, currentUserWinnings = [], auctions
 }) => {
   const [activeTab, setActiveTab] = useState<'active' | 'past' | 'reviews'>('active');
   const [newReview, setNewReview] = useState({ rating: 5, comment: '', wouldRecommend: true });
   const [reviews, setReviews] = useState<Review[]>(MOCK_REVIEWS[seller.id] || []);
 
   const sellerAuctions = useMemo(() => 
-    MOCK_AUCTIONS.filter(a => a.sellerId === seller.id),
-  [seller.id]);
+    auctions.filter(a => a.sellerId === seller.id),
+  [seller.id, auctions]);
 
   const activeAuctions = useMemo(() => 
     sellerAuctions.filter(a => a.status === 'active'),

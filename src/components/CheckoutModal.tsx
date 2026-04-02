@@ -1,0 +1,127 @@
+import React, { useState } from 'react';
+import { X, Clock, Lock, CreditCard as CardIcon } from 'lucide-react';
+import { loadStripe } from '@stripe/stripe-js';
+import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
+
+const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY || 'pk_test_TYooMQauvdEDq54NiTphI7jx');
+
+const CheckoutForm: React.FC<{ amount: number; title: string; t: any; onSuccess: () => void; onClose: () => void }> = ({ amount, title, t, onSuccess, onClose }) => {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [method, setMethod] = useState<'card' | 'google' | 'apple' | 'paypal'>('card');
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handlePay = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!stripe || !elements) return;
+
+    setIsProcessing(true);
+    setError(null);
+
+    try {
+      const res = await fetch('/api/create-payment-intent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount })
+      });
+      const { clientSecret, error: backendError } = await res.json();
+      
+      if (backendError) throw new Error(backendError);
+
+      const cardElement = elements.getElement(CardElement);
+      if (!cardElement) throw new Error("Card element not found");
+
+      const { error: stripeError, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
+        payment_method: {
+          card: cardElement as any,
+        }
+      });
+
+      if (stripeError) {
+        throw new Error(stripeError.message);
+      } else if (paymentIntent && paymentIntent.status === 'succeeded') {
+        onSuccess();
+      }
+    } catch (err: any) {
+      setError(err.message || "Payment failed");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handlePay} className="relative bg-white w-full max-w-lg rounded-[3rem] p-10 shadow-2xl animate-in border-4 border-[#FEBA4F]">
+        <button type="button" onClick={onClose} className="absolute top-8 right-8 p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400"><X size={24} /></button>
+        <h3 className="text-3xl font-black text-[#0A1128] uppercase tracking-tighter mb-2">{t('checkout')}</h3>
+        <p className="text-slate-500 font-bold mb-8">{title}</p>
+        
+        <div className="bg-slate-50 rounded-2xl p-6 mb-8 border border-slate-100">
+          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{t('totalAmount')}</p>
+          <p className="text-4xl font-black text-[#FEBA4F]">€{amount.toLocaleString('sl-SI')}</p>
+        </div>
+
+        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4">{t('paymentMethods')}</p>
+        <div className="grid grid-cols-2 gap-3 mb-8">
+          <button type="button" onClick={() => setMethod('card')} className={`flex items-center justify-center gap-2 p-4 rounded-2xl border-2 font-black text-xs uppercase tracking-widest transition-all ${method === 'card' ? 'border-[#FEBA4F] bg-[#FEBA4F]/10 text-[#0A1128]' : 'border-slate-100 text-slate-400 hover:border-slate-200'}`}>
+            <CardIcon size={16} /> {t('payWithCard')}
+          </button>
+          <button type="button" onClick={() => setMethod('google')} className={`flex items-center justify-center gap-2 p-4 rounded-2xl border-2 font-black text-xs uppercase tracking-widest transition-all ${method === 'google' ? 'border-[#FEBA4F] bg-[#FEBA4F]/10 text-[#0A1128]' : 'border-slate-100 text-slate-400 hover:border-slate-200'}`}>
+            Google Pay
+          </button>
+          <button type="button" onClick={() => setMethod('apple')} className={`flex items-center justify-center gap-2 p-4 rounded-2xl border-2 font-black text-xs uppercase tracking-widest transition-all ${method === 'apple' ? 'border-[#FEBA4F] bg-[#FEBA4F]/10 text-[#0A1128]' : 'border-slate-100 text-slate-400 hover:border-slate-200'}`}>
+            Apple Pay
+          </button>
+          <button type="button" onClick={() => setMethod('paypal')} className={`flex items-center justify-center gap-2 p-4 rounded-2xl border-2 font-black text-xs uppercase tracking-widest transition-all ${method === 'paypal' ? 'border-[#FEBA4F] bg-[#FEBA4F]/10 text-[#0A1128]' : 'border-slate-100 text-slate-400 hover:border-slate-200'}`}>
+            PayPal
+          </button>
+        </div>
+
+        {method === 'card' && (
+          <div className="mb-8 p-4 border border-slate-200 rounded-xl bg-slate-50">
+            <CardElement options={{
+              style: {
+                base: {
+                  fontSize: '16px',
+                  color: '#0A1128',
+                  '::placeholder': {
+                    color: '#94a3b8',
+                  },
+                },
+                invalid: {
+                  color: '#ef4444',
+                },
+              },
+            }} />
+          </div>
+        )}
+
+        {error && <div className="mb-6 text-red-500 text-sm font-bold text-center">{error}</div>}
+
+        <button type="submit" disabled={!stripe || isProcessing} className="w-full bg-[#0A1128] text-white py-5 rounded-2xl font-black uppercase tracking-widest hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl disabled:opacity-50 flex items-center justify-center gap-2">
+          {isProcessing ? <Clock className="animate-spin" size={20} /> : <Lock size={20} />}
+          {isProcessing ? '...' : t('payNow')}
+        </button>
+    </form>
+  );
+};
+
+export const CheckoutModal: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  amount: number;
+  title: string;
+  t: any;
+  onSuccess: () => void;
+}> = ({ isOpen, onClose, amount, title, t, onSuccess }) => {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-[#0A1128]/95 backdrop-blur-md" onClick={onClose}></div>
+      <Elements stripe={stripePromise}>
+        <CheckoutForm amount={amount} title={title} t={t} onSuccess={onSuccess} onClose={onClose} />
+      </Elements>
+    </div>
+  );
+};

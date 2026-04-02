@@ -34,15 +34,28 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
   const [bidCount, setBidCount] = useState<number>(item?.bidCount || item?.bid_count || 0);
   
   useEffect(() => {
+    setCurrentBid(item?.currentBid || item?.current_price || 0);
+    setEndTime(item?.endTime ? new Date(item.endTime) : new Date());
+    setBidCount(item?.bidCount || item?.bid_count || 0);
+  }, [item]);
+
+  useEffect(() => {
     const fetchImages = async () => {
       if (!item?.images) return;
-      const urls = await Promise.all(item.images.map(async (imgPath: string) => {
-        if (imgPath.startsWith('http')) return imgPath;
-        const { data } = await supabase.storage.from('auction-images').createSignedUrl(imgPath, 3600);
-        return data?.signedUrl || imgPath;
-      }));
-      setSignedImages(urls);
-      if (urls.length > 0) setSelectedImage(urls[0]);
+      try {
+        const urls = await Promise.all(item.images.map(async (imgPath: string) => {
+          if (imgPath.startsWith('http')) return imgPath;
+          const { data, error } = await supabase.storage.from('auction-images').createSignedUrl(imgPath, 3600);
+          if (error) throw error;
+          return data?.signedUrl || imgPath;
+        }));
+        setSignedImages(urls);
+        if (urls.length > 0) setSelectedImage(urls[0]);
+      } catch (err) {
+        console.error("Error fetching signed images in AuctionView:", err);
+        setSignedImages(item.images);
+        if (item.images.length > 0) setSelectedImage(item.images[0]);
+      }
     };
     fetchImages();
   }, [item?.images]);
@@ -60,24 +73,12 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
   const [bidSuccess, setBidSuccess] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => setCurrentUser(user));
+    try {
+      supabase.auth.getUser().then(({ data: { user } }) => setCurrentUser(user)).catch(err => console.error("Error getting user in AuctionView:", err));
+    } catch (err) {
+      console.error("Supabase auth error in AuctionView:", err);
+    }
   }, []);
-
-  useEffect(() => {
-    if (!item?.id || item.id.startsWith('mock-')) return;
-    const channel = supabase
-      .channel(`auction_detail_${item.id}`)
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'auctions', filter: `id=eq.${item.id}` }, (payload) => {
-        if (payload.new.current_price) setCurrentBid(payload.new.current_price);
-        if (payload.new.currentBid) setCurrentBid(payload.new.currentBid);
-        if (payload.new.end_time) setEndTime(new Date(payload.new.end_time));
-        if (payload.new.endTime) setEndTime(new Date(payload.new.endTime));
-        if (payload.new.bid_count !== undefined) setBidCount(payload.new.bid_count);
-        if (payload.new.bidCount !== undefined) setBidCount(payload.new.bidCount);
-      })
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [item?.id]);
 
   useEffect(() => {
     if (!item || item.status !== 'active') return;
