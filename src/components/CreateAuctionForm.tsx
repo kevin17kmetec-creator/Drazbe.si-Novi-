@@ -89,7 +89,19 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
                 endTime: selectedEnd.toISOString(),
                 images: imageUrls.length > 0 ? imageUrls : ['https://images.unsplash.com/photo-1586191552066-d52dd1e3af86'] 
             });
-        } catch (error) { console.error(error); toast.error(t('publishError')); } finally { setUploading(false); }
+        } catch (error: any) { 
+            console.error("Error publishing auction:", error); 
+            if (error.message?.includes('fetch')) {
+                toast.error("Napaka pri povezavi (NetworkError). Preverite internetno povezavo.");
+            } else {
+                toast.error(t('publishError')); 
+            }
+        } finally { setUploading(false); }
+    };
+
+    const handleNumericChange = (field: string, value: string) => {
+        const numericValue = value.replace(/\D/g, '');
+        setFormData(prev => ({ ...prev, [field]: numericValue }));
     };
 
     return (
@@ -109,7 +121,14 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                         <div className="space-y-4">
                             <label className="text-[10px] font-black uppercase text-slate-400 ml-2">{t('startingPriceEur')}</label>
-                            <input type="number" placeholder="100" className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-5 px-6 font-bold focus:ring-4 focus:ring-[#FEBA4F]/20 focus:border-[#FEBA4F] transition-all outline-none" onChange={e => setFormData({...formData, startingPrice: e.target.value})} />
+                            <input 
+                                type="text" 
+                                inputMode="numeric"
+                                placeholder="100" 
+                                className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-5 px-6 font-bold focus:ring-4 focus:ring-[#FEBA4F]/20 focus:border-[#FEBA4F] transition-all outline-none" 
+                                value={formData.startingPrice}
+                                onChange={e => handleNumericChange('startingPrice', e.target.value)} 
+                            />
                         </div>
                         <div className="space-y-4">
                             <label className="text-[10px] font-black uppercase text-slate-400 ml-2">{t('category')}</label>

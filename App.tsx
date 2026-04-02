@@ -309,16 +309,24 @@ const App: React.FC = () => {
 
           if (error) {
               console.error("Publish Error:", error);
-              toast.error(t('publishError') || "Napaka pri objavi.");
+              if (error.message?.includes('fetch')) {
+                toast.error("Napaka pri povezavi z bazo (NetworkError). Preverite internetno povezavo ali nastavitve Supabase.");
+              } else {
+                toast.error(t('publishError') || "Napaka pri objavi.");
+              }
               return;
           }
 
           setActiveView('grid');
           toast.success(t('auctionPublished'));
           fetchAuctions(); // Refresh the list
-      } catch (error) { 
-          console.error(error); 
-          toast.error(t('publishError') || "Napaka pri objavi.");
+      } catch (error: any) { 
+          console.error("HandlePublish Exception:", error); 
+          if (error.message?.includes('fetch')) {
+            toast.error("Napaka pri povezavi z bazo (NetworkError). Preverite internetno povezavo ali nastavitve Supabase.");
+          } else {
+            toast.error(t('publishError') || "Napaka pri objavi.");
+          }
       }
   };
 
@@ -419,10 +427,6 @@ const App: React.FC = () => {
         ); 
         break;
     case 'createAuction': content = <CreateAuctionForm onBack={() => setActiveView('grid')} t={t} onPublish={handlePublish} />; break;
-    case 'sellerProfile':
-      if (selectedSeller) content = <SellerView seller={selectedSeller} onBack={() => setActiveView('grid')} onAuctionClick={(item) => { setSelectedItem(item); setActiveView('detail'); }} t={t} language={language} isLoggedIn={isLoggedIn} currentUserWinnings={[]} />;
-      else setActiveView('grid');
-      break;
     case 'detail':
       if (selectedItem) content = (
         <AuctionView 
