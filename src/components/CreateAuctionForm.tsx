@@ -4,7 +4,7 @@ import { Category, Region } from '../../types.ts';
 import { supabase } from '../lib/supabaseClient';
 import { toast } from 'sonner';
 
-export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish: (item: any) => void }> = ({ onBack, t, onPublish }) => {
+export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish: (item: any) => void; isLoggedIn: boolean }> = ({ onBack, t, onPublish, isLoggedIn }) => {
     const getLocalDateStr = (date: Date) => {
         const year = date.getFullYear();
         const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -72,14 +72,24 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
 
         setUploading(true);
         try {
+            const { data: { session } } = await supabase.auth.getSession();
             const imageUrls = [];
-            for (const file of imageFiles) {
-                const filePath = `auction-images/${Date.now()}-${file.name}`;
-                const { error } = await supabase.storage.from('auction-images').upload(filePath, file);
-                if (error) throw error;
-                const { data } = supabase.storage.from('auction-images').getPublicUrl(filePath);
-                imageUrls.push(data.publicUrl);
+            
+            if (session) {
+                for (const file of imageFiles) {
+                    const filePath = `auction-images/${Date.now()}-${file.name}`;
+                    const { error } = await supabase.storage.from('auction-images').upload(filePath, file);
+                    if (error) throw error;
+                    const { data } = supabase.storage.from('auction-images').getPublicUrl(filePath);
+                    imageUrls.push(data.publicUrl);
+                }
+            } else {
+                // Demo user: use local object URLs
+                for (const file of imageFiles) {
+                    imageUrls.push(URL.createObjectURL(file));
+                }
             }
+            
             onPublish({ 
                 title: { SLO: formData.title },
                 startingPrice: formData.startingPrice,
@@ -91,11 +101,8 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
             });
         } catch (error: any) { 
             console.error("Error publishing auction:", error); 
-            if (error.message?.includes('fetch')) {
-                toast.error("Napaka pri povezavi (NetworkError). Preverite internetno povezavo.");
-            } else {
-                toast.error(t('publishError')); 
-            }
+            const errorMsg = error.message || JSON.stringify(error);
+            toast.error(`Napaka pri nalaganju slik: ${errorMsg}`, { duration: Infinity, closeButton: true });
         } finally { setUploading(false); }
     };
 

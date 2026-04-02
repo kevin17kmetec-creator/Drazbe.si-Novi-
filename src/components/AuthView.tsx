@@ -24,7 +24,10 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
           }
       }
       onLoginSuccess();
-    } catch (error: any) { toast.error(error.message); } finally { setLoading(false); }
+    } catch (error: any) { 
+        const errorMsg = error.message || JSON.stringify(error);
+        toast.error(`Napaka pri prijavi/registraciji: ${errorMsg}`, { duration: Infinity, closeButton: true }); 
+    } finally { setLoading(false); }
   };
 
   const demoLogin = (verified: boolean) => {

@@ -272,7 +272,7 @@ const App: React.FC = () => {
   const handlePublish = async (itemData: any) => {
       try {
           const { data: { session } } = await supabase.auth.getSession();
-          if (!session) {
+          if (!session && !isLoggedIn) {
               toast.error(t('loginRequired') || "Prosimo, prijavite se za objavo dražbe.");
               setActiveView('login');
               return;
@@ -289,44 +289,61 @@ const App: React.FC = () => {
               DE: `[DE] ${itemData.description}`
           };
 
-          const { error } = await supabase.from('auctions').insert({
-              title: simulatedTitle,
-              description: simulatedDescription,
-              current_price: parseInt(itemData.startingPrice),
-              bid_count: 0,
-              item_count: 1,
-              end_time: itemData.endTime || new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString(),
-              location: { SLO: 'Ljubljana', EN: 'Ljubljana', DE: 'Ljubljana' },
-              region: itemData.region || Region.Osrednjeslovenska,
-              category: itemData.category || Category.Ostalo,
-              condition: { SLO: 'Novo', EN: 'New', DE: 'Neu' },
-              specifications: {},
-              bidding_history: [],
-              seller_id: session.user.id,
-              status: 'active',
-              images: itemData.images
-          });
+          if (session) {
+              const { error } = await supabase.from('auctions').insert({
+                  title: simulatedTitle,
+                  description: simulatedDescription,
+                  current_price: parseInt(itemData.startingPrice),
+                  bid_count: 0,
+                  item_count: 1,
+                  end_time: itemData.endTime || new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString(),
+                  location: { SLO: 'Ljubljana', EN: 'Ljubljana', DE: 'Ljubljana' },
+                  region: itemData.region || Region.Osrednjeslovenska,
+                  category: itemData.category || Category.Ostalo,
+                  condition: { SLO: 'Novo', EN: 'New', DE: 'Neu' },
+                  specifications: {},
+                  bidding_history: [],
+                  seller_id: session.user.id,
+                  status: 'active',
+                  images: itemData.images
+              });
 
-          if (error) {
-              console.error("Publish Error:", error);
-              if (error.message?.includes('fetch')) {
-                toast.error("Napaka pri povezavi z bazo (NetworkError). Preverite internetno povezavo ali nastavitve Supabase.");
-              } else {
-                toast.error(t('publishError') || "Napaka pri objavi.");
+              if (error) {
+                  console.error("Publish Error:", error);
+                  const errorMsg = error.message || JSON.stringify(error);
+                  toast.error(`Napaka pri objavi v bazo: ${errorMsg}`, { duration: Infinity, closeButton: true });
+                  return;
               }
-              return;
+          } else {
+              // Demo user: add to local state
+              const newAuction = {
+                  id: `demo-${Date.now()}`,
+                  title: simulatedTitle,
+                  description: simulatedDescription,
+                  currentBid: parseInt(itemData.startingPrice),
+                  current_price: parseInt(itemData.startingPrice),
+                  bidCount: 0,
+                  bid_count: 0,
+                  endTime: new Date(itemData.endTime || Date.now() + 1000 * 60 * 60 * 24 * 7),
+                  end_time: itemData.endTime || new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString(),
+                  location: { SLO: 'Ljubljana', EN: 'Ljubljana', DE: 'Ljubljana' },
+                  region: itemData.region || Region.Osrednjeslovenska,
+                  category: itemData.category || Category.Ostalo,
+                  sellerId: 'demo-user',
+                  sellerName: 'Demo Prodajalec',
+                  status: 'active',
+                  images: itemData.images
+              };
+              setAuctions(prev => [newAuction as any, ...prev]);
           }
 
           setActiveView('grid');
           toast.success(t('auctionPublished'));
-          fetchAuctions(); // Refresh the list
+          if (session) fetchAuctions(); // Refresh the list from DB if real user
       } catch (error: any) { 
           console.error("HandlePublish Exception:", error); 
-          if (error.message?.includes('fetch')) {
-            toast.error("Napaka pri povezavi z bazo (NetworkError). Preverite internetno povezavo ali nastavitve Supabase.");
-          } else {
-            toast.error(t('publishError') || "Napaka pri objavi.");
-          }
+          const errorMsg = error.message || JSON.stringify(error);
+          toast.error(`Sistemska napaka pri objavi: ${errorMsg}`, { duration: Infinity, closeButton: true });
       }
   };
 
@@ -426,7 +443,7 @@ const App: React.FC = () => {
             />
         ); 
         break;
-    case 'createAuction': content = <CreateAuctionForm onBack={() => setActiveView('grid')} t={t} onPublish={handlePublish} />; break;
+    case 'createAuction': content = <CreateAuctionForm onBack={() => setActiveView('grid')} t={t} onPublish={handlePublish} isLoggedIn={isLoggedIn} />; break;
     case 'detail':
       if (selectedItem) content = (
         <AuctionView 

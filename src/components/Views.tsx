@@ -73,9 +73,10 @@ export const VerificationView = ({ profile, onVerify, t }: { profile: any, onVer
           
           onVerify();
           setStep(2);
-        } catch (err) {
+        } catch (err: any) {
           console.error("Error verifying profile:", err);
-          toast.error(t('publishError')); // Generic error toast
+          const errorMsg = err.message || JSON.stringify(err);
+          toast.error(`Napaka pri verifikaciji: ${errorMsg}`, { duration: Infinity, closeButton: true });
         } finally {
           setLoading(false);
         }
@@ -244,9 +245,10 @@ export const SettingsView = ({ profile, onUpdate, t }: { profile: any, onUpdate:
       
       onUpdate();
       toast.success(t('success'));
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error saving settings:", err);
-      toast.error(t('publishError')); // Generic error toast
+      const errorMsg = err.message || JSON.stringify(err);
+      toast.error(`Napaka pri shranjevanju: ${errorMsg}`, { duration: Infinity, closeButton: true });
     } finally {
       setLoading(false);
     }
