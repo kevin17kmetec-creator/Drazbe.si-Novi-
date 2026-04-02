@@ -135,7 +135,7 @@ export const MOCK_AUCTIONS: AuctionItem[] = [
     ],
     endTime: new Date(now.getTime() + 1000 * 60 * 45),
     location: { SLO: 'Ljubljana', EN: 'Ljubljana', DE: 'Ljubljana' },
-    region: Region.Osrednjeslovenska,
+    region: Region.Gorenjska,
     description: {
       SLO: 'Dražba sodobne pisarniške opreme iz prestižne lokacije v Ljubljani. Apple računalniki, ergonomski stoli in več.',
       EN: 'Auction of modern office equipment from a prestigious location in Ljubljana. Apple computers, ergonomic chairs, and more.',

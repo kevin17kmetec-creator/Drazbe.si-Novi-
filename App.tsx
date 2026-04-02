@@ -50,6 +50,10 @@ const App: React.FC = () => {
   
   const [auctions, setAuctions] = useState<AuctionItem[]>(EXTENDED_MOCK_AUCTIONS);
   const [activeView, setActiveView] = useState<ViewState>('grid');
+  const [bidAuctionIds, setBidAuctionIds] = useState<string[]>([]);
+  const [hasAcceptedTerms, setHasAcceptedTerms] = useState(false);
+  const [showTermsModal, setShowTermsModal] = useState(false);
+  const [pendingBid, setPendingBid] = useState<{item: AuctionItem, amount: number} | null>(null);
   const [selectedRegion, setSelectedRegion] = useState<Region | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -246,6 +250,12 @@ const App: React.FC = () => {
         return; 
     }
     
+    if (!hasAcceptedTerms) {
+        setPendingBid({ item, amount });
+        setShowTermsModal(true);
+        return;
+    }
+    
     // Check if item.id is a valid UUID before calling RPC
     const isUUID = (id: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
     
@@ -259,6 +269,7 @@ const App: React.FC = () => {
                 console.error("RPC Error:", error);
                 throw new Error(error.message || "Napaka pri oddaji ponudbe");
             }
+            setBidAuctionIds(prev => Array.from(new Set([...prev, item.id])));
         } catch (error: any) { 
             console.error(error); 
             throw error;
@@ -266,7 +277,17 @@ const App: React.FC = () => {
     } else {
         // Handle mock auctions locally
         setAuctions(prev => prev.map(a => a.id === item.id ? {...a, currentBid: amount, bidCount: a.bidCount + 1} : a));
+        setBidAuctionIds(prev => Array.from(new Set([...prev, item.id])));
     }
+  };
+
+  const handleAcceptTerms = () => {
+      setHasAcceptedTerms(true);
+      setShowTermsModal(false);
+      if (pendingBid) {
+          handleBidSubmit(pendingBid.item, pendingBid.amount);
+          setPendingBid(null);
+      }
   };
 
   const handlePublish = async (itemData: any) => {
@@ -357,6 +378,8 @@ const App: React.FC = () => {
     setIsVerified(false);
     setUserType(null);
     setUserData({ firstName: '', lastName: '', email: '', profilePicture: '' });
+    setHasAcceptedTerms(false);
+    setBidAuctionIds([]);
     setActiveView('grid');
   };
 
@@ -494,6 +517,47 @@ const App: React.FC = () => {
     case 'subscriptions':
         content = <SubscriptionsView t={t} currentPlan={currentPlan} onSubscribe={handleSubscribe} isVerified={isVerified} />;
         break;
+    case 'myBids':
+        content = (
+            <div className="max-w-[1600px] mx-auto py-16 px-6 animate-in">
+                <button onClick={() => setActiveView('grid')} className="flex items-center gap-2 text-slate-400 mb-10 font-black uppercase text-[10px] tracking-widest hover:text-[#0A1128] transition-colors"><ArrowLeft size={16}/> {t('back')}</button>
+                <div className="bg-white rounded-[4rem] p-12 shadow-2xl border border-slate-100 min-h-[500px]">
+                    <div className="flex items-center gap-6 mb-12">
+                        <div className="bg-[#FEBA4F] p-4 rounded-3xl shadow-lg shadow-[#FEBA4F]/20">
+                            <Gavel size={40} className="text-[#0A1128]" />
+                        </div>
+                        <div>
+                            <h2 className="text-4xl font-black uppercase tracking-tighter text-[#0A1128]">{t('myBids')}</h2>
+                            <p className="text-slate-400 font-bold mt-2">{t('myBidsDesc')}</p>
+                        </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-3 gap-10">
+                        {auctions.filter(a => bidAuctionIds.includes(a.id)).map(item => (
+                            <AuctionCard 
+                                key={item.id} 
+                                item={item} 
+                                t={t} 
+                                language={language} 
+                                isVerified={isVerified} 
+                                isWatched={watchedIds.includes(item.id)}
+                                onWatchToggle={() => toggleWatch(item.id)}
+                                onClick={() => { setSelectedItem(item); setActiveView('detail'); }} 
+                                onBidSubmit={handleBidSubmit} 
+                                onSellerClick={(seller) => { setSelectedSeller(seller); setActiveView('sellerProfile'); }} 
+                            />
+                        ))}
+                        {auctions.filter(a => bidAuctionIds.includes(a.id)).length === 0 && (
+                            <div className="col-span-full py-20 text-center bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200">
+                                <Gavel size={48} className="mx-auto mb-4 text-slate-300" />
+                                <p className="text-slate-500 font-black uppercase tracking-widest text-xs">{t('noBids')}</p>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+        );
+        break;
     case 'sellerProfile':
         if (selectedSeller) {
             content = (
@@ -585,7 +649,7 @@ const App: React.FC = () => {
                         </div>
                     </div>
                     
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-10">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-3 gap-10">
                         {auctions.filter(a => watchedIds.includes(a.id)).map(item => (
                             <AuctionCard 
                                 key={item.id} 
@@ -651,7 +715,7 @@ const App: React.FC = () => {
                     </select>
                 </div>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-10">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-3 gap-10">
               {(() => {
                 const activeAuctions = currentAuctions.filter(item => new Date(item.endTime) > new Date());
                 
@@ -720,6 +784,7 @@ const App: React.FC = () => {
             onSubscriptions={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('subscriptions'); }}
             onCreateAuction={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('createAuction'); }} 
             onMyWinnings={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('winnings'); }} 
+            onMyBids={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('myBids'); }}
             onWatchlist={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('watchlist'); }}
             activeView={activeView} 
             selectedRegion={selectedRegion}
@@ -733,6 +798,27 @@ const App: React.FC = () => {
         />
         <main>{content}</main>
         {activeView === 'grid' && <Footer t={t} onLegal={setActiveLegal} />}
+        {showTermsModal && (
+            <div className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-6 animate-in">
+                <div className="bg-white w-full max-w-xl rounded-[3rem] p-10 lg:p-14 shadow-2xl relative">
+                    <button onClick={() => setShowTermsModal(false)} className="absolute top-8 right-8 text-slate-400 hover:text-[#0A1128] transition-colors"><X size={24}/></button>
+                    <div className="bg-[#FEBA4F] w-20 h-20 rounded-3xl flex items-center justify-center mb-8 shadow-lg shadow-[#FEBA4F]/20">
+                        <ShieldCheck size={40} className="text-[#0A1128]" />
+                    </div>
+                    <h2 className="text-3xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">Splošni pogoji poslovanja</h2>
+                    <p className="text-slate-500 font-bold leading-relaxed mb-10">
+                        Z oddajo ponudbe potrjujete, da se strinjate s splošnimi pogoji poslovanja platforme Drazba.si. 
+                        Vaša ponudba je pravno zavezujoča. V primeru, da zmagate na dražbi, ste dolžni predmet prevzeti in plačati v skladu s pogoji prodajalca.
+                    </p>
+                    <button 
+                        onClick={handleAcceptTerms}
+                        className="w-full bg-[#0A1128] text-white py-6 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl"
+                    >
+                        Strinjam se in potrjujem ponudbo
+                    </button>
+                </div>
+            </div>
+        )}
         {activeLegal && <LegalModal type={activeLegal} onClose={() => setActiveLegal(null)} t={t} />}
         {isCheckoutOpen && checkoutData && (
             <CheckoutModal 

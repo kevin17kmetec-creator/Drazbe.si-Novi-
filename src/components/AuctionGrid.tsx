@@ -16,7 +16,7 @@ export const AuctionGrid: React.FC<AuctionGridProps> = ({
   auctions, onAuctionClick, onWatchToggle, watchlist, t, language
 }) => {
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-10">
+    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-3 gap-10">
       {auctions.map(item => (
         <AuctionCard 
           key={item.id} 

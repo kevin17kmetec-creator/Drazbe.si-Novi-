@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Search, Globe, ChevronDown, User, PlusCircle, Trophy, Eye, CreditCard, Settings, LogOut, ChevronRight } from 'lucide-react';
+import { Search, Globe, ChevronDown, User, PlusCircle, Trophy, Eye, CreditCard, Settings, LogOut, ChevronRight, Gavel } from 'lucide-react';
 import { ViewState, Region, Category, AuctionItem } from '../../types.ts';
 
 export const Header: React.FC<{ 
@@ -14,6 +14,7 @@ export const Header: React.FC<{
   onSubscriptions: () => void;
   onCreateAuction: () => void;
   onMyWinnings: () => void;
+  onMyBids: () => void;
   onWatchlist: () => void;
   activeView: ViewState;
   selectedRegion: Region | null;
@@ -24,7 +25,7 @@ export const Header: React.FC<{
   onLanguageChange: (l: string) => void;
   t: (k: string) => string;
   auctions: AuctionItem[];
-}> = ({ onHome, onSearch, onRegionSelect, onCategorySelect, onLastChance, onLogin, onLogout, onSettings, onSubscriptions, onCreateAuction, onMyWinnings, onWatchlist, activeView, selectedRegion, selectedCategory, isLoggedIn, isVerified, language, onLanguageChange, t, auctions }) => {
+}> = ({ onHome, onSearch, onRegionSelect, onCategorySelect, onLastChance, onLogin, onLogout, onSettings, onSubscriptions, onCreateAuction, onMyWinnings, onMyBids, onWatchlist, activeView, selectedRegion, selectedCategory, isLoggedIn, isVerified, language, onLanguageChange, t, auctions }) => {
   const [isRegOpen, setIsRegOpen] = useState(false);
   const [isCatOpen, setIsCatOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
@@ -45,16 +46,15 @@ export const Header: React.FC<{
     return counts;
   }, [auctions]);
 
-  // Simplified Slovenia Map Paths (stylized)
+  // Detailed Slovenia Map Paths (7 regions based on the provided image)
   const sloMapRegions = [
-    { id: Region.Stajerska, path: "M 140,40 L 180,20 L 220,40 L 240,80 L 200,100 L 160,90 Z", labelPos: { x: 190, y: 60 } },
-    { id: Region.Gorenjska, path: "M 40,40 L 100,20 L 140,40 L 130,80 L 80,90 L 40,70 Z", labelPos: { x: 90, y: 50 } },
-    { id: Region.Primorska, path: "M 20,80 L 60,100 L 50,140 L 10,150 L 5,110 Z", labelPos: { x: 30, y: 115 } },
-    { id: Region.Dolenjska, path: "M 120,110 L 170,100 L 210,130 L 190,170 L 130,160 Z", labelPos: { x: 165, y: 135 } },
-    { id: Region.Prekmurje, path: "M 220,40 L 260,10 L 290,30 L 280,60 L 240,80 Z", labelPos: { x: 255, y: 45 } },
-    { id: Region.Koroska, path: "M 100,20 L 150,10 L 170,30 L 140,40 L 110,35 Z", labelPos: { x: 130, y: 25 } },
-    { id: Region.Notranjska, path: "M 60,100 L 120,110 L 130,160 L 80,170 L 50,140 Z", labelPos: { x: 90, y: 135 } },
-    { id: Region.Osrednjeslovenska, path: "M 80,90 L 130,80 L 170,100 L 120,110 L 60,100 Z", labelPos: { x: 115, y: 95 } },
+    { id: Region.Prekmurje, path: "M 660,100 L 680,80 L 700,50 L 740,40 L 760,60 L 780,100 L 790,140 L 760,160 L 740,140 L 700,150 L 660,130 L 640,120 Z", labelPos: { x: 730, y: 100 } },
+    { id: Region.Stajerska, path: "M 660,100 L 640,120 L 660,130 L 700,150 L 740,140 L 760,160 L 740,200 L 750,240 L 720,280 L 700,300 L 680,340 L 650,320 L 620,340 L 580,350 L 550,330 L 520,320 L 480,280 L 450,270 L 420,260 L 430,230 L 450,200 L 470,180 L 480,160 L 500,150 L 520,140 L 510,120 L 500,100 L 530,90 L 550,80 L 580,70 L 620,80 L 640,90 Z", labelPos: { x: 600, y: 200 } },
+    { id: Region.Koroska, path: "M 550,80 L 530,90 L 500,100 L 510,120 L 520,140 L 500,150 L 480,160 L 460,140 L 450,100 L 470,80 L 490,60 L 520,70 Z", labelPos: { x: 500, y: 110 } },
+    { id: Region.Gorenjska, path: "M 480,160 L 460,140 L 450,100 L 420,90 L 380,80 L 340,90 L 300,100 L 260,110 L 220,120 L 180,130 L 150,150 L 160,180 L 180,200 L 200,220 L 220,250 L 240,260 L 260,280 L 290,285 L 320,290 L 350,280 L 380,270 L 400,265 L 420,260 L 430,230 L 450,200 L 470,180 Z", labelPos: { x: 320, y: 180 } },
+    { id: Region.Primorska, path: "M 150,150 L 160,180 L 180,200 L 200,220 L 220,250 L 240,260 L 260,280 L 250,310 L 240,340 L 250,370 L 260,400 L 240,420 L 220,450 L 180,460 L 150,480 L 120,450 L 100,420 L 80,380 L 80,350 L 100,320 L 120,280 L 100,250 L 80,220 L 110,180 Z", labelPos: { x: 160, y: 300 } },
+    { id: Region.Notranjska, path: "M 260,280 L 250,310 L 240,340 L 250,370 L 260,400 L 240,420 L 220,450 L 250,470 L 280,480 L 310,460 L 340,450 L 360,420 L 380,380 L 360,350 L 350,320 L 360,290 L 380,270 L 350,280 L 320,290 L 290,285 Z", labelPos: { x: 300, y: 380 } },
+    { id: Region.Dolenjska, path: "M 380,270 L 360,290 L 350,320 L 360,350 L 380,380 L 360,420 L 340,450 L 370,470 L 400,480 L 440,460 L 480,450 L 520,470 L 550,480 L 580,450 L 600,420 L 620,380 L 650,320 L 620,340 L 580,350 L 550,330 L 520,320 L 480,280 L 450,270 L 420,260 L 400,265 Z", labelPos: { x: 480, y: 380 } },
   ];
 
   return (
@@ -104,12 +104,13 @@ export const Header: React.FC<{
                             <p className="text-[10px] font-black text-slate-400 uppercase">Prijavljen kot</p>
                             <p className="font-black text-xs truncate">Uporabnik Drazba.si</p>
                         </div>
-                        <button onClick={() => { onCreateAuction(); setIsUserMenuOpen(false); }} className="w-full flex items-center gap-3 px-6 py-4 hover:bg-slate-50 transition-colors text-xs font-black uppercase tracking-widest"><PlusCircle size={18} /> Ustvari dražbo</button>
-                        <button onClick={() => { onMyWinnings(); setIsUserMenuOpen(false); }} className="w-full flex items-center gap-3 px-6 py-4 hover:bg-slate-50 transition-colors text-xs font-black uppercase tracking-widest"><Trophy size={18} /> Moje zmage</button>
-                        <button onClick={() => { onWatchlist(); setIsUserMenuOpen(false); }} className="w-full flex items-center gap-3 px-6 py-4 hover:bg-slate-50 transition-colors text-xs font-black uppercase tracking-widest"><Eye size={18} /> Opazovane dražbe</button>
+                        <button onClick={() => { onCreateAuction(); setIsUserMenuOpen(false); }} className="w-full flex items-center gap-3 px-6 py-4 hover:bg-slate-50 transition-colors text-xs font-black uppercase tracking-widest"><PlusCircle size={18} /> {t('createAuction')}</button>
+                        <button onClick={() => { onMyWinnings(); setIsUserMenuOpen(false); }} className="w-full flex items-center gap-3 px-6 py-4 hover:bg-slate-50 transition-colors text-xs font-black uppercase tracking-widest"><Trophy size={18} /> {t('myWinnings')}</button>
+                        <button onClick={() => { onMyBids(); setIsUserMenuOpen(false); }} className="w-full flex items-center gap-3 px-6 py-4 hover:bg-slate-50 transition-colors text-xs font-black uppercase tracking-widest"><Gavel size={18} /> {t('myBids')}</button>
+                        <button onClick={() => { onWatchlist(); setIsUserMenuOpen(false); }} className="w-full flex items-center gap-3 px-6 py-4 hover:bg-slate-50 transition-colors text-xs font-black uppercase tracking-widest"><Eye size={18} /> {t('watchlist')}</button>
                         <button onClick={() => { onSubscriptions(); setIsUserMenuOpen(false); }} className="w-full flex items-center gap-3 px-6 py-4 hover:bg-slate-50 transition-colors text-xs font-black uppercase tracking-widest"><CreditCard size={18} /> {t('subscriptions')}</button>
                         <button onClick={() => { onSettings(); setIsUserMenuOpen(false); }} className="w-full flex items-center gap-3 px-6 py-4 hover:bg-slate-50 transition-colors text-xs font-black uppercase tracking-widest"><Settings size={18} /> {t('settings')}</button>
-                        <button onClick={() => { onLogout(); setIsUserMenuOpen(false); }} className="w-full flex items-center gap-3 px-6 py-4 hover:bg-red-50 text-red-600 transition-colors text-xs font-black uppercase tracking-widest border-t border-slate-100"><LogOut size={18} /> Odjava</button>
+                        <button onClick={() => { onLogout(); setIsUserMenuOpen(false); }} className="w-full flex items-center gap-3 px-6 py-4 hover:bg-red-50 text-red-600 transition-colors text-xs font-black uppercase tracking-widest border-t border-slate-100"><LogOut size={18} /> {t('logout')}</button>
                     </div>
                   )}
                 </div>
@@ -126,12 +127,12 @@ export const Header: React.FC<{
                  onMouseLeave={() => setIsRegOpen(false)}>
                 <button className={`flex items-center gap-1.5 h-full hover:text-[#FEBA4F] transition-colors ${selectedRegion ? 'text-[#FEBA4F]' : ''}`}>{t('regions')} <ChevronDown size={12}/></button>
                 {isRegOpen && (
-                    <div className="absolute top-full left-0 w-[400px] bg-[#0A1128] border border-white/10 rounded-b-[2rem] shadow-2xl p-6 z-[1000] animate-in">
-                        <div className="mb-4 flex justify-between items-center">
+                    <div className="absolute top-full left-0 w-[800px] bg-[#0A1128] border border-white/10 rounded-b-[2rem] shadow-2xl p-8 z-[1000] animate-in">
+                        <div className="mb-6 flex justify-between items-center">
                           <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest">Zemljevid regij</p>
                           <button onClick={() => onRegionSelect(null)} className="text-[9px] text-[#FEBA4F] hover:underline">Počisti filter</button>
                         </div>
-                        <svg viewBox="0 0 300 180" className="w-full h-auto drop-shadow-2xl">
+                        <svg viewBox="0 0 800 500" className="w-full h-auto drop-shadow-2xl">
                           {sloMapRegions.map(reg => (
                             <g key={reg.id} 
                                className="cursor-pointer group" 
@@ -143,15 +144,15 @@ export const Header: React.FC<{
                               <text 
                                 x={reg.labelPos.x} 
                                 y={reg.labelPos.y} 
-                                className={`text-[6px] font-black uppercase pointer-events-none transition-colors ${selectedRegion === reg.id ? 'fill-[#0A1128]' : 'fill-white/40 group-hover:fill-white'}`}
+                                className={`text-[8px] font-black uppercase pointer-events-none transition-colors ${selectedRegion === reg.id ? 'fill-[#0A1128]' : 'fill-white/40 group-hover:fill-white'}`}
                                 textAnchor="middle"
                               >
                                 {reg.id}
                               </text>
                               <text 
                                 x={reg.labelPos.x} 
-                                y={reg.labelPos.y + 8} 
-                                className={`text-[8px] font-black pointer-events-none transition-colors ${selectedRegion === reg.id ? 'fill-[#0A1128]' : 'fill-[#FEBA4F]'}`}
+                                y={reg.labelPos.y + 12} 
+                                className={`text-[10px] font-black pointer-events-none transition-colors ${selectedRegion === reg.id ? 'fill-[#0A1128]' : 'fill-[#FEBA4F]'}`}
                                 textAnchor="middle"
                               >
                                 {regionCounts[reg.id] || 0}

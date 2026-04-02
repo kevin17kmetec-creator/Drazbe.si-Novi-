@@ -31,7 +31,7 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
         category: Category.Ostalo, 
         region: Region.Osrednjeslovenska, 
         description: '', 
-        startingPrice: '100', 
+        startingPrice: '', 
         minStep: '5',
         endDate: defaultDateStr,
         endTime: defaultTimeStr
@@ -131,7 +131,7 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
                             <input 
                                 type="text" 
                                 inputMode="numeric"
-                                placeholder="100" 
+                                placeholder="0" 
                                 className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-5 px-6 font-bold focus:ring-4 focus:ring-[#FEBA4F]/20 focus:border-[#FEBA4F] transition-all outline-none" 
                                 value={formData.startingPrice}
                                 onChange={e => handleNumericChange('startingPrice', e.target.value)} 

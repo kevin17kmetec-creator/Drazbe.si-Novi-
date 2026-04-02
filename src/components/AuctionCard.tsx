@@ -61,7 +61,7 @@ export const AuctionCard: React.FC<{
 
   return (
     <div className="bg-[#0A1128] rounded-[2.5rem] overflow-hidden shadow-2xl hover:shadow-2xl hover:-translate-y-2 transition-all duration-300 group flex flex-col h-full border border-white/5 relative">
-      <div className="relative h-64 overflow-hidden cursor-pointer group/image" onClick={onClick}>
+      <div className="relative h-52 overflow-hidden cursor-pointer group/image" onClick={onClick}>
         <img src={signedImages[currentImageIndex] || item.images[currentImageIndex]} alt={item.title[language] || item.title['SLO']} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 opacity-90 group-hover:opacity-100" />
         {(signedImages.length > 1 || item.images.length > 1) && (
           <>
@@ -97,7 +97,7 @@ export const AuctionCard: React.FC<{
           </div>
         </div>
       </div>
-      <div className="p-8 flex flex-col flex-1">
+      <div className="p-6 flex flex-col flex-1">
         <div className="mb-3 flex justify-between items-center">
             {seller && (
                 <button onClick={(e) => { e.stopPropagation(); onSellerClick(seller); }} className="text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-[#FEBA4F] transition-colors flex items-center gap-1.5">
@@ -117,23 +117,23 @@ export const AuctionCard: React.FC<{
           <div className="flex justify-between items-end mb-6">
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{t('currentBid')}</p>
-              <p className="text-2xl font-black text-[#FEBA4F]">€{item.currentBid.toLocaleString('sl-SI')}</p>
+              <p className="text-xl font-black text-[#FEBA4F]">€{item.currentBid.toLocaleString('sl-SI')}</p>
             </div>
             <div className="text-right">
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{t('bidCount')}</p>
               <p className="text-sm font-black text-[#FEBA4F]">{item.bidCount}</p>
             </div>
           </div>
-          <div className="flex items-center justify-between gap-3 w-full">
-             <div className="flex items-center bg-white/5 rounded-2xl border border-white/10 p-1 flex-1">
-                <button onClick={() => handleAdjustBid('down')} className="w-8 h-10 flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 rounded-xl transition-all flex-shrink-0"><Minus size={14}/></button>
+          <div className="flex items-center gap-4 w-full">
+             <div className="flex items-center bg-white/5 rounded-2xl border border-white/10 p-1 flex-[3]">
+                <button onClick={(e) => { e.stopPropagation(); handleAdjustBid('down'); }} className="w-8 h-10 flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 rounded-xl transition-all flex-shrink-0"><Minus size={14}/></button>
                 <div className="flex-1 flex items-center justify-center px-1">
-                    <span className="text-[#FEBA4F] font-black text-xl mr-1">€</span>
-                    <input type="text" value={bidValue} readOnly className="w-20 bg-transparent text-center text-white font-black text-2xl outline-none tabular-nums" />
+                    <span className="text-[#FEBA4F] font-black text-lg mr-1">€</span>
+                    <input type="text" value={bidValue} readOnly className="w-full bg-transparent text-center text-white font-black text-lg outline-none tabular-nums" />
                 </div>
-                <button onClick={() => handleAdjustBid('up')} className="w-8 h-10 flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 rounded-xl transition-all flex-shrink-0"><Plus size={14}/></button>
+                <button onClick={(e) => { e.stopPropagation(); handleAdjustBid('up'); }} className="w-8 h-10 flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 rounded-xl transition-all flex-shrink-0"><Plus size={14}/></button>
              </div>
-             <button onClick={() => onBidSubmit(item, bidValue)} className={`h-12 px-5 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-lg flex items-center justify-center whitespace-nowrap ${isVerified ? 'bg-[#FEBA4F] text-[#0A1128] hover:bg-white' : 'bg-slate-800 text-slate-500'}`}>
+             <button onClick={(e) => { e.stopPropagation(); onBidSubmit(item, bidValue); }} className={`h-12 flex-1 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-lg flex items-center justify-center whitespace-nowrap ${isVerified ? 'bg-[#FEBA4F] text-[#0A1128] hover:bg-white' : 'bg-slate-800 text-slate-500'}`}>
                 {!isVerified ? <Lock size={14} /> : t('placeBid')}
              </button>
           </div>
