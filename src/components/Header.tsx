@@ -25,7 +25,8 @@ export const Header: React.FC<{
   onLanguageChange: (l: string) => void;
   t: (k: string) => string;
   auctions: AuctionItem[];
-}> = ({ onHome, onSearch, onRegionSelect, onCategorySelect, onLastChance, onLogin, onLogout, onSettings, onSubscriptions, onCreateAuction, onMyWinnings, onMyBids, onWatchlist, activeView, selectedRegion, selectedCategory, isLoggedIn, isVerified, language, onLanguageChange, t, auctions }) => {
+  userEmail?: string;
+}> = ({ onHome, onSearch, onRegionSelect, onCategorySelect, onLastChance, onLogin, onLogout, onSettings, onSubscriptions, onCreateAuction, onMyWinnings, onMyBids, onWatchlist, activeView, selectedRegion, selectedCategory, isLoggedIn, isVerified, language, onLanguageChange, t, auctions, userEmail }) => {
   const [isRegOpen, setIsRegOpen] = useState(false);
   const [isCatOpen, setIsCatOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
@@ -102,7 +103,7 @@ export const Header: React.FC<{
                     <div className="absolute top-full right-0 mt-3 w-64 bg-white border border-slate-200 rounded-[2rem] shadow-2xl py-4 text-[#0A1128] overflow-hidden z-[100] animate-in">
                         <div className="px-6 py-4 border-b border-slate-100 mb-2">
                             <p className="text-[10px] font-black text-slate-400 uppercase">Prijavljen kot</p>
-                            <p className="font-black text-xs truncate">Uporabnik Drazba.si</p>
+                            <p className="font-black text-xs truncate">{userEmail || 'Uporabnik Drazba.si'}</p>
                         </div>
                         <button onClick={() => { onCreateAuction(); setIsUserMenuOpen(false); }} className="w-full flex items-center gap-3 px-6 py-4 hover:bg-slate-50 transition-colors text-xs font-black uppercase tracking-widest"><PlusCircle size={18} /> {t('createAuction')}</button>
                         <button onClick={() => { onMyWinnings(); setIsUserMenuOpen(false); }} className="w-full flex items-center gap-3 px-6 py-4 hover:bg-slate-50 transition-colors text-xs font-black uppercase tracking-widest"><Trophy size={18} /> {t('myWinnings')}</button>
