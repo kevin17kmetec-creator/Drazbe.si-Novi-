@@ -17,7 +17,6 @@ export const SettingsView: React.FC<{ t: any; user: any; onSave: (data: any) => 
     street: user?.street || '',
     city: user?.city || '',
     postalCode: user?.postal_code || '',
-    emso: user?.emso || '',
 
     // Business data
     companyName: user?.company_name || '',
@@ -128,7 +127,7 @@ export const SettingsView: React.FC<{ t: any; user: any; onSave: (data: any) => 
                             <div className="md:col-span-2"><label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Ulica in hišna številka</label><input type="text" value={formData.street} onChange={e => setFormData({...formData, street: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 font-bold outline-none focus:border-[#FEBA4F]" /></div>
                             <div><label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Mesto</label><input type="text" value={formData.city} onChange={e => setFormData({...formData, city: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 font-bold outline-none focus:border-[#FEBA4F]" /></div>
                             <div><label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Poštna številka</label><input type="text" value={formData.postalCode} onChange={e => setFormData({...formData, postalCode: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 font-bold outline-none focus:border-[#FEBA4F]" /></div>
-                            <div className="md:col-span-2"><label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">EMŠO</label><input type="text" value={formData.emso} onChange={e => setFormData({...formData, emso: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 font-bold outline-none focus:border-[#FEBA4F]" maxLength={13} /></div>
+                            <div className="md:col-span-2"><label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Davčna številka</label><input type="text" value={formData.taxNumber} onChange={e => setFormData({...formData, taxNumber: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 font-bold outline-none focus:border-[#FEBA4F]" /></div>
                         </>
                     ) : (
                         <>

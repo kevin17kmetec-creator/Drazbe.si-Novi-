@@ -11,7 +11,7 @@ export const VerificationView: React.FC<{ onBack: () => void; t: any; onVerify: 
         street: initialData?.street || '',
         city: initialData?.city || '',
         postalCode: initialData?.postal_code || '',
-        emso: initialData?.emso || ''
+        taxNumber: initialData?.tax_number || ''
     });
 
     const [businessData, setBusinessData] = useState({
@@ -23,10 +23,14 @@ export const VerificationView: React.FC<{ onBack: () => void; t: any; onVerify: 
         representative: initialData?.representative || ''
     });
 
-    const handleVerify = () => {
+    const handleVerify = async () => {
         const data = type === 'individual' ? individualData : businessData;
-        onVerify(type, data);
-        setStep(2);
+        try {
+            await onVerify(type, data);
+            setStep(2);
+        } catch (error) {
+            console.error("Verification failed:", error);
+        }
     };
 
     return (
@@ -61,7 +65,7 @@ export const VerificationView: React.FC<{ onBack: () => void; t: any; onVerify: 
                                     <div className="space-y-3 md:col-span-2"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">Ulica in hišna številka</label><input type="text" value={individualData.street} onChange={e => setIndividualData({...individualData, street: e.target.value})} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
                                     <div className="space-y-3"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">Mesto</label><input type="text" value={individualData.city} onChange={e => setIndividualData({...individualData, city: e.target.value})} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
                                     <div className="space-y-3"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">Poštna številka</label><input type="text" value={individualData.postalCode} onChange={e => setIndividualData({...individualData, postalCode: e.target.value})} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
-                                    <div className="space-y-3 md:col-span-2"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">EMŠO</label><input type="text" value={individualData.emso} onChange={e => setIndividualData({...individualData, emso: e.target.value})} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" maxLength={13} /></div>
+                                    <div className="space-y-3 md:col-span-2"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">Davčna številka</label><input type="text" value={individualData.taxNumber} onChange={e => setIndividualData({...individualData, taxNumber: e.target.value})} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
                                 </>
                             ) : (
                                 <>

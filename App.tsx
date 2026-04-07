@@ -518,7 +518,6 @@ const App: React.FC = () => {
             street: data.street,
             city: data.city,
             postal_code: data.postalCode,
-            emso: data.emso,
             company_name: data.companyName,
             tax_number: data.taxNumber,
             company_street: data.companyStreet,
@@ -527,7 +526,11 @@ const App: React.FC = () => {
             representative: data.representative
         };
 
-        const { error } = await supabase.from('users').update(updateData).eq('id', session.user.id);
+        const { error } = await supabase.from('users').upsert({ 
+            id: session.user.id, 
+            email: session.user.email,
+            ...updateData 
+        });
 
         if (error) {
             if (error.code === '23505' && error.message.includes('username')) {
@@ -666,7 +669,7 @@ const App: React.FC = () => {
                                 updateData.street = data.street;
                                 updateData.city = data.city;
                                 updateData.postal_code = data.postalCode;
-                                updateData.emso = data.emso;
+                                updateData.tax_number = data.taxNumber;
                             } else {
                                 updateData.company_name = data.companyName;
                                 updateData.tax_number = data.taxNumber;
@@ -676,7 +679,11 @@ const App: React.FC = () => {
                                 updateData.representative = data.representative;
                             }
 
-                            const { error } = await supabase.from('users').update(updateData).eq('id', session.user.id);
+                            const { error } = await supabase.from('users').upsert({ 
+                                id: session.user.id, 
+                                email: session.user.email,
+                                ...updateData 
+                            });
                             
                             if (error) {
                                 console.error("Error updating verification status:", error);

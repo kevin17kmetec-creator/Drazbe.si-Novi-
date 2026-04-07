@@ -11,10 +11,19 @@ const CheckoutForm: React.FC<{ amount: number; title: string; t: any; onSuccess:
   const [method, setMethod] = useState<'card' | 'google' | 'apple' | 'paypal'>('card');
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  // ID Upload for > 10k
+  const [idFront, setIdFront] = useState<File | null>(null);
+  const [idBack, setIdBack] = useState<File | null>(null);
 
   const handlePay = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!stripe || !elements) return;
+
+    if (amount > 10000 && (!idFront || !idBack)) {
+        setError("Za nakupe nad 10.000 € je obvezna naložitev osebnega dokumenta (sprednja in zadnja stran).");
+        return;
+    }
 
     setIsProcessing(true);
     setError(null);
@@ -94,6 +103,22 @@ const CheckoutForm: React.FC<{ amount: number; title: string; t: any; onSuccess:
               },
             }} />
           </div>
+        )}
+
+        {amount > 10000 && (
+            <div className="mb-8 p-6 bg-slate-50 rounded-2xl border border-slate-200">
+                <h4 className="text-xs font-black uppercase tracking-widest text-[#0A1128] mb-4">Obvezna identifikacija (Nakup nad 10.000 €)</h4>
+                <div className="space-y-4">
+                    <div>
+                        <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Osebni dokument - Sprednja stran</label>
+                        <input type="file" accept="image/*" onChange={(e) => setIdFront(e.target.files?.[0] || null)} className="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-black file:uppercase file:tracking-widest file:bg-[#FEBA4F]/10 file:text-[#0A1128] hover:file:bg-[#FEBA4F]/20 cursor-pointer" />
+                    </div>
+                    <div>
+                        <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Osebni dokument - Zadnja stran</label>
+                        <input type="file" accept="image/*" onChange={(e) => setIdBack(e.target.files?.[0] || null)} className="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-black file:uppercase file:tracking-widest file:bg-[#FEBA4F]/10 file:text-[#0A1128] hover:file:bg-[#FEBA4F]/20 cursor-pointer" />
+                    </div>
+                </div>
+            </div>
         )}
 
         {error && <div className="mb-6 text-red-500 text-sm font-bold text-center">{error}</div>}
