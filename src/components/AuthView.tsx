@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { User, CheckCircle2, AlertCircle, ShieldCheck, XCircle } from 'lucide-react';
+import { User, CheckCircle2, AlertCircle, ShieldCheck, XCircle, ArrowLeft } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import { toast } from 'sonner';
 
 export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerified: (v: boolean) => void; setAppLoggedIn: (val: boolean) => void }> = ({ t, onLoginSuccess, setIsVerified, setAppLoggedIn }) => {
   const [isLogin, setIsLogin] = useState(true);
+  const [isForgotPassword, setIsForgotPassword] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -36,6 +37,25 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
   const strength = getPasswordStrength();
   const strengthColor = strength <= 1 ? 'bg-red-500' : strength === 2 ? 'bg-amber-500' : strength === 3 ? 'bg-green-400' : 'bg-green-600';
   const strengthText = strength <= 1 ? 'Šibko' : strength === 2 ? 'Srednje' : strength === 3 ? 'Dobro' : 'Odlično';
+
+  const handleForgotPassword = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!email) return toast.error('Prosimo, vnesite e-poštni naslov.');
+      
+      setLoading(true);
+      try {
+          const { error } = await supabase.auth.resetPasswordForEmail(email, {
+              redirectTo: window.location.origin,
+          });
+          if (error) throw error;
+          toast.success('Povezava za ponastavitev gesla je bila poslana na vaš e-poštni naslov.', { duration: 5000 });
+          setIsForgotPassword(false);
+      } catch (error: any) {
+          toast.error(`Napaka: ${error.message}`);
+      } finally {
+          setLoading(false);
+      }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -106,6 +126,25 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
     onLoginSuccess();
   };
 
+  if (isForgotPassword) {
+      return (
+        <div className="max-w-[1600px] mx-auto px-6 py-20 animate-in flex justify-center">
+          <div className="bg-white w-full max-w-xl rounded-[4rem] p-10 lg:p-16 shadow-2xl border border-slate-100">
+            <button onClick={() => setIsForgotPassword(false)} className="flex items-center gap-2 text-slate-400 mb-8 font-black uppercase text-[10px] tracking-widest hover:text-[#0A1128] transition-colors"><ArrowLeft size={16}/> Nazaj na prijavo</button>
+            <div className="text-center mb-10">
+                <div className="bg-[#FEBA4F] w-20 h-20 rounded-[2rem] flex items-center justify-center mx-auto mb-6 shadow-lg"><ShieldCheck size={40} className="text-[#0A1128]" /></div>
+                <h2 className="text-4xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">Pozabljeno geslo</h2>
+                <p className="text-slate-400 font-bold text-sm">Vnesite svoj e-poštni naslov in poslali vam bomo povezavo za ponastavitev gesla.</p>
+            </div>
+            <form onSubmit={handleForgotPassword} className="space-y-6">
+              <input type="email" required className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 px-6 font-bold focus:ring-2 focus:ring-[#FEBA4F] outline-none" placeholder={t('email')} onChange={e => setEmail(e.target.value)} />
+              <button type="submit" disabled={loading} className="w-full bg-[#0A1128] text-white py-6 rounded-[2rem] font-black uppercase tracking-widest hover:bg-[#FEBA4F] transition-all shadow-xl">{loading ? t('processing') : 'Pošlji povezavo'}</button>
+            </form>
+          </div>
+        </div>
+      );
+  }
+
   return (
     <div className="max-w-[1600px] mx-auto px-6 py-20 animate-in flex justify-center">
       <div className="bg-white w-full max-w-xl rounded-[4rem] p-10 lg:p-16 shadow-2xl border border-slate-100">
@@ -161,15 +200,18 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
           )}
 
           {isLogin && (
-              <div className="flex items-center gap-2 px-2">
-                  <input 
-                      type="checkbox" 
-                      id="rememberMe" 
-                      checked={rememberMe} 
-                      onChange={(e) => setRememberMe(e.target.checked)}
-                      className="w-4 h-4 text-[#FEBA4F] bg-slate-50 border-slate-200 rounded focus:ring-[#FEBA4F] cursor-pointer"
-                  />
-                  <label htmlFor="rememberMe" className="text-xs font-bold text-slate-500 cursor-pointer">Zapomni si me (ostani prijavljen)</label>
+              <div className="flex items-center justify-between px-2">
+                  <div className="flex items-center gap-2">
+                      <input 
+                          type="checkbox" 
+                          id="rememberMe" 
+                          checked={rememberMe} 
+                          onChange={(e) => setRememberMe(e.target.checked)}
+                          className="w-4 h-4 text-[#FEBA4F] bg-slate-50 border-slate-200 rounded focus:ring-[#FEBA4F] cursor-pointer"
+                      />
+                      <label htmlFor="rememberMe" className="text-xs font-bold text-slate-500 cursor-pointer">Zapomni si me</label>
+                  </div>
+                  <button type="button" onClick={() => setIsForgotPassword(true)} className="text-xs font-black uppercase tracking-widest text-slate-400 hover:text-[#0A1128] transition-colors">Pozabljeno geslo?</button>
               </div>
           )}
 

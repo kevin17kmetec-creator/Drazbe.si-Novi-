@@ -134,13 +134,32 @@ const App: React.FC = () => {
           console.error("Error fetching auctions:", error);
           return;
       }
+
+      // Fetch users to map seller names
+      const { data: usersData } = await supabase.from('users').select('id, username, company_name, user_type, first_name, last_name');
+      const usersMap = new Map(usersData?.map(u => [u.id, u]) || []);
       
-      const supabaseData: AuctionItem[] = data.map(d => ({
-          ...d,
-          endTime: new Date(d.end_time || d.endTime),
-          currentBid: d.current_price || d.currentBid,
-          bidCount: d.bid_count || d.bidCount
-      }));
+      const supabaseData: AuctionItem[] = data.map(d => {
+          const seller = usersMap.get(d.seller_id);
+          let sellerName = 'Neznan prodajalec';
+          if (seller) {
+              if (seller.user_type === 'business' && seller.company_name) {
+                  sellerName = seller.company_name;
+              } else if (seller.username) {
+                  sellerName = seller.username;
+              } else if (seller.first_name && seller.last_name) {
+                  sellerName = `${seller.first_name} ${seller.last_name}`;
+              }
+          }
+
+          return {
+              ...d,
+              endTime: new Date(d.end_time || d.endTime),
+              currentBid: d.current_price || d.currentBid,
+              bidCount: d.bid_count || d.bidCount,
+              sellerName: d.sellerName || sellerName
+          };
+      });
 
       if (IS_LIVE) {
           setAuctions([...supabaseData, ...demoAuctions]);
@@ -261,6 +280,7 @@ const App: React.FC = () => {
           if (data) {
             setIsVerified(data.isVerified || data.is_verified);
             setUserType(data.userType || data.user_type);
+            setUserData(prev => ({ ...prev, ...data }));
           }
         }
       } catch (err) {
@@ -294,6 +314,7 @@ const App: React.FC = () => {
           if (data) {
             setIsVerified(data.isVerified || data.is_verified);
             setUserType(data.userType || data.user_type);
+            setUserData(prev => ({ ...prev, ...data }));
           }
         } catch (err) {
           console.error("Error fetching user data on auth change:", err);
@@ -475,9 +496,59 @@ const App: React.FC = () => {
     setIsCheckoutOpen(true);
   };
 
-  const handleSaveSettings = (data: any) => {
-    setUserData(data);
-    toast.success(t('saveChanges') + ' - ' + t('success'));
+  const handleSaveSettings = async (data: any) => {
+    try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.user) return;
+
+        // Update password if provided
+        if (data.newPassword) {
+            const { error: passError } = await supabase.auth.updateUser({ password: data.newPassword });
+            if (passError) {
+                toast.error(`Napaka pri spremembi gesla: ${passError.message}`);
+                return;
+            }
+        }
+
+        // Update user profile data
+        const updateData = {
+            username: data.username,
+            first_name: data.firstName,
+            last_name: data.lastName,
+            street: data.street,
+            city: data.city,
+            postal_code: data.postalCode,
+            emso: data.emso,
+            company_name: data.companyName,
+            tax_number: data.taxNumber,
+            company_street: data.companyStreet,
+            company_city: data.companyCity,
+            company_postal_code: data.companyPostalCode,
+            representative: data.representative
+        };
+
+        const { error } = await supabase.from('users').update(updateData).eq('id', session.user.id);
+
+        if (error) {
+            if (error.code === '23505' && error.message.includes('username')) {
+                toast.error('To uporabniško ime je že zasedeno. Prosimo, izberite drugega.');
+            } else {
+                toast.error(`Napaka pri shranjevanju: ${error.message}`);
+            }
+            return;
+        }
+
+        // Refresh user data
+        let { data: updatedUser } = await supabase.from('users').select('*').eq('id', session.user.id).single();
+        if (updatedUser) {
+            setUserData(prev => ({ ...prev, ...updatedUser }));
+        }
+
+        toast.success(t('saveChanges') + ' - ' + t('success'));
+    } catch (err) {
+        console.error("Error saving settings:", err);
+        toast.error("Prišlo je do napake pri shranjevanju.");
+    }
   };
 
   const getFilteredAuctions = useMemo(() => {
@@ -576,6 +647,7 @@ const App: React.FC = () => {
                 t={t} 
                 isVerified={isVerified} 
                 userType={userType}
+                initialData={userData}
                 onVerify={async (type, data) => {
                     setIsVerified(true);
                     setUserType(type);
@@ -583,16 +655,39 @@ const App: React.FC = () => {
                     try {
                         const { data: { session } } = await supabase.auth.getSession();
                         if (session?.user) {
-                            const { error } = await supabase.from('users').update({
+                            const updateData: any = {
                                 is_verified: true,
                                 user_type: type
-                            }).eq('id', session.user.id);
+                            };
+
+                            if (type === 'individual') {
+                                updateData.first_name = data.firstName;
+                                updateData.last_name = data.lastName;
+                                updateData.street = data.street;
+                                updateData.city = data.city;
+                                updateData.postal_code = data.postalCode;
+                                updateData.emso = data.emso;
+                            } else {
+                                updateData.company_name = data.companyName;
+                                updateData.tax_number = data.taxNumber;
+                                updateData.company_street = data.companyStreet;
+                                updateData.company_city = data.companyCity;
+                                updateData.company_postal_code = data.companyPostalCode;
+                                updateData.representative = data.representative;
+                            }
+
+                            const { error } = await supabase.from('users').update(updateData).eq('id', session.user.id);
                             
                             if (error) {
                                 console.error("Error updating verification status:", error);
                                 toast.error("Napaka pri shranjevanju verifikacije v bazo.");
                             } else {
                                 toast.success("Verifikacija uspešno shranjena.");
+                                // Refresh user data
+                                let { data: updatedUser } = await supabase.from('users').select('*').eq('id', session.user.id).single();
+                                if (updatedUser) {
+                                    setUserData(prev => ({ ...prev, ...updatedUser }));
+                                }
                             }
                         }
                     } catch (err) {

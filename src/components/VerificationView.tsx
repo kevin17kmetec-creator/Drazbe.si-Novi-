@@ -1,13 +1,31 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ArrowLeft, User, Building2, CheckCircle2 } from 'lucide-react';
 
-export const VerificationView: React.FC<{ onBack: () => void; t: any; onVerify: (type: 'individual' | 'business', data: any) => void; isVerified: boolean; userType: any }> = ({ onBack, t, onVerify, isVerified, userType }) => {
+export const VerificationView: React.FC<{ onBack: () => void; t: any; onVerify: (type: 'individual' | 'business', data: any) => void; isVerified: boolean; userType: any; initialData?: any }> = ({ onBack, t, onVerify, isVerified, userType, initialData }) => {
     const [type, setType] = useState<'individual' | 'business'>(userType || 'individual');
     const [step, setStep] = useState(isVerified ? 2 : 1);
-    const [formData, setFormData] = useState<any>({});
+    
+    const [individualData, setIndividualData] = useState({
+        firstName: initialData?.first_name || '',
+        lastName: initialData?.last_name || '',
+        street: initialData?.street || '',
+        city: initialData?.city || '',
+        postalCode: initialData?.postal_code || '',
+        emso: initialData?.emso || ''
+    });
+
+    const [businessData, setBusinessData] = useState({
+        companyName: initialData?.company_name || '',
+        taxNumber: initialData?.tax_number || '',
+        companyStreet: initialData?.company_street || '',
+        companyCity: initialData?.company_city || '',
+        companyPostalCode: initialData?.company_postal_code || '',
+        representative: initialData?.representative || ''
+    });
 
     const handleVerify = () => {
-        onVerify(type, formData);
+        const data = type === 'individual' ? individualData : businessData;
+        onVerify(type, data);
         setStep(2);
     };
 
@@ -38,17 +56,21 @@ export const VerificationView: React.FC<{ onBack: () => void; t: any; onVerify: 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             {type === 'individual' ? (
                                 <>
-                                    <div className="space-y-3"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">Ime</label><input type="text" className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
-                                    <div className="space-y-3"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">Priimek</label><input type="text" className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
-                                    <div className="space-y-3 md:col-span-2"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">Naslov prebivališča</label><input type="text" className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
-                                    <div className="space-y-3"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">EMŠO</label><input type="text" className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" maxLength={13} /></div>
+                                    <div className="space-y-3"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">Ime</label><input type="text" value={individualData.firstName} onChange={e => setIndividualData({...individualData, firstName: e.target.value})} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
+                                    <div className="space-y-3"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">Priimek</label><input type="text" value={individualData.lastName} onChange={e => setIndividualData({...individualData, lastName: e.target.value})} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
+                                    <div className="space-y-3 md:col-span-2"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">Ulica in hišna številka</label><input type="text" value={individualData.street} onChange={e => setIndividualData({...individualData, street: e.target.value})} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
+                                    <div className="space-y-3"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">Mesto</label><input type="text" value={individualData.city} onChange={e => setIndividualData({...individualData, city: e.target.value})} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
+                                    <div className="space-y-3"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">Poštna številka</label><input type="text" value={individualData.postalCode} onChange={e => setIndividualData({...individualData, postalCode: e.target.value})} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
+                                    <div className="space-y-3 md:col-span-2"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">EMŠO</label><input type="text" value={individualData.emso} onChange={e => setIndividualData({...individualData, emso: e.target.value})} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" maxLength={13} /></div>
                                 </>
                             ) : (
                                 <>
-                                    <div className="space-y-3 md:col-span-2"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">Naziv podjetja</label><input type="text" className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
-                                    <div className="space-y-3"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">Davčna številka</label><input type="text" className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 px-6 font-bold" /></div>
-                                    <div className="space-y-3"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">Sedež podjetja</label><input type="text" className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 px-6 font-bold" /></div>
-                                    <div className="space-y-3 md:col-span-2"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">Zastopnik (Ime in priimek)</label><input type="text" className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
+                                    <div className="space-y-3 md:col-span-2"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">Naziv podjetja</label><input type="text" value={businessData.companyName} onChange={e => setBusinessData({...businessData, companyName: e.target.value})} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
+                                    <div className="space-y-3 md:col-span-2"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">Davčna številka</label><input type="text" value={businessData.taxNumber} onChange={e => setBusinessData({...businessData, taxNumber: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 px-6 font-bold" /></div>
+                                    <div className="space-y-3 md:col-span-2"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">Ulica in hišna številka (Sedež podjetja)</label><input type="text" value={businessData.companyStreet} onChange={e => setBusinessData({...businessData, companyStreet: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 px-6 font-bold" /></div>
+                                    <div className="space-y-3"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">Mesto</label><input type="text" value={businessData.companyCity} onChange={e => setBusinessData({...businessData, companyCity: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 px-6 font-bold" /></div>
+                                    <div className="space-y-3"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">Poštna številka</label><input type="text" value={businessData.companyPostalCode} onChange={e => setBusinessData({...businessData, companyPostalCode: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 px-6 font-bold" /></div>
+                                    <div className="space-y-3 md:col-span-2"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">Zastopnik (Ime in priimek)</label><input type="text" value={businessData.representative} onChange={e => setBusinessData({...businessData, representative: e.target.value})} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
                                 </>
                             )}
                         </div>

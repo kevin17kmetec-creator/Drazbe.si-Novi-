@@ -70,6 +70,7 @@ export interface AuctionItem {
   specifications: Record<string, Record<string, string>>;
   biddingHistory: BidHistory[];
   sellerId: string;
+  sellerName?: string;
   status: 'active' | 'completed' | 'cancelled';
   winnerId?: string;
   hiddenMaxBid?: number; // For proxy bidding logic

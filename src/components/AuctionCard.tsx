@@ -99,9 +99,9 @@ export const AuctionCard: React.FC<{
       </div>
       <div className="p-6 flex flex-col flex-1">
         <div className="mb-3 flex justify-between items-center">
-            {seller && (
-                <button onClick={(e) => { e.stopPropagation(); onSellerClick(seller); }} className="text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-[#FEBA4F] transition-colors flex items-center gap-1.5">
-                    <Building2 size={12} /> {seller.name[language] || seller.name['SLO']}
+            {(seller || item.sellerName) && (
+                <button onClick={(e) => { e.stopPropagation(); if (seller) onSellerClick(seller); }} className="text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-[#FEBA4F] transition-colors flex items-center gap-1.5">
+                    <Building2 size={12} /> {seller ? (seller.name[language] || seller.name['SLO']) : item.sellerName}
                 </button>
             )}
         </div>
