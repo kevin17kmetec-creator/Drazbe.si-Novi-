@@ -1,8 +1,19 @@
-import React, { useState } from 'react';
-import { ArrowLeft, FileUp, Trash2, Gavel } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { ArrowLeft, FileUp, Trash2, Gavel, Wand2 } from 'lucide-react';
 import { Category, Region } from '../../types.ts';
 import { supabase } from '../lib/supabaseClient';
 import { toast } from 'sonner';
+import { GoogleGenAI } from '@google/genai';
+
+const REGION_LOCATIONS: Record<Region, string[]> = {
+    [Region.Prekmurje]: ['Murska Sobota', 'Lendava', 'Ljutomer', 'Beltinci', 'Gornja Radgona'],
+    [Region.Stajerska]: ['Maribor', 'Celje', 'Ptuj', 'Velenje', 'Slovenska Bistrica', 'Žalec'],
+    [Region.Koroska]: ['Slovenj Gradec', 'Ravne na Koroškem', 'Dravograd', 'Prevalje', 'Mežica'],
+    [Region.Gorenjska]: ['Kranj', 'Jesenice', 'Škofja Loka', 'Radovljica', 'Bled', 'Tržič'],
+    [Region.Primorska]: ['Koper', 'Nova Gorica', 'Izola', 'Piran', 'Postojna', 'Sežana'],
+    [Region.Notranjska]: ['Cerknica', 'Ilirska Bistrica', 'Pivka', 'Loška Dolina', 'Bloke'],
+    [Region.Dolenjska]: ['Novo mesto', 'Kočevje', 'Trebnje', 'Črnomelj', 'Ribnica', 'Metlika']
+};
 
 export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish: (item: any) => void; isLoggedIn: boolean }> = ({ onBack, t, onPublish, isLoggedIn }) => {
     const getLocalDateStr = (date: Date) => {
@@ -29,9 +40,10 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
     const [formData, setFormData] = useState({ 
         title: '', 
         category: Category.Ostalo, 
-        region: Region.Osrednjeslovenska, 
+        region: Region.Stajerska, 
+        location: REGION_LOCATIONS[Region.Stajerska][0],
         description: '', 
-        startingPrice: '', 
+        startingPrice: '1', 
         minStep: '5',
         endDate: defaultDateStr,
         endTime: defaultTimeStr
@@ -40,6 +52,13 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
     const [previews, setPreviews] = useState<string[]>([]);
     const [isDragging, setIsDragging] = useState(false);
     const [uploading, setUploading] = useState(false);
+    const [enhancingIndex, setEnhancingIndex] = useState<number | null>(null);
+
+    useEffect(() => {
+        if (!REGION_LOCATIONS[formData.region].includes(formData.location)) {
+            setFormData(prev => ({ ...prev, location: REGION_LOCATIONS[formData.region][0] }));
+        }
+    }, [formData.region]);
 
     const handleFiles = (files: File[]) => {
         setImageFiles(prev => [...prev, ...files]);
@@ -47,9 +66,93 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
         setPreviews(prev => [...prev, ...newPreviews]);
     };
 
+    const enhanceImage = async (index: number) => {
+        try {
+            setEnhancingIndex(index);
+            const file = imageFiles[index];
+            
+            // Convert file to base64
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = async () => {
+                const base64Data = (reader.result as string).split(',')[1];
+                const mimeType = file.type;
+
+                try {
+                    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+                    const response = await ai.models.generateContent({
+                        model: 'gemini-2.5-flash-image',
+                        contents: {
+                            parts: [
+                                {
+                                    inlineData: {
+                                        data: base64Data,
+                                        mimeType: mimeType,
+                                    },
+                                },
+                                {
+                                    text: 'Enhance the quality, lighting, and sharpness of this image. Keep the original subject exactly the same, just make it look more professional and appealing.',
+                                },
+                            ],
+                        },
+                    });
+
+                    let newImageUrl = null;
+                    let newBase64 = null;
+                    for (const part of response.candidates?.[0]?.content?.parts || []) {
+                        if (part.inlineData) {
+                            newBase64 = part.inlineData.data;
+                            newImageUrl = `data:${part.inlineData.mimeType || 'image/png'};base64,${newBase64}`;
+                            break;
+                        }
+                    }
+
+                    if (newImageUrl && newBase64) {
+                        // Create a new File object from the base64 data
+                        const byteCharacters = atob(newBase64);
+                        const byteNumbers = new Array(byteCharacters.length);
+                        for (let i = 0; i < byteCharacters.length; i++) {
+                            byteNumbers[i] = byteCharacters.charCodeAt(i);
+                        }
+                        const byteArray = new Uint8Array(byteNumbers);
+                        const newFile = new File([byteArray], `enhanced-${file.name}`, { type: 'image/png' });
+
+                        setImageFiles(prev => {
+                            const newFiles = [...prev];
+                            newFiles[index] = newFile;
+                            return newFiles;
+                        });
+                        setPreviews(prev => {
+                            const newPreviews = [...prev];
+                            newPreviews[index] = newImageUrl;
+                            return newPreviews;
+                        });
+                        toast.success('Slika uspešno polepšana!');
+                    } else {
+                        toast.error('Ni bilo mogoče polepšati slike.');
+                    }
+                } catch (err) {
+                    console.error("Gemini API error:", err);
+                    toast.error('Napaka pri polepšanju slike.');
+                } finally {
+                    setEnhancingIndex(null);
+                }
+            };
+        } catch (error) {
+            console.error("Error enhancing image:", error);
+            toast.error('Napaka pri polepšanju slike.');
+            setEnhancingIndex(null);
+        }
+    };
+
     const handlePublish = async () => {
         if (!formData.title || !formData.description) return toast.error(t('enterAllData'));
         
+        const startingPriceNum = parseInt(formData.startingPrice);
+        if (isNaN(startingPriceNum) || startingPriceNum < 1) {
+            return toast.error('Izklicna cena mora biti vsaj 1€.');
+        }
+
         // Validation for end time
         const selectedEnd = new Date(`${formData.endDate}T${formData.endTime}`);
         const now = new Date();
@@ -96,6 +199,7 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
                 description: formData.description,
                 category: formData.category,
                 region: formData.region,
+                location: { SLO: formData.location, EN: formData.location, DE: formData.location },
                 endTime: selectedEnd.toISOString(),
                 images: imageUrls.length > 0 ? imageUrls : ['https://images.unsplash.com/photo-1586191552066-d52dd1e3af86'] 
             });
@@ -107,7 +211,12 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
     };
 
     const handleNumericChange = (field: string, value: string) => {
-        const numericValue = value.replace(/\D/g, '');
+        let numericValue = value.replace(/\D/g, '');
+        if (field === 'startingPrice') {
+            if (numericValue === '' || parseInt(numericValue) < 1) {
+                numericValue = '1';
+            }
+        }
         setFormData(prev => ({ ...prev, [field]: numericValue }));
     };
 
@@ -128,14 +237,16 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                         <div className="space-y-4">
                             <label className="text-[10px] font-black uppercase text-slate-400 ml-2">{t('startingPriceEur')}</label>
-                            <input 
-                                type="text" 
-                                inputMode="numeric"
-                                placeholder="0" 
-                                className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-5 px-6 font-bold focus:ring-4 focus:ring-[#FEBA4F]/20 focus:border-[#FEBA4F] transition-all outline-none" 
-                                value={formData.startingPrice}
-                                onChange={e => handleNumericChange('startingPrice', e.target.value)} 
-                            />
+                            <div className="relative flex items-center">
+                                <input 
+                                    type="text" 
+                                    inputMode="numeric"
+                                    className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-5 pl-6 pr-12 font-bold focus:ring-4 focus:ring-[#FEBA4F]/20 focus:border-[#FEBA4F] transition-all outline-none" 
+                                    value={formData.startingPrice}
+                                    onChange={e => handleNumericChange('startingPrice', e.target.value)} 
+                                />
+                                <span className="absolute right-6 font-black text-[#0A1128] pointer-events-none">€</span>
+                            </div>
                         </div>
                         <div className="space-y-4">
                             <label className="text-[10px] font-black uppercase text-slate-400 ml-2">{t('category')}</label>
@@ -144,11 +255,19 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
                             </select>
                         </div>
                     </div>
-                    <div className="space-y-4">
-                        <label className="text-[10px] font-black uppercase text-slate-400 ml-2">{t('region')}</label>
-                        <select className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-5 px-6 font-bold focus:ring-4 focus:ring-[#FEBA4F]/20 focus:border-[#FEBA4F] transition-all outline-none appearance-none cursor-pointer" onChange={e => setFormData({...formData, region: e.target.value as Region})}>
-                            {Object.values(Region).map(r => <option key={r} value={r}>{r}</option>)}
-                        </select>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <div className="space-y-4">
+                            <label className="text-[10px] font-black uppercase text-slate-400 ml-2">{t('region')}</label>
+                            <select value={formData.region} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-5 px-6 font-bold focus:ring-4 focus:ring-[#FEBA4F]/20 focus:border-[#FEBA4F] transition-all outline-none appearance-none cursor-pointer" onChange={e => setFormData({...formData, region: e.target.value as Region})}>
+                                {Object.values(Region).map(r => <option key={r} value={r}>{r}</option>)}
+                            </select>
+                        </div>
+                        <div className="space-y-4">
+                            <label className="text-[10px] font-black uppercase text-slate-400 ml-2">Mesto / Vas</label>
+                            <select value={formData.location} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-5 px-6 font-bold focus:ring-4 focus:ring-[#FEBA4F]/20 focus:border-[#FEBA4F] transition-all outline-none appearance-none cursor-pointer" onChange={e => setFormData({...formData, location: e.target.value})}>
+                                {REGION_LOCATIONS[formData.region].map(loc => <option key={loc} value={loc}>{loc}</option>)}
+                            </select>
+                        </div>
                     </div>
 
                     <div className="space-y-4">
@@ -205,8 +324,24 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
                             {previews.map((src, i) => (
                                 <div key={i} className="relative group aspect-square rounded-2xl overflow-hidden border-2 border-slate-100 shadow-sm transition-transform hover:scale-105">
                                     <img src={src} className="w-full h-full object-cover" />
-                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                        <button onClick={() => {
+                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                                        <button 
+                                            onClick={(e) => {
+                                                e.preventDefault();
+                                                enhanceImage(i);
+                                            }} 
+                                            disabled={enhancingIndex !== null}
+                                            className="bg-[#FEBA4F] text-[#0A1128] p-2.5 rounded-xl shadow-xl transform translate-y-2 group-hover:translate-y-0 transition-all duration-300 disabled:opacity-50"
+                                            title="Polepšaj sliko"
+                                        >
+                                            {enhancingIndex === i ? (
+                                                <div className="w-4 h-4 border-2 border-[#0A1128]/20 border-t-[#0A1128] rounded-full animate-spin"></div>
+                                            ) : (
+                                                <Wand2 size={18} strokeWidth={2.5} />
+                                            )}
+                                        </button>
+                                        <button onClick={(e) => {
+                                            e.preventDefault();
                                             setPreviews(prev => prev.filter((_, idx) => idx !== i));
                                             setImageFiles(prev => prev.filter((_, idx) => idx !== i));
                                         }} className="bg-red-500 text-white p-2.5 rounded-xl shadow-xl transform translate-y-2 group-hover:translate-y-0 transition-all duration-300">
