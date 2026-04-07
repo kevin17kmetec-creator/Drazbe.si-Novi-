@@ -106,6 +106,27 @@ const App: React.FC = () => {
   // Ref for the "Aktualne dražbe" section
   const auctionsSectionRef = useRef<HTMLDivElement>(null);
 
+  const [demoAuctions, setDemoAuctions] = useState<AuctionItem[]>(() => {
+    const saved = localStorage.getItem('demoAuctions');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        return parsed.map((a: any) => ({
+          ...a,
+          endTime: new Date(a.endTime),
+          end_time: a.end_time || a.endTime
+        }));
+      } catch (e) {
+        return [];
+      }
+    }
+    return [];
+  });
+
+  useEffect(() => {
+    localStorage.setItem('demoAuctions', JSON.stringify(demoAuctions));
+  }, [demoAuctions]);
+
   const fetchAuctions = async () => {
     try {
       const { data, error } = await supabase.from('auctions').select('*');
@@ -122,9 +143,9 @@ const App: React.FC = () => {
       }));
 
       if (IS_LIVE) {
-          setAuctions(supabaseData);
+          setAuctions([...supabaseData, ...demoAuctions]);
       } else {
-          const merged = [...EXTENDED_MOCK_AUCTIONS];
+          const merged = [...EXTENDED_MOCK_AUCTIONS, ...demoAuctions];
           supabaseData.forEach(fd => {
               const idx = merged.findIndex(m => m.id === fd.id);
               if (idx > -1) merged[idx] = fd;
@@ -135,7 +156,7 @@ const App: React.FC = () => {
     } catch (err) {
       console.error("Supabase connection error:", err);
       if (!IS_LIVE) {
-        setAuctions(EXTENDED_MOCK_AUCTIONS);
+        setAuctions([...EXTENDED_MOCK_AUCTIONS, ...demoAuctions]);
       }
     }
   };
@@ -204,7 +225,25 @@ const App: React.FC = () => {
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user) {
           setIsLoggedIn(true);
-          const { data } = await supabase.from('users').select('*').eq('id', session.user.id).single();
+          setUserData(prev => ({ ...prev, email: session.user.email || '' }));
+          
+          let { data } = await supabase.from('users').select('*').eq('id', session.user.id).single();
+          
+          // If user doesn't exist in 'users' table, create them now
+          if (!data) {
+              const { data: newUser, error: insertError } = await supabase.from('users').insert({ 
+                  id: session.user.id, 
+                  email: session.user.email, 
+                  is_verified: false, 
+                  unpaid_strikes: 0, 
+                  subscription: 'FREE' 
+              }).select().single();
+              
+              if (!insertError && newUser) {
+                  data = newUser;
+              }
+          }
+
           if (data) {
             setIsVerified(data.isVerified || data.is_verified);
             setUserType(data.userType || data.user_type);
@@ -219,8 +258,25 @@ const App: React.FC = () => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (session?.user) {
         setIsLoggedIn(true);
+        setUserData(prev => ({ ...prev, email: session.user.email || '' }));
         try {
-          const { data } = await supabase.from('users').select('*').eq('id', session.user.id).single();
+          let { data } = await supabase.from('users').select('*').eq('id', session.user.id).single();
+          
+          // If user doesn't exist in 'users' table, create them now
+          if (!data) {
+              const { data: newUser, error: insertError } = await supabase.from('users').insert({ 
+                  id: session.user.id, 
+                  email: session.user.email, 
+                  is_verified: false, 
+                  unpaid_strikes: 0, 
+                  subscription: 'FREE' 
+              }).select().single();
+              
+              if (!insertError && newUser) {
+                  data = newUser;
+              }
+          }
+
           if (data) {
             setIsVerified(data.isVerified || data.is_verified);
             setUserType(data.userType || data.user_type);
@@ -228,9 +284,11 @@ const App: React.FC = () => {
         } catch (err) {
           console.error("Error fetching user data on auth change:", err);
         }
+        fetchAuctions();
       } else {
         setIsLoggedIn(false);
         setIsVerified(false);
+        fetchAuctions();
       }
     });
 
@@ -347,7 +405,7 @@ const App: React.FC = () => {
                   bid_count: 0,
                   endTime: new Date(itemData.endTime || Date.now() + 1000 * 60 * 60 * 24 * 7),
                   end_time: itemData.endTime || new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString(),
-                  location: { SLO: 'Ljubljana', EN: 'Ljubljana', DE: 'Ljubljana' },
+                  location: itemData.location || { SLO: 'Ljubljana', EN: 'Ljubljana', DE: 'Ljubljana' },
                   region: itemData.region || Region.Osrednjeslovenska,
                   category: itemData.category || Category.Ostalo,
                   sellerId: 'demo-user',
@@ -355,6 +413,7 @@ const App: React.FC = () => {
                   status: 'active',
                   images: itemData.images
               };
+              setDemoAuctions(prev => [newAuction as any, ...prev]);
               setAuctions(prev => [newAuction as any, ...prev]);
           }
 
@@ -678,7 +737,7 @@ const App: React.FC = () => {
     default:
       content = (
         <div className="animate-in">
-          {activeView === 'grid' && !selectedCategory && !searchQuery && (
+          {activeView === 'grid' && !selectedCategory && !searchQuery && !selectedRegion && (
               <HeroCarousel 
                   items={auctions} 
                   onSelectItem={(item) => { 
@@ -795,6 +854,7 @@ const App: React.FC = () => {
             onLanguageChange={setLanguage} 
             t={t} 
             auctions={auctions}
+            userEmail={userData.email}
         />
         <main>{content}</main>
         {activeView === 'grid' && <Footer t={t} onLegal={setActiveLegal} />}
