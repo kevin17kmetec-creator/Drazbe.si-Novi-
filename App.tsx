@@ -224,10 +224,24 @@ const App: React.FC = () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user) {
-          setIsLoggedIn(true);
-          setUserData(prev => ({ ...prev, email: session.user.email || '' }));
           
           let { data } = await supabase.from('users').select('*').eq('id', session.user.id).single();
+          
+          // Check remember me setting from DB or metadata
+          const rememberMe = data?.remember_me ?? session.user.user_metadata?.remember_me ?? true;
+          const isNewSession = !sessionStorage.getItem('tab_session_active');
+          sessionStorage.setItem('tab_session_active', 'true');
+
+          if (isNewSession && !rememberMe) {
+              // User didn't want to be remembered and this is a new browser session
+              await supabase.auth.signOut();
+              setIsLoggedIn(false);
+              setIsVerified(false);
+              return;
+          }
+
+          setIsLoggedIn(true);
+          setUserData(prev => ({ ...prev, email: session.user.email || '' }));
           
           // If user doesn't exist in 'users' table, create them now
           if (!data) {
@@ -562,9 +576,29 @@ const App: React.FC = () => {
                 t={t} 
                 isVerified={isVerified} 
                 userType={userType}
-                onVerify={(type, data) => {
+                onVerify={async (type, data) => {
                     setIsVerified(true);
                     setUserType(type);
+                    
+                    try {
+                        const { data: { session } } = await supabase.auth.getSession();
+                        if (session?.user) {
+                            const { error } = await supabase.from('users').update({
+                                is_verified: true,
+                                user_type: type
+                            }).eq('id', session.user.id);
+                            
+                            if (error) {
+                                console.error("Error updating verification status:", error);
+                                toast.error("Napaka pri shranjevanju verifikacije v bazo.");
+                            } else {
+                                toast.success("Verifikacija uspešno shranjena.");
+                            }
+                        }
+                    } catch (err) {
+                        console.error("Error during verification update:", err);
+                    }
+                    
                     setActiveView('grid');
                 }}
             />

@@ -8,6 +8,7 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(true);
   const [loading, setLoading] = useState(false);
 
   // Password validation state
@@ -52,8 +53,23 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
     setLoading(true);
     try {
       if (isLogin) {
-          const { error } = await supabase.auth.signInWithPassword({ email, password });
+          const { data, error } = await supabase.auth.signInWithPassword({ email, password });
           if (error) throw error;
+          
+          if (data.user) {
+              // Shrani izbiro "Zapomni si me" v bazo (user_metadata)
+              await supabase.auth.updateUser({
+                  data: { remember_me: rememberMe }
+              });
+              
+              // Poskusi shraniti tudi v users tabelo, če stolpec obstaja
+              try {
+                  await supabase.from('users').update({ remember_me: rememberMe }).eq('id', data.user.id);
+              } catch (e) {
+                  // Ignore if column doesn't exist
+              }
+          }
+          
           onLoginSuccess();
       } else {
           const { data, error } = await supabase.auth.signUp({ email, password });
@@ -141,6 +157,19 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
                       onChange={e => setConfirmPassword(e.target.value)} 
                   />
                   {!passwordsMatch && <p className="text-red-500 text-xs font-bold px-2">Gesli se ne ujemata!</p>}
+              </div>
+          )}
+
+          {isLogin && (
+              <div className="flex items-center gap-2 px-2">
+                  <input 
+                      type="checkbox" 
+                      id="rememberMe" 
+                      checked={rememberMe} 
+                      onChange={(e) => setRememberMe(e.target.checked)}
+                      className="w-4 h-4 text-[#FEBA4F] bg-slate-50 border-slate-200 rounded focus:ring-[#FEBA4F] cursor-pointer"
+                  />
+                  <label htmlFor="rememberMe" className="text-xs font-bold text-slate-500 cursor-pointer">Zapomni si me (ostani prijavljen)</label>
               </div>
           )}
 
