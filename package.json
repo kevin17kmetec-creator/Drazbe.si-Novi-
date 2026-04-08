@@ -4,9 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "npm install --legacy-peer-deps && tsx server.ts",
-    "start": "npm install --legacy-peer-deps && node server.ts",
-    "build": "npm install --legacy-peer-deps && vite build",
+    "dev": "tsx server.ts",
+    "start": "node server.ts",
+    "build": "vite build",
     "preview": "vite preview",
     "lint": "tsc --noEmit"
   },

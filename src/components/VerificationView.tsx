@@ -32,8 +32,8 @@ export const VerificationView: React.FC<{ onBack: () => void; t: any; onVerify: 
     };
 
     const validateTaxNumber = (tax: string) => {
-        // Slovenian tax numbers are exactly 8 digits
-        return /^\d{8}$/.test(tax);
+        // Slovenian tax numbers are 8 or 9 digits
+        return /^\d{8,9}$/.test(tax);
     };
 
     const handleVerify = async (e: React.FormEvent) => {
@@ -47,7 +47,7 @@ export const VerificationView: React.FC<{ onBack: () => void; t: any; onVerify: 
         }
 
         if (!validateTaxNumber(data.taxNumber)) {
-            setError("Davčna številka mora vsebovati natanko 8 številk.");
+            setError("Davčna številka mora vsebovati 8 ali 9 številk.");
             return;
         }
 
