@@ -16,7 +16,7 @@ export const AuctionGrid: React.FC<AuctionGridProps> = ({
   auctions, onAuctionClick, onWatchToggle, watchlist, t, language
 }) => {
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-3 gap-10">
+    <div className="grid gap-8 justify-center" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 320px))' }}>
       {auctions.map(item => (
         <AuctionCard 
           key={item.id} 

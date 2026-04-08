@@ -16,6 +16,8 @@
     "@stripe/stripe-js": "^8.11.0",
     "@supabase/supabase-js": "^2.100.0",
     "@tailwindcss/vite": "^4.2.2",
+    "d3-delaunay": "^6.0.4",
+    "d3-polygon": "^3.0.1",
     "express": "^5.2.1",
     "firebase": "^12.11.0",
     "lucide-react": "^1.6.0",

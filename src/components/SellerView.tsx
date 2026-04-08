@@ -164,7 +164,7 @@ const SellerView: React.FC<SellerViewProps> = ({
       {/* Tab Content */}
       <div className="animate-in">
         {activeTab === 'active' && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-3 gap-10">
+          <div className="grid gap-8 justify-center" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 320px))' }}>
             {activeAuctions.length > 0 ? (
               activeAuctions.map(item => (
                 <div key={item.id} onClick={() => onAuctionClick(item)} className="cursor-pointer">
@@ -209,7 +209,7 @@ const SellerView: React.FC<SellerViewProps> = ({
         )}
 
         {activeTab === 'past' && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-3 gap-10">
+          <div className="grid gap-8 justify-center" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 320px))' }}>
             {pastAuctions.length > 0 ? (
               pastAuctions.map(item => (
                 <div key={item.id} className="opacity-75 grayscale hover:grayscale-0 transition-all">

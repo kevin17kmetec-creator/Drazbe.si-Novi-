@@ -60,17 +60,27 @@ const App: React.FC = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isVerified, setIsVerified] = useState(false);
   const [userType, setUserType] = useState<'individual' | 'business' | null>(null);
-  const [watchedIds, setWatchedIds] = useState<string[]>(() => {
-    const saved = localStorage.getItem('watchedAuctions');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [watchedIds, setWatchedIds] = useState<string[]>([]);
 
-  useEffect(() => {
-    localStorage.setItem('watchedAuctions', JSON.stringify(watchedIds));
-  }, [watchedIds]);
+  const toggleWatch = async (id: string) => {
+    const newWatchedIds = watchedIds.includes(id) 
+      ? watchedIds.filter(i => i !== id) 
+      : [...watchedIds, id];
+    
+    setWatchedIds(newWatchedIds);
 
-  const toggleWatch = (id: string) => {
-    setWatchedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        await supabase.from('users').upsert({
+          id: session.user.id,
+          email: session.user.email,
+          watched_auctions: newWatchedIds
+        });
+      }
+    } catch (err) {
+      console.error("Error updating watched auctions:", err);
+    }
   };
   const [activeLegal, setActiveLegal] = useState<'terms' | 'privacy' | 'how' | null>(null);
   const [currentPlan, setCurrentPlan] = useState<SubscriptionTier>(SubscriptionTier.FREE);
@@ -105,27 +115,6 @@ const App: React.FC = () => {
 
   // Ref for the "Aktualne dražbe" section
   const auctionsSectionRef = useRef<HTMLDivElement>(null);
-
-  const [demoAuctions, setDemoAuctions] = useState<AuctionItem[]>(() => {
-    const saved = localStorage.getItem('demoAuctions');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        return parsed.map((a: any) => ({
-          ...a,
-          endTime: new Date(a.endTime),
-          end_time: a.end_time || a.endTime
-        }));
-      } catch (e) {
-        return [];
-      }
-    }
-    return [];
-  });
-
-  useEffect(() => {
-    localStorage.setItem('demoAuctions', JSON.stringify(demoAuctions));
-  }, [demoAuctions]);
 
   const fetchAuctions = async () => {
     try {
@@ -162,9 +151,9 @@ const App: React.FC = () => {
       });
 
       if (IS_LIVE) {
-          setAuctions([...supabaseData, ...demoAuctions]);
+          setAuctions(supabaseData);
       } else {
-          const merged = [...EXTENDED_MOCK_AUCTIONS, ...demoAuctions];
+          const merged = [...EXTENDED_MOCK_AUCTIONS];
           supabaseData.forEach(fd => {
               const idx = merged.findIndex(m => m.id === fd.id);
               if (idx > -1) merged[idx] = fd;
@@ -175,7 +164,7 @@ const App: React.FC = () => {
     } catch (err) {
       console.error("Supabase connection error:", err);
       if (!IS_LIVE) {
-        setAuctions([...EXTENDED_MOCK_AUCTIONS, ...demoAuctions]);
+        setAuctions([...EXTENDED_MOCK_AUCTIONS]);
       }
     }
   };
@@ -246,19 +235,7 @@ const App: React.FC = () => {
           
           let { data } = await supabase.from('users').select('*').eq('id', session.user.id).single();
           
-          // Check remember me setting from DB or metadata
-          const rememberMe = data?.remember_me ?? session.user.user_metadata?.remember_me ?? true;
-          const isNewSession = !sessionStorage.getItem('tab_session_active');
-          sessionStorage.setItem('tab_session_active', 'true');
-
-          if (isNewSession && !rememberMe) {
-              // User didn't want to be remembered and this is a new browser session
-              await supabase.auth.signOut();
-              setIsLoggedIn(false);
-              setIsVerified(false);
-              return;
-          }
-
+          // Rely on Supabase's default session persistence
           setIsLoggedIn(true);
           setUserData(prev => ({ ...prev, email: session.user.email || '' }));
           
@@ -281,6 +258,18 @@ const App: React.FC = () => {
             setIsVerified(data.isVerified || data.is_verified);
             setUserType(data.userType || data.user_type);
             setUserData(prev => ({ ...prev, ...data }));
+            if (data.watched_auctions) {
+              setWatchedIds(data.watched_auctions);
+            }
+            if (data.has_accepted_terms) {
+              setHasAcceptedTerms(true);
+            }
+            if (data.bid_auction_ids) {
+              setBidAuctionIds(data.bid_auction_ids);
+            }
+            if (data.subscription) {
+              setCurrentPlan(data.subscription);
+            }
           }
         }
       } catch (err) {
@@ -315,6 +304,18 @@ const App: React.FC = () => {
             setIsVerified(data.isVerified || data.is_verified);
             setUserType(data.userType || data.user_type);
             setUserData(prev => ({ ...prev, ...data }));
+            if (data.watched_auctions) {
+              setWatchedIds(data.watched_auctions);
+            }
+            if (data.has_accepted_terms) {
+              setHasAcceptedTerms(true);
+            }
+            if (data.bid_auction_ids) {
+              setBidAuctionIds(data.bid_auction_ids);
+            }
+            if (data.subscription) {
+              setCurrentPlan(data.subscription);
+            }
           }
         } catch (err) {
           console.error("Error fetching user data on auth change:", err);
@@ -362,7 +363,21 @@ const App: React.FC = () => {
                 console.error("RPC Error:", error);
                 throw new Error(error.message || "Napaka pri oddaji ponudbe");
             }
-            setBidAuctionIds(prev => Array.from(new Set([...prev, item.id])));
+            const newBidIds = Array.from(new Set([...bidAuctionIds, item.id]));
+            setBidAuctionIds(newBidIds);
+            
+            try {
+              const { data: { session } } = await supabase.auth.getSession();
+              if (session?.user) {
+                await supabase.from('users').upsert({
+                  id: session.user.id,
+                  email: session.user.email,
+                  bid_auction_ids: newBidIds
+                });
+              }
+            } catch (err) {
+              console.error("Error saving bid auction ids:", err);
+            }
         } catch (error: any) { 
             console.error(error); 
             throw error;
@@ -370,13 +385,41 @@ const App: React.FC = () => {
     } else {
         // Handle mock auctions locally
         setAuctions(prev => prev.map(a => a.id === item.id ? {...a, currentBid: amount, bidCount: a.bidCount + 1} : a));
-        setBidAuctionIds(prev => Array.from(new Set([...prev, item.id])));
+        const newBidIds = Array.from(new Set([...bidAuctionIds, item.id]));
+        setBidAuctionIds(newBidIds);
+        
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session?.user) {
+            await supabase.from('users').upsert({
+              id: session.user.id,
+              email: session.user.email,
+              bid_auction_ids: newBidIds
+            });
+          }
+        } catch (err) {
+          console.error("Error saving bid auction ids:", err);
+        }
     }
   };
 
-  const handleAcceptTerms = () => {
+  const handleAcceptTerms = async () => {
       setHasAcceptedTerms(true);
       setShowTermsModal(false);
+      
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          await supabase.from('users').upsert({
+            id: session.user.id,
+            email: session.user.email,
+            has_accepted_terms: true
+          });
+        }
+      } catch (err) {
+        console.error("Error saving terms acceptance:", err);
+      }
+
       if (pendingBid) {
           handleBidSubmit(pendingBid.item, pendingBid.amount);
           setPendingBid(null);
@@ -428,28 +471,6 @@ const App: React.FC = () => {
                   toast.error(`Napaka pri objavi v bazo: ${errorMsg}`, { duration: Infinity, closeButton: true });
                   return;
               }
-          } else {
-              // Demo user: add to local state
-              const newAuction = {
-                  id: `demo-${Date.now()}`,
-                  title: simulatedTitle,
-                  description: simulatedDescription,
-                  currentBid: parseInt(itemData.startingPrice),
-                  current_price: parseInt(itemData.startingPrice),
-                  bidCount: 0,
-                  bid_count: 0,
-                  endTime: new Date(itemData.endTime || Date.now() + 1000 * 60 * 60 * 24 * 7),
-                  end_time: itemData.endTime || new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString(),
-                  location: itemData.location || { SLO: 'Ljubljana', EN: 'Ljubljana', DE: 'Ljubljana' },
-                  region: itemData.region || Region.Osrednjeslovenska,
-                  category: itemData.category || Category.Ostalo,
-                  sellerId: 'demo-user',
-                  sellerName: 'Demo Prodajalec',
-                  status: 'active',
-                  images: itemData.images
-              };
-              setDemoAuctions(prev => [newAuction as any, ...prev]);
-              setAuctions(prev => [newAuction as any, ...prev]);
           }
 
           setActiveView('grid');
@@ -477,18 +498,35 @@ const App: React.FC = () => {
     setActiveView('grid');
   };
 
-  const handleSubscribe = (tier: SubscriptionTier) => {
+  const handleSubscribe = async (tier: SubscriptionTier) => {
     const prices = { [SubscriptionTier.FREE]: 0, [SubscriptionTier.BASIC]: 20, [SubscriptionTier.PRO]: 50 };
+    
+    const saveSubscription = async (newTier: SubscriptionTier) => {
+      setCurrentPlan(newTier);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          await supabase.from('users').upsert({
+            id: session.user.id,
+            email: session.user.email,
+            subscription: newTier
+          });
+        }
+      } catch (err) {
+        console.error("Error saving subscription:", err);
+      }
+    };
+
     if (tier === SubscriptionTier.FREE) {
-      setCurrentPlan(tier);
+      await saveSubscription(tier);
       toast.success(t('paymentSuccess'));
       return;
     }
     setCheckoutData({
       amount: prices[tier],
       title: `Naročnina - ${tier}`,
-      onSuccess: () => {
-        setCurrentPlan(tier);
+      onSuccess: async () => {
+        await saveSubscription(tier);
         setIsCheckoutOpen(false);
         toast.success(t('paymentSuccess'));
       }
@@ -652,9 +690,6 @@ const App: React.FC = () => {
                 userType={userType}
                 initialData={userData}
                 onVerify={async (type, data) => {
-                    setIsVerified(true);
-                    setUserType(type);
-                    
                     try {
                         const { data: { session } } = await supabase.auth.getSession();
                         if (session?.user) {
@@ -689,6 +724,8 @@ const App: React.FC = () => {
                                 console.error("Error updating verification status:", error);
                                 toast.error("Napaka pri shranjevanju verifikacije v bazo.");
                             } else {
+                                setIsVerified(true);
+                                setUserType(type);
                                 toast.success("Verifikacija uspešno shranjena.");
                                 // Refresh user data
                                 let { data: updatedUser } = await supabase.from('users').select('*').eq('id', session.user.id).single();
@@ -727,7 +764,7 @@ const App: React.FC = () => {
                         </div>
                     </div>
                     
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-3 gap-10">
+                    <div className="grid gap-8 justify-center" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 320px))' }}>
                         {auctions.filter(a => bidAuctionIds.includes(a.id)).map(item => (
                             <AuctionCard 
                                 key={item.id} 
@@ -844,7 +881,7 @@ const App: React.FC = () => {
                         </div>
                     </div>
                     
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-3 gap-10">
+                    <div className="grid gap-8 justify-center" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 320px))' }}>
                         {auctions.filter(a => watchedIds.includes(a.id)).map(item => (
                             <AuctionCard 
                                 key={item.id} 
@@ -910,7 +947,7 @@ const App: React.FC = () => {
                     </select>
                 </div>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-3 gap-10">
+            <div className="grid gap-8 justify-center" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 320px))' }}>
               {(() => {
                 const activeAuctions = currentAuctions.filter(item => new Date(item.endTime) > new Date());
                 
