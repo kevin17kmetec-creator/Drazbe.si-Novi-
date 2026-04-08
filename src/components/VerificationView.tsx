@@ -6,6 +6,7 @@ export const VerificationView: React.FC<{ onBack: () => void; t: any; onVerify: 
     const [type, setType] = useState<'individual' | 'business'>(userType || 'individual');
     const [step, setStep] = useState(isVerified ? 2 : 1);
     const [isVerifying, setIsVerifying] = useState(false);
+    const [error, setError] = useState<string | null>(null);
     
     const [individualData, setIndividualData] = useState({
         firstName: initialData?.first_name || '',
@@ -29,6 +30,7 @@ export const VerificationView: React.FC<{ onBack: () => void; t: any; onVerify: 
         e.preventDefault();
         const data = type === 'individual' ? individualData : businessData;
         setIsVerifying(true);
+        setError(null);
 
         try {
             // 1. Create VerificationSession on the server
@@ -37,7 +39,10 @@ export const VerificationView: React.FC<{ onBack: () => void; t: any; onVerify: 
                 headers: { 'Content-Type': 'application/json' }
             });
             
-            if (!response.ok) throw new Error('Failed to create verification session');
+            if (!response.ok) {
+                const errData = await response.json().catch(() => ({}));
+                throw new Error(errData.error || 'Failed to create verification session');
+            }
             const { clientSecret } = await response.json();
 
             // 2. Initialize Stripe.js
@@ -56,8 +61,9 @@ export const VerificationView: React.FC<{ onBack: () => void; t: any; onVerify: 
             // 4. If successful, proceed with saving data to Supabase
             await onVerify(type, data);
             setStep(2);
-        } catch (error) {
+        } catch (error: any) {
             console.error("Verification failed:", error);
+            setError(error.message || "Prišlo je do napake pri povezavi s Stripe Identity.");
         } finally {
             setIsVerifying(false);
         }
@@ -69,6 +75,12 @@ export const VerificationView: React.FC<{ onBack: () => void; t: any; onVerify: 
             <div className="bg-white rounded-[4rem] p-12 shadow-2xl border border-slate-100">
                 <h2 className="text-4xl font-black mb-4 uppercase tracking-tighter italic">{t('identityVerification')}</h2>
                 <p className="text-slate-400 font-bold mb-12">V skladu z 18. členom SP je za sodelovanje na dražbi obvezna verifikacija podatkov.</p>
+
+                {error && (
+                    <div className="mb-8 p-4 bg-red-50 border border-red-100 text-red-600 rounded-2xl font-bold text-sm animate-in fade-in slide-in-from-top-4">
+                        {error}
+                    </div>
+                )}
 
                 {step === 1 ? (
                     <form onSubmit={handleVerify} className="space-y-12">
