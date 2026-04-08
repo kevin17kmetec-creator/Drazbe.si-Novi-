@@ -708,8 +708,7 @@ const App: React.FC = () => {
                                 id: session.user.id,
                                 email: data.email,
                                 is_verified: true,
-                                user_type: type,
-                                updated_at: new Date().toISOString()
+                                user_type: type
                             };
 
                             if (type === 'individual') {
