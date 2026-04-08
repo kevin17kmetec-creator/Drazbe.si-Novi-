@@ -654,6 +654,9 @@ const App: React.FC = () => {
                 t={t} 
                 onLoginSuccess={() => {
                     setIsLoggedIn(true);
+                    setSelectedRegion(null);
+                    setSelectedCategory(null);
+                    setSearchQuery('');
                     setActiveView('grid');
                     window.scrollTo({ top: 0, behavior: 'instant' });
                 }} 
@@ -736,13 +739,20 @@ const App: React.FC = () => {
                             } else {
                                 setIsVerified(true);
                                 setUserType(type);
-                                toast.success("Verifikacija uspešno shranjena.");
                                 
                                 // Refresh user data from users
                                 let { data: updatedUser } = await supabase.from('users').select('*').eq('id', session.user.id).single();
                                 if (updatedUser) {
                                     setUserData(prev => ({ ...prev, ...updatedUser }));
                                 }
+
+                                toast.success("Verifikacija uspešno shranjena.");
+                                
+                                // Small delay to ensure state is updated before redirect
+                                setTimeout(() => {
+                                    setActiveView('grid');
+                                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                                }, 500);
                             }
                         }
                     } catch (err: any) {
@@ -750,8 +760,6 @@ const App: React.FC = () => {
                         toast.error(err.message || "Prišlo je do napake pri verifikaciji.");
                         throw err;
                     }
-                    
-                    setActiveView('grid');
                 }}
             />
         );
