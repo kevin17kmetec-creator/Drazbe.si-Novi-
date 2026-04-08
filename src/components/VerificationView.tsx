@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, User, Building2, CheckCircle2 } from 'lucide-react';
-import { loadStripe } from '@stripe/stripe-js';
+import { ArrowLeft, User, Building2, CheckCircle2, AlertCircle } from 'lucide-react';
 
 export const VerificationView: React.FC<{ onBack: () => void; t: any; onVerify: (type: 'individual' | 'business', data: any) => void; isVerified: boolean; userType: any; initialData?: any }> = ({ onBack, t, onVerify, isVerified, userType, initialData }) => {
     const [type, setType] = useState<'individual' | 'business'>(userType || 'individual');
@@ -11,6 +10,7 @@ export const VerificationView: React.FC<{ onBack: () => void; t: any; onVerify: 
     const [individualData, setIndividualData] = useState({
         firstName: initialData?.first_name || '',
         lastName: initialData?.last_name || '',
+        email: initialData?.email || '',
         street: initialData?.street || '',
         city: initialData?.city || '',
         postalCode: initialData?.postal_code || '',
@@ -19,6 +19,7 @@ export const VerificationView: React.FC<{ onBack: () => void; t: any; onVerify: 
 
     const [businessData, setBusinessData] = useState({
         companyName: initialData?.company_name || '',
+        email: initialData?.email || '',
         taxNumber: initialData?.tax_number || '',
         companyStreet: initialData?.company_street || '',
         companyCity: initialData?.company_city || '',
@@ -26,44 +27,39 @@ export const VerificationView: React.FC<{ onBack: () => void; t: any; onVerify: 
         representative: initialData?.representative || ''
     });
 
+    const validateEmail = (email: string) => {
+        return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+    };
+
+    const validateTaxNumber = (tax: string) => {
+        // Slovenian tax numbers are exactly 8 digits
+        return /^\d{8}$/.test(tax);
+    };
+
     const handleVerify = async (e: React.FormEvent) => {
         e.preventDefault();
         const data = type === 'individual' ? individualData : businessData;
+        
+        // Client-side validation
+        if (!validateEmail(data.email)) {
+            setError("Prosimo, vnesite veljaven e-poštni naslov.");
+            return;
+        }
+
+        if (!validateTaxNumber(data.taxNumber)) {
+            setError("Davčna številka mora vsebovati natanko 8 številk.");
+            return;
+        }
+
         setIsVerifying(true);
         setError(null);
 
         try {
-            // 1. Create VerificationSession on the server
-            const response = await fetch('/api/create-verification-session', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
-            });
-            
-            if (!response.ok) {
-                const errData = await response.json().catch(() => ({}));
-                throw new Error(errData.error || 'Failed to create verification session');
-            }
-            const { clientSecret } = await response.json();
-
-            // 2. Initialize Stripe.js
-            const stripe = await loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY || 'pk_test_TYooMQauvdEDq54NiTphI7jx');
-            if (!stripe) throw new Error('Stripe failed to load');
-
-            // 3. Show the verification modal
-            const { error } = await stripe.verifyIdentity(clientSecret);
-
-            if (error) {
-                console.error("Stripe Identity Error:", error);
-                setIsVerifying(false);
-                return;
-            }
-
-            // 4. If successful, proceed with saving data to Supabase
             await onVerify(type, data);
             setStep(2);
         } catch (error: any) {
             console.error("Verification failed:", error);
-            setError(error.message || "Prišlo je do napake pri povezavi s Stripe Identity.");
+            setError(error.message || "Prišlo je do napake pri shranjevanju podatkov.");
         } finally {
             setIsVerifying(false);
         }
@@ -106,6 +102,7 @@ export const VerificationView: React.FC<{ onBack: () => void; t: any; onVerify: 
                                 <>
                                     <div className="space-y-3"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">Ime</label><input type="text" required value={individualData.firstName} onChange={e => setIndividualData({...individualData, firstName: e.target.value})} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
                                     <div className="space-y-3"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">Priimek</label><input type="text" required value={individualData.lastName} onChange={e => setIndividualData({...individualData, lastName: e.target.value})} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
+                                    <div className="space-y-3 md:col-span-2"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">E-poštni naslov</label><input type="email" required value={individualData.email} onChange={e => setIndividualData({...individualData, email: e.target.value})} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
                                     <div className="space-y-3 md:col-span-2"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">Ulica in hišna številka</label><input type="text" required value={individualData.street} onChange={e => setIndividualData({...individualData, street: e.target.value})} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
                                     <div className="space-y-3"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">Mesto</label><input type="text" required value={individualData.city} onChange={e => setIndividualData({...individualData, city: e.target.value})} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
                                     <div className="space-y-3"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">Poštna številka</label><input type="text" required value={individualData.postalCode} onChange={e => setIndividualData({...individualData, postalCode: e.target.value})} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
@@ -114,6 +111,7 @@ export const VerificationView: React.FC<{ onBack: () => void; t: any; onVerify: 
                             ) : (
                                 <>
                                     <div className="space-y-3 md:col-span-2"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">Naziv podjetja</label><input type="text" required value={businessData.companyName} onChange={e => setBusinessData({...businessData, companyName: e.target.value})} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
+                                    <div className="space-y-3 md:col-span-2"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">E-poštni naslov podjetja</label><input type="email" required value={businessData.email} onChange={e => setBusinessData({...businessData, email: e.target.value})} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
                                     <div className="space-y-3 md:col-span-2"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">Davčna številka</label><input type="text" required value={businessData.taxNumber} onChange={e => setBusinessData({...businessData, taxNumber: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 px-6 font-bold" /></div>
                                     <div className="space-y-3 md:col-span-2"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">Ulica in hišna številka (Sedež podjetja)</label><input type="text" required value={businessData.companyStreet} onChange={e => setBusinessData({...businessData, companyStreet: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 px-6 font-bold" /></div>
                                     <div className="space-y-3"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">Mesto</label><input type="text" required value={businessData.companyCity} onChange={e => setBusinessData({...businessData, companyCity: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 px-6 font-bold" /></div>

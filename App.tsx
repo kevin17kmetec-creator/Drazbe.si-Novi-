@@ -245,6 +245,11 @@ const App: React.FC = () => {
         if (session?.user) {
           
           let { data } = await supabase.from('users').select('*').eq('id', session.user.id).single();
+          let { data: profileData } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
+          
+          if (profileData) {
+            data = { ...data, ...profileData };
+          }
           
           // Rely on Supabase's default session persistence
           setIsLoggedIn(true);
@@ -295,6 +300,11 @@ const App: React.FC = () => {
         setUserData(prev => ({ ...prev, email: session.user.email || '' }));
         try {
           let { data } = await supabase.from('users').select('*').eq('id', session.user.id).single();
+          let { data: profileData } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
+          
+          if (profileData) {
+            data = { ...data, ...profileData };
+          }
           
           // If user doesn't exist in 'users' table, create them now
           if (!data) {
@@ -705,8 +715,11 @@ const App: React.FC = () => {
                         const { data: { session } } = await supabase.auth.getSession();
                         if (session?.user) {
                             const updateData: any = {
+                                id: session.user.id,
+                                email: data.email,
                                 is_verified: true,
-                                user_type: type
+                                user_type: type,
+                                updated_at: new Date().toISOString()
                             };
 
                             if (type === 'individual') {
@@ -725,28 +738,31 @@ const App: React.FC = () => {
                                 updateData.representative = data.representative;
                             }
 
-                            const { error } = await supabase.from('users').upsert({ 
-                                id: session.user.id, 
-                                email: session.user.email,
-                                ...updateData 
-                            });
+                            // Save to profiles table as requested
+                            const { error } = await supabase.from('profiles').upsert(updateData);
                             
                             if (error) {
-                                console.error("Error updating verification status:", error);
-                                toast.error("Napaka pri shranjevanju verifikacije v bazo.");
+                                console.error("Error updating verification status in profiles:", error);
+                                throw new Error("Napaka pri shranjevanju verifikacije v tabelo profiles.");
                             } else {
+                                // Also update users table to keep is_verified in sync if the app relies on it
+                                await supabase.from('users').update({ is_verified: true, user_type: type }).eq('id', session.user.id);
+
                                 setIsVerified(true);
                                 setUserType(type);
                                 toast.success("Verifikacija uspešno shranjena.");
-                                // Refresh user data
-                                let { data: updatedUser } = await supabase.from('users').select('*').eq('id', session.user.id).single();
-                                if (updatedUser) {
-                                    setUserData(prev => ({ ...prev, ...updatedUser }));
+                                
+                                // Refresh user data from profiles
+                                let { data: updatedProfile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
+                                if (updatedProfile) {
+                                    setUserData(prev => ({ ...prev, ...updatedProfile }));
                                 }
                             }
                         }
-                    } catch (err) {
+                    } catch (err: any) {
                         console.error("Error during verification update:", err);
+                        toast.error(err.message || "Prišlo je do napake pri verifikaciji.");
+                        throw err;
                     }
                     
                     setActiveView('grid');
