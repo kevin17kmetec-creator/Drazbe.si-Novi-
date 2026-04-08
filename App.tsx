@@ -59,8 +59,20 @@ const App: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isVerified, setIsVerified] = useState(false);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [userType, setUserType] = useState<'individual' | 'business' | null>(null);
   const [watchedIds, setWatchedIds] = useState<string[]>([]);
+
+  // Redirect to home if logged in and on login page
+  useEffect(() => {
+    if (isLoggedIn && activeView === 'login') {
+      setActiveView('grid');
+      setSelectedRegion(null);
+      setSelectedCategory(null);
+      setSearchQuery('');
+      window.scrollTo({ top: 0, behavior: 'instant' });
+    }
+  }, [isLoggedIn, activeView]);
 
   const toggleWatch = async (id: string) => {
     const newWatchedIds = watchedIds.includes(id) 
@@ -240,15 +252,14 @@ const App: React.FC = () => {
   // Auth Sync
   useEffect(() => {
     const syncAuth = async () => {
+      setIsAuthLoading(true);
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user) {
-          
-          let { data } = await supabase.from('users').select('*').eq('id', session.user.id).single();
-          
-          // Rely on Supabase's default session persistence
           setIsLoggedIn(true);
           setUserData(prev => ({ ...prev, email: session.user.email || '' }));
+          
+          let { data } = await supabase.from('users').select('*').eq('id', session.user.id).single();
           
           // If user doesn't exist in 'users' table, create them now
           if (!data) {
@@ -285,6 +296,8 @@ const App: React.FC = () => {
         }
       } catch (err) {
         console.error("Supabase auth sync error:", err);
+      } finally {
+        setIsAuthLoading(false);
       }
     };
     syncAuth();
@@ -293,6 +306,12 @@ const App: React.FC = () => {
       if (session?.user) {
         setIsLoggedIn(true);
         setUserData(prev => ({ ...prev, email: session.user.email || '' }));
+        
+        // Only show loading if we are signing in or updating
+        if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
+            setIsAuthLoading(true);
+        }
+
         try {
           let { data } = await supabase.from('users').select('*').eq('id', session.user.id).single();
           
@@ -330,11 +349,14 @@ const App: React.FC = () => {
           }
         } catch (err) {
           console.error("Error fetching user data on auth change:", err);
+        } finally {
+          setIsAuthLoading(false);
         }
         fetchAuctions();
       } else {
         setIsLoggedIn(false);
         setIsVerified(false);
+        setIsAuthLoading(false);
         fetchAuctions();
       }
     });
@@ -495,11 +517,7 @@ const App: React.FC = () => {
   };
 
   const handleLogout = async () => {
-    try {
-      await supabase.auth.signOut();
-    } catch (err) {
-      console.error("Error signing out:", err);
-    }
+    // Clear state immediately for better UX
     setIsLoggedIn(false);
     setIsVerified(false);
     setUserType(null);
@@ -507,6 +525,13 @@ const App: React.FC = () => {
     setHasAcceptedTerms(false);
     setBidAuctionIds([]);
     setActiveView('grid');
+    
+    try {
+      await supabase.auth.signOut();
+      toast.success(t('loggedOut') || "Odjava uspešna.");
+    } catch (err) {
+      console.error("Error signing out:", err);
+    }
   };
 
   const handleSubscribe = async (tier: SubscriptionTier) => {
@@ -654,6 +679,7 @@ const App: React.FC = () => {
                 t={t} 
                 onLoginSuccess={() => {
                     setIsLoggedIn(true);
+                    setIsAuthLoading(true);
                     setSelectedRegion(null);
                     setSelectedCategory(null);
                     setSearchQuery('');
@@ -1019,7 +1045,7 @@ const App: React.FC = () => {
       );
   }
 
-  const isBannerActive = isLoggedIn && !isVerified;
+  const isBannerActive = !isAuthLoading && isLoggedIn && !isVerified;
 
   return (
     <div className={`min-h-screen bg-[#f3f4f6] font-sans selection:bg-[#FEBA4F] selection:text-[#0A1128] overflow-x-hidden ${isBannerActive ? 'pt-12' : ''}`}>

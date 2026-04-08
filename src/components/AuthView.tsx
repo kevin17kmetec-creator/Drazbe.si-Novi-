@@ -108,19 +108,20 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
           if (error) throw error;
           
           if (data.user) {
-              // Shrani izbiro "Zapomni si me" v bazo (user_metadata)
-              await supabase.auth.updateUser({
-                  data: { remember_me: rememberMe }
-              });
-              
-              // Poskusi shraniti tudi v users tabelo, če stolpec obstaja
-              try {
-                  await supabase.from('users').update({ remember_me: rememberMe }).eq('id', data.user.id);
-              } catch (e) {
-                  // Ignore if column doesn't exist
-              }
+              // Background updates without blocking the main flow
+              (async () => {
+                  try {
+                      await supabase.auth.updateUser({
+                          data: { remember_me: rememberMe }
+                      });
+                      await supabase.from('users').update({ remember_me: rememberMe }).eq('id', data.user.id);
+                  } catch (e) {
+                      console.warn("Background update error:", e);
+                  }
+              })();
           }
           
+          setLoading(false);
           onLoginSuccess();
       } else {
           const { data, error } = await supabase.auth.signUp({ email, password });
