@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { ArrowLeft, User, Building2, CheckCircle2 } from 'lucide-react';
+import { loadStripe } from '@stripe/stripe-js';
 
 export const VerificationView: React.FC<{ onBack: () => void; t: any; onVerify: (type: 'individual' | 'business', data: any) => void; isVerified: boolean; userType: any; initialData?: any }> = ({ onBack, t, onVerify, isVerified, userType, initialData }) => {
     const [type, setType] = useState<'individual' | 'business'>(userType || 'individual');
     const [step, setStep] = useState(isVerified ? 2 : 1);
+    const [isVerifying, setIsVerifying] = useState(false);
     
     const [individualData, setIndividualData] = useState({
         firstName: initialData?.first_name || '',
@@ -26,11 +28,38 @@ export const VerificationView: React.FC<{ onBack: () => void; t: any; onVerify: 
     const handleVerify = async (e: React.FormEvent) => {
         e.preventDefault();
         const data = type === 'individual' ? individualData : businessData;
+        setIsVerifying(true);
+
         try {
+            // 1. Create VerificationSession on the server
+            const response = await fetch('/api/create-verification-session', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            
+            if (!response.ok) throw new Error('Failed to create verification session');
+            const { clientSecret } = await response.json();
+
+            // 2. Initialize Stripe.js
+            const stripe = await loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY || 'pk_test_TYooMQauvdEDq54NiTphI7jx');
+            if (!stripe) throw new Error('Stripe failed to load');
+
+            // 3. Show the verification modal
+            const { error } = await stripe.verifyIdentity(clientSecret);
+
+            if (error) {
+                console.error("Stripe Identity Error:", error);
+                setIsVerifying(false);
+                return;
+            }
+
+            // 4. If successful, proceed with saving data to Supabase
             await onVerify(type, data);
             setStep(2);
         } catch (error) {
             console.error("Verification failed:", error);
+        } finally {
+            setIsVerifying(false);
         }
     };
 
@@ -82,7 +111,20 @@ export const VerificationView: React.FC<{ onBack: () => void; t: any; onVerify: 
                             )}
                         </div>
 
-                        <button type="submit" className="w-full bg-[#0A1128] text-white py-6 rounded-[2rem] font-black uppercase tracking-widest hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl">Potrdi verifikacijo</button>
+                        <button 
+                            type="submit" 
+                            disabled={isVerifying}
+                            className="w-full bg-[#0A1128] text-white py-6 rounded-[2rem] font-black uppercase tracking-widest hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3"
+                        >
+                            {isVerifying ? (
+                                <>
+                                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                    Procesiranje...
+                                </>
+                            ) : (
+                                'Potrdi verifikacijo'
+                            )}
+                        </button>
                     </form>
                 ) : (
                     <div className="text-center py-12 space-y-8">

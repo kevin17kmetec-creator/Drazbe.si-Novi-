@@ -46,6 +46,25 @@ async function startServer() {
     }
   });
 
+  app.post("/api/create-verification-session", async (req, res) => {
+    try {
+      const stripe = getStripe();
+      const session = await stripe.identity.verificationSessions.create({
+        type: 'document',
+        options: {
+          document: {
+            require_id_number: true,
+            require_matching_selfie: true,
+          },
+        },
+      });
+      res.json({ clientSecret: session.client_secret });
+    } catch (error: any) {
+      console.error("Stripe Identity error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

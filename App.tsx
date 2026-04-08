@@ -213,16 +213,27 @@ const App: React.FC = () => {
 
     fetchWinnings();
 
-    try {
-      const channel = supabase.channel('public:auctions')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'auctions' }, () => {
-          fetchAuctions();
-        })
-        .subscribe();
+    // Real-time subscription with WebSocket check
+    if (typeof window !== 'undefined' && window.WebSocket) {
+      try {
+        const channel = supabase.channel('public:auctions')
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'auctions' }, () => {
+            fetchAuctions();
+          })
+          .subscribe((status) => {
+            if (status === 'CHANNEL_ERROR') {
+              console.warn("Supabase Realtime channel error. Live updates might be unavailable.");
+            }
+          });
 
-      return () => { supabase.removeChannel(channel); };
-    } catch (err) {
-      console.error("Supabase error in channel subscription:", err);
+        return () => { 
+          supabase.removeChannel(channel); 
+        };
+      } catch (err) {
+        console.warn("Supabase Realtime subscription failed:", err);
+      }
+    } else {
+      console.warn("WebSockets are not supported or blocked in this environment. Real-time updates are disabled.");
     }
   }, []);
 
