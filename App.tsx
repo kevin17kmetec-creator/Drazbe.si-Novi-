@@ -581,9 +581,13 @@ const App: React.FC = () => {
   };
 
   const handleSaveSettings = async (data: any) => {
+    console.log("handleSaveSettings called with data:", data);
     try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session?.user) return;
+        if (!userData?.id) {
+            console.log("No user ID found in state");
+            toast.error("Uporabnik ni prijavljen.");
+            return;
+        }
 
         // Update password if provided
         if (data.newPassword) {
@@ -611,9 +615,9 @@ const App: React.FC = () => {
         };
 
         const updatePromise = supabase.from('users').update({ 
-            email: session.user.email,
+            email: userData.email,
             ...updateData 
-        }).eq('id', session.user.id).select().single();
+        }).eq('id', userData.id).select().single();
 
         const timeoutPromise = new Promise((_, reject) => 
             setTimeout(() => reject(new Error("Povezava s strežnikom je potekla. Prosimo, poskusite znova.")), 8000)
@@ -809,12 +813,6 @@ const App: React.FC = () => {
                         }
 
                         toast.success("Verifikacija uspešna!");
-                        
-                        setTimeout(() => {
-                            setActiveView('grid');
-                            window.scrollTo({ top: 0, behavior: 'smooth' });
-                        }, 800);
-
                         return true;
                     } catch (err: any) {
                         console.error("Detailed verification error:", err);
@@ -1096,7 +1094,24 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-[#f3f4f6] font-sans selection:bg-[#FEBA4F] selection:text-[#0A1128] overflow-x-hidden">
-        <Toaster position="top-center" duration={2000} />
+        <Toaster 
+            position="top-center" 
+            duration={4000} 
+            toastOptions={{
+                style: {
+                    background: '#0A1128',
+                    color: '#ffffff',
+                    border: '1px solid #FEBA4F',
+                    borderRadius: '1rem',
+                    padding: '16px 20px',
+                    fontSize: '14px',
+                    fontWeight: 'bold',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em'
+                },
+                className: 'shadow-2xl'
+            }} 
+        />
         <VerificationBanner isVisible={isBannerActive} onAction={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('verification'); }} t={t} />
         <Header 
             onHome={() => { setActiveView('grid'); setSelectedRegion(null); setSelectedCategory(null); setSearchQuery(''); }} 

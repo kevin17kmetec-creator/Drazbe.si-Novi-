@@ -44,6 +44,7 @@ export const SettingsView: React.FC<{ t: any; user: any; onSave: (data: any) => 
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
+    console.log("Settings form submitted with data:", formData);
     if (formData.newPassword && formData.newPassword !== formData.confirmPassword) {
       toast.error(t('passwordsNotMatch'));
       return;
@@ -170,7 +171,7 @@ export const SettingsView: React.FC<{ t: any; user: any; onSave: (data: any) => 
           </div>
         </div>
 
-        <button type="submit" className="w-full bg-[#0A1128] text-white py-5 rounded-2xl font-black uppercase tracking-widest hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl">
+        <button type="button" onClick={handleSave} className="w-full bg-[#0A1128] text-white py-5 rounded-2xl font-black uppercase tracking-widest hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl">
           {t('saveChanges')}
         </button>
       </form>

@@ -56,7 +56,7 @@ export const VerificationView: React.FC<{ onBack: () => void; t: any; onVerify: 
 
         try {
             await onVerify(type, data);
-            setStep(2);
+            onBack();
         } catch (error: any) {
             console.error("Verification failed:", error);
             setError(error.message || "Prišlo je do napake pri shranjevanju podatkov.");
