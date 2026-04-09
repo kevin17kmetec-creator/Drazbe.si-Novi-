@@ -734,61 +734,90 @@ const App: React.FC = () => {
                 userType={userType}
                 initialData={userData}
                 onVerify={async (type, data) => {
+                    console.log("Starting verification process for type:", type, "with data:", data);
                     try {
                         const { data: { session } } = await supabase.auth.getSession();
-                        if (session?.user) {
-                            const updateData: any = {
-                                id: session.user.id,
-                                email: data.email,
-                                is_verified: true,
-                                user_type: type
-                            };
-
-                            if (type === 'individual') {
-                                updateData.first_name = data.firstName;
-                                updateData.last_name = data.lastName;
-                                updateData.street = data.street;
-                                updateData.city = data.city;
-                                updateData.postal_code = data.postalCode;
-                                updateData.tax_number = data.taxNumber;
-                            } else {
-                                updateData.company_name = data.companyName;
-                                updateData.tax_number = data.taxNumber;
-                                updateData.company_street = data.companyStreet;
-                                updateData.company_city = data.companyCity;
-                                updateData.company_postal_code = data.companyPostalCode;
-                                updateData.representative = data.representative;
-                            }
-
-                            // Save to users table as requested
-                            const { error } = await supabase.from('users').upsert(updateData);
-                            
-                            if (error) {
-                                console.error("Error updating verification status in users:", error);
-                                throw new Error("Napaka pri shranjevanju verifikacije v tabelo users.");
-                            } else {
-                                setIsVerified(true);
-                                setUserType(type);
-                                
-                                // Refresh user data from users
-                                let { data: updatedUser } = await supabase.from('users').select('*').eq('id', session.user.id).single();
-                                if (updatedUser) {
-                                    setUserData(prev => ({ ...prev, ...updatedUser }));
-                                }
-
-                                toast.success("Verifikacija uspešno shranjena.");
-                                
-                                // Small delay to ensure state is updated before redirect
-                                setTimeout(() => {
-                                    setActiveView('grid');
-                                    window.scrollTo({ top: 0, behavior: 'smooth' });
-                                }, 500);
-                            }
+                        if (!session?.user) {
+                            throw new Error("Uporabnik ni prijavljen.");
                         }
+
+                        // Prepare data to override ALL relevant fields
+                        // This ensures old data from previous verification is cleared
+                        const updateData: any = {
+                            id: session.user.id,
+                            email: data.email,
+                            is_verified: true,
+                            user_type: type,
+                            // Reset all fields first to ensure override
+                            first_name: null,
+                            last_name: null,
+                            street: null,
+                            city: null,
+                            postal_code: null,
+                            tax_number: null,
+                            company_name: null,
+                            company_street: null,
+                            company_city: null,
+                            company_postal_code: null,
+                            representative: null
+                        };
+
+                        if (type === 'individual') {
+                            updateData.first_name = data.firstName;
+                            updateData.last_name = data.lastName;
+                            updateData.street = data.street;
+                            updateData.city = data.city;
+                            updateData.postal_code = data.postalCode;
+                            updateData.tax_number = data.taxNumber;
+                        } else {
+                            updateData.company_name = data.companyName;
+                            updateData.tax_number = data.taxNumber;
+                            updateData.company_street = data.companyStreet;
+                            updateData.company_city = data.companyCity;
+                            updateData.company_postal_code = data.companyPostalCode;
+                            updateData.representative = data.representative;
+                        }
+
+                        console.log("Upserting verification data:", updateData);
+                        
+                        // Use upsert with onConflict to ensure it replaces the record
+                        const { error } = await supabase.from('users').upsert(updateData, { onConflict: 'id' });
+                        
+                        if (error) {
+                            console.error("Supabase upsert error:", error);
+                            throw new Error(`Napaka pri shranjevanju: ${error.message}`);
+                        }
+
+                        console.log("Verification data saved successfully.");
+                        setIsVerified(true);
+                        setUserType(type);
+                        
+                        // Refresh user data
+                        const { data: updatedUser, error: fetchError } = await supabase
+                            .from('users')
+                            .select('*')
+                            .eq('id', session.user.id)
+                            .single();
+                            
+                        if (fetchError) {
+                            console.warn("Could not fetch updated user data:", fetchError);
+                        } else if (updatedUser) {
+                            setUserData(prev => ({ ...prev, ...updatedUser, is_verified: true }));
+                        }
+
+                        toast.success("Verifikacija uspešna!");
+                        
+                        // Redirect to home
+                        setTimeout(() => {
+                            setActiveView('grid');
+                            window.scrollTo({ top: 0, behavior: 'smooth' });
+                        }, 800);
+
+                        return true; // Resolve the promise for VerificationView
                     } catch (err: any) {
-                        console.error("Error during verification update:", err);
+                        console.error("Detailed verification error:", err);
                         toast.error(err.message || "Prišlo je do napake pri verifikaciji.");
-                        throw err;
+                        throw err; // Reject the promise so VerificationView stops loading
                     }
                 }}
             />
