@@ -98,7 +98,7 @@ const App: React.FC = () => {
   const [currentPlan, setCurrentPlan] = useState<SubscriptionTier>(SubscriptionTier.FREE);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [checkoutData, setCheckoutData] = useState<{ amount: number; title: string; onSuccess: () => void } | null>(null);
-  const [userData, setUserData] = useState({ firstName: '', lastName: '', email: '', profilePicture: '', is_verified: false });
+  const [userData, setUserData] = useState({ id: '', firstName: '', lastName: '', email: '', profilePicture: '', is_verified: false });
   
   const [selectedItem, setSelectedItem] = useState<AuctionItem | null>(null);
   const [selectedSeller, setSelectedSeller] = useState<Seller | null>(null);
@@ -281,7 +281,7 @@ const App: React.FC = () => {
             const verified = !!(data.is_verified || data.isVerified || data.isverified);
             setIsVerified(verified);
             setUserType(data.user_type || data.userType || 'individual');
-            setUserData(prev => ({ ...prev, ...data, is_verified: verified }));
+            setUserData(prev => ({ ...prev, ...data, id: session.user.id, is_verified: verified }));
             if (data.watched_auctions) {
               setWatchedIds(data.watched_auctions);
             }
@@ -337,7 +337,7 @@ const App: React.FC = () => {
             const verified = !!(data.is_verified || data.isVerified || data.isverified);
             setIsVerified(verified);
             setUserType(data.user_type || data.userType || 'individual');
-            setUserData(prev => ({ ...prev, ...data, is_verified: verified }));
+            setUserData(prev => ({ ...prev, ...data, id: session.user.id, is_verified: verified }));
             if (data.watched_auctions) {
               setWatchedIds(data.watched_auctions);
             }
@@ -736,51 +736,42 @@ const App: React.FC = () => {
                 onVerify={async (type, data) => {
                     console.log("Starting verification process for type:", type, "with data:", data);
                     try {
-                        const { data: { session } } = await supabase.auth.getSession();
-                        if (!session?.user) {
+                        let userId = userData.id;
+                        
+                        if (!userId) {
+                            console.log("No userId in state, fetching session...");
+                            const { data: { session } } = await supabase.auth.getSession();
+                            userId = session?.user?.id || '';
+                            console.log("Session fetched:", userId);
+                        } else {
+                            console.log("Using userId from state:", userId);
+                        }
+                        
+                        if (!userId) {
                             throw new Error("Uporabnik ni prijavljen.");
                         }
 
                         // Prepare data to override ALL relevant fields
-                        // This ensures old data from previous verification is cleared
                         const updateData: any = {
-                            id: session.user.id,
+                            id: userId,
                             email: data.email,
                             is_verified: true,
                             user_type: type,
-                            // Reset all fields first to ensure override
-                            first_name: null,
-                            last_name: null,
-                            street: null,
-                            city: null,
-                            postal_code: null,
-                            tax_number: null,
-                            company_name: null,
-                            company_street: null,
-                            company_city: null,
-                            company_postal_code: null,
-                            representative: null
+                            first_name: data.firstName || null,
+                            last_name: data.lastName || null,
+                            street: data.street || null,
+                            city: data.city || null,
+                            postal_code: data.postalCode || null,
+                            tax_number: data.taxNumber || null,
+                            company_name: data.companyName || null,
+                            company_street: data.companyStreet || null,
+                            company_city: data.companyCity || null,
+                            company_postal_code: data.companyPostalCode || null,
+                            representative: data.representative || null
                         };
-
-                        if (type === 'individual') {
-                            updateData.first_name = data.firstName;
-                            updateData.last_name = data.lastName;
-                            updateData.street = data.street;
-                            updateData.city = data.city;
-                            updateData.postal_code = data.postalCode;
-                            updateData.tax_number = data.taxNumber;
-                        } else {
-                            updateData.company_name = data.companyName;
-                            updateData.tax_number = data.taxNumber;
-                            updateData.company_street = data.companyStreet;
-                            updateData.company_city = data.companyCity;
-                            updateData.company_postal_code = data.companyPostalCode;
-                            updateData.representative = data.representative;
-                        }
 
                         console.log("Upserting verification data:", updateData);
                         
-                        // Use upsert with onConflict to ensure it replaces the record
                         const { error } = await supabase.from('users').upsert(updateData, { onConflict: 'id' });
                         
                         if (error) {
@@ -788,36 +779,33 @@ const App: React.FC = () => {
                             throw new Error(`Napaka pri shranjevanju: ${error.message}`);
                         }
 
-                        console.log("Verification data saved successfully.");
+                        console.log("Verification data saved successfully. Updating state...");
                         setIsVerified(true);
                         setUserType(type);
                         
-                        // Refresh user data
-                        const { data: updatedUser, error: fetchError } = await supabase
+                        const { data: updatedUser } = await supabase
                             .from('users')
                             .select('*')
-                            .eq('id', session.user.id)
+                            .eq('id', userId)
                             .single();
                             
-                        if (fetchError) {
-                            console.warn("Could not fetch updated user data:", fetchError);
-                        } else if (updatedUser) {
-                            setUserData(prev => ({ ...prev, ...updatedUser, is_verified: true }));
+                        if (updatedUser) {
+                            console.log("Updated user data fetched:", updatedUser);
+                            setUserData(prev => ({ ...prev, ...updatedUser, id: userId, is_verified: true }));
                         }
 
                         toast.success("Verifikacija uspešna!");
                         
-                        // Redirect to home
                         setTimeout(() => {
                             setActiveView('grid');
                             window.scrollTo({ top: 0, behavior: 'smooth' });
                         }, 800);
 
-                        return true; // Resolve the promise for VerificationView
+                        return true;
                     } catch (err: any) {
                         console.error("Detailed verification error:", err);
                         toast.error(err.message || "Prišlo je do napake pri verifikaciji.");
-                        throw err; // Reject the promise so VerificationView stops loading
+                        throw err;
                     }
                 }}
             />
