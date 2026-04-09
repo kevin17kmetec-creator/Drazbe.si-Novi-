@@ -277,7 +277,8 @@ const App: React.FC = () => {
           }
 
           if (data) {
-            setIsVerified(data.isVerified || data.is_verified);
+            console.log("Auth Sync - User data:", data);
+            setIsVerified(data.is_verified === true);
             setUserType(data.userType || data.user_type);
             setUserData(prev => ({ ...prev, ...data }));
             if (data.watched_auctions) {
@@ -331,7 +332,8 @@ const App: React.FC = () => {
           }
 
           if (data) {
-            setIsVerified(data.isVerified || data.is_verified);
+            console.log("Auth State Change - User data:", data);
+            setIsVerified(data.is_verified === true);
             setUserType(data.userType || data.user_type);
             setUserData(prev => ({ ...prev, ...data }));
             if (data.watched_auctions) {
@@ -1044,6 +1046,10 @@ const App: React.FC = () => {
         </div>
       );
   }
+
+  useEffect(() => {
+    console.log("Banner State Debug:", { isAuthLoading, isLoggedIn, isVerified, isBannerActive: !isAuthLoading && isLoggedIn && !isVerified });
+  }, [isAuthLoading, isLoggedIn, isVerified]);
 
   const isBannerActive = !isAuthLoading && isLoggedIn && !isVerified;
 

@@ -80,7 +80,12 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
                 const mimeType = file.type;
 
                 try {
-                    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+                    const apiKey = process.env.GEMINI_API_KEY || '';
+                    if (!apiKey) {
+                        throw new Error('Gemini API Key is missing');
+                    }
+                    const ai = new GoogleGenAI({ apiKey });
+                    
                     const response = await ai.models.generateContent({
                         model: 'gemini-2.5-flash-image',
                         contents: {
@@ -100,6 +105,7 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
 
                     let newImageUrl = null;
                     let newBase64 = null;
+                    // Iterate through parts to find the image part as per skill
                     for (const part of response.candidates?.[0]?.content?.parts || []) {
                         if (part.inlineData) {
                             newBase64 = part.inlineData.data;
@@ -130,11 +136,13 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
                         });
                         toast.success('Slika uspešno polepšana!');
                     } else {
-                        toast.error('Ni bilo mogoče polepšati slike.');
+                        // If no image part was returned, it might have just returned text
+                        toast.info('Slika analizirana, vendar ni bila neposredno spremenjena.');
                     }
+                    
                 } catch (err) {
                     console.error("Gemini API error:", err);
-                    toast.error('Napaka pri polepšanju slike.');
+                    toast.error('Napaka pri polepšanju slike. Preverite API ključ.');
                 } finally {
                     setEnhancingIndex(null);
                 }
@@ -194,7 +202,7 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
                 }
             }
             
-            onPublish({ 
+            await onPublish({ 
                 title: { SLO: formData.title },
                 startingPrice: formData.startingPrice,
                 description: formData.description,
