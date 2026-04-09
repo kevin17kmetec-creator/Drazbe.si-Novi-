@@ -98,7 +98,7 @@ const App: React.FC = () => {
   const [currentPlan, setCurrentPlan] = useState<SubscriptionTier>(SubscriptionTier.FREE);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [checkoutData, setCheckoutData] = useState<{ amount: number; title: string; onSuccess: () => void } | null>(null);
-  const [userData, setUserData] = useState({ firstName: '', lastName: '', email: '', profilePicture: '' });
+  const [userData, setUserData] = useState({ firstName: '', lastName: '', email: '', profilePicture: '', is_verified: false });
   
   const [selectedItem, setSelectedItem] = useState<AuctionItem | null>(null);
   const [selectedSeller, setSelectedSeller] = useState<Seller | null>(null);
@@ -278,9 +278,10 @@ const App: React.FC = () => {
 
           if (data) {
             console.log("Auth Sync - User data:", data);
-            setIsVerified(data.is_verified === true);
-            setUserType(data.userType || data.user_type);
-            setUserData(prev => ({ ...prev, ...data }));
+            const verified = !!(data.is_verified || data.isVerified || data.isverified);
+            setIsVerified(verified);
+            setUserType(data.user_type || data.userType || 'individual');
+            setUserData(prev => ({ ...prev, ...data, is_verified: verified }));
             if (data.watched_auctions) {
               setWatchedIds(data.watched_auctions);
             }
@@ -333,9 +334,10 @@ const App: React.FC = () => {
 
           if (data) {
             console.log("Auth State Change - User data:", data);
-            setIsVerified(data.is_verified === true);
-            setUserType(data.userType || data.user_type);
-            setUserData(prev => ({ ...prev, ...data }));
+            const verified = !!(data.is_verified || data.isVerified || data.isverified);
+            setIsVerified(verified);
+            setUserType(data.user_type || data.userType || 'individual');
+            setUserData(prev => ({ ...prev, ...data, is_verified: verified }));
             if (data.watched_auctions) {
               setWatchedIds(data.watched_auctions);
             }
@@ -793,7 +795,7 @@ const App: React.FC = () => {
         );
         break;
     case 'settings':
-        content = <SettingsView t={t} user={userData} onSave={handleSaveSettings} />;
+        content = <SettingsView t={t} user={userData} onSave={handleSaveSettings} onVerify={() => setActiveView('verification')} />;
         break;
     case 'subscriptions':
         content = <SubscriptionsView t={t} currentPlan={currentPlan} onSubscribe={handleSubscribe} isVerified={isVerified} />;
@@ -1047,14 +1049,22 @@ const App: React.FC = () => {
       );
   }
 
-  useEffect(() => {
-    console.log("Banner State Debug:", { isAuthLoading, isLoggedIn, isVerified, isBannerActive: !isAuthLoading && isLoggedIn && !isVerified });
-  }, [isAuthLoading, isLoggedIn, isVerified]);
+  // Banner is active if user is logged in and not verified
+  const isBannerActive = isLoggedIn && !isVerified;
 
-  const isBannerActive = !isAuthLoading && isLoggedIn && !isVerified;
+  // Sync isVerified state with userData as a fallback
+  useEffect(() => {
+    const userDataVerified = !!(userData as any).is_verified || !!(userData as any).isVerified || !!(userData as any).isverified;
+    if (isLoggedIn && isVerified !== userDataVerified) {
+      console.log("Syncing isVerified from userData:", userDataVerified);
+      setIsVerified(userDataVerified);
+    }
+  }, [userData, isLoggedIn, isVerified]);
+
+  console.log("RENDER DEBUG:", { isLoggedIn, isVerified, isBannerActive });
 
   return (
-    <div className={`min-h-screen bg-[#f3f4f6] font-sans selection:bg-[#FEBA4F] selection:text-[#0A1128] overflow-x-hidden ${isBannerActive ? 'pt-12' : ''}`}>
+    <div className="min-h-screen bg-[#f3f4f6] font-sans selection:bg-[#FEBA4F] selection:text-[#0A1128] overflow-x-hidden">
         <Toaster position="top-center" duration={2000} />
         <VerificationBanner isVisible={isBannerActive} onAction={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('verification'); }} t={t} />
         <Header 

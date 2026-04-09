@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import { User, Camera, CheckCircle2, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
-export const SettingsView: React.FC<{ t: any; user: any; onSave: (data: any) => void }> = ({ t, user, onSave }) => {
+export const SettingsView: React.FC<{ t: any; user: any; onSave: (data: any) => void; onVerify: () => void }> = ({ t, user, onSave, onVerify }) => {
   const [formData, setFormData] = useState({
     username: user?.username || '',
     firstName: user?.first_name || user?.firstName || '',
@@ -95,8 +95,17 @@ export const SettingsView: React.FC<{ t: any; user: any; onSave: (data: any) => 
                         <CheckCircle2 size={16} /> Verificiran ({userType === 'business' ? 'Podjetje' : 'Fizična oseba'})
                     </div>
                 ) : (
-                    <div className="inline-flex items-center gap-2 px-4 py-2 bg-red-50 text-red-500 rounded-full text-xs font-black uppercase tracking-widest border border-red-100">
-                        <AlertCircle size={16} /> Ni verificiran
+                    <div className="flex flex-col items-end gap-3">
+                        <div className="inline-flex items-center gap-2 px-4 py-2 bg-red-50 text-red-500 rounded-full text-xs font-black uppercase tracking-widest border border-red-100">
+                            <AlertCircle size={16} /> Ni verificiran
+                        </div>
+                        <button 
+                            type="button" 
+                            onClick={onVerify}
+                            className="text-[10px] font-black uppercase tracking-widest bg-[#0A1128] text-white px-4 py-2 rounded-xl hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-lg"
+                        >
+                            Verificiraj se zdaj
+                        </button>
                     </div>
                 )}
             </div>
