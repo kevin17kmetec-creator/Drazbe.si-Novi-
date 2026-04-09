@@ -312,57 +312,57 @@ const App: React.FC = () => {
         setIsLoggedIn(true);
         setUserData(prev => ({ ...prev, email: session.user.email || '' }));
         
-        // Only show loading if we are signing in or updating
+        // Only fetch user data from DB on initial load or sign in to prevent infinite loops
+        // if a DB query triggers a token refresh which triggers another DB query.
         if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
             setIsAuthLoading(true);
-        }
-
-        try {
-          let { data } = await supabase.from('users').select('*').eq('id', session.user.id).single();
-          
-          // If user doesn't exist in 'users' table, create them now
-          if (!data) {
-              const { data: newUser, error: insertError } = await supabase.from('users').insert({ 
-                  id: session.user.id, 
-                  email: session.user.email, 
-                  is_verified: false, 
-                  unpaid_strikes: 0, 
-                  subscription: 'FREE' 
-              }).select().single();
+            try {
+              let { data } = await supabase.from('users').select('*').eq('id', session.user.id).single();
               
-              if (!insertError && newUser) {
-                  data = newUser;
-              } else {
-                  const { data: existingUser } = await supabase.from('users').select('*').eq('id', session.user.id).single();
-                  if (existingUser) data = existingUser;
+              // If user doesn't exist in 'users' table, create them now
+              if (!data) {
+                  const { data: newUser, error: insertError } = await supabase.from('users').insert({ 
+                      id: session.user.id, 
+                      email: session.user.email, 
+                      is_verified: false, 
+                      unpaid_strikes: 0, 
+                      subscription: 'FREE' 
+                  }).select().single();
+                  
+                  if (!insertError && newUser) {
+                      data = newUser;
+                  } else {
+                      const { data: existingUser } = await supabase.from('users').select('*').eq('id', session.user.id).single();
+                      if (existingUser) data = existingUser;
+                  }
               }
-          }
 
-          if (data) {
-            console.log("Auth State Change - User data:", data);
-            const verified = !!(data.is_verified || data.isVerified || data.isverified);
-            setIsVerified(verified);
-            setUserType(data.user_type || data.userType || 'individual');
-            setUserData(prev => ({ ...prev, ...data, id: session.user.id, is_verified: verified }));
-            if (data.watched_auctions) {
-              setWatchedIds(data.watched_auctions);
+              if (data) {
+                console.log("Auth State Change - User data:", data);
+                const verified = !!(data.is_verified || data.isVerified || data.isverified);
+                setIsVerified(verified);
+                setUserType(data.user_type || data.userType || 'individual');
+                setUserData(prev => ({ ...prev, ...data, id: session.user.id, is_verified: verified }));
+                if (data.watched_auctions) {
+                  setWatchedIds(data.watched_auctions);
+                }
+                if (data.has_accepted_terms) {
+                  setHasAcceptedTerms(true);
+                }
+                if (data.bid_auction_ids) {
+                  setBidAuctionIds(data.bid_auction_ids);
+                }
+                if (data.subscription) {
+                  setCurrentPlan(data.subscription);
+                }
+              }
+            } catch (err) {
+              console.error("Error fetching user data on auth change:", err);
+            } finally {
+              setIsAuthLoading(false);
             }
-            if (data.has_accepted_terms) {
-              setHasAcceptedTerms(true);
-            }
-            if (data.bid_auction_ids) {
-              setBidAuctionIds(data.bid_auction_ids);
-            }
-            if (data.subscription) {
-              setCurrentPlan(data.subscription);
-            }
-          }
-        } catch (err) {
-          console.error("Error fetching user data on auth change:", err);
-        } finally {
-          setIsAuthLoading(false);
+            fetchAuctions();
         }
-        fetchAuctions();
       } else {
         setIsLoggedIn(false);
         setIsVerified(false);
@@ -610,9 +610,6 @@ const App: React.FC = () => {
             representative: data.representative
         };
 
-        // Force session refresh to prevent hanging on expired tokens
-        await supabase.auth.getSession();
-
         const updatePromise = supabase.from('users').update({ 
             email: session.user.email,
             ...updateData 
@@ -783,9 +780,6 @@ const App: React.FC = () => {
                         };
 
                         console.log("Updating verification data:", updateData);
-                        
-                        // Force session refresh to prevent hanging on expired tokens
-                        await supabase.auth.getSession();
                         
                         const updatePromise = supabase
                             .from('users')
