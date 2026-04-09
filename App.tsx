@@ -273,6 +273,9 @@ const App: React.FC = () => {
               
               if (!insertError && newUser) {
                   data = newUser;
+              } else {
+                  const { data: existingUser } = await supabase.from('users').select('*').eq('id', session.user.id).single();
+                  if (existingUser) data = existingUser;
               }
           }
 
@@ -329,6 +332,9 @@ const App: React.FC = () => {
               
               if (!insertError && newUser) {
                   data = newUser;
+              } else {
+                  const { data: existingUser } = await supabase.from('users').select('*').eq('id', session.user.id).single();
+                  if (existingUser) data = existingUser;
               }
           }
 
@@ -604,11 +610,19 @@ const App: React.FC = () => {
             representative: data.representative
         };
 
-        const { error } = await supabase.from('users').upsert({ 
-            id: session.user.id, 
+        // Force session refresh to prevent hanging on expired tokens
+        await supabase.auth.getSession();
+
+        const updatePromise = supabase.from('users').update({ 
             email: session.user.email,
             ...updateData 
-        });
+        }).eq('id', session.user.id).select().single();
+
+        const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error("Povezava s strežnikom je potekla. Prosimo, poskusite znova.")), 8000)
+        );
+
+        const { data: updatedUser, error } = await Promise.race([updatePromise, timeoutPromise]) as any;
 
         if (error) {
             if (error.code === '23505' && error.message.includes('username')) {
@@ -619,8 +633,6 @@ const App: React.FC = () => {
             return;
         }
 
-        // Refresh user data
-        let { data: updatedUser } = await supabase.from('users').select('*').eq('id', session.user.id).single();
         if (updatedUser) {
             setUserData(prev => ({ ...prev, ...updatedUser }));
         }
@@ -770,24 +782,32 @@ const App: React.FC = () => {
                             representative: data.representative || null
                         };
 
-                        console.log("Upserting verification data:", updateData);
+                        console.log("Updating verification data:", updateData);
                         
-                        const { error } = await supabase.from('users').upsert(updateData, { onConflict: 'id' });
+                        // Force session refresh to prevent hanging on expired tokens
+                        await supabase.auth.getSession();
+                        
+                        const updatePromise = supabase
+                            .from('users')
+                            .update(updateData)
+                            .eq('id', userId)
+                            .select()
+                            .single();
+                            
+                        const timeoutPromise = new Promise((_, reject) => 
+                            setTimeout(() => reject(new Error("Povezava s strežnikom je potekla. Prosimo, osvežite stran in poskusite znova.")), 8000)
+                        );
+                        
+                        const { data: updatedUser, error } = await Promise.race([updatePromise, timeoutPromise]) as any;
                         
                         if (error) {
-                            console.error("Supabase upsert error:", error);
+                            console.error("Supabase update error:", error);
                             throw new Error(`Napaka pri shranjevanju: ${error.message}`);
                         }
 
                         console.log("Verification data saved successfully. Updating state...");
                         setIsVerified(true);
                         setUserType(type);
-                        
-                        const { data: updatedUser } = await supabase
-                            .from('users')
-                            .select('*')
-                            .eq('id', userId)
-                            .single();
                             
                         if (updatedUser) {
                             console.log("Updated user data fetched:", updatedUser);
