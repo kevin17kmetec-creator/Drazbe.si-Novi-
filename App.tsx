@@ -157,6 +157,7 @@ const App: React.FC = () => {
               ...d,
               endTime: new Date(d.end_time || d.endTime),
               currentBid: d.current_price || d.currentBid,
+              hiddenMaxBid: d.hidden_max_bid || d.hiddenMaxBid,
               bidCount: d.bid_count || d.bidCount,
               sellerName: d.sellerName || sellerName
           };
@@ -393,23 +394,86 @@ const App: React.FC = () => {
         return false;
     }
     
-    // Check if item.id is a valid UUID before calling RPC
-    const isUUID = (id: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
-    
-    if (isUUID(item.id)) {
+    // Proxy Bidding Logic
+    if (IS_LIVE || item.id.includes('-') || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.id)) {
         try {
-            const { error } = await supabase.rpc('place_bid_transaction', {
-                p_auction_id: item.id,
-                p_amount: amount
-            });
-            if (error) {
-                console.error("RPC Error:", error);
-                toast.error(error.message || "Napaka pri oddaji ponudbe");
-                throw new Error(error.message || "Napaka pri oddaji ponudbe");
+            // 1. Fetch latest auction state
+            const { data: auction, error: fetchError } = await supabase
+                .from('auctions')
+                .select('*')
+                .eq('id', item.id)
+                .single();
+
+            if (fetchError || !auction) {
+                console.error("Fetch Error:", fetchError);
+                toast.error("Napaka pri pridobivanju podatkov o dražbi.");
+                return false;
             }
+
+            const currentPrice = auction.current_price || 0;
+            const currentWinnerId = auction.winner_id;
+            const currentMaxBid = auction.hidden_max_bid || 0;
+            const increment = getIncrement(currentPrice);
+
+            let newPrice = currentPrice;
+            let newWinnerId = currentWinnerId;
+            let newMaxBid = currentMaxBid;
+            let outbiddenImmediately = false;
+
+            if (!currentWinnerId) {
+                // First bid
+                newPrice = currentPrice; 
+                newWinnerId = userData.id;
+                newMaxBid = amount;
+            } else if (userData.id === currentWinnerId) {
+                // Same user increasing their own max bid
+                if (amount <= currentMaxBid) {
+                    toast.error("Vaša trenutna najvišja ponudba je že višja.");
+                    return false;
+                }
+                newMaxBid = amount;
+            } else {
+                // New bidder
+                if (amount > currentMaxBid) {
+                    // New bidder takes the lead
+                    newPrice = Math.max(currentPrice + increment, currentMaxBid + increment);
+                    if (newPrice > amount) newPrice = amount;
+                    newWinnerId = userData.id;
+                    newMaxBid = amount;
+                } else {
+                    // New bidder is lower or equal to current max
+                    newPrice = Math.min(amount + increment, currentMaxBid);
+                    newWinnerId = currentWinnerId;
+                    newMaxBid = currentMaxBid;
+                    outbiddenImmediately = true;
+                }
+            }
+
+            // 2. Update auction
+            const { error: updateError } = await supabase
+                .from('auctions')
+                .update({
+                    current_price: newPrice,
+                    winner_id: newWinnerId,
+                    hidden_max_bid: newMaxBid,
+                    bid_count: (auction.bid_count || 0) + 1
+                })
+                .eq('id', item.id);
+
+            if (updateError) {
+                console.error("Update Error:", updateError);
+                toast.error("Napaka pri oddaji ponudbe.");
+                return false;
+            }
+
             const newBidIds = Array.from(new Set([...bidAuctionIds, item.id]));
             setBidAuctionIds(newBidIds);
-            toast.success("Ponudba uspešno oddana!");
+            
+            if (outbiddenImmediately) {
+                toast.info("Vaša ponudba je bila takoj presežena s strani drugega uporabnika.");
+            } else {
+                toast.success("Ponudba uspešno oddana!");
+            }
             
             try {
               const { data: { session } } = await supabase.auth.getSession();
@@ -426,7 +490,8 @@ const App: React.FC = () => {
             return true;
         } catch (error: any) { 
             console.error(error); 
-            throw error;
+            toast.error("Prišlo je do napake pri oddaji ponudbe.");
+            return false;
         }
     } else {
         // Handle mock auctions locally
@@ -862,6 +927,7 @@ const App: React.FC = () => {
                                 t={t} 
                                 language={language} 
                                 isVerified={isVerified} 
+                                currentUserId={userData.id}
                                 isWatched={watchedIds.includes(item.id)}
                                 onWatchToggle={() => toggleWatch(item.id)}
                                 onClick={() => { setSelectedItem(item); setActiveView('detail'); }} 
@@ -979,6 +1045,7 @@ const App: React.FC = () => {
                                 t={t} 
                                 language={language} 
                                 isVerified={isVerified} 
+                                currentUserId={userData.id}
                                 isWatched={true}
                                 onWatchToggle={() => toggleWatch(item.id)}
                                 onClick={() => { setSelectedItem(item); setActiveView('detail'); }} 
@@ -1050,6 +1117,7 @@ const App: React.FC = () => {
                                 t={t} 
                                 language={language} 
                                 isVerified={isVerified} 
+                                currentUserId={userData.id}
                                 isWatched={watchedIds.includes(item.id)}
                                 onWatchToggle={() => toggleWatch(item.id)}
                                 onClick={() => { 

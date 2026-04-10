@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MapPin, ChevronLeft, ChevronRight, Clock, Eye, Building2, Minus, Plus, Lock } from 'lucide-react';
+import { MapPin, ChevronLeft, ChevronRight, Clock, Eye, Building2, Minus, Plus, Lock, Trophy } from 'lucide-react';
 import { AuctionItem, Seller } from '../../types.ts';
 import { MOCK_SELLERS } from '../../data.ts';
 import { supabase } from '../lib/supabaseClient';
@@ -10,18 +10,20 @@ export const AuctionCard: React.FC<{
   t: any;
   language: string;
   isVerified: boolean;
+  currentUserId?: string;
   isWatched: boolean;
   onWatchToggle: () => void;
   onClick: () => void;
   onBidSubmit: (item: AuctionItem, amount: number) => void;
   onSellerClick: (seller: Seller) => void;
-}> = ({ item, t, language, isVerified, isWatched, onWatchToggle, onClick, onBidSubmit, onSellerClick }) => {
+}> = ({ item, t, language, isVerified, currentUserId, isWatched, onWatchToggle, onClick, onBidSubmit, onSellerClick }) => {
   const [timeLeftStr, setTimeLeftStr] = useState('');
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [signedImages, setSignedImages] = useState<string[]>([]);
   const seller = MOCK_SELLERS.find(s => s.id === item.sellerId);
   const minNextBid = item.currentBid + getIncrement(item.currentBid);
   const [bidValue, setBidValue] = useState(minNextBid);
+  const isWinner = currentUserId && (item.winnerId === currentUserId || item.winner_id === currentUserId);
 
   useEffect(() => {
     const fetchImages = async () => {
@@ -95,6 +97,11 @@ export const AuctionCard: React.FC<{
           <div className="bg-white/10 text-white backdrop-blur-sm px-4 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg border border-white/10">
             {item.category}
           </div>
+          {isWinner && (
+            <div className="bg-green-500 text-white backdrop-blur-sm px-4 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg flex items-center gap-1.5 border border-green-400/50 animate-pulse">
+              <Trophy size={10} /> {t('leading') || 'Vodilni'}
+            </div>
+          )}
         </div>
       </div>
       <div className="p-6 flex flex-col flex-1">

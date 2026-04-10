@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { 
   Clock, Lock, CheckCircle2, AlertCircle, Image as ImageIcon,
-  ChevronLeft, ChevronRight, Eye, MapPin, Info, Gavel, Truck,
+  ChevronLeft, ChevronRight, Eye, MapPin, Info, Gavel, Truck, Trophy,
   CreditCard, Landmark, Plus, Minus, X, Calendar as CalendarIcon, Phone, Mail
 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
@@ -158,7 +158,14 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
           <div className="lg:col-span-8 order-1">
             <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm">
               <div className="flex justify-between items-start gap-4 mb-6">
-                <h1 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-[#0A1128] leading-tight">{title}</h1>
+                <div className="flex flex-col gap-2">
+                  <h1 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-[#0A1128] leading-tight">{title}</h1>
+                  {isWinner && (
+                    <div className="inline-flex items-center gap-2 bg-green-500/10 border border-green-500/20 px-3 py-1 rounded-xl text-[10px] font-black uppercase tracking-widest text-green-600 w-fit animate-pulse">
+                      <Trophy size={12} /> {t('leading') || 'Vodilni'}
+                    </div>
+                  )}
+                </div>
                 <button 
                   onClick={(e) => { e.stopPropagation(); onWatchToggle?.(); }}
                   className={`flex flex-col items-center justify-center p-3 border rounded-2xl transition-all min-w-[80px] shrink-0 group ${isWatched ? 'bg-[#FEBA4F] border-[#FEBA4F]' : 'bg-slate-50 border-slate-200 hover:border-[#FEBA4F] hover:bg-white'}`}
@@ -266,7 +273,7 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                 </div>
                 
                 <div className="text-center border-r border-white/10 pt-4 border-t">
-                  <p className="text-2xl font-black text-slate-500">-</p>
+                  <p className="text-2xl font-black text-slate-500">{isWinner ? `€ ${item.hiddenMaxBid || item.hidden_max_bid || '-'}` : '-'}</p>
                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1 flex items-center justify-center gap-1"><Lock size={10}/> {t('myMaxBid')}</p>
                 </div>
                 <div className="text-center pt-4 border-t border-white/10">
