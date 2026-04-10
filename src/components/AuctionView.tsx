@@ -16,7 +16,7 @@ const TimeBox = ({ value, label }: { value: number, label: string }) => (
 export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onSellerClick, t, language, isVerified, currentPlan, isWatched, onWatchToggle }: { 
   item: any, 
   onBack: () => void, 
-  onBidSubmit: (item: any, amount: number) => void,
+  onBidSubmit: (item: any, amount: number) => Promise<boolean>,
   onCheckout: (item: any) => void,
   onSellerClick?: (sellerId: string) => void,
   t: any,
@@ -110,10 +110,12 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
     setShowConfirmBid(false);
     
     try {
-      await onBidSubmit(item, Number(bidAmount));
-      setBidAmount('');
-      setBidSuccess(true);
-      setTimeout(() => setBidSuccess(false), 3000);
+      const success = await onBidSubmit(item, Number(bidAmount));
+      if (success) {
+          setBidAmount('');
+          setBidSuccess(true);
+          setTimeout(() => setBidSuccess(false), 3000);
+      }
     } catch (err: any) {
       setError(err.message || t('bidFailed'));
     }

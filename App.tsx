@@ -380,17 +380,17 @@ const App: React.FC = () => {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  const handleBidSubmit = async (item: AuctionItem, amount: number) => {
-    if (!isLoggedIn) { setActiveView('login'); return; }
+  const handleBidSubmit = async (item: AuctionItem, amount: number, bypassTermsCheck = false): Promise<boolean> => {
+    if (!isLoggedIn) { setActiveView('login'); return false; }
     if (!isVerified) { 
         window.scrollTo({ top: 0, behavior: 'smooth' });
-        return; 
+        return false; 
     }
     
-    if (!hasAcceptedTerms) {
+    if (!hasAcceptedTerms && !bypassTermsCheck) {
         setPendingBid({ item, amount });
         setShowTermsModal(true);
-        return;
+        return false;
     }
     
     // Check if item.id is a valid UUID before calling RPC
@@ -404,10 +404,12 @@ const App: React.FC = () => {
             });
             if (error) {
                 console.error("RPC Error:", error);
+                toast.error(error.message || "Napaka pri oddaji ponudbe");
                 throw new Error(error.message || "Napaka pri oddaji ponudbe");
             }
             const newBidIds = Array.from(new Set([...bidAuctionIds, item.id]));
             setBidAuctionIds(newBidIds);
+            toast.success("Ponudba uspešno oddana!");
             
             try {
               const { data: { session } } = await supabase.auth.getSession();
@@ -421,6 +423,7 @@ const App: React.FC = () => {
             } catch (err) {
               console.error("Error saving bid auction ids:", err);
             }
+            return true;
         } catch (error: any) { 
             console.error(error); 
             throw error;
@@ -430,6 +433,7 @@ const App: React.FC = () => {
         setAuctions(prev => prev.map(a => a.id === item.id ? {...a, currentBid: amount, bidCount: a.bidCount + 1} : a));
         const newBidIds = Array.from(new Set([...bidAuctionIds, item.id]));
         setBidAuctionIds(newBidIds);
+        toast.success("Ponudba uspešno oddana!");
         
         try {
           const { data: { session } } = await supabase.auth.getSession();
@@ -443,28 +447,33 @@ const App: React.FC = () => {
         } catch (err) {
           console.error("Error saving bid auction ids:", err);
         }
+        return true;
     }
   };
 
+  const [dontShowTermsAgain, setDontShowTermsAgain] = useState(false);
+
   const handleAcceptTerms = async () => {
-      setHasAcceptedTerms(true);
       setShowTermsModal(false);
       
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.user) {
-          await supabase.from('users').upsert({
-            id: session.user.id,
-            email: session.user.email,
-            has_accepted_terms: true
-          });
-        }
-      } catch (err) {
-        console.error("Error saving terms acceptance:", err);
+      if (dontShowTermsAgain) {
+          setHasAcceptedTerms(true);
+          try {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session?.user) {
+              await supabase.from('users').upsert({
+                id: session.user.id,
+                email: session.user.email,
+                has_accepted_terms: true
+              });
+            }
+          } catch (err) {
+            console.error("Error saving terms acceptance:", err);
+          }
       }
-
+      
       if (pendingBid) {
-          handleBidSubmit(pendingBid.item, pendingBid.amount);
+          await handleBidSubmit(pendingBid.item, pendingBid.amount, true);
           setPendingBid(null);
       }
   };
@@ -1097,7 +1106,7 @@ const App: React.FC = () => {
     <div className="min-h-screen bg-[#f3f4f6] font-sans selection:bg-[#FEBA4F] selection:text-[#0A1128] overflow-x-hidden">
         <Toaster 
             position="top-center" 
-            duration={4000} 
+            duration={3000} 
             toastOptions={{
                 style: {
                     background: '#0A1128',
@@ -1149,10 +1158,22 @@ const App: React.FC = () => {
                         <ShieldCheck size={40} className="text-[#0A1128]" />
                     </div>
                     <h2 className="text-3xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">Splošni pogoji poslovanja</h2>
-                    <p className="text-slate-500 font-bold leading-relaxed mb-10">
+                    <p className="text-slate-500 font-bold leading-relaxed mb-6">
                         Z oddajo ponudbe potrjujete, da se strinjate s splošnimi pogoji poslovanja platforme Drazba.si. 
                         Vaša ponudba je pravno zavezujoča. V primeru, da zmagate na dražbi, ste dolžni predmet prevzeti in plačati v skladu s pogoji prodajalca.
                     </p>
+                    <label className="flex items-center gap-3 mb-10 cursor-pointer group">
+                        <div className={`w-6 h-6 rounded-md border-2 flex items-center justify-center transition-all ${dontShowTermsAgain ? 'bg-[#FEBA4F] border-[#FEBA4F]' : 'border-slate-300 group-hover:border-[#FEBA4F]'}`}>
+                            {dontShowTermsAgain && <CheckCircle2 size={16} className="text-[#0A1128]" />}
+                        </div>
+                        <span className="text-sm font-bold text-slate-600 select-none">Ne prikaži več tega obvestila</span>
+                        <input 
+                            type="checkbox" 
+                            className="hidden" 
+                            checked={dontShowTermsAgain} 
+                            onChange={(e) => setDontShowTermsAgain(e.target.checked)} 
+                        />
+                    </label>
                     <button 
                         onClick={handleAcceptTerms}
                         className="w-full bg-[#0A1128] text-white py-6 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl"

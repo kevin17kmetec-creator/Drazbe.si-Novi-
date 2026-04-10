@@ -193,7 +193,7 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
                     const filePath = `auction-images/${Date.now()}-${file.name}`;
                     
                     const uploadPromise = supabase.storage.from('auction-images').upload(filePath, file);
-                    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Nalaganje slike je poteklo.")), 15000));
+                    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Nalaganje slike je poteklo. Prosimo, poskusite z manjšo sliko ali preverite povezavo.")), 45000));
                     
                     const { error } = await Promise.race([uploadPromise, timeoutPromise]) as any;
                     
