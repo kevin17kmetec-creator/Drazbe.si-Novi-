@@ -16,6 +16,8 @@ const REGION_LOCATIONS: Record<Region, string[]> = {
     [Region.Osrednjeslovenska]: ['Ljubljana', 'Domžale', 'Kamnik', 'Grosuplje', 'Vrhnika']
 };
 
+import { CustomDatePicker, CustomTimePicker } from './CustomDateTime';
+
 export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish: (item: any) => void; isLoggedIn: boolean }> = ({ onBack, t, onPublish, isLoggedIn }) => {
     const getLocalDateStr = (date: Date) => {
         const year = date.getFullYear();
@@ -184,13 +186,17 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
 
         setUploading(true);
         try {
-            const { data: { session } } = await supabase.auth.getSession();
             const imageUrls = [];
             
-            if (session) {
+            if (isLoggedIn) {
                 for (const file of imageFiles) {
                     const filePath = `auction-images/${Date.now()}-${file.name}`;
-                    const { error } = await supabase.storage.from('auction-images').upload(filePath, file);
+                    
+                    const uploadPromise = supabase.storage.from('auction-images').upload(filePath, file);
+                    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Nalaganje slike je poteklo.")), 15000));
+                    
+                    const { error } = await Promise.race([uploadPromise, timeoutPromise]) as any;
+                    
                     if (error) throw error;
                     const { data } = supabase.storage.from('auction-images').getPublicUrl(filePath);
                     imageUrls.push(data.publicUrl);
@@ -284,24 +290,18 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                             <div className="space-y-2">
                                 <label className="text-[9px] font-black uppercase text-slate-400 ml-2">{t('endDate')}</label>
-                                <input 
-                                    type="date" 
+                                <CustomDatePicker 
                                     value={formData.endDate}
-                                    min={minDateStr}
-                                    max={maxDateStr}
-                                    className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-5 px-6 font-bold focus:ring-4 focus:ring-[#FEBA4F]/20 focus:border-[#FEBA4F] transition-all outline-none" 
-                                    onChange={e => setFormData({...formData, endDate: e.target.value})} 
+                                    onChange={(val) => setFormData({...formData, endDate: val})}
+                                    minDateStr={minDateStr}
+                                    maxDateStr={maxDateStr}
                                 />
                             </div>
                             <div className="space-y-2">
                                 <label className="text-[9px] font-black uppercase text-slate-400 ml-2">{t('endTime')}</label>
-                                <input 
-                                    type="time" 
+                                <CustomTimePicker 
                                     value={formData.endTime}
-                                    min="06:00"
-                                    max="21:59"
-                                    className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-5 px-6 font-bold focus:ring-4 focus:ring-[#FEBA4F]/20 focus:border-[#FEBA4F] transition-all outline-none" 
-                                    onChange={e => setFormData({...formData, endTime: e.target.value})} 
+                                    onChange={(val) => setFormData({...formData, endTime: val})}
                                 />
                             </div>
                         </div>

@@ -169,7 +169,7 @@ const App: React.FC = () => {
           supabaseData.forEach(fd => {
               const idx = merged.findIndex(m => m.id === fd.id);
               if (idx > -1) merged[idx] = fd;
-              else merged.push(fd);
+              else merged.unshift(fd);
           });
           setAuctions(merged);
       }
@@ -471,8 +471,7 @@ const App: React.FC = () => {
 
   const handlePublish = async (itemData: any) => {
       try {
-          const { data: { session } } = await supabase.auth.getSession();
-          if (!session && !isLoggedIn) {
+          if (!isLoggedIn || !userData?.id) {
               toast.error(t('loginRequired') || "Prosimo, prijavite se za objavo dražbe.");
               setActiveView('login');
               return;
@@ -489,36 +488,38 @@ const App: React.FC = () => {
               DE: `[DE] ${itemData.description}`
           };
 
-          if (session) {
-              const { error } = await supabase.from('auctions').insert({
-                  title: simulatedTitle,
-                  description: simulatedDescription,
-                  current_price: parseInt(itemData.startingPrice),
-                  bid_count: 0,
-                  item_count: 1,
-                  end_time: itemData.endTime || new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString(),
-                  location: { SLO: 'Ljubljana', EN: 'Ljubljana', DE: 'Ljubljana' },
-                  region: itemData.region || Region.Osrednjeslovenska,
-                  category: itemData.category || Category.Ostalo,
-                  condition: { SLO: 'Novo', EN: 'New', DE: 'Neu' },
-                  specifications: {},
-                  bidding_history: [],
-                  seller_id: session.user.id,
-                  status: 'active',
-                  images: itemData.images
-              });
+          const insertPromise = supabase.from('auctions').insert({
+              title: simulatedTitle,
+              description: simulatedDescription,
+              current_price: parseInt(itemData.startingPrice),
+              bid_count: 0,
+              item_count: 1,
+              end_time: itemData.endTime || new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString(),
+              location: { SLO: 'Ljubljana', EN: 'Ljubljana', DE: 'Ljubljana' },
+              region: itemData.region || Region.Osrednjeslovenska,
+              category: itemData.category || Category.Ostalo,
+              condition: { SLO: 'Novo', EN: 'New', DE: 'Neu' },
+              specifications: {},
+              bidding_history: [],
+              seller_id: userData.id,
+              status: 'active',
+              images: itemData.images
+          });
 
-              if (error) {
-                  console.error("Publish Error:", error);
-                  const errorMsg = error.message || JSON.stringify(error);
-                  toast.error(`Napaka pri objavi v bazo: ${errorMsg}`, { duration: Infinity, closeButton: true });
-                  return;
-              }
+          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Povezava s strežnikom je potekla.")), 10000));
+
+          const { error } = await Promise.race([insertPromise, timeoutPromise]) as any;
+
+          if (error) {
+              console.error("Publish Error:", error);
+              const errorMsg = error.message || JSON.stringify(error);
+              toast.error(`Napaka pri objavi v bazo: ${errorMsg}`, { duration: Infinity, closeButton: true });
+              return;
           }
 
           setActiveView('grid');
           toast.success(t('auctionPublished'));
-          if (session) fetchAuctions(); // Refresh the list from DB if real user
+          fetchAuctions(); // Refresh the list from DB
       } catch (error: any) { 
           console.error("HandlePublish Exception:", error); 
           const errorMsg = error.message || JSON.stringify(error);
@@ -1078,8 +1079,8 @@ const App: React.FC = () => {
       );
   }
 
-  // Banner is active if user is logged in and not verified
-  const isBannerActive = isLoggedIn && !isVerified;
+  // Banner is active if user is logged in, not verified, and auth data has finished loading
+  const isBannerActive = !isAuthLoading && isLoggedIn && !isVerified;
 
   // Sync isVerified state with userData as a fallback
   useEffect(() => {
