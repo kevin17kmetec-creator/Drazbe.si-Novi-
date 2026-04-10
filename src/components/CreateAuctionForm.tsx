@@ -190,18 +190,27 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
             
             if (isLoggedIn) {
                 for (const file of imageFiles) {
-                    const filePath = `auction-images/${Date.now()}-${file.name}`;
+                    const fileName = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
+                    console.log(`Nalaganje slike: ${fileName}, velikost: ${file.size}, tip: ${file.type}`);
                     
-                    const uploadPromise = supabase.storage.from('auction-images').upload(filePath, file);
+                    const uploadPromise = supabase.storage.from('auction-images').upload(fileName, file, {
+                        contentType: file.type,
+                        upsert: true
+                    });
+                    
                     const timeoutPromise = new Promise<{data: any, error: any}>(resolve => 
-                        setTimeout(() => resolve({ data: null, error: { message: "Nalaganje slike je poteklo. Prosimo, poskusite z manjšo sliko ali preverite povezavo." } }), 90000)
+                        setTimeout(() => resolve({ data: null, error: { message: "Nalaganje slike je poteklo (20s). Prosimo, poskusite z manjšo sliko." } }), 20000)
                     );
                     
-                    const { error } = await Promise.race([uploadPromise, timeoutPromise]) as any;
+                    const { data: uploadData, error: uploadError } = await Promise.race([uploadPromise, timeoutPromise]) as any;
                     
-                    if (error) throw error;
-                    const { data } = supabase.storage.from('auction-images').getPublicUrl(filePath);
-                    imageUrls.push(data.publicUrl);
+                    if (uploadError) {
+                        console.error("Podrobnosti napake pri nalaganju:", uploadError);
+                        throw uploadError;
+                    }
+                    
+                    console.log("Nalaganje uspešno:", uploadData);
+                    imageUrls.push(fileName); // Shranimo pot, ne celotnega URL-ja
                 }
             } else {
                 // Demo user: use local object URLs
