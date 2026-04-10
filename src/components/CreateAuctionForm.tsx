@@ -193,7 +193,9 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
                     const filePath = `auction-images/${Date.now()}-${file.name}`;
                     
                     const uploadPromise = supabase.storage.from('auction-images').upload(filePath, file);
-                    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Nalaganje slike je poteklo. Prosimo, poskusite z manjšo sliko ali preverite povezavo.")), 45000));
+                    const timeoutPromise = new Promise<{data: any, error: any}>(resolve => 
+                        setTimeout(() => resolve({ data: null, error: { message: "Nalaganje slike je poteklo. Prosimo, poskusite z manjšo sliko ali preverite povezavo." } }), 90000)
+                    );
                     
                     const { error } = await Promise.race([uploadPromise, timeoutPromise]) as any;
                     
@@ -221,7 +223,7 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
         } catch (error: any) { 
             console.error("Error publishing auction:", error); 
             const errorMsg = error.message || JSON.stringify(error);
-            toast.error(`Napaka pri nalaganju slik: ${errorMsg}`, { duration: Infinity, closeButton: true });
+            toast.error(`Napaka pri nalaganju slik: ${errorMsg}`, { duration: 5000 });
         } finally { setUploading(false); }
     };
 

@@ -11,12 +11,13 @@ export const AuctionCard: React.FC<{
   language: string;
   isVerified: boolean;
   currentUserId?: string;
+  hasBid?: boolean;
   isWatched: boolean;
   onWatchToggle: () => void;
   onClick: () => void;
   onBidSubmit: (item: AuctionItem, amount: number) => void;
   onSellerClick: (seller: Seller) => void;
-}> = ({ item, t, language, isVerified, currentUserId, isWatched, onWatchToggle, onClick, onBidSubmit, onSellerClick }) => {
+}> = ({ item, t, language, isVerified, currentUserId, hasBid, isWatched, onWatchToggle, onClick, onBidSubmit, onSellerClick }) => {
   const [timeLeftStr, setTimeLeftStr] = useState('');
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [signedImages, setSignedImages] = useState<string[]>([]);
@@ -61,8 +62,14 @@ export const AuctionCard: React.FC<{
     setBidValue(prev => dir === 'up' ? prev + step : Math.max(minNextBid, prev - step));
   };
 
+  // Border logic
+  let borderClass = "border-white/5";
+  if (hasBid) {
+    borderClass = isWinner ? "border-green-500 ring-2 ring-green-500/20" : "border-red-500 ring-2 ring-red-500/20";
+  }
+
   return (
-    <div className="bg-[#0A1128] rounded-[2.5rem] overflow-hidden shadow-2xl hover:shadow-2xl hover:-translate-y-2 transition-all duration-300 group flex flex-col h-[540px] border border-white/5 relative">
+    <div className={`bg-[#0A1128] rounded-[2.5rem] overflow-hidden shadow-2xl hover:shadow-2xl hover:-translate-y-2 transition-all duration-300 group flex flex-col h-[540px] border relative ${borderClass}`}>
       <div className="relative h-52 overflow-hidden cursor-pointer group/image" onClick={onClick}>
         <img src={signedImages[currentImageIndex] || item.images[currentImageIndex]} alt={item.title[language] || item.title['SLO']} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 opacity-90 group-hover:opacity-100" />
         {(signedImages.length > 1 || item.images.length > 1) && (

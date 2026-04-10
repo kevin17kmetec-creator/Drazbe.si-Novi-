@@ -4,6 +4,7 @@ import SellerView from './src/components/SellerView';
 import { SubscriptionsView } from './src/components/SubscriptionsView';
 import { VerificationView } from './src/components/VerificationView';
 import { CreateAuctionForm } from './src/components/CreateAuctionForm';
+import { ChatView } from './src/components/ChatView';
 import { AuthView } from './src/components/AuthView';
 import { LegalModal } from './src/components/LegalModal';
 import { VerificationBanner } from './src/components/VerificationBanner';
@@ -580,7 +581,9 @@ const App: React.FC = () => {
               images: itemData.images
           });
 
-          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Povezava s strežnikom je potekla.")), 10000));
+          const timeoutPromise = new Promise<{data: any, error: any}>(resolve => 
+              setTimeout(() => resolve({ data: null, error: { message: "Povezava s strežnikom je potekla." } }), 10000)
+          );
 
           const { error } = await Promise.race([insertPromise, timeoutPromise]) as any;
 
@@ -694,8 +697,8 @@ const App: React.FC = () => {
             ...updateData 
         }).eq('id', userData.id).select().single();
 
-        const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error("Povezava s strežnikom je potekla. Prosimo, poskusite znova.")), 8000)
+        const timeoutPromise = new Promise<{data: any, error: any}>(resolve => 
+            setTimeout(() => resolve({ data: null, error: { message: "Povezava s strežnikom je potekla. Prosimo, poskusite znova." } }), 8000)
         );
 
         const { data: updatedUser, error } = await Promise.race([updatePromise, timeoutPromise]) as any;
@@ -784,6 +787,7 @@ const App: React.FC = () => {
         ); 
         break;
     case 'createAuction': content = <CreateAuctionForm onBack={() => setActiveView('grid')} t={t} onPublish={handlePublish} isLoggedIn={isLoggedIn} />; break;
+    case 'chat': content = <ChatView onBack={() => setActiveView('grid')} t={t} currentUserId={userData.id} language={language} />; break;
     case 'detail':
       if (selectedItem) content = (
         <AuctionView 
@@ -867,8 +871,8 @@ const App: React.FC = () => {
                             .select()
                             .single();
                             
-                        const timeoutPromise = new Promise((_, reject) => 
-                            setTimeout(() => reject(new Error("Povezava s strežnikom je potekla. Prosimo, osvežite stran in poskusite znova.")), 8000)
+                        const timeoutPromise = new Promise<{data: any, error: any}>(resolve => 
+                            setTimeout(() => resolve({ data: null, error: { message: "Povezava s strežnikom je potekla. Prosimo, osvežite stran in poskusite znova." } }), 8000)
                         );
                         
                         const { data: updatedUser, error } = await Promise.race([updatePromise, timeoutPromise]) as any;
@@ -928,6 +932,7 @@ const App: React.FC = () => {
                                 language={language} 
                                 isVerified={isVerified} 
                                 currentUserId={userData.id}
+                                hasBid={true}
                                 isWatched={watchedIds.includes(item.id)}
                                 onWatchToggle={() => toggleWatch(item.id)}
                                 onClick={() => { setSelectedItem(item); setActiveView('detail'); }} 
@@ -1046,6 +1051,7 @@ const App: React.FC = () => {
                                 language={language} 
                                 isVerified={isVerified} 
                                 currentUserId={userData.id}
+                                hasBid={bidAuctionIds.includes(item.id)}
                                 isWatched={true}
                                 onWatchToggle={() => toggleWatch(item.id)}
                                 onClick={() => { setSelectedItem(item); setActiveView('detail'); }} 
@@ -1118,6 +1124,7 @@ const App: React.FC = () => {
                                 language={language} 
                                 isVerified={isVerified} 
                                 currentUserId={userData.id}
+                                hasBid={bidAuctionIds.includes(item.id)}
                                 isWatched={watchedIds.includes(item.id)}
                                 onWatchToggle={() => toggleWatch(item.id)}
                                 onClick={() => { 
@@ -1174,7 +1181,9 @@ const App: React.FC = () => {
     <div className="min-h-screen bg-[#f3f4f6] font-sans selection:bg-[#FEBA4F] selection:text-[#0A1128] overflow-x-hidden">
         <Toaster 
             position="top-center" 
-            duration={3000} 
+            duration={3000}
+            closeButton
+            richColors
             toastOptions={{
                 style: {
                     background: '#0A1128',
@@ -1204,6 +1213,7 @@ const App: React.FC = () => {
             onCreateAuction={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('createAuction'); }} 
             onMyWinnings={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('winnings'); }} 
             onMyBids={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('myBids'); }}
+            onChat={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('chat'); }}
             onWatchlist={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('watchlist'); }}
             activeView={activeView} 
             selectedRegion={selectedRegion}

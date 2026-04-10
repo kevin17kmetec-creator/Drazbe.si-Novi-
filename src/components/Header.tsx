@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Search, Globe, ChevronDown, User, PlusCircle, Trophy, Eye, CreditCard, Settings, LogOut, ChevronRight, Gavel } from 'lucide-react';
+import { Search, Globe, ChevronDown, User, PlusCircle, Trophy, Eye, CreditCard, Settings, LogOut, ChevronRight, Gavel, MessageSquare } from 'lucide-react';
 import { ViewState, Region, Category, AuctionItem } from '../../types.ts';
 
 export const Header: React.FC<{ 
@@ -15,6 +15,7 @@ export const Header: React.FC<{
   onCreateAuction: () => void;
   onMyWinnings: () => void;
   onMyBids: () => void;
+  onChat: () => void;
   onWatchlist: () => void;
   activeView: ViewState;
   selectedRegion: Region | null;
@@ -26,7 +27,7 @@ export const Header: React.FC<{
   t: (k: string) => string;
   auctions: AuctionItem[];
   userEmail?: string;
-}> = ({ onHome, onSearch, onRegionSelect, onCategorySelect, onLastChance, onLogin, onLogout, onSettings, onSubscriptions, onCreateAuction, onMyWinnings, onMyBids, onWatchlist, activeView, selectedRegion, selectedCategory, isLoggedIn, isVerified, language, onLanguageChange, t, auctions, userEmail }) => {
+}> = ({ onHome, onSearch, onRegionSelect, onCategorySelect, onLastChance, onLogin, onLogout, onSettings, onSubscriptions, onCreateAuction, onMyWinnings, onMyBids, onChat, onWatchlist, activeView, selectedRegion, selectedCategory, isLoggedIn, isVerified, language, onLanguageChange, t, auctions, userEmail }) => {
   const [isRegOpen, setIsRegOpen] = useState(false);
   const [isCatOpen, setIsCatOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
@@ -75,6 +76,16 @@ export const Header: React.FC<{
               <Search className="absolute right-4 top-3.5 text-slate-500" size={18} />
             </div>
             <div className="flex items-center gap-4">
+              {isLoggedIn && (
+                <button 
+                  onClick={onChat}
+                  className={`p-3 rounded-xl border transition-all flex items-center gap-2 font-black text-xs uppercase tracking-widest ${activeView === 'chat' ? 'bg-[#FEBA4F] text-[#0A1128] border-[#FEBA4F]' : 'bg-white/5 text-white border-white/10 hover:bg-white/10'}`}
+                  title="Sporočila"
+                >
+                  <MessageSquare size={18} />
+                  <span className="hidden lg:inline">Sporočila</span>
+                </button>
+              )}
               <div className="relative h-full flex items-center"
                    onMouseEnter={() => setIsLangOpen(true)}
                    onMouseLeave={() => setIsLangOpen(false)}>
