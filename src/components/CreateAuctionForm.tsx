@@ -193,7 +193,10 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
                     const fileName = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
                     console.log(`Nalaganje slike: ${fileName}, velikost: ${file.size}, tip: ${file.type}`);
                     
-                    const uploadPromise = supabase.storage.from('auction-images').upload(fileName, file, {
+                    // Convert File to ArrayBuffer to prevent hanging in certain environments
+                    const arrayBuffer = await file.arrayBuffer();
+                    
+                    const uploadPromise = supabase.storage.from('auction-images').upload(fileName, arrayBuffer, {
                         contentType: file.type,
                         upsert: true
                     });

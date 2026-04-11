@@ -48,7 +48,7 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
               redirectTo: window.location.origin,
           });
           if (error) throw error;
-          toast.success('Povezava za ponastavitev gesla je bila poslana na vaš e-poštni naslov.', { duration: 5000 });
+          toast.success('Povezava za ponastavitev gesla je bila poslana na vaš e-poštni naslov.');
           setIsForgotPassword(false);
       } catch (error: any) {
           toast.error(`Napaka: ${error.message}`);
@@ -143,12 +143,17 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
               }
           }
           
-          toast.success('Registracija uspešna! Preverite svoj e-poštni predal za potrditev.', { duration: 5000 });
+          toast.success('Registracija uspešna! Preverite svoj e-poštni predal za potrditev.');
           setIsLogin(true); // Switch to login view after registration
       }
     } catch (error: any) { 
-        const errorMsg = error.message || JSON.stringify(error);
-        toast.error(`Napaka pri prijavi/registraciji: ${errorMsg}`, { duration: Infinity, closeButton: true }); 
+        let errorMsg = error.message || JSON.stringify(error);
+        if (errorMsg.includes('Invalid login credentials')) {
+            errorMsg = t('invalidCredentials');
+            toast.error(errorMsg);
+        } else {
+            toast.error(`${t('authError')} ${errorMsg}`); 
+        }
     } finally { setLoading(false); }
   };
 

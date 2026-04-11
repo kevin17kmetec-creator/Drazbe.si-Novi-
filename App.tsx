@@ -590,7 +590,7 @@ const App: React.FC = () => {
           if (error) {
               console.error("Publish Error:", error);
               const errorMsg = error.message || JSON.stringify(error);
-              toast.error(`Napaka pri objavi v bazo: ${errorMsg}`, { duration: Infinity, closeButton: true });
+              toast.error(`Napaka pri objavi v bazo: ${errorMsg}`);
               return;
           }
 
@@ -600,7 +600,7 @@ const App: React.FC = () => {
       } catch (error: any) { 
           console.error("HandlePublish Exception:", error); 
           const errorMsg = error.message || JSON.stringify(error);
-          toast.error(`Sistemska napaka pri objavi: ${errorMsg}`, { duration: Infinity, closeButton: true });
+          toast.error(`Sistemska napaka pri objavi: ${errorMsg}`);
       }
   };
 
@@ -1181,8 +1181,7 @@ const App: React.FC = () => {
     <div className="min-h-screen bg-[#f3f4f6] font-sans selection:bg-[#FEBA4F] selection:text-[#0A1128] overflow-x-hidden">
         <Toaster 
             position="top-center" 
-            duration={3000}
-            closeButton
+            duration={4000}
             richColors
             toastOptions={{
                 style: {
