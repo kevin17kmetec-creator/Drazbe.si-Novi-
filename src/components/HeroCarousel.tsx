@@ -2,11 +2,45 @@ import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { AuctionItem } from '../../types.ts';
 import { StaticTimer } from './StaticTimer';
+import { supabase } from '../lib/supabaseClient';
+
+const getImageUrl = (path: string) => {
+  if (!path) return '';
+  if (path.startsWith('http') || path.startsWith('data:')) return path;
+  const { data } = supabase.storage.from('auction-images').getPublicUrl(path);
+  return data.publicUrl;
+};
 
 export const HeroCarousel: React.FC<{ items: AuctionItem[]; onSelectItem: (item: AuctionItem) => void; t: any; language: string }> = ({ items, onSelectItem, t, language }) => {
   const [activeIndex, setActiveIndex] = useState(0);
+  const [signedImages, setSignedImages] = useState<Record<string, string>>({});
   const featuredItems = useMemo(() => items.filter(a => a.status === 'active').slice(0, 10), [items]);
   
+  useEffect(() => {
+    const fetchImages = async () => {
+      const newSignedImages: Record<string, string> = {};
+      for (const item of featuredItems) {
+        if (item.images && item.images.length > 0) {
+          const imgPath = item.images[0];
+          if (imgPath.startsWith('http') || imgPath.startsWith('data:')) {
+            newSignedImages[item.id] = imgPath;
+          } else {
+            try {
+              const { data } = await supabase.storage.from('auction-images').createSignedUrl(imgPath, 3600);
+              if (data?.signedUrl) {
+                newSignedImages[item.id] = data.signedUrl;
+              }
+            } catch (err) {
+              console.error("Error fetching signed image for hero:", err);
+            }
+          }
+        }
+      }
+      setSignedImages(newSignedImages);
+    };
+    fetchImages();
+  }, [featuredItems]);
+
   const next = useCallback(() => setActiveIndex((prev) => (prev + 1) % featuredItems.length), [featuredItems.length]);
   const prev = useCallback(() => setActiveIndex((prev) => (prev - 1 + featuredItems.length) % featuredItems.length), [featuredItems.length]);
 
@@ -32,7 +66,7 @@ export const HeroCarousel: React.FC<{ items: AuctionItem[]; onSelectItem: (item:
         {featuredItems.map((item) => (
           <div key={item.id} className="min-w-full h-full relative flex-shrink-0">
             <img 
-              src={item.images[0]} 
+              src={signedImages[item.id] || getImageUrl(item.images[0])} 
               className="absolute inset-0 w-full h-full object-cover opacity-40" 
               alt={item.title[language] || item.title['SLO']}
             />
