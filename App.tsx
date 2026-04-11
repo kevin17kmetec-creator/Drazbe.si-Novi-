@@ -451,13 +451,23 @@ const App: React.FC = () => {
             }
 
             // 2. Update auction
+            const newBid = {
+                id: crypto.randomUUID(),
+                bidderId: userData.id,
+                bidderName: userData.username || userData.first_name || 'Uporabnik',
+                amount: amount,
+                timestamp: new Date().toISOString()
+            };
+            const updatedHistory = [...(auction.bidding_history || []), newBid];
+
             const { error: updateError } = await supabase
                 .from('auctions')
                 .update({
                     current_price: newPrice,
                     winner_id: newWinnerId,
                     hidden_max_bid: newMaxBid,
-                    bid_count: (auction.bid_count || 0) + 1
+                    bid_count: (auction.bid_count || 0) + 1,
+                    bidding_history: updatedHistory
                 })
                 .eq('id', item.id);
 
