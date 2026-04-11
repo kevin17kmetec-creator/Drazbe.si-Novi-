@@ -4,6 +4,7 @@ import { Category, Region } from '../../types.ts';
 import { supabase } from '../lib/supabaseClient';
 import { toast } from 'sonner';
 import { GoogleGenAI } from '@google/genai';
+import imageCompression from 'browser-image-compression';
 
 const REGION_LOCATIONS: Record<Region, string[]> = {
     [Region.Prekmurje]: ['Murska Sobota', 'Lendava', 'Ljutomer', 'Beltinci', 'Gornja Radgona'],
@@ -55,6 +56,7 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
     const [previews, setPreviews] = useState<string[]>([]);
     const [isDragging, setIsDragging] = useState(false);
     const [uploading, setUploading] = useState(false);
+    const [uploadProgress, setUploadProgress] = useState<Record<number, { state: string, percent: number }>>({});
     const [enhancingIndex, setEnhancingIndex] = useState<number | null>(null);
 
     useEffect(() => {
@@ -185,36 +187,47 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
         }
 
         setUploading(true);
+        setUploadProgress({});
         try {
-            const imageUrls = [];
+            let imageUrls: string[] = [];
             
             if (isLoggedIn) {
-                for (const file of imageFiles) {
-                    const fileName = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
-                    console.log(`Nalaganje slike: ${fileName}, velikost: ${file.size}, tip: ${file.type}`);
-                    
-                    // Convert File to ArrayBuffer to prevent hanging in certain environments
-                    const arrayBuffer = await file.arrayBuffer();
-                    
-                    const uploadPromise = supabase.storage.from('auction-images').upload(fileName, arrayBuffer, {
-                        contentType: file.type,
-                        upsert: true
-                    });
-                    
-                    const timeoutPromise = new Promise<{data: any, error: any}>(resolve => 
-                        setTimeout(() => resolve({ data: null, error: { message: "Nalaganje slike je poteklo (20s). Prosimo, poskusite z manjšo sliko." } }), 20000)
-                    );
-                    
-                    const { data: uploadData, error: uploadError } = await Promise.race([uploadPromise, timeoutPromise]) as any;
-                    
-                    if (uploadError) {
-                        console.error("Podrobnosti napake pri nalaganju:", uploadError);
-                        throw uploadError;
+                const uploadPromises = imageFiles.map(async (file, index) => {
+                    try {
+                        setUploadProgress(prev => ({ ...prev, [index]: { state: 'Stiskanje...', percent: 20 } }));
+                        
+                        const options = {
+                            maxSizeMB: 1,
+                            maxWidthOrHeight: 1200,
+                            useWebWorker: true,
+                            initialQuality: 0.8
+                        };
+                        const compressedFile = await imageCompression(file, options);
+                        
+                        setUploadProgress(prev => ({ ...prev, [index]: { state: 'Nalaganje...', percent: 60 } }));
+                        
+                        const fileName = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
+                        const arrayBuffer = await compressedFile.arrayBuffer();
+                        
+                        const { data: uploadData, error: uploadError } = await supabase.storage.from('auction-images').upload(fileName, arrayBuffer, {
+                            contentType: compressedFile.type,
+                            upsert: true
+                        });
+                        
+                        if (uploadError) {
+                            console.error("Podrobnosti napake pri nalaganju:", uploadError);
+                            throw uploadError;
+                        }
+                        
+                        setUploadProgress(prev => ({ ...prev, [index]: { state: 'Zaključeno', percent: 100 } }));
+                        return fileName;
+                    } catch (error) {
+                        setUploadProgress(prev => ({ ...prev, [index]: { state: 'Napaka', percent: 0 } }));
+                        throw error;
                     }
-                    
-                    console.log("Nalaganje uspešno:", uploadData);
-                    imageUrls.push(fileName); // Shranimo pot, ne celotnega URL-ja
-                }
+                });
+                
+                imageUrls = await Promise.all(uploadPromises);
             } else {
                 // Demo user: use local object URLs
                 for (const file of imageFiles) {
@@ -371,6 +384,14 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
                                             <Trash2 size={18} strokeWidth={2.5} />
                                         </button>
                                     </div>
+                                    {uploading && uploadProgress[i] && (
+                                        <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center p-3 z-20">
+                                            <span className="text-white text-xs font-bold mb-3">{uploadProgress[i].state}</span>
+                                            <div className="w-full bg-gray-600 rounded-full h-2 overflow-hidden">
+                                                <div className="bg-[#FEBA4F] h-full transition-all duration-300" style={{ width: `${uploadProgress[i].percent}%` }}></div>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             ))}
                         </div>
