@@ -382,17 +382,17 @@ const App: React.FC = () => {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  const handleBidSubmit = async (item: AuctionItem, amount: number, bypassTermsCheck = false): Promise<boolean> => {
-    if (!isLoggedIn) { setActiveView('login'); return false; }
+  const handleBidSubmit = async (item: AuctionItem, amount: number, bypassTermsCheck = false): Promise<'success' | 'outbid' | 'error' | 'login_required'> => {
+    if (!isLoggedIn) { setActiveView('login'); return 'login_required'; }
     if (!isVerified) { 
         window.scrollTo({ top: 0, behavior: 'smooth' });
-        return false; 
+        return 'error'; 
     }
     
     if (!hasAcceptedTerms && !bypassTermsCheck) {
         setPendingBid({ item, amount });
         setShowTermsModal(true);
-        return false;
+        return 'error';
     }
     
     // Proxy Bidding Logic
@@ -407,8 +407,8 @@ const App: React.FC = () => {
 
             if (fetchError || !auction) {
                 console.error("Fetch Error:", fetchError);
-                toast.error("Napaka pri pridobivanju podatkov o dražbi.");
-                return false;
+                toast.error(t('fetchError'));
+                return 'error';
             }
 
             const currentPrice = auction.current_price || 0;
@@ -429,8 +429,8 @@ const App: React.FC = () => {
             } else if (userData.id === currentWinnerId) {
                 // Same user increasing their own max bid
                 if (amount <= currentMaxBid) {
-                    toast.error("Vaša trenutna najvišja ponudba je že višja.");
-                    return false;
+                    toast.error(t('bidTooLow'));
+                    return 'error';
                 }
                 newMaxBid = amount;
             } else {
@@ -473,17 +473,17 @@ const App: React.FC = () => {
 
             if (updateError) {
                 console.error("Update Error:", updateError);
-                toast.error("Napaka pri oddaji ponudbe.");
-                return false;
+                toast.error(t('bidError'));
+                return 'error';
             }
 
             const newBidIds = Array.from(new Set([...bidAuctionIds, item.id]));
             setBidAuctionIds(newBidIds);
             
             if (outbiddenImmediately) {
-                toast.info("Vaša ponudba je bila takoj presežena s strani drugega uporabnika.");
+                toast.info(t('bidOutbid'));
             } else {
-                toast.success("Ponudba uspešno oddana!");
+                toast.success(t('bidSuccessMsg'));
             }
             
             try {
@@ -498,18 +498,18 @@ const App: React.FC = () => {
             } catch (err) {
               console.error("Error saving bid auction ids:", err);
             }
-            return true;
+            return outbiddenImmediately ? 'outbid' : 'success';
         } catch (error: any) { 
             console.error(error); 
-            toast.error("Prišlo je do napake pri oddaji ponudbe.");
-            return false;
+            toast.error(t('bidError'));
+            return 'error';
         }
     } else {
         // Handle mock auctions locally
         setAuctions(prev => prev.map(a => a.id === item.id ? {...a, currentBid: amount, bidCount: a.bidCount + 1} : a));
         const newBidIds = Array.from(new Set([...bidAuctionIds, item.id]));
         setBidAuctionIds(newBidIds);
-        toast.success("Ponudba uspešno oddana!");
+        toast.success(t('bidSuccessMsg'));
         
         try {
           const { data: { session } } = await supabase.auth.getSession();
@@ -523,7 +523,7 @@ const App: React.FC = () => {
         } catch (err) {
           console.error("Error saving bid auction ids:", err);
         }
-        return true;
+        return 'success';
     }
   };
 
@@ -557,7 +557,7 @@ const App: React.FC = () => {
   const handlePublish = async (itemData: any) => {
       try {
           if (!isLoggedIn || !userData?.id) {
-              toast.error(t('loginRequired') || "Prosimo, prijavite se za objavo dražbe.");
+              toast.error(t('loginRequired'));
               setActiveView('login');
               return;
           }
@@ -599,8 +599,7 @@ const App: React.FC = () => {
 
           if (error) {
               console.error("Publish Error:", error);
-              const errorMsg = error.message || JSON.stringify(error);
-              toast.error(`Napaka pri objavi v bazo: ${errorMsg}`);
+              toast.error(t('publishError'));
               return;
           }
 
@@ -609,8 +608,7 @@ const App: React.FC = () => {
           fetchAuctions(); // Refresh the list from DB
       } catch (error: any) { 
           console.error("HandlePublish Exception:", error); 
-          const errorMsg = error.message || JSON.stringify(error);
-          toast.error(`Sistemska napaka pri objavi: ${errorMsg}`);
+          toast.error(t('publishError'));
       }
   };
 
@@ -626,7 +624,7 @@ const App: React.FC = () => {
     
     try {
       await supabase.auth.signOut();
-      toast.success(t('loggedOut') || "Odjava uspešna.");
+      toast.success(t('loggedOut'));
     } catch (err) {
       console.error("Error signing out:", err);
     }
@@ -687,7 +685,7 @@ const App: React.FC = () => {
         }
 
         // Update user profile data
-        const updateData = {
+        const updateData: any = {
             username: data.username,
             first_name: data.firstName,
             last_name: data.lastName,
@@ -701,6 +699,35 @@ const App: React.FC = () => {
             company_postal_code: data.companyPostalCode,
             representative: data.representative
         };
+
+        if (data.profilePicture && data.profilePicture.startsWith('data:image')) {
+            try {
+                const base64Data = data.profilePicture.split(',')[1];
+                const byteCharacters = atob(base64Data);
+                const byteNumbers = new Array(byteCharacters.length);
+                for (let i = 0; i < byteCharacters.length; i++) {
+                    byteNumbers[i] = byteCharacters.charCodeAt(i);
+                }
+                const byteArray = new Uint8Array(byteNumbers);
+                const blob = new Blob([byteArray], { type: 'image/jpeg' });
+                const fileName = `${userData.id}-${Date.now()}.jpg`;
+
+                const { data: uploadData, error: uploadError } = await supabase.storage.from('avatars').upload(fileName, blob, {
+                    contentType: 'image/jpeg',
+                    upsert: true
+                });
+
+                if (uploadError) {
+                    console.error("Error uploading profile picture:", uploadError);
+                    toast.error("Napaka pri nalaganju profilne slike.");
+                } else if (uploadData) {
+                    const { data: publicUrlData } = supabase.storage.from('avatars').getPublicUrl(fileName);
+                    updateData.profile_picture_url = publicUrlData.publicUrl;
+                }
+            } catch (imgErr) {
+                console.error("Error processing profile picture:", imgErr);
+            }
+        }
 
         const updatePromise = supabase.from('users').update({ 
             email: userData.email,
@@ -1234,6 +1261,7 @@ const App: React.FC = () => {
             t={t} 
             auctions={auctions}
             userEmail={userData.email}
+            userProfilePicture={userData.profile_picture_url}
         />
         <main>{content}</main>
         {activeView === 'grid' && <Footer t={t} onLegal={setActiveLegal} />}

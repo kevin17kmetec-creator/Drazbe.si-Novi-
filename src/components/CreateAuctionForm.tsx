@@ -138,22 +138,22 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
                             newPreviews[index] = newImageUrl;
                             return newPreviews;
                         });
-                        toast.success('Slika uspešno polepšana!');
+                        toast.success(t('imageEnhanced'));
                     } else {
                         // If no image part was returned, it might have just returned text
-                        toast.info('Slika analizirana, vendar ni bila neposredno spremenjena.');
+                        toast.info(t('imageNotChanged'));
                     }
                     
                 } catch (err) {
                     console.error("Gemini API error:", err);
-                    toast.error('Napaka pri polepšanju slike. Preverite API ključ.');
+                    toast.error(t('imageEnhanceError'));
                 } finally {
                     setEnhancingIndex(null);
                 }
             };
         } catch (error) {
             console.error("Error enhancing image:", error);
-            toast.error('Napaka pri polepšanju slike.');
+            toast.error(t('imageEnhanceError'));
             setEnhancingIndex(null);
         }
     };
@@ -163,7 +163,7 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
         
         const startingPriceNum = parseInt(formData.startingPrice);
         if (isNaN(startingPriceNum) || startingPriceNum < 1) {
-            return toast.error('Izklicna cena mora biti vsaj 1€.');
+            return toast.error(t('priceMin1'));
         }
 
         // Validation for end time
@@ -248,7 +248,7 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
         } catch (error: any) { 
             console.error("Error publishing auction:", error); 
             const errorMsg = error.message || JSON.stringify(error);
-            toast.error(`Napaka pri nalaganju slik: ${errorMsg}`, { duration: 5000 });
+            toast.error(`${t('imageUploadError')} ${errorMsg}`, { duration: 5000 });
         } finally { setUploading(false); }
     };
 

@@ -110,11 +110,15 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
     setShowConfirmBid(false);
     
     try {
-      const success = await onBidSubmit(item, Number(bidAmount));
-      if (success) {
+      const result = await onBidSubmit(item, Number(bidAmount));
+      if (result === 'success') {
           setBidAmount('');
           setBidSuccess(true);
           setTimeout(() => setBidSuccess(false), 3000);
+      } else if (result === 'outbid') {
+          setError(t('bidOutbid'));
+      } else if (result === 'error') {
+          setError(t('bidError'));
       }
     } catch (err: any) {
       setError(err.message || t('bidFailed'));
@@ -320,7 +324,7 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
 
           </div>
 
-          <div className="lg:col-span-8 order-3">
+          <div className="lg:col-span-8 order-3 space-y-6">
             <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
               <div className="p-4 border-b border-slate-100 bg-slate-50">
                 <h3 className="text-[#0A1128] font-black uppercase tracking-widest text-xs">{t('description')}</h3>
@@ -329,6 +333,42 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                 <p className="text-slate-600 font-bold leading-relaxed whitespace-pre-line text-sm">
                   {description}
                 </p>
+              </div>
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+              <div className="p-4 border-b border-slate-100 bg-slate-50">
+                <h3 className="text-[#0A1128] font-black uppercase tracking-widest text-xs">{t('biddingHistory')}</h3>
+              </div>
+              <div className="p-0">
+                {item.bidding_history && item.bidding_history.length > 0 ? (
+                  <div className="divide-y divide-slate-100">
+                    {[...item.bidding_history].reverse().map((bid: any, idx: number) => (
+                      <div key={idx} className="flex justify-between items-center p-4 hover:bg-slate-50 transition-colors">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-400">
+                            <User size={14} />
+                          </div>
+                          <div>
+                            <p className="text-xs font-black text-[#0A1128]">
+                              {bid.userId === currentUser?.id ? t('you') : `${t('bidder')} ${bid.userId.substring(0, 4)}...`}
+                            </p>
+                            <p className="text-[10px] font-bold text-slate-400">
+                              {new Date(bid.timestamp).toLocaleString('sl-SI')}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-black text-[#FEBA4F]">€ {bid.amount.toLocaleString('sl-SI')}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="p-8 text-center text-slate-400 font-bold text-sm">
+                    {t('noBidsYet')}
+                  </div>
+                )}
               </div>
             </div>
           </div>

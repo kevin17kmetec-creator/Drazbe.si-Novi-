@@ -96,7 +96,7 @@ export const ChatView: React.FC<{
             setSessions(chatSessions);
         } catch (err) {
             console.error("Error fetching chat sessions:", err);
-            toast.error("Napaka pri nalaganju klepetov.");
+            toast.error(t('chatLoadError'));
         } finally {
             setLoading(false);
         }
@@ -136,7 +136,7 @@ export const ChatView: React.FC<{
             setNewMessage('');
         } catch (err) {
             console.error("Error sending message:", err);
-            toast.error("Napaka pri pošiljanju sporočila.");
+            toast.error(t('messageSendError'));
         } finally {
             setSending(false);
         }

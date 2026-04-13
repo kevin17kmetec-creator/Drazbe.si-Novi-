@@ -24,6 +24,7 @@ export const AuctionCard: React.FC<{
   const seller = MOCK_SELLERS.find(s => s.id === item.sellerId);
   const minNextBid = item.currentBid + getIncrement(item.currentBid);
   const [bidValue, setBidValue] = useState(minNextBid);
+  const [bidStatus, setBidStatus] = useState<'success' | 'outbid' | 'error' | null>(null);
   const isWinner = currentUserId && (item.winnerId === currentUserId || item.winner_id === currentUserId);
 
   useEffect(() => {
@@ -60,6 +61,16 @@ export const AuctionCard: React.FC<{
   const handleAdjustBid = (dir: 'up' | 'down') => {
     const step = getIncrement(bidValue);
     setBidValue(prev => dir === 'up' ? prev + step : Math.max(minNextBid, prev - step));
+  };
+
+  const handleBidClick = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setBidStatus(null);
+    const result = await onBidSubmit(item, bidValue);
+    if (result === 'success' || result === 'outbid' || result === 'error') {
+        setBidStatus(result);
+        setTimeout(() => setBidStatus(null), 4000);
+    }
   };
 
   // Border logic
@@ -138,7 +149,7 @@ export const AuctionCard: React.FC<{
               <p className="text-sm font-black text-[#FEBA4F]">{item.bidCount}</p>
             </div>
           </div>
-          <div className="flex items-center gap-4 w-full">
+          <div className="flex items-center gap-4 w-full relative">
              <div className="flex items-center bg-white/5 rounded-2xl border border-white/10 p-1 flex-[3]">
                 <button onClick={(e) => { e.stopPropagation(); handleAdjustBid('down'); }} className="w-8 h-10 flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 rounded-xl transition-all flex-shrink-0"><Minus size={14}/></button>
                 <div className="flex-1 flex items-center justify-center px-1">
@@ -147,9 +158,24 @@ export const AuctionCard: React.FC<{
                 </div>
                 <button onClick={(e) => { e.stopPropagation(); handleAdjustBid('up'); }} className="w-8 h-10 flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 rounded-xl transition-all flex-shrink-0"><Plus size={14}/></button>
              </div>
-             <button onClick={(e) => { e.stopPropagation(); onBidSubmit(item, bidValue); }} className={`h-12 flex-1 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-lg flex items-center justify-center whitespace-nowrap ${isVerified ? 'bg-[#FEBA4F] text-[#0A1128] hover:bg-white' : 'bg-slate-800 text-slate-500'}`}>
+             <button onClick={handleBidClick} className={`h-12 flex-1 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-lg flex items-center justify-center whitespace-nowrap ${isVerified ? 'bg-[#FEBA4F] text-[#0A1128] hover:bg-white' : 'bg-slate-800 text-slate-500'}`}>
                 {!isVerified ? <Lock size={14} /> : t('placeBid')}
              </button>
+             
+             {/* Inline Feedback */}
+             {bidStatus && (
+                 <div className={`absolute -top-12 left-0 right-0 flex justify-center animate-in fade-in slide-in-from-bottom-2 duration-300 z-10`}>
+                     <div className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest shadow-xl border ${
+                         bidStatus === 'success' ? 'bg-green-500/90 text-white border-green-400/50' :
+                         bidStatus === 'outbid' ? 'bg-orange-500/90 text-white border-orange-400/50' :
+                         'bg-red-500/90 text-white border-red-400/50'
+                     }`}>
+                         {bidStatus === 'success' ? t('bidSuccessMsg') :
+                          bidStatus === 'outbid' ? t('bidOutbid') :
+                          t('bidError')}
+                     </div>
+                 </div>
+             )}
           </div>
         </div>
       </div>

@@ -27,7 +27,8 @@ export const Header: React.FC<{
   t: (k: string) => string;
   auctions: AuctionItem[];
   userEmail?: string;
-}> = ({ onHome, onSearch, onRegionSelect, onCategorySelect, onLastChance, onLogin, onLogout, onSettings, onSubscriptions, onCreateAuction, onMyWinnings, onMyBids, onChat, onWatchlist, activeView, selectedRegion, selectedCategory, isLoggedIn, isVerified, language, onLanguageChange, t, auctions, userEmail }) => {
+  userProfilePicture?: string;
+}> = ({ onHome, onSearch, onRegionSelect, onCategorySelect, onLastChance, onLogin, onLogout, onSettings, onSubscriptions, onCreateAuction, onMyWinnings, onMyBids, onChat, onWatchlist, activeView, selectedRegion, selectedCategory, isLoggedIn, isVerified, language, onLanguageChange, t, auctions, userEmail, userProfilePicture }) => {
   const [isRegOpen, setIsRegOpen] = useState(false);
   const [isCatOpen, setIsCatOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
@@ -109,7 +110,12 @@ export const Header: React.FC<{
                     onClick={() => setIsUserMenuOpen(!isUserMenuOpen)} 
                     className="flex items-center gap-3 bg-white text-[#0A1128] px-6 py-2.5 rounded-2xl font-black text-sm shadow-xl hover:bg-[#FEBA4F] transition-colors"
                   >
-                    <User size={18} /><span>{t('myProfile')}</span>
+                    {userProfilePicture ? (
+                        <img src={userProfilePicture} alt="Profile" className="w-5 h-5 rounded-full object-cover" />
+                    ) : (
+                        <User size={18} />
+                    )}
+                    <span>{t('myProfile')}</span>
                     <ChevronDown size={14} className={isUserMenuOpen ? 'rotate-180 transition-transform' : 'transition-transform'}/>
                   </button>
                   {isUserMenuOpen && (

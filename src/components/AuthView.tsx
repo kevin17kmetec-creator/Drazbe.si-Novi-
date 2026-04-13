@@ -40,7 +40,7 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
 
   const handleForgotPassword = async (e: React.FormEvent) => {
       e.preventDefault();
-      if (!email) return toast.error('Prosimo, vnesite e-poštni naslov.');
+      if (!email) return toast.error(t('emailRequired'));
       
       setLoading(true);
       try {
@@ -48,10 +48,10 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
               redirectTo: window.location.origin,
           });
           if (error) throw error;
-          toast.success('Povezava za ponastavitev gesla je bila poslana na vaš e-poštni naslov.');
+          toast.success(t('resetLinkSent'));
           setIsForgotPassword(false);
       } catch (error: any) {
-          toast.error(`Napaka: ${error.message}`);
+          toast.error(`${t('authError')} ${error.message}`);
       } finally {
           setLoading(false);
       }
@@ -68,7 +68,7 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
       });
       if (error) throw error;
     } catch (error: any) {
-      toast.error(`Napaka pri prijavi z Googlom: ${error.message}`);
+      toast.error(`${t('googleLoginError')} ${error.message}`);
       setLoading(false);
     }
   };
@@ -79,9 +79,9 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
     const error = params.get('error_description') || params.get('error');
     if (error) {
       if (error.includes('identity_already_exists') || error.toLowerCase().includes('already registered')) {
-        toast.error('Ta e-poštni naslov je že v uporabi z drugim načinom prijave (npr. z geslom).');
+        toast.error(t('emailInUse'));
       } else {
-        toast.error(`Napaka: ${error}`);
+        toast.error(`${t('authError')} ${error}`);
       }
       // Clean up URL
       window.history.replaceState({}, document.title, window.location.pathname);
@@ -93,11 +93,11 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
     
     if (!isLogin) {
         if (!hasUppercase || !hasNumber || !hasMinLength) {
-            return toast.error('Geslo ne ustreza varnostnim zahtevam.');
+            return toast.error(t('passwordRequirements'));
         }
         if (password !== confirmPassword) {
             setPasswordsMatch(false);
-            return toast.error('Gesli se ne ujemata.');
+            return toast.error(t('passwordsNotMatch'));
         }
     }
 
@@ -143,13 +143,13 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
               }
           }
           
-          toast.success('Registracija uspešna! Preverite svoj e-poštni predal za potrditev.');
+          toast.success(t('registrationSuccess'));
           setIsLogin(true); // Switch to login view after registration
       }
     } catch (error: any) { 
         let errorMsg = error.message || JSON.stringify(error);
         if (errorMsg.includes('Invalid login credentials')) {
-            errorMsg = t('invalidCredentials');
+            errorMsg = t('invalidCredentials') || "Napačni prijavni podatki.";
             toast.error(errorMsg);
         } else {
             toast.error(`${t('authError')} ${errorMsg}`); 

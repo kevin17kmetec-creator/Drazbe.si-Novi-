@@ -76,7 +76,7 @@ export const VerificationView = ({ profile, onVerify, t }: { profile: any, onVer
         } catch (err: any) {
           console.error("Error verifying profile:", err);
           const errorMsg = err.message || JSON.stringify(err);
-          toast.error(`Napaka pri verifikaciji: ${errorMsg}`, { duration: Infinity, closeButton: true });
+          toast.error(`${t('verificationError')} ${errorMsg}`, { duration: Infinity, closeButton: true });
         } finally {
           setLoading(false);
         }
@@ -122,7 +122,7 @@ export const VerificationView = ({ profile, onVerify, t }: { profile: any, onVer
                         </div>
 
                         <button onClick={handleVerify} disabled={loading} className="w-full bg-[#0A1128] text-white py-6 rounded-[2rem] font-black uppercase tracking-widest hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl disabled:opacity-50">
-                          {loading ? t('processing') : t('confirmBidBtn')}
+                          {loading ? t('processing') : t('verifyBtn')}
                         </button>
                     </div>
                 ) : (
