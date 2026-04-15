@@ -2,7 +2,8 @@ import React, { useState, useRef } from 'react';
 import { User, Camera, CheckCircle2, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
-export const SettingsView: React.FC<{ t: any; user: any; onSave: (data: any) => void; onVerify: () => void }> = ({ t, user, onSave, onVerify }) => {
+export const SettingsView: React.FC<{ t: any; user: any; onSave: (data: any) => Promise<void>; onVerify: () => void }> = ({ t, user, onSave, onVerify }) => {
+  const [isSaving, setIsSaving] = useState(false);
   const [formData, setFormData] = useState({
     username: user?.username || '',
     firstName: user?.first_name || user?.firstName || '',
@@ -42,7 +43,7 @@ export const SettingsView: React.FC<{ t: any; user: any; onSave: (data: any) => 
     }
   };
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     console.log("Settings form submitted with data:", formData);
     if (formData.newPassword && formData.newPassword !== formData.confirmPassword) {
@@ -53,7 +54,12 @@ export const SettingsView: React.FC<{ t: any; user: any; onSave: (data: any) => 
       toast.error(t('oldPasswordRequired'));
       return;
     }
-    onSave(formData);
+    setIsSaving(true);
+    try {
+      await onSave(formData);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -171,8 +177,15 @@ export const SettingsView: React.FC<{ t: any; user: any; onSave: (data: any) => 
           </div>
         </div>
 
-        <button type="submit" className="w-full bg-[#0A1128] text-white py-5 rounded-2xl font-black uppercase tracking-widest hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl">
-          {t('saveChanges')}
+        <button type="submit" disabled={isSaving} className="w-full bg-[#0A1128] text-white py-5 rounded-2xl font-black uppercase tracking-widest hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl flex items-center justify-center gap-3">
+          {isSaving ? (
+            <>
+              <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+              {t('processing')}
+            </>
+          ) : (
+            t('saveChanges')
+          )}
         </button>
       </form>
     </div>

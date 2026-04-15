@@ -252,7 +252,16 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
               </div>
           )}
 
-          <button type="submit" disabled={loading} className="w-full bg-[#0A1128] text-white py-6 rounded-[2rem] font-black uppercase tracking-widest hover:bg-[#FEBA4F] transition-all shadow-xl">{loading ? t('processing') : (isLogin ? t('login') : t('createAccount'))}</button>
+          <button type="submit" disabled={loading} className="w-full bg-[#0A1128] text-white py-6 rounded-[2rem] font-black uppercase tracking-widest hover:bg-[#FEBA4F] transition-all shadow-xl flex items-center justify-center gap-3">
+            {loading ? (
+              <>
+                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                {t('processing')}
+              </>
+            ) : (
+              isLogin ? t('login') : t('createAccount')
+            )}
+          </button>
           
           {isLogin && (
             <div className="relative flex items-center justify-center py-4">
