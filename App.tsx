@@ -704,10 +704,19 @@ const App: React.FC = () => {
         if (data.profilePicture && data.profilePicture.startsWith('data:image')) {
             try {
                 console.log("Processing profile picture...");
-                // Convert base64 to File for compression
-                const res = await fetch(data.profilePicture);
-                const blob = await res.blob();
-                const file = new File([blob], "profile.jpg", { type: "image/jpeg" });
+                
+                // Manual base64 to Blob conversion to avoid CSP fetch issues
+                const base64Parts = data.profilePicture.split(',');
+                const mimeType = base64Parts[0].match(/:(.*?);/)?.[1] || 'image/jpeg';
+                const base64Data = base64Parts[1];
+                const byteCharacters = atob(base64Data);
+                const byteNumbers = new Array(byteCharacters.length);
+                for (let i = 0; i < byteCharacters.length; i++) {
+                    byteNumbers[i] = byteCharacters.charCodeAt(i);
+                }
+                const byteArray = new Uint8Array(byteNumbers);
+                const blob = new Blob([byteArray], { type: mimeType });
+                const file = new File([blob], "profile.jpg", { type: mimeType });
 
                 // Compress image
                 const options = {
