@@ -712,21 +712,23 @@ const App: React.FC = () => {
                 const blob = new Blob([byteArray], { type: 'image/jpeg' });
                 const fileName = `${userData.id}-${Date.now()}.jpg`;
 
-                const { data: uploadData, error: uploadError } = await supabase.storage.from('avatars').upload(fileName, blob, {
+                const { data: uploadData, error: uploadError } = await supabase.storage.from('auction-images').upload(`profiles/${fileName}`, blob, {
                     contentType: 'image/jpeg',
                     upsert: true
                 });
 
                 if (uploadError) {
                     console.error("Error uploading profile picture:", uploadError);
-                    toast.error("Napaka pri nalaganju profilne slike.");
+                    toast.error(t('imageUploadError'));
                 } else if (uploadData) {
-                    const { data: publicUrlData } = supabase.storage.from('avatars').getPublicUrl(fileName);
+                    const { data: publicUrlData } = supabase.storage.from('auction-images').getPublicUrl(`profiles/${fileName}`);
                     updateData.profile_picture_url = publicUrlData.publicUrl;
                 }
             } catch (imgErr) {
                 console.error("Error processing profile picture:", imgErr);
             }
+        } else if (!data.profilePicture) {
+            updateData.profile_picture_url = null;
         }
 
         const updatePromise = supabase.from('users').update({ 
@@ -835,6 +837,7 @@ const App: React.FC = () => {
           isWatched={watchedIds.includes(selectedItem.id)}
           onWatchToggle={() => toggleWatch(selectedItem.id)}
           currentPlan={currentPlan} 
+          currentUserId={userData.id}
           onBack={() => { setActiveView('grid'); setSelectedItem(null); }} 
           onBidSubmit={handleBidSubmit} 
           onCheckout={(item) => { 
@@ -1261,7 +1264,7 @@ const App: React.FC = () => {
             t={t} 
             auctions={auctions}
             userEmail={userData.email}
-            userProfilePicture={userData.profile_picture_url}
+            userProfilePicture={userData.profile_picture_url || userData.profilePicture}
         />
         <main>{content}</main>
         {activeView === 'grid' && <Footer t={t} onLegal={setActiveLegal} />}

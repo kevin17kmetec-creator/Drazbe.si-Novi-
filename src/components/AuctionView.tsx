@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { 
   Clock, Lock, CheckCircle2, AlertCircle, Image as ImageIcon,
   ChevronLeft, ChevronRight, Eye, MapPin, Info, Gavel, Truck, Trophy,
-  CreditCard, Landmark, Plus, Minus, X, Calendar as CalendarIcon, Phone, Mail
+  CreditCard, Landmark, Plus, Minus, X, Calendar as CalendarIcon, Phone, Mail, User
 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 
@@ -13,10 +13,10 @@ const TimeBox = ({ value, label }: { value: number, label: string }) => (
   </div>
 );
 
-export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onSellerClick, t, language, isVerified, currentPlan, isWatched, onWatchToggle }: { 
+export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onSellerClick, t, language, isVerified, currentPlan, isWatched, onWatchToggle, currentUserId }: { 
   item: any, 
   onBack: () => void, 
-  onBidSubmit: (item: any, amount: number) => Promise<boolean>,
+  onBidSubmit: (item: any, amount: number) => Promise<"error" | "success" | "outbid" | "login_required">,
   onCheckout: (item: any) => void,
   onSellerClick?: (sellerId: string) => void,
   t: any,
@@ -24,7 +24,8 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
   isVerified: boolean,
   currentPlan: string,
   isWatched?: boolean,
-  onWatchToggle?: () => void
+  onWatchToggle?: () => void,
+  currentUserId?: string
 }) {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
@@ -351,7 +352,7 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                           </div>
                           <div>
                             <p className="text-xs font-black text-[#0A1128]">
-                              {bid.userId === currentUser?.id ? t('you') : `${t('bidder')} ${bid.userId.substring(0, 4)}...`}
+                              {bid.userId === currentUserId ? t('you') : `${t('bidder')} ${bid.userId.substring(0, 4)}...`}
                             </p>
                             <p className="text-[10px] font-bold text-slate-400">
                               {new Date(bid.timestamp).toLocaleString('sl-SI')}
