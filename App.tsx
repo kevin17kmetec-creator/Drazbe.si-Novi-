@@ -27,6 +27,7 @@ import {
 
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
+import imageCompression from 'browser-image-compression';
 
 import { supabase } from './src/lib/supabaseClient';
 
@@ -668,15 +669,15 @@ const App: React.FC = () => {
 
   const handleSaveSettings = async (data: any) => {
     console.log("handleSaveSettings called with data:", data);
-    try {
-        if (!userData?.id) {
-            console.log("No user ID found in state");
-            toast.error("Uporabnik ni prijavljen.");
-            return;
-        }
+    if (!userData?.id) {
+        console.log("No user ID found in state");
+        toast.error("Uporabnik ni prijavljen.");
+        return;
+    }
 
+    try {
         // Update password if provided
-        if (data.newPassword) {
+        if (data.newPassword && data.oldPassword) {
             const { error: passError } = await supabase.auth.updateUser({ password: data.newPassword });
             if (passError) {
                 toast.error(`Napaka pri spremembi gesla: ${passError.message}`);
@@ -702,17 +703,25 @@ const App: React.FC = () => {
 
         if (data.profilePicture && data.profilePicture.startsWith('data:image')) {
             try {
-                const base64Data = data.profilePicture.split(',')[1];
-                const byteCharacters = atob(base64Data);
-                const byteNumbers = new Array(byteCharacters.length);
-                for (let i = 0; i < byteCharacters.length; i++) {
-                    byteNumbers[i] = byteCharacters.charCodeAt(i);
-                }
-                const byteArray = new Uint8Array(byteNumbers);
-                const blob = new Blob([byteArray], { type: 'image/jpeg' });
+                console.log("Processing profile picture...");
+                // Convert base64 to File for compression
+                const res = await fetch(data.profilePicture);
+                const blob = await res.blob();
+                const file = new File([blob], "profile.jpg", { type: "image/jpeg" });
+
+                // Compress image
+                const options = {
+                    maxSizeMB: 0.2,
+                    maxWidthOrHeight: 800,
+                    useWebWorker: true
+                };
+                
+                const compressedFile = await imageCompression(file, options);
+                console.log("Image compressed successfully");
+
                 const fileName = `${userData.id}-${Date.now()}.jpg`;
 
-                const { data: uploadData, error: uploadError } = await supabase.storage.from('auction-images').upload(`profiles/${fileName}`, blob, {
+                const { data: uploadData, error: uploadError } = await supabase.storage.from('auction-images').upload(`profiles/${fileName}`, compressedFile, {
                     contentType: 'image/jpeg',
                     upsert: true
                 });
@@ -723,6 +732,7 @@ const App: React.FC = () => {
                 } else if (uploadData) {
                     const { data: publicUrlData } = supabase.storage.from('auction-images').getPublicUrl(`profiles/${fileName}`);
                     updateData.profile_picture_url = publicUrlData.publicUrl;
+                    console.log("Profile picture uploaded:", publicUrlData.publicUrl);
                 }
             } catch (imgErr) {
                 console.error("Error processing profile picture:", imgErr);
@@ -731,18 +741,14 @@ const App: React.FC = () => {
             updateData.profile_picture_url = null;
         }
 
-        const updatePromise = supabase.from('users').update({ 
+        console.log("Updating database with:", updateData);
+        const { data: updatedUser, error } = await supabase.from('users').update({ 
             email: userData.email,
             ...updateData 
         }).eq('id', userData.id).select().single();
 
-        const timeoutPromise = new Promise<{data: any, error: any}>(resolve => 
-            setTimeout(() => resolve({ data: null, error: { message: "Povezava s strežnikom je potekla. Prosimo, poskusite znova." } }), 8000)
-        );
-
-        const { data: updatedUser, error } = await Promise.race([updatePromise, timeoutPromise]) as any;
-
         if (error) {
+            console.error("Database update error:", error);
             if (error.code === '23505' && error.message.includes('username')) {
                 toast.error('To uporabniško ime je že zasedeno. Prosimo, izberite drugega.');
             } else {
@@ -752,6 +758,7 @@ const App: React.FC = () => {
         }
 
         if (updatedUser) {
+            console.log("User updated successfully:", updatedUser);
             setUserData(prev => ({ ...prev, ...updatedUser }));
         }
 
