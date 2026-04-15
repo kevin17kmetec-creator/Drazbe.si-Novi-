@@ -53,7 +53,7 @@ export const ConfirmBidModal: React.FC<{
       <div className="bg-white rounded-2xl max-w-sm w-full shadow-2xl overflow-hidden relative">
         <button 
           onClick={onClose}
-          className="absolute top-0 right-0 bg-[#0099C8] text-white p-3 hover:bg-[#007A9F] transition-colors"
+          className="absolute top-0 right-0 bg-slate-100 text-slate-500 p-3 hover:bg-slate-200 transition-colors rounded-bl-2xl"
         >
           <X size={24} />
         </button>
@@ -84,23 +84,23 @@ export const ConfirmBidModal: React.FC<{
 
           <div className="space-y-2 mb-4">
             <div className="flex justify-between items-center">
-              <span className="text-[#0099C8] font-bold text-lg">{t('yourBid') || 'Vaša ponudba'}</span>
-              <span className="text-[#0099C8] font-bold text-lg">€ {Number(bidAmount).toLocaleString('sl-SI', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+              <span className="text-[#0A1128] font-black text-lg">{t('yourBid') || 'Vaša ponudba'}</span>
+              <span className="text-[#0A1128] font-black text-lg">€ {Number(bidAmount).toLocaleString('sl-SI', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
             </div>
             <div className="flex justify-between items-center text-slate-500 text-sm">
               <span>{t('auctionFeeLabel')} {feePercentage}%</span>
               <span>€ {(Number(bidAmount) * (feePercentage / 100)).toLocaleString('sl-SI', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
             </div>
             <div className="flex justify-between items-center text-slate-500 text-sm">
-              <span>{t('vatLabel')} 0%</span>
-              <span>€ 0,00</span>
+              <span>{t('vatLabel')} 22%</span>
+              <span>€ {(Number(bidAmount) * 0.22).toLocaleString('sl-SI', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
             </div>
           </div>
 
           <div className="border-t border-slate-300 pt-2 mb-2">
             <div className="flex justify-between items-center font-bold text-lg text-[#0A1128]">
               <span>{t('totalSum')}</span>
-              <span>€ {(Number(bidAmount) * (1 + feePercentage / 100)).toLocaleString('sl-SI', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+              <span>€ {(Number(bidAmount) * (1 + feePercentage / 100 + 0.22)).toLocaleString('sl-SI', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
             </div>
           </div>
 
@@ -110,18 +110,18 @@ export const ConfirmBidModal: React.FC<{
 
           <div className="flex gap-2">
             <div className="flex-1 relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#0099C8] font-bold">€</span>
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#0A1128] font-black">€</span>
               <input 
                 type="number" 
                 value={bidAmount}
                 onChange={(e) => setBidAmount(e.target.value)}
-                className="w-full pl-8 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-lg font-bold text-[#0099C8] outline-none focus:border-[#0099C8]"
+                className="w-full pl-8 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl font-black text-[#0A1128] outline-none focus:border-[#FEBA4F] focus:ring-2 focus:ring-[#FEBA4F]/20"
               />
             </div>
             <button 
               onClick={handleConfirm}
               disabled={loading}
-              className="flex-[2] bg-[#0099C8] text-white font-bold py-3 px-4 rounded-lg hover:bg-[#007A9F] transition-colors flex items-center justify-center gap-2"
+              className="flex-[2] bg-[#0A1128] text-white font-black uppercase tracking-widest text-xs py-3 px-4 rounded-2xl hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl flex items-center justify-center gap-2"
             >
               {loading ? (
                 <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />

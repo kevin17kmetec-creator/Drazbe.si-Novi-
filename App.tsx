@@ -32,7 +32,7 @@ import imageCompression from 'browser-image-compression';
 
 import { supabase } from './src/lib/supabaseClient';
 
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY || 'pk_test_TYooMQauvdEDq54NiTphI7jx');
+const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY || '');
 import { AuctionItem, Region, ViewState, Seller, Review, SellerType, SubscriptionTier, PaymentCard, WonItem, Category } from './types.ts';
 
 import { Toaster, toast } from 'sonner';
@@ -102,7 +102,7 @@ const App: React.FC = () => {
   const [activeLegal, setActiveLegal] = useState<'terms' | 'privacy' | 'how' | null>(null);
   const [currentPlan, setCurrentPlan] = useState<SubscriptionTier>(SubscriptionTier.FREE);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
-  const [checkoutData, setCheckoutData] = useState<{ amount: number; title: string; onSuccess: () => void } | null>(null);
+  const [checkoutData, setCheckoutData] = useState<{ amount: number; title: string; onSuccess: () => void; metadata?: any } | null>(null);
   const [userData, setUserData] = useState({ id: '', firstName: '', lastName: '', email: '', profilePicture: '', is_verified: false });
   
   const [selectedItem, setSelectedItem] = useState<AuctionItem | null>(null);
@@ -722,10 +722,13 @@ const App: React.FC = () => {
             postal_code: data.postalCode,
             company_name: data.companyName,
             tax_number: data.taxNumber,
+            tax_id: data.taxNumber, // Save to both for compatibility
             company_street: data.companyStreet,
             company_city: data.companyCity,
             company_postal_code: data.companyPostalCode,
-            representative: data.representative
+            representative: data.representative,
+            country_code: data.countryCode,
+            auto_invoice_generation: data.autoInvoiceGeneration
         };
 
         if (data.profilePicture && data.profilePicture.startsWith('data:image')) {
@@ -856,12 +859,25 @@ const App: React.FC = () => {
                 t={t} 
                 onLoginSuccess={() => {
                     setIsLoggedIn(true);
-                    setIsAuthLoading(true);
                     setSelectedRegion(null);
                     setSelectedCategory(null);
                     setSearchQuery('');
                     setActiveView('grid');
                     window.scrollTo({ top: 0, behavior: 'instant' });
+                    
+                    // If it's a demo login (no session), we need to set a fake user ID
+                    supabase.auth.getSession().then(({ data: { session } }) => {
+                        if (!session) {
+                            setIsAuthLoading(false);
+                            setUserData(prev => ({
+                                ...prev,
+                                id: 'demo-user-id',
+                                firstName: 'Demo',
+                                lastName: 'Uporabnik',
+                                email: 'demo@example.com',
+                            }));
+                        }
+                    });
                 }} 
                 setIsVerified={setIsVerified} 
                 setAppLoggedIn={(val) => setIsLoggedIn(val)}
@@ -887,7 +903,13 @@ const App: React.FC = () => {
             setCheckoutData({ 
               amount: item.currentBid || item.current_price, 
               title: item.title?.[language] || item.title?.['SLO'] || t('auctionFallback'), 
-              onSuccess: () => { toast.success(t('paymentSuccess')); setIsCheckoutOpen(false); } 
+              onSuccess: () => { toast.success(t('paymentSuccess')); setIsCheckoutOpen(false); },
+              metadata: {
+                auction_id: item.id,
+                buyer_id: userData.id,
+                seller_id: item.sellerId || item.seller_id,
+                fee_percentage: 10
+              }
             }); 
             setIsCheckoutOpen(true); 
           }} 
@@ -1095,6 +1117,12 @@ const App: React.FC = () => {
                                             onSuccess: () => {
                                                 setIsCheckoutOpen(false);
                                                 toast.success(t('paymentSuccess'));
+                                            },
+                                            metadata: {
+                                                auction_id: mockWonItem.id,
+                                                buyer_id: userData.id,
+                                                seller_id: 'mock-seller-id', // In a real app, this would be from the auction data
+                                                fee_percentage: 10
                                             }
                                         });
                                         setIsCheckoutOpen(true);
@@ -1364,6 +1392,7 @@ const App: React.FC = () => {
                 title={checkoutData.title} 
                 onClose={() => setIsCheckoutOpen(false)} 
                 onSuccess={checkoutData.onSuccess} 
+                metadata={checkoutData.metadata}
             />
         )}
         {showBackToTop && (

@@ -3,9 +3,9 @@ import { X, Clock, Lock, CreditCard as CardIcon } from 'lucide-react';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
 
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY || 'pk_test_TYooMQauvdEDq54NiTphI7jx');
+const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY || '');
 
-const CheckoutForm: React.FC<{ amount: number; title: string; t: any; onSuccess: () => void; onClose: () => void }> = ({ amount, title, t, onSuccess, onClose }) => {
+const CheckoutForm: React.FC<{ amount: number; title: string; t: any; onSuccess: () => void; onClose: () => void; metadata?: any }> = ({ amount, title, t, onSuccess, onClose, metadata }) => {
   const stripe = useStripe();
   const elements = useElements();
   const [method, setMethod] = useState<'card' | 'google' | 'apple' | 'paypal'>('card');
@@ -32,7 +32,7 @@ const CheckoutForm: React.FC<{ amount: number; title: string; t: any; onSuccess:
       const res = await fetch('/api/create-payment-intent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount })
+        body: JSON.stringify({ amount, ...metadata })
       });
       const { clientSecret, error: backendError } = await res.json();
       
@@ -138,14 +138,15 @@ export const CheckoutModal: React.FC<{
   title: string;
   t: any;
   onSuccess: () => void;
-}> = ({ isOpen, onClose, amount, title, t, onSuccess }) => {
+  metadata?: any;
+}> = ({ isOpen, onClose, amount, title, t, onSuccess, metadata }) => {
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-[#0A1128]/95 backdrop-blur-md" onClick={onClose}></div>
       <Elements stripe={stripePromise}>
-        <CheckoutForm amount={amount} title={title} t={t} onSuccess={onSuccess} onClose={onClose} />
+        <CheckoutForm amount={amount} title={title} t={t} onSuccess={onSuccess} onClose={onClose} metadata={metadata} />
       </Elements>
     </div>
   );

@@ -16,7 +16,7 @@ const TimeBox = ({ value, label }: { value: number, label: string }) => (
 export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onSellerClick, t, language, isVerified, currentPlan, isWatched, onWatchToggle, currentUserId }: { 
   item: any, 
   onBack: () => void, 
-  onBidSubmit: (item: any, amount: number) => Promise<"error" | "success" | "outbid" | "login_required">,
+  onBidSubmit: (item: any, amount: number) => Promise<"error" | "success" | "outbid" | "login_required" | "cancelled">,
   onCheckout: (item: any) => void,
   onSellerClick?: (sellerId: string) => void,
   t: any,
