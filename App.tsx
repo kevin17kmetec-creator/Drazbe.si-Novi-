@@ -15,6 +15,7 @@ import { Header } from './src/components/Header';
 import { Footer } from './src/components/Footer';
 import { CheckoutModal } from './src/components/CheckoutModal';
 import { SettingsView } from './src/components/SettingsView';
+import { ConfirmBidModal } from './src/components/ConfirmBidModal';
 import { 
   Search, User, Globe, ChevronLeft, ChevronRight, Clock, MapPin, TrendingUp, Gavel,
   ArrowLeft, ChevronDown, ShieldCheck, Building2, Eye,
@@ -55,6 +56,8 @@ const App: React.FC = () => {
   const [bidAuctionIds, setBidAuctionIds] = useState<string[]>([]);
   const [hasAcceptedTerms, setHasAcceptedTerms] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
+  const [showConfirmBidModal, setShowConfirmBidModal] = useState(false);
+  const bidResolverRef = useRef<((value: 'success' | 'outbid' | 'error' | 'login_required' | 'cancelled') => void) | null>(null);
   const [pendingBid, setPendingBid] = useState<{item: AuctionItem, amount: number} | null>(null);
   const [selectedRegion, setSelectedRegion] = useState<Region | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
@@ -383,19 +386,26 @@ const App: React.FC = () => {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  const handleBidSubmit = async (item: AuctionItem, amount: number, bypassTermsCheck = false): Promise<'success' | 'outbid' | 'error' | 'login_required'> => {
+  const handleBidSubmit = async (item: AuctionItem, amount: number): Promise<'success' | 'outbid' | 'error' | 'login_required' | 'cancelled'> => {
     if (!isLoggedIn) { setActiveView('login'); return 'login_required'; }
     if (!isVerified) { 
         window.scrollTo({ top: 0, behavior: 'smooth' });
         return 'error'; 
     }
     
-    if (!hasAcceptedTerms && !bypassTermsCheck) {
+    return new Promise((resolve) => {
         setPendingBid({ item, amount });
-        setShowTermsModal(true);
-        return 'error';
-    }
-    
+        bidResolverRef.current = resolve;
+        
+        if (!hasAcceptedTerms) {
+            setShowTermsModal(true);
+        } else {
+            setShowConfirmBidModal(true);
+        }
+    });
+  };
+
+  const executeBid = async (item: AuctionItem, amount: number): Promise<'success' | 'outbid' | 'error'> => {
     // Proxy Bidding Logic
     if (IS_LIVE || item.id.includes('-') || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.id)) {
         try {
@@ -408,7 +418,6 @@ const App: React.FC = () => {
 
             if (fetchError || !auction) {
                 console.error("Fetch Error:", fetchError);
-                toast.error(t('fetchError'));
                 return 'error';
             }
 
@@ -430,7 +439,6 @@ const App: React.FC = () => {
             } else if (userData.id === currentWinnerId) {
                 // Same user increasing their own max bid
                 if (amount <= currentMaxBid) {
-                    toast.error(t('bidTooLow'));
                     return 'error';
                 }
                 newMaxBid = amount;
@@ -474,18 +482,11 @@ const App: React.FC = () => {
 
             if (updateError) {
                 console.error("Update Error:", updateError);
-                toast.error(t('bidError'));
                 return 'error';
             }
 
             const newBidIds = Array.from(new Set([...bidAuctionIds, item.id]));
             setBidAuctionIds(newBidIds);
-            
-            if (outbiddenImmediately) {
-                toast.info(t('bidOutbid'));
-            } else {
-                toast.success(t('bidSuccessMsg'));
-            }
             
             try {
               const { data: { session } } = await supabase.auth.getSession();
@@ -502,15 +503,13 @@ const App: React.FC = () => {
             return outbiddenImmediately ? 'outbid' : 'success';
         } catch (error: any) { 
             console.error(error); 
-            toast.error(t('bidError'));
             return 'error';
         }
     } else {
         // Handle mock auctions locally
-        setAuctions(prev => prev.map(a => a.id === item.id ? {...a, currentBid: amount, bidCount: a.bidCount + 1} : a));
+        setAuctions(prev => prev.map(a => a.id === item.id ? {...a, currentBid: amount, bidCount: a.bidCount + 1, winnerId: userData.id, winner_id: userData.id} : a));
         const newBidIds = Array.from(new Set([...bidAuctionIds, item.id]));
         setBidAuctionIds(newBidIds);
-        toast.success(t('bidSuccessMsg'));
         
         try {
           const { data: { session } } = await supabase.auth.getSession();
@@ -550,9 +549,37 @@ const App: React.FC = () => {
       }
       
       if (pendingBid) {
-          await handleBidSubmit(pendingBid.item, pendingBid.amount, true);
-          setPendingBid(null);
+          setShowConfirmBidModal(true);
+      } else if (bidResolverRef.current) {
+          bidResolverRef.current('cancelled');
+          bidResolverRef.current = null;
       }
+  };
+
+  const handleCancelTerms = () => {
+      setShowTermsModal(false);
+      if (bidResolverRef.current) bidResolverRef.current('cancelled');
+      bidResolverRef.current = null;
+      setPendingBid(null);
+  };
+
+  const handleConfirmBid = async (amount: number) => {
+      if (!pendingBid || !bidResolverRef.current) return;
+      
+      const result = await executeBid(pendingBid.item, amount);
+      setShowConfirmBidModal(false);
+      if (bidResolverRef.current) {
+          bidResolverRef.current(result);
+          bidResolverRef.current = null;
+      }
+      setPendingBid(null);
+  };
+
+  const handleCancelConfirmBid = () => {
+      setShowConfirmBidModal(false);
+      if (bidResolverRef.current) bidResolverRef.current('cancelled');
+      bidResolverRef.current = null;
+      setPendingBid(null);
   };
 
   const handlePublish = async (itemData: any) => {
@@ -1287,7 +1314,7 @@ const App: React.FC = () => {
         {showTermsModal && (
             <div className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-6 animate-in">
                 <div className="bg-white w-full max-w-xl rounded-[3rem] p-10 lg:p-14 shadow-2xl relative">
-                    <button onClick={() => setShowTermsModal(false)} className="absolute top-8 right-8 text-slate-400 hover:text-[#0A1128] transition-colors"><X size={24}/></button>
+                    <button onClick={handleCancelTerms} className="absolute top-8 right-8 text-slate-400 hover:text-[#0A1128] transition-colors"><X size={24}/></button>
                     <div className="bg-[#FEBA4F] w-20 h-20 rounded-3xl flex items-center justify-center mb-8 shadow-lg shadow-[#FEBA4F]/20">
                         <ShieldCheck size={40} className="text-[#0A1128]" />
                     </div>
@@ -1316,6 +1343,17 @@ const App: React.FC = () => {
                     </button>
                 </div>
             </div>
+        )}
+        {pendingBid && (
+            <ConfirmBidModal 
+                isOpen={showConfirmBidModal}
+                onClose={handleCancelConfirmBid}
+                item={pendingBid.item}
+                initialBidAmount={pendingBid.amount}
+                currentPlan={currentPlan}
+                t={t}
+                onConfirm={handleConfirmBid}
+            />
         )}
         {activeLegal && <LegalModal type={activeLegal} onClose={() => setActiveLegal(null)} t={t} />}
         {isCheckoutOpen && checkoutData && (

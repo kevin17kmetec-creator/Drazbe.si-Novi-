@@ -15,7 +15,7 @@ export const AuctionCard: React.FC<{
   isWatched: boolean;
   onWatchToggle: () => void;
   onClick: () => void;
-  onBidSubmit: (item: AuctionItem, amount: number) => void;
+  onBidSubmit: (item: AuctionItem, amount: number) => Promise<'success' | 'outbid' | 'error' | 'login_required' | 'cancelled'> | void;
   onSellerClick: (seller: Seller) => void;
 }> = ({ item, t, language, isVerified, currentUserId, hasBid, isWatched, onWatchToggle, onClick, onBidSubmit, onSellerClick }) => {
   const [timeLeftStr, setTimeLeftStr] = useState('');
@@ -25,6 +25,7 @@ export const AuctionCard: React.FC<{
   const minNextBid = item.currentBid + getIncrement(item.currentBid);
   const [bidValue, setBidValue] = useState(minNextBid);
   const [bidStatus, setBidStatus] = useState<'success' | 'outbid' | 'error' | null>(null);
+  const [isBidding, setIsBidding] = useState(false);
   const isWinner = currentUserId && (item.winnerId === currentUserId || item.winner_id === currentUserId);
 
   useEffect(() => {
@@ -66,7 +67,9 @@ export const AuctionCard: React.FC<{
   const handleBidClick = async (e: React.MouseEvent) => {
     e.stopPropagation();
     setBidStatus(null);
+    setIsBidding(true);
     const result = await onBidSubmit(item, bidValue);
+    setIsBidding(false);
     if (result === 'success' || result === 'outbid' || result === 'error') {
         setBidStatus(result);
         setTimeout(() => setBidStatus(null), 4000);
@@ -76,7 +79,7 @@ export const AuctionCard: React.FC<{
   // Border logic
   let borderClass = "border-white/5";
   if (hasBid) {
-    borderClass = isWinner ? "border-green-500 ring-2 ring-green-500/20" : "border-red-500 ring-2 ring-red-500/20";
+    borderClass = isWinner ? "border-green-500 border-2 ring-4 ring-green-500/20" : "border-red-500 border-2 ring-4 ring-red-500/20";
   }
 
   return (
@@ -158,8 +161,8 @@ export const AuctionCard: React.FC<{
                 </div>
                 <button onClick={(e) => { e.stopPropagation(); handleAdjustBid('up'); }} className="w-8 h-10 flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 rounded-xl transition-all flex-shrink-0"><Plus size={14}/></button>
              </div>
-             <button onClick={handleBidClick} className={`h-12 flex-1 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-lg flex items-center justify-center whitespace-nowrap ${isVerified ? 'bg-[#FEBA4F] text-[#0A1128] hover:bg-white' : 'bg-slate-800 text-slate-500'}`}>
-                {!isVerified ? <Lock size={14} /> : t('placeBid')}
+             <button onClick={handleBidClick} disabled={isBidding} className={`h-12 flex-1 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-lg flex items-center justify-center gap-2 whitespace-nowrap ${isVerified ? 'bg-[#FEBA4F] text-[#0A1128] hover:bg-white' : 'bg-slate-800 text-slate-500'} ${isBidding ? 'opacity-75 cursor-not-allowed' : ''}`}>
+                {isBidding ? <div className="w-4 h-4 border-2 border-[#0A1128]/30 border-t-[#0A1128] rounded-full animate-spin" /> : (!isVerified ? <Lock size={14} /> : t('placeBid'))}
              </button>
              
              {/* Inline Feedback */}
