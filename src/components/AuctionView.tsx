@@ -184,7 +184,7 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                         onClick={() => setSelectedImage(img)}
                         className={`w-20 h-20 aspect-square bg-white border-2 rounded-xl overflow-hidden shrink-0 transition-all ${selectedImage === img || (!selectedImage && idx === 0) ? 'border-[#FEBA4F] shadow-lg scale-105' : 'border-slate-200 hover:border-slate-300 opacity-70 hover:opacity-100'}`}
                       >
-                        <img src={img} alt={`Thumb ${idx}`} className="w-full h-full object-cover" />
+                        <img src={img} alt={`Thumb ${idx}`} loading="lazy" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
                       </button>
                     ))}
                   </div>
@@ -195,6 +195,8 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                       <img 
                         src={selectedImage || signedImages[0]} 
                         alt="Main" 
+                        loading="lazy"
+                        referrerPolicy="no-referrer"
                         className="w-full h-full object-contain max-h-[500px] cursor-pointer" 
                         onClick={() => setLightboxImage(selectedImage || signedImages[0])}
                       />

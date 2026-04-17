@@ -20,7 +20,16 @@ export default defineConfig(({ mode }) => {
         }
       },
       build: {
+        minify: 'esbuild',
         rollupOptions: {
+          output: {
+            manualChunks: {
+              vendor: ['react', 'react-dom'],
+              supabase: ['@supabase/supabase-js'],
+              stripe: ['@stripe/stripe-js', '@stripe/react-stripe-js'],
+              lucide: ['lucide-react']
+            }
+          },
           onwarn(warning, warn) {
             if (warning.code === 'MODULE_LEVEL_DIRECTIVE' && warning.message.includes('use client')) {
               return;

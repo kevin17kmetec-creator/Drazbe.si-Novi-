@@ -133,6 +133,45 @@ const App: React.FC = () => {
   // Ref for the "Aktualne dražbe" section
   const auctionsSectionRef = useRef<HTMLDivElement>(null);
 
+  useEffect(() => {
+    let title = 'Drazba.si | Prva slovenska digitalna dražba';
+    let metaDesc = 'Najbolj zanesljiva platforma za spletne dražbe v Sloveniji. Pregledno, varno in enostavno.';
+    
+    switch(activeView) {
+      case 'detail':
+        if (selectedItem) {
+          const itemTitle = selectedItem.title[language as keyof typeof selectedItem.title] || selectedItem.title['SLO'];
+          title = `${itemTitle} | Drazba.si`;
+        }
+        metaDesc = `Licitirajte za stroje, vozila ali nepremičnine. Oddajte svojo ponudbo zdaj.`;
+        break;
+      case 'sellerProfile':
+        if (selectedSeller) title = `Profil prodajalca: ${selectedSeller.name} | Drazba.si`;
+        metaDesc = `Oglejte si vse aktivne dražbe prodajalca na Drazba.si.`;
+        break;
+      case 'lastChance':
+        title = 'Zadnja priložnost | Predmeti, ki se iztekajo | Drazba.si';
+        metaDesc = 'Zgrabite še zadnjo priložnost za licitacijo. Dražbe se iztekajo.';
+        break;
+      case 'createAuction':
+        title = 'Objavi novo dražbo | Drazba.si';
+        break;
+      case 'login':
+        title = 'Prijava in registracija | Drazba.si';
+        break;
+    }
+
+    document.title = title;
+    
+    let meta = document.querySelector('meta[name="description"]');
+    if (!meta) {
+      meta = document.createElement('meta');
+      meta.setAttribute('name', 'description');
+      document.head.appendChild(meta);
+    }
+    meta.setAttribute('content', metaDesc);
+  }, [activeView, selectedItem, selectedSeller, language]);
+
   const fetchAuctions = async () => {
     try {
       const { data, error } = await supabase.from('auctions').select('*');
@@ -494,7 +533,7 @@ const App: React.FC = () => {
                 currentBid: newPrice,
                 current_price: newPrice, 
                 bidCount: (item.bidCount || 0) + 1,
-                bid_count: (item.bid_count || 0) + 1,
+                bid_count: ((item as any).bid_count || 0) + 1,
                 winnerId: newWinnerId, 
                 winner_id: newWinnerId,
                 hiddenMaxBid: newMaxBid,

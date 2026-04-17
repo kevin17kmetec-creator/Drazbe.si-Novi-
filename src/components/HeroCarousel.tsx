@@ -63,12 +63,14 @@ export const HeroCarousel: React.FC<{ items: AuctionItem[]; onSelectItem: (item:
         className="flex h-full transition-transform duration-700 ease-in-out" 
         style={{ transform: `translateX(-${activeIndex * 100}%)` }}
       >
-        {featuredItems.map((item) => (
+        {featuredItems.map((item, index) => (
           <div key={item.id} className="min-w-full h-full relative flex-shrink-0">
             <img 
               src={signedImages[item.id] || getImageUrl(item.images[0])} 
               className="absolute inset-0 w-full h-full object-cover opacity-40" 
               alt={item.title[language] || item.title['SLO']}
+              loading={index === 0 ? "eager" : "lazy"}
+              referrerPolicy="no-referrer"
             />
             <div className="absolute inset-0 bg-gradient-to-t from-[#0A1128] via-transparent to-transparent"></div>
             

@@ -85,7 +85,13 @@ export const AuctionCard: React.FC<{
   return (
     <div className={`bg-[#0A1128] rounded-[2.5rem] overflow-hidden shadow-2xl hover:shadow-2xl hover:-translate-y-2 transition-all duration-300 group flex flex-col h-[540px] border relative ${borderClass}`}>
       <div className="relative h-52 overflow-hidden cursor-pointer group/image" onClick={onClick}>
-        <img src={signedImages[currentImageIndex] || item.images[currentImageIndex]} alt={item.title[language] || item.title['SLO']} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 opacity-90 group-hover:opacity-100" />
+        <img 
+          src={signedImages[currentImageIndex] || item.images[currentImageIndex]} 
+          alt={item.title[language] || item.title['SLO']} 
+          loading="lazy" 
+          referrerPolicy="no-referrer" 
+          className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 opacity-90 group-hover:opacity-100" 
+        />
         {(signedImages.length > 1 || item.images.length > 1) && (
           <>
             <button 
