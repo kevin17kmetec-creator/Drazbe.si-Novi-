@@ -164,6 +164,8 @@ const App: React.FC = () => {
               currentBid: d.current_price || d.currentBid,
               hiddenMaxBid: d.hidden_max_bid || d.hiddenMaxBid,
               bidCount: d.bid_count || d.bidCount,
+              winnerId: d.winner_id || d.winnerId,
+              winner_id: d.winner_id || d.winnerId,
               sellerName: d.sellerName || sellerName
           };
       });
@@ -469,7 +471,7 @@ const App: React.FC = () => {
             };
             const updatedHistory = [...(auction.bidding_history || []), newBid];
 
-            const { error: updateError } = await supabase
+            const { error: updateError, data: updatedDbData } = await supabase
                 .from('auctions')
                 .update({
                     current_price: newPrice,
@@ -478,10 +480,12 @@ const App: React.FC = () => {
                     bid_count: (auction.bid_count || 0) + 1,
                     bidding_history: updatedHistory
                 })
-                .eq('id', item.id);
+                .eq('id', item.id)
+                .select()
+                .single();
 
-            if (updateError) {
-                console.error("Update Error:", updateError);
+            if (updateError || !updatedDbData) {
+                console.error("Update Error or RLS block:", updateError);
                 return 'error';
             }
 
