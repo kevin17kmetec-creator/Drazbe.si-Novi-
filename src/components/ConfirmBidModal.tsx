@@ -67,12 +67,9 @@ export const ConfirmBidModal: React.FC<{
     if (loading || isCalculatingTax || !taxResult) return;
     setLoading(true);
     try {
-      const timeoutPromise = new Promise<void>((_, reject) => 
-          setTimeout(() => reject(new Error("Timeout")), 10000)
-      );
-      await Promise.race([onConfirm(Number(bidAmount), taxResult), timeoutPromise]);
+      await onConfirm(Number(bidAmount), taxResult);
     } catch (e) {
-      console.error("Bid submission timeout or error:", e);
+      console.error("Bid submission error:", e);
       onClose();
     } finally {
       setLoading(false);

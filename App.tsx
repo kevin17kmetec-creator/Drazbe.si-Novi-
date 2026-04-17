@@ -485,21 +485,39 @@ const App: React.FC = () => {
                 return 'error';
             }
 
+            const updatedItem = {
+                ...item, 
+                currentBid: newPrice,
+                current_price: newPrice, 
+                bidCount: (item.bidCount || 0) + 1,
+                bid_count: (item.bid_count || 0) + 1,
+                winnerId: newWinnerId, 
+                winner_id: newWinnerId,
+                hiddenMaxBid: newMaxBid,
+                hidden_max_bid: newMaxBid,
+                biddingHistory: updatedHistory,
+                bidding_history: updatedHistory
+            };
+
+            // Proactively update local state to avoid red border flash
+            setAuctions(prev => prev.map(a => a.id === item.id ? { ...a, ...updatedItem } : a));
+            if (selectedItem?.id === item.id) {
+                setSelectedItem(prev => prev ? { ...prev, ...updatedItem } : null);
+            }
             const newBidIds = Array.from(new Set([...bidAuctionIds, item.id]));
             setBidAuctionIds(newBidIds);
             
-            try {
-              const { data: { session } } = await supabase.auth.getSession();
+            // Fire and forget updating user's locally tracked bids
+            supabase.auth.getSession().then(({ data: { session } }) => {
               if (session?.user) {
-                await supabase.from('users').upsert({
-                  id: session.user.id,
-                  email: session.user.email,
+                supabase.from('users').update({
                   bid_auction_ids: newBidIds
+                }).eq('id', session.user.id).then(({error}) => {
+                  if (error) console.error("Error updating bid_auction_ids:", error);
                 });
               }
-            } catch (err) {
-              console.error("Error saving bid auction ids:", err);
-            }
+            }).catch(err => console.error("Session error during bid:", err));
+
             return outbiddenImmediately ? 'outbid' : 'success';
         } catch (error: any) { 
             console.error(error); 
@@ -511,18 +529,17 @@ const App: React.FC = () => {
         const newBidIds = Array.from(new Set([...bidAuctionIds, item.id]));
         setBidAuctionIds(newBidIds);
         
-        try {
-          const { data: { session } } = await supabase.auth.getSession();
+        // Fire and forget updating user's locally tracked bids
+        supabase.auth.getSession().then(({ data: { session } }) => {
           if (session?.user) {
-            await supabase.from('users').upsert({
-              id: session.user.id,
-              email: session.user.email,
+            supabase.from('users').update({
               bid_auction_ids: newBidIds
+            }).eq('id', session.user.id).then(({error}) => {
+              if (error) console.error("Error updating bid_auction_ids:", error);
             });
           }
-        } catch (err) {
-          console.error("Error saving bid auction ids:", err);
-        }
+        }).catch(err => console.error("Session error during bid:", err));
+
         return 'success';
     }
   };
