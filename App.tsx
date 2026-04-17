@@ -608,7 +608,7 @@ const App: React.FC = () => {
               bid_count: 0,
               item_count: 1,
               end_time: itemData.endTime || new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString(),
-              location: { SLO: 'Ljubljana', EN: 'Ljubljana', DE: 'Ljubljana' },
+              location: itemData.location || { SLO: 'Neznano', EN: 'Unknown', DE: 'Unbekannt' },
               region: itemData.region || Region.Osrednjeslovenska,
               category: itemData.category || Category.Ostalo,
               condition: { SLO: 'Novo', EN: 'New', DE: 'Neu' },
@@ -1077,13 +1077,6 @@ const App: React.FC = () => {
         }
         break;
     case 'winnings':
-        const mockWonItem = {
-            id: 'mock-win-1',
-            title: { SLO: 'Rolex Submariner', EN: 'Rolex Submariner', DE: 'Rolex Submariner' },
-            currentBid: 8500,
-            images: ['https://images.unsplash.com/photo-1523170335258-f5ed11844a49?auto=format&fit=crop&q=80'],
-            paymentStatus: 'pending'
-        };
         content = (
             <div className="max-w-[1600px] mx-auto py-16 px-6 animate-in">
                 <button onClick={() => setActiveView('grid')} className="flex items-center gap-2 text-slate-400 mb-10 font-black uppercase text-[10px] tracking-widest hover:text-[#0A1128] transition-colors"><ArrowLeft size={16}/> Nazaj</button>
@@ -1093,46 +1086,88 @@ const App: React.FC = () => {
                             <Trophy size={40} className="text-[#0A1128]" />
                         </div>
                         <div>
-                            <h2 className="text-4xl font-black uppercase tracking-tighter text-[#0A1128]">Moje zmage</h2>
+                            <h2 className="text-4xl font-black uppercase tracking-tighter text-[#0A1128]">{t('myWinnings')}</h2>
                             <p className="text-slate-400 font-bold mt-2">Pregled in plačilo dobljenih dražb</p>
                         </div>
                     </div>
                     
                     <div className="space-y-6">
-                        <div className="flex flex-col md:flex-row items-center gap-8 p-6 rounded-[2.5rem] border-2 border-slate-100 hover:border-[#FEBA4F] transition-colors group">
-                            <img src={mockWonItem.images[0]} alt="Item" className="w-32 h-32 rounded-3xl object-cover shadow-md group-hover:scale-105 transition-transform" />
-                            <div className="flex-1 text-center md:text-left">
-                                <h3 className="text-2xl font-black uppercase tracking-tighter text-[#0A1128] mb-2">{mockWonItem.title[language as keyof typeof mockWonItem.title] || mockWonItem.title.SLO}</h3>
-                                <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 text-sm font-bold text-slate-400">
-                                    <span className="flex items-center gap-1.5"><Gavel size={16}/> Končni znesek: <span className="text-[#0A1128] font-black">€{mockWonItem.currentBid.toLocaleString('sl-SI')}</span></span>
-                                    <span className="flex items-center gap-1.5"><Clock size={16}/> Dobljeno: <span className="text-[#0A1128] font-black">Danes</span></span>
+                        {currentUserWinnings.length === 0 ? (
+                            <div className="py-12 text-center">
+                                <p className="text-slate-500 font-black uppercase tracking-widest text-lg">{t('noWinnings')}</p>
+                            </div>
+                        ) : currentUserWinnings.map(wonItem => (
+                            <div key={wonItem.id} className="flex flex-col md:flex-row items-center gap-8 p-6 rounded-[2.5rem] border-2 border-slate-100 hover:border-[#FEBA4F] transition-colors group">
+                                <img src={wonItem.images[0]} alt="Item" className="w-32 h-32 rounded-3xl object-cover shadow-md group-hover:scale-105 transition-transform" />
+                                <div className="flex-1 text-center md:text-left">
+                                    <h3 className="text-2xl font-black uppercase tracking-tighter text-[#0A1128] mb-2">{wonItem.title[language as keyof typeof wonItem.title] || wonItem.title.SLO}</h3>
+                                    <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 text-sm font-bold text-slate-400">
+                                        <span className="flex items-center gap-1.5"><Gavel size={16}/> Končni znesek: <span className="text-[#0A1128] font-black">€{wonItem.currentBid.toLocaleString('sl-SI')}</span></span>
+                                    </div>
+                                </div>
+                                <div className="flex flex-col gap-3 w-full md:w-auto">
+                                    <button 
+                                        onClick={async () => {
+                                            // Dynamic calculation based on user profile logic requested
+                                            const feePercentage = currentPlan === SubscriptionTier.PRO ? 5 : currentPlan === SubscriptionTier.BASIC ? 10 : 12;
+                                            const commissionNet = wonItem.currentBid * (feePercentage / 100);
+                                            
+                                            // Real app would fetch taxLogic, but we can compute here similarly or rely on taxLogic helper inside checkout
+                                            setCheckoutData({
+                                                amount: wonItem.currentBid + commissionNet * 1.22, // Approximate for modal display quickly
+                                                title: `Plačilo za: ${wonItem.title.SLO}`,
+                                                onSuccess: async () => {
+                                                    setIsCheckoutOpen(false);
+                                                    
+                                                    try {
+                                                        const { calculateCommissionTaxes } = await import('./src/lib/taxLogic');
+                                                        const isBusiness = !!((userData as any).is_business || (userData as any).companyName);
+                                                        const countryCode = (userData as any).country_code || 'SI';
+                                                        const vatId = (userData as any).taxId || (userData as any).vat_id;
+                                                        
+                                                        const taxData = await calculateCommissionTaxes(commissionNet, countryCode, isBusiness, vatId);
+
+                                                        // Safe write to Supabase
+                                                        const { error } = await supabase.from('auction_transactions').insert({
+                                                            auction_id: wonItem.id,
+                                                            buyer_id: userData.id,
+                                                            final_bid_price: wonItem.currentBid,
+                                                            commission_net: taxData.commissionNet,
+                                                            vat_rate: taxData.vatRate,
+                                                            vat_amount: taxData.vatAmount,
+                                                            total_commission_gross: taxData.totalGross,
+                                                            seller_vat_id: '12345678', // from seller profile ideally
+                                                            buyer_vat_id: vatId,
+                                                            is_reverse_charge: taxData.isReverseCharge,
+                                                            vies_validation_status: taxData.viesValidationStatus || null,
+                                                            vies_validated_at: taxData.viesValidatedAt || null
+                                                        });
+                                                        
+                                                        if (error) {
+                                                          console.error("Failed to write to auction_transactions:", error);
+                                                          toast.error("Napaka pri zapisovanju transakcije.");
+                                                        } else {
+                                                          toast.success(t('paymentSuccess') || 'Plačilo in transakcija uspešna');
+                                                        }
+                                                    } catch (e) {
+                                                        console.error(e);
+                                                    }
+                                                },
+                                                metadata: {
+                                                    auction_id: wonItem.id,
+                                                    buyer_id: userData.id,
+                                                    seller_id: wonItem.sellerId
+                                                }
+                                            });
+                                            setIsCheckoutOpen(true);
+                                        }}
+                                        className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl flex items-center justify-center gap-2"
+                                    >
+                                        <CardIcon size={18} /> Plačaj zdaj
+                                    </button>
                                 </div>
                             </div>
-                            <div className="flex flex-col gap-3 w-full md:w-auto">
-                                <button 
-                                    onClick={() => {
-                                        setCheckoutData({
-                                            amount: mockWonItem.currentBid,
-                                            title: `Plačilo za: ${mockWonItem.title.SLO}`,
-                                            onSuccess: () => {
-                                                setIsCheckoutOpen(false);
-                                                toast.success(t('paymentSuccess'));
-                                            },
-                                            metadata: {
-                                                auction_id: mockWonItem.id,
-                                                buyer_id: userData.id,
-                                                seller_id: 'mock-seller-id', // In a real app, this would be from the auction data
-                                                fee_percentage: 10
-                                            }
-                                        });
-                                        setIsCheckoutOpen(true);
-                                    }}
-                                    className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl flex items-center justify-center gap-2"
-                                >
-                                    <CardIcon size={18} /> Plačaj zdaj
-                                </button>
-                            </div>
-                        </div>
+                        ))}
                     </div>
                 </div>
             </div>
@@ -1381,6 +1416,7 @@ const App: React.FC = () => {
                 currentPlan={currentPlan}
                 t={t}
                 onConfirm={handleConfirmBid}
+                userData={userData}
             />
         )}
         {activeLegal && <LegalModal type={activeLegal} onClose={() => setActiveLegal(null)} t={t} />}

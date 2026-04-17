@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { X } from 'lucide-react';
+import { X, CheckCircle, AlertTriangle } from 'lucide-react';
 import { AuctionItem, SubscriptionTier } from '../../types';
+import { calculateCommissionTaxes, TaxResult } from '../lib/taxLogic';
 
 export const ConfirmBidModal: React.FC<{
   isOpen: boolean;
@@ -9,11 +10,14 @@ export const ConfirmBidModal: React.FC<{
   initialBidAmount: number;
   currentPlan: SubscriptionTier;
   t: any;
-  onConfirm: (amount: number) => Promise<void>;
-}> = ({ isOpen, onClose, item, initialBidAmount, currentPlan, t, onConfirm }) => {
+  onConfirm: (amount: number, taxData?: TaxResult) => Promise<void>;
+  userData: any;
+}> = ({ isOpen, onClose, item, initialBidAmount, currentPlan, t, onConfirm, userData }) => {
   const [bidAmount, setBidAmount] = useState<string>(initialBidAmount.toString());
   const [loading, setLoading] = useState(false);
   const [timeLeft, setTimeLeft] = useState(0);
+  const [taxResult, setTaxResult] = useState<TaxResult | null>(null);
+  const [isCalculatingTax, setIsCalculatingTax] = useState(false);
 
   useEffect(() => {
     setBidAmount(initialBidAmount.toString());
@@ -30,9 +34,29 @@ export const ConfirmBidModal: React.FC<{
     return () => clearInterval(timer);
   }, [item.endTime, isOpen]);
 
-  if (!isOpen) return null;
+  useEffect(() => {
+    if (!isOpen) return;
+    let isMounted = true;
+    const computeTaxes = async () => {
+      setIsCalculatingTax(true);
+      const feePercentage = currentPlan === SubscriptionTier.PRO ? 5 : currentPlan === SubscriptionTier.BASIC ? 10 : 12;
+      const commissionNet = Number(bidAmount) * (feePercentage / 100);
+      
+      const countryCode = userData?.country_code || 'SI';
+      const isBusiness = !!(userData?.is_business || userData?.companyName);
+      const vatId = userData?.taxId || userData?.vat_id;
 
-  const feePercentage = currentPlan === SubscriptionTier.PRO ? 5 : currentPlan === SubscriptionTier.BASIC ? 10 : 12;
+      const result = await calculateCommissionTaxes(commissionNet, countryCode, isBusiness, vatId);
+      if (isMounted) {
+        setTaxResult(result);
+        setIsCalculatingTax(false);
+      }
+    };
+    const debounceTaxes = setTimeout(() => { computeTaxes() }, 500); 
+    return () => { isMounted = false; clearTimeout(debounceTaxes); };
+  }, [bidAmount, currentPlan, isOpen, userData]);
+
+  if (!isOpen) return null;
 
   const d = Math.floor(timeLeft / (3600 * 24));
   const h = Math.floor((timeLeft % (3600 * 24)) / 3600);
@@ -40,9 +64,16 @@ export const ConfirmBidModal: React.FC<{
   const s = Math.floor(timeLeft % 60);
 
   const handleConfirm = async () => {
+    if (loading || isCalculatingTax || !taxResult) return;
     setLoading(true);
     try {
-      await onConfirm(Number(bidAmount));
+      const timeoutPromise = new Promise<void>((_, reject) => 
+          setTimeout(() => reject(new Error("Timeout")), 10000)
+      );
+      await Promise.race([onConfirm(Number(bidAmount), taxResult), timeoutPromise]);
+    } catch (e) {
+      console.error("Bid submission timeout or error:", e);
+      onClose();
     } finally {
       setLoading(false);
     }
@@ -82,26 +113,38 @@ export const ConfirmBidModal: React.FC<{
             {t('bidTermsAccept')}
           </p>
 
-          <div className="space-y-2 mb-4">
+          <div className="space-y-2 mb-4 relative min-h-[80px]">
+            {isCalculatingTax && (
+              <div className="absolute inset-0 bg-white/80 backdrop-blur-sm z-10 flex items-center justify-center">
+                <div className="w-5 h-5 border-2 border-slate-300 border-t-[#FEBA4F] rounded-full animate-spin"></div>
+              </div>
+            )}
             <div className="flex justify-between items-center">
               <span className="text-[#0A1128] font-black text-lg">{t('yourBid') || 'Vaša ponudba'}</span>
               <span className="text-[#0A1128] font-black text-lg">€ {Number(bidAmount).toLocaleString('sl-SI', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
             </div>
             <div className="flex justify-between items-center text-slate-500 text-sm">
-              <span>{t('auctionFeeLabel')} {feePercentage}%</span>
-              <span>€ {(Number(bidAmount) * (feePercentage / 100)).toLocaleString('sl-SI', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+              <span>{t('auctionFeeLabel')}</span>
+              <span>€ {taxResult?.commissionNet.toLocaleString('sl-SI', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
             </div>
             <div className="flex justify-between items-center text-slate-500 text-sm">
-              <span>{t('vatLabel')} 22%</span>
-              <span>€ {(Number(bidAmount) * 0.22).toLocaleString('sl-SI', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+              <span className="flex items-center gap-1">
+                {t('vatLabel')} {taxResult?.vatRate ?? 22}%
+                {taxResult?.viesValidationStatus === 'VALID' && <CheckCircle size={12} className="text-green-500" title="VIES Validated" />}
+                {taxResult?.viesValidationStatus === 'INVALID' && <AlertTriangle size={12} className="text-red-500" title="VIES Invalid" />}
+              </span>
+              <span>€ {taxResult?.vatAmount.toLocaleString('sl-SI', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
             </div>
           </div>
 
           <div className="border-t border-slate-300 pt-2 mb-2">
             <div className="flex justify-between items-center font-bold text-lg text-[#0A1128]">
               <span>{t('totalSum')}</span>
-              <span>€ {(Number(bidAmount) * (1 + feePercentage / 100 + 0.22)).toLocaleString('sl-SI', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+              <span>€ {(Number(bidAmount) + (taxResult?.totalGross || 0)).toLocaleString('sl-SI', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
             </div>
+            {taxResult?.isReverseCharge && (
+              <p className="text-[10px] uppercase font-black tracking-widest text-[#FEBA4F] mt-1">REVERSE CHARGE / OBRNJENA DAVČNA OBVEZNOST</p>
+            )}
           </div>
 
           <div className="border-t border-slate-300 pt-2 mb-6">
@@ -120,13 +163,13 @@ export const ConfirmBidModal: React.FC<{
             </div>
             <button 
               onClick={handleConfirm}
-              disabled={loading}
-              className="flex-[2] bg-[#0A1128] text-white font-black uppercase tracking-widest text-xs py-3 px-4 rounded-2xl hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl flex items-center justify-center gap-2"
+              disabled={loading || isCalculatingTax}
+              className={`flex-[2] text-white font-black uppercase tracking-widest text-xs py-3 px-4 rounded-2xl transition-all shadow-xl flex items-center justify-center gap-2 ${loading || isCalculatingTax ? 'bg-slate-400 cursor-not-allowed' : 'bg-[#0A1128] hover:bg-[#FEBA4F] hover:text-[#0A1128]'}`}
             >
               {loading ? (
                 <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
               ) : (
-                t('confirmBidBtn')
+                t('confirmBidBtn') || 'Potrdi ponudbo'
               )}
             </button>
           </div>

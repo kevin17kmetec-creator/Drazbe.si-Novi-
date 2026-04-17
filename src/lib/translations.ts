@@ -263,7 +263,8 @@ export const translations: Record<string, any> = {
     biddingHistory: "Zgodovina ponudb",
     you: "Vi",
     bidder: "Ponudnik",
-    noBidsYet: "Ni še ponudb."
+    noBidsYet: "Ni še ponudb.",
+    leading: "Vodilni"
   },
   EN: {
     top10: "TOP 10 AUCTIONS OF THE DAY",
@@ -529,7 +530,8 @@ export const translations: Record<string, any> = {
     biddingHistory: "Bidding history",
     you: "You",
     bidder: "Bidder",
-    noBidsYet: "No bids yet."
+    noBidsYet: "No bids yet.",
+    leading: "Leading"
   },
   DE: {
     top10: "TOP 10 AUKTIONEN DES TAGES",
@@ -795,6 +797,7 @@ export const translations: Record<string, any> = {
     biddingHistory: "Gebotshistorie",
     you: "Sie",
     bidder: "Bieter",
-    noBidsYet: "Noch keine Gebote."
+    noBidsYet: "Noch keine Gebote.",
+    leading: "Führend"
   }
 };
