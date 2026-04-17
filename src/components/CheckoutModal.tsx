@@ -3,7 +3,7 @@ import { X, Clock, Lock, CreditCard as CardIcon } from 'lucide-react';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
 
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY || '');
+const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY || (() => { throw new Error("VITE_STRIPE_PUBLIC_KEY is not defined"); })());
 
 const CheckoutForm: React.FC<{ amount: number; title: string; t: any; onSuccess: () => void; onClose: () => void; metadata?: any }> = ({ amount, title, t, onSuccess, onClose, metadata }) => {
   const stripe = useStripe();
