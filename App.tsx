@@ -1154,7 +1154,12 @@ const App: React.FC = () => {
                             <div className="py-12 text-center">
                                 <p className="text-slate-500 font-black uppercase tracking-widest text-lg">{t('noWinnings')}</p>
                             </div>
-                        ) : currentUserWinnings.map(wonItem => (
+                        ) : currentUserWinnings.map(wonItem => {
+                            const feePercentage = currentPlan === SubscriptionTier.PRO ? 5 : currentPlan === SubscriptionTier.BASIC ? 10 : 12;
+                            const commissionNet = wonItem.currentBid * (feePercentage / 100);
+                            const totalAmountToPay = wonItem.currentBid + (commissionNet * 1.22);
+                            
+                            return (
                             <div key={wonItem.id} className="flex flex-col md:flex-row items-center gap-8 p-6 rounded-[2.5rem] border-2 border-slate-100 hover:border-[#FEBA4F] transition-colors group">
                                 <img src={wonItem.images[0]} alt="Item" className="w-32 h-32 rounded-3xl object-cover shadow-md group-hover:scale-105 transition-transform" />
                                 <div className="flex-1 text-center md:text-left">
@@ -1169,19 +1174,15 @@ const App: React.FC = () => {
                                         {wonItem.title[language as keyof typeof wonItem.title] || wonItem.title.SLO}
                                     </h3>
                                     <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 text-sm font-bold text-slate-400">
-                                        <span className="flex items-center gap-1.5"><Gavel size={16}/> Končni znesek: <span className="text-[#0A1128] font-black">€{wonItem.currentBid.toLocaleString('sl-SI')}</span></span>
+                                        <span className="flex items-center gap-1.5"><Gavel size={16}/> Končni znesek (vklj. s provizijo in DDV): <span className="text-[#0A1128] font-black">€{totalAmountToPay.toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></span>
                                     </div>
                                 </div>
                                 <div className="flex flex-col gap-3 w-full md:w-auto">
                                     <button 
                                         onClick={async () => {
-                                            // Dynamic calculation based on user profile logic requested
-                                            const feePercentage = currentPlan === SubscriptionTier.PRO ? 5 : currentPlan === SubscriptionTier.BASIC ? 10 : 12;
-                                            const commissionNet = wonItem.currentBid * (feePercentage / 100);
-                                            
                                             // Real app would fetch taxLogic, but we can compute here similarly or rely on taxLogic helper inside checkout
                                             setCheckoutData({
-                                                amount: wonItem.currentBid + commissionNet * 1.22, // Approximate for modal display quickly
+                                                amount: parseFloat(totalAmountToPay.toFixed(2)),
                                                 title: `Plačilo za: ${wonItem.title.SLO}`,
                                                 onSuccess: async () => {
                                                     setIsCheckoutOpen(false);
@@ -1234,7 +1235,8 @@ const App: React.FC = () => {
                                     </button>
                                 </div>
                             </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 </div>
             </div>

@@ -67,7 +67,7 @@ const CheckoutForm: React.FC<{ amount: number; title: string; t: any; onSuccess:
         
         <div className="bg-slate-50 rounded-2xl p-6 mb-8 border border-slate-100">
           <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{t('totalAmount')}</p>
-          <p className="text-4xl font-black text-[#FEBA4F]">€{amount.toLocaleString('sl-SI')}</p>
+          <p className="text-4xl font-black text-[#FEBA4F]">€{amount.toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
         </div>
 
         <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4">{t('paymentMethods')}</p>
@@ -75,13 +75,22 @@ const CheckoutForm: React.FC<{ amount: number; title: string; t: any; onSuccess:
           <button type="button" onClick={() => setMethod('card')} className={`flex items-center justify-center gap-2 p-4 rounded-2xl border-2 font-black text-xs uppercase tracking-widest transition-all ${method === 'card' ? 'border-[#FEBA4F] bg-[#FEBA4F]/10 text-[#0A1128]' : 'border-slate-100 text-slate-400 hover:border-slate-200'}`}>
             <CardIcon size={16} /> {t('payWithCard')}
           </button>
-          <button type="button" onClick={() => setMethod('google')} className={`flex items-center justify-center gap-2 p-4 rounded-2xl border-2 font-black text-xs uppercase tracking-widest transition-all ${method === 'google' ? 'border-[#FEBA4F] bg-[#FEBA4F]/10 text-[#0A1128]' : 'border-slate-100 text-slate-400 hover:border-slate-200'}`}>
+          <button type="button" onClick={() => {
+              setMethod('google');
+              setError('To plačilno sredstvo je trenutno v pripravi.');
+          }} className={`flex items-center justify-center gap-2 p-4 rounded-2xl border-2 font-black text-xs uppercase tracking-widest transition-all ${method === 'google' ? 'border-[#FEBA4F] bg-[#FEBA4F]/10 text-[#0A1128]' : 'border-slate-100 text-slate-400 hover:border-slate-200'}`}>
             Google Pay
           </button>
-          <button type="button" onClick={() => setMethod('apple')} className={`flex items-center justify-center gap-2 p-4 rounded-2xl border-2 font-black text-xs uppercase tracking-widest transition-all ${method === 'apple' ? 'border-[#FEBA4F] bg-[#FEBA4F]/10 text-[#0A1128]' : 'border-slate-100 text-slate-400 hover:border-slate-200'}`}>
+          <button type="button" onClick={() => {
+              setMethod('apple');
+              setError('To plačilno sredstvo je trenutno v pripravi.');
+          }} className={`flex items-center justify-center gap-2 p-4 rounded-2xl border-2 font-black text-xs uppercase tracking-widest transition-all ${method === 'apple' ? 'border-[#FEBA4F] bg-[#FEBA4F]/10 text-[#0A1128]' : 'border-slate-100 text-slate-400 hover:border-slate-200'}`}>
             Apple Pay
           </button>
-          <button type="button" onClick={() => setMethod('paypal')} className={`flex items-center justify-center gap-2 p-4 rounded-2xl border-2 font-black text-xs uppercase tracking-widest transition-all ${method === 'paypal' ? 'border-[#FEBA4F] bg-[#FEBA4F]/10 text-[#0A1128]' : 'border-slate-100 text-slate-400 hover:border-slate-200'}`}>
+          <button type="button" onClick={() => {
+              setMethod('paypal');
+              setError('To plačilno sredstvo je trenutno v pripravi.');
+          }} className={`flex items-center justify-center gap-2 p-4 rounded-2xl border-2 font-black text-xs uppercase tracking-widest transition-all ${method === 'paypal' ? 'border-[#FEBA4F] bg-[#FEBA4F]/10 text-[#0A1128]' : 'border-slate-100 text-slate-400 hover:border-slate-200'}`}>
             PayPal
           </button>
         </div>
@@ -89,6 +98,7 @@ const CheckoutForm: React.FC<{ amount: number; title: string; t: any; onSuccess:
         {method === 'card' && (
           <div className="mb-8 p-4 border border-slate-200 rounded-xl bg-slate-50">
             <CardElement options={{
+              hidePostalCode: true,
               style: {
                 base: {
                   fontSize: '16px',
