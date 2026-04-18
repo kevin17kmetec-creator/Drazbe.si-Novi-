@@ -46,6 +46,7 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
         category: Category.Ostalo, 
         region: Region.Stajerska, 
         location: REGION_LOCATIONS[Region.Stajerska][0],
+        condition: 'Rabljeno',
         description: '', 
         startingPrice: '1', 
         minStep: '5',
@@ -160,6 +161,7 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
 
     const handlePublish = async () => {
         if (!formData.title || !formData.description) return toast.error(t('enterAllData'));
+        if (imageFiles.length === 0) return toast.error('Naložite vsaj eno sliko.');
         
         const startingPriceNum = parseInt(formData.startingPrice);
         if (isNaN(startingPriceNum) || startingPriceNum < 1) {
@@ -242,9 +244,10 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
                 description: formData.description,
                 category: formData.category,
                 region: formData.region,
+                condition: formData.condition,
                 location: { SLO: formData.location, EN: formData.location, DE: formData.location },
                 endTime: selectedEnd.toISOString(),
-                images: imageUrls.length > 0 ? imageUrls : ['https://images.unsplash.com/photo-1586191552066-d52dd1e3af86'] 
+                images: imageUrls
             });
         } catch (error: any) { 
             console.error("Error publishing auction:", error); 
@@ -299,6 +302,16 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
                         </div>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <div className="space-y-4">
+                            <label className="text-[10px] font-black uppercase text-slate-400 ml-2">Stanje predmeta</label>
+                            <select value={formData.condition} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-5 px-6 font-bold focus:ring-4 focus:ring-[#FEBA4F]/20 focus:border-[#FEBA4F] transition-all outline-none appearance-none cursor-pointer" onChange={e => setFormData({...formData, condition: e.target.value})}>
+                                <option value="Novo">Novo</option>
+                                <option value="Kot novo">Kot novo</option>
+                                <option value="Rabljeno">Rabljeno</option>
+                                <option value="Potrebno obnove">Potrebno obnove</option>
+                                <option value="Za dele">Za dele</option>
+                            </select>
+                        </div>
                         <div className="space-y-4">
                             <label className="text-[10px] font-black uppercase text-slate-400 ml-2">{t('region')}</label>
                             <select value={formData.region} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-5 px-6 font-bold focus:ring-4 focus:ring-[#FEBA4F]/20 focus:border-[#FEBA4F] transition-all outline-none appearance-none cursor-pointer" onChange={e => setFormData({...formData, region: e.target.value as Region})}>

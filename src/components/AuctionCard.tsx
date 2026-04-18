@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { MapPin, ChevronLeft, ChevronRight, Clock, Eye, Building2, Minus, Plus, Lock, Trophy } from 'lucide-react';
 import { AuctionItem, Seller } from '../../types.ts';
 import { MOCK_SELLERS } from '../../data.ts';
@@ -17,7 +17,8 @@ export const AuctionCard: React.FC<{
   onClick: () => void;
   onBidSubmit: (item: AuctionItem, amount: number) => Promise<'success' | 'outbid' | 'error' | 'login_required' | 'cancelled'> | void;
   onSellerClick: (seller: Seller) => void;
-}> = ({ item, t, language, isVerified, currentUserId, hasBid, isWatched, onWatchToggle, onClick, onBidSubmit, onSellerClick }) => {
+  onTimeUp?: (auctionId: string) => void;
+}> = ({ item, t, language, isVerified, currentUserId, hasBid, isWatched, onWatchToggle, onClick, onBidSubmit, onSellerClick, onTimeUp }) => {
   const [timeLeftStr, setTimeLeftStr] = useState('');
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [signedImages, setSignedImages] = useState<string[]>([]);
@@ -27,6 +28,7 @@ export const AuctionCard: React.FC<{
   const [bidStatus, setBidStatus] = useState<'success' | 'outbid' | 'error' | null>(null);
   const [isBidding, setIsBidding] = useState(false);
   const isWinner = currentUserId && (item.winnerId === currentUserId || item.winner_id === currentUserId);
+  const hasEndedFiredRef = useRef(false);
 
   useEffect(() => {
     const fetchImages = async () => {
@@ -53,11 +55,20 @@ export const AuctionCard: React.FC<{
     const update = () => {
       const diff = Math.max(0, Math.floor((item.endTime.getTime() - Date.now()) / 1000));
       setTimeLeftStr(formatSeconds(diff));
+      
+      if (diff === 0 && !hasEndedFiredRef.current) {
+        hasEndedFiredRef.current = true;
+        if (onTimeUp) {
+            setTimeout(() => {
+                onTimeUp(item.id);
+            }, 1000);
+        }
+      }
     };
     update();
     const timer = setInterval(update, 1000);
     return () => clearInterval(timer);
-  }, [item.endTime]);
+  }, [item.endTime, item.id, onTimeUp]);
 
   const handleAdjustBid = (dir: 'up' | 'down') => {
     const step = getIncrement(bidValue);
@@ -124,6 +135,11 @@ export const AuctionCard: React.FC<{
           <div className="bg-white/10 text-white backdrop-blur-sm px-4 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg border border-white/10">
             {item.category}
           </div>
+          {item.condition && (
+          <div className="bg-white/10 text-white backdrop-blur-sm px-4 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg border border-white/10">
+            {typeof item.condition === 'string' ? item.condition : item.condition[language] || item.condition['SLO']}
+          </div>
+          )}
           {isWinner && (
             <div className="bg-green-500 text-white backdrop-blur-sm px-4 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg flex items-center gap-1.5 border border-green-400/50 animate-pulse">
               <Trophy size={10} /> {t('leading') || 'Vodilni'}

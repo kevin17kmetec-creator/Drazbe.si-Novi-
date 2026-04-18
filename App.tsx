@@ -629,16 +629,29 @@ const App: React.FC = () => {
               return;
           }
 
+          // Remove [EN] and [DE] prefix hardcoding as this looks like test data and is unnecessary
           const simulatedTitle = {
               SLO: itemData.title.SLO,
-              EN: `[EN] ${itemData.title.SLO}`,
-              DE: `[DE] ${itemData.title.SLO}`
+              EN: itemData.title.SLO,
+              DE: itemData.title.SLO
           };
           const simulatedDescription = {
               SLO: itemData.description,
-              EN: `[EN] ${itemData.description}`,
-              DE: `[DE] ${itemData.description}`
+              EN: itemData.description,
+              DE: itemData.description
           };
+
+              // Construct dynamic condition payload based on Slovene selection
+              const getConditionTranslations = (cond: string) => {
+                  switch(cond) {
+                      case 'Novo': return { SLO: 'Novo', EN: 'New', DE: 'Neu' };
+                      case 'Kot novo': return { SLO: 'Kot novo', EN: 'Like New', DE: 'Wie Neu' };
+                      case 'Rabljeno': return { SLO: 'Rabljeno', EN: 'Used', DE: 'Gebraucht' };
+                      case 'Potrebno obnove': return { SLO: 'Potrebno obnove', EN: 'Needs Restoration', DE: 'Restaurierungsbedürftig' };
+                      case 'Za dele': return { SLO: 'Za dele', EN: 'For Parts', DE: 'Für Ersatzteile' };
+                      default: return { SLO: cond, EN: cond, DE: cond };
+                  }
+              };
 
           const insertPromise = supabase.from('auctions').insert({
               title: simulatedTitle,
@@ -650,7 +663,7 @@ const App: React.FC = () => {
               location: itemData.location || { SLO: 'Neznano', EN: 'Unknown', DE: 'Unbekannt' },
               region: itemData.region || Region.Osrednjeslovenska,
               category: itemData.category || Category.Ostalo,
-              condition: { SLO: 'Novo', EN: 'New', DE: 'Neu' },
+              condition: getConditionTranslations(itemData.condition || 'Rabljeno'),
               specifications: {},
               bidding_history: [],
               seller_id: userData.id,
@@ -849,10 +862,16 @@ const App: React.FC = () => {
 
   const getFilteredAuctions = useMemo(() => {
       let filtered = [...auctions];
+      const now = new Date();
+      
       if (activeView === 'lastChance') {
-          filtered = filtered.filter(i => i.status === 'active').sort((a, b) => a.endTime.getTime() - b.endTime.getTime()).slice(0, 200);
+          filtered = filtered
+            .filter(i => i.status === 'active' && new Date(i.endTime) > now)
+            .sort((a, b) => a.endTime.getTime() - b.endTime.getTime())
+            .slice(0, 200);
       } else {
           filtered = filtered.filter(item => {
+              if (new Date(item.endTime) <= now) return false;
               if (selectedRegion && item.region !== selectedRegion) return false;
               if (selectedCategory && item.category !== selectedCategory) return false;
               if (searchQuery) {
@@ -1296,38 +1315,34 @@ const App: React.FC = () => {
                 </div>
             </div>
             <div className="grid gap-8 justify-center" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 320px))' }}>
-              {(() => {
-                const activeAuctions = currentAuctions.filter(item => new Date(item.endTime) > new Date());
-                
-                return (
-                    <>
-                        {activeAuctions.map(item => (
-                            <AuctionCard 
-                                key={item.id} 
-                                item={item} 
-                                t={t} 
-                                language={language} 
-                                isVerified={isVerified} 
-                                currentUserId={userData.id}
-                                hasBid={bidAuctionIds.includes(item.id)}
-                                isWatched={watchedIds.includes(item.id)}
-                                onWatchToggle={() => toggleWatch(item.id)}
-                                onClick={() => { 
-                                    window.scrollTo({ top: 0, behavior: 'instant' });
-                                    setSelectedItem(item); 
-                                    setActiveView('detail'); 
-                                }} 
-                                onBidSubmit={handleBidSubmit} 
-                                onSellerClick={(seller) => { 
-                                    setSelectedSeller(seller); 
-                                    setActiveView('sellerProfile'); 
-                                    window.scrollTo({ top: 0, behavior: 'instant' });
-                                }} 
-                            />
-                        ))}
-                    </>
-                );
-              })()}
+                {currentAuctions.map(item => (
+                    <AuctionCard 
+                        key={item.id} 
+                        item={item} 
+                        t={t} 
+                        language={language} 
+                        isVerified={isVerified} 
+                        currentUserId={userData.id}
+                        hasBid={bidAuctionIds.includes(item.id)}
+                        isWatched={watchedIds.includes(item.id)}
+                        onWatchToggle={() => toggleWatch(item.id)}
+                        onClick={() => { 
+                            window.scrollTo({ top: 0, behavior: 'instant' });
+                            setSelectedItem(item); 
+                            setActiveView('detail'); 
+                        }} 
+                        onBidSubmit={handleBidSubmit} 
+                        onSellerClick={(seller) => { 
+                            setSelectedSeller(seller); 
+                            setActiveView('sellerProfile'); 
+                            window.scrollTo({ top: 0, behavior: 'instant' });
+                        }} 
+                        onTimeUp={(auctionId) => {
+                            // Force a re-render so activeAuctions filter recalculates and removes this item
+                            setAuctions(prev => [...prev]);
+                        }}
+                    />
+                ))}
             </div>
             {totalPages > 1 && (
                 <div className="mt-20 flex flex-col md:flex-row items-center justify-between gap-8 border-t-2 border-slate-100 pt-12">

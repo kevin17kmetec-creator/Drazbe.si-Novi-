@@ -390,6 +390,12 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{t('region')}:</p>
                   <p className="text-sm font-bold text-[#0A1128]">{item.region}</p>
                 </div>
+                {item.condition && (
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Stanje:</p>
+                  <p className="text-sm font-bold text-[#0A1128]">{typeof item.condition === 'string' ? item.condition : item.condition[language] || item.condition['SLO']}</p>
+                </div>
+                )}
                 <div className="pt-4 border-t border-slate-100">
                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{t('feesAndTerms')}:</p>
                   <p className="font-bold text-[#0A1128] text-sm">{feePercentage} {t('percent')} {t('auctionFee')}</p>
