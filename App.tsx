@@ -212,6 +212,8 @@ const App: React.FC = () => {
               bidCount: d.bid_count || d.bidCount,
               winnerId: d.winner_id || d.winnerId,
               winner_id: d.winner_id || d.winnerId,
+              payment_status: d.payment_status || 'unpaid',
+              paid_at: d.paid_at,
               sellerName: d.sellerName || sellerName
           };
       });
@@ -1178,61 +1180,43 @@ const App: React.FC = () => {
                                     </div>
                                 </div>
                                 <div className="flex flex-col gap-3 w-full md:w-auto">
-                                    <button 
-                                        onClick={async () => {
-                                            // Real app would fetch taxLogic, but we can compute here similarly or rely on taxLogic helper inside checkout
-                                            setCheckoutData({
-                                                amount: parseFloat(totalAmountToPay.toFixed(2)),
-                                                title: `Plačilo za: ${wonItem.title.SLO}`,
-                                                onSuccess: async () => {
-                                                    setIsCheckoutOpen(false);
-                                                    
-                                                    try {
-                                                        const { calculateCommissionTaxes } = await import('./src/lib/taxLogic');
-                                                        const isBusiness = !!((userData as any).is_business || (userData as any).companyName);
-                                                        const countryCode = (userData as any).country_code || 'SI';
-                                                        const vatId = (userData as any).taxId || (userData as any).vat_id;
-                                                        
-                                                        const taxData = await calculateCommissionTaxes(commissionNet, countryCode, isBusiness, vatId);
-
-                                                        // Safe write to Supabase
-                                                        const { error } = await supabase.from('auction_transactions').insert({
-                                                            auction_id: wonItem.id,
-                                                            buyer_id: userData.id,
-                                                            final_bid_price: wonItem.currentBid,
-                                                            commission_net: taxData.commissionNet,
-                                                            vat_rate: taxData.vatRate,
-                                                            vat_amount: taxData.vatAmount,
-                                                            total_commission_gross: taxData.totalGross,
-                                                            seller_vat_id: '12345678', // from seller profile ideally
-                                                            buyer_vat_id: vatId,
-                                                            is_reverse_charge: taxData.isReverseCharge,
-                                                            vies_validation_status: taxData.viesValidationStatus || null,
-                                                            vies_validated_at: taxData.viesValidatedAt || null
-                                                        });
-                                                        
-                                                        if (error) {
-                                                          console.error("Failed to write to auction_transactions:", error);
-                                                          toast.error("Napaka pri zapisovanju transakcije.");
-                                                        } else {
-                                                          toast.success(t('paymentSuccess') || 'Plačilo in transakcija uspešna');
-                                                        }
-                                                    } catch (e) {
-                                                        console.error(e);
+                                    {wonItem.payment_status === 'paid' ? (
+                                        <div className="flex flex-col items-center md:items-end gap-2">
+                                            <div className="bg-green-50 text-green-600 px-6 py-3 rounded-2xl font-black uppercase tracking-widest text-sm flex items-center gap-2 border-2 border-green-100">
+                                                <CheckCircle2 size={18} /> Plačano
+                                            </div>
+                                            {wonItem.paid_at && (
+                                                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
+                                                    Plačano dne: {new Date(wonItem.paid_at).toLocaleDateString('sl-SI')}
+                                                </span>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <button 
+                                            onClick={async () => {
+                                                setCheckoutData({
+                                                    amount: parseFloat(totalAmountToPay.toFixed(2)),
+                                                    title: `Plačilo za: ${wonItem.title.SLO}`,
+                                                    onSuccess: async () => {
+                                                        setIsCheckoutOpen(false);
+                                                        toast.success('Plačilo uspešno! Račun in potrdilo sta bila poslana na vaš e-mail.');
+                                                        // Refresh to show paid status
+                                                        setTimeout(() => fetchAuctions(), 1500);
+                                                    },
+                                                    metadata: {
+                                                        auction_id: wonItem.id,
+                                                        buyer_id: userData.id,
+                                                        seller_id: wonItem.sellerId,
+                                                        fee_percentage: feePercentage
                                                     }
-                                                },
-                                                metadata: {
-                                                    auction_id: wonItem.id,
-                                                    buyer_id: userData.id,
-                                                    seller_id: wonItem.sellerId
-                                                }
-                                            });
-                                            setIsCheckoutOpen(true);
-                                        }}
-                                        className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl flex items-center justify-center gap-2"
-                                    >
-                                        <CardIcon size={18} /> Plačaj zdaj
-                                    </button>
+                                                });
+                                                setIsCheckoutOpen(true);
+                                            }}
+                                            className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl flex items-center justify-center gap-2"
+                                        >
+                                            <CardIcon size={18} /> Plačaj zdaj
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                             );

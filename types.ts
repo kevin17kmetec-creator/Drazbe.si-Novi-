@@ -72,6 +72,8 @@ export interface AuctionItem {
   sellerId: string;
   sellerName?: string;
   status: 'active' | 'completed' | 'cancelled';
+  payment_status?: 'unpaid' | 'paid';
+  paid_at?: string;
   winnerId?: string;
   hiddenMaxBid?: number; // For proxy bidding logic
 }

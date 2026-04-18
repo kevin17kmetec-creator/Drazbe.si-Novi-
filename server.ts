@@ -120,53 +120,69 @@ async function startServer() {
 
         if (txError) throw txError;
 
-        // 5. Generate Documents
+        // 5. Update Auction Status to mark as paid
+        const { error: auctionUpdateError } = await supabase
+            .from('auctions')
+            .update({ 
+                status: 'completed', 
+                payment_status: 'paid',
+                paid_at: new Date().toISOString()
+            })
+            .eq('id', auction_id);
+            
+        if (auctionUpdateError) {
+            console.error('Error updating auction status:', auctionUpdateError);
+        }
+
+        // 6. Generate Documents
         const documentsToInsert = [];
         const attachments = [];
 
-        // Generate Invoice for Platform Fee (if buyer wants auto-invoice or is individual)
-        if (buyer.auto_invoice_generation !== false) {
+        // Generate Invoice for Platform Fee
+        try {
             const invoicePdfBuffer = await generateInvoicePDF(transaction, buyer, seller);
-            const invoiceFileName = `invoice_${transaction.id}.pdf`;
+            const invoiceFileName = `racun_${transaction.id.substring(0,8)}.pdf`;
             
             // Upload to Supabase Storage
-            const { error: uploadError } = await supabase.storage
+            await supabase.storage
                 .from('documents')
                 .upload(`${buyer_id}/${invoiceFileName}`, invoicePdfBuffer, {
                     contentType: 'application/pdf',
                     upsert: true
                 });
 
-            if (!uploadError) {
-                const { data: { publicUrl } } = supabase.storage.from('documents').getPublicUrl(`${buyer_id}/${invoiceFileName}`);
-                documentsToInsert.push({
-                    transaction_id: transaction.id,
-                    user_id: buyer_id,
-                    type: 'invoice',
-                    file_url: publicUrl
-                });
-                
-                attachments.push({
-                    filename: invoiceFileName,
-                    content: invoicePdfBuffer
-                });
-            }
+            const { data: { publicUrl } } = supabase.storage.from('documents').getPublicUrl(`${buyer_id}/${invoiceFileName}`);
+            
+            documentsToInsert.push({
+                transaction_id: transaction.id,
+                user_id: buyer_id,
+                type: 'invoice',
+                file_url: publicUrl
+            });
+            
+            attachments.push({
+                filename: invoiceFileName,
+                content: invoicePdfBuffer
+            });
+        } catch (pdfErr) {
+            console.error('Error generating/uploading invoice PDF:', pdfErr);
         }
 
         // Generate Certificate for Individuals
-        if (buyer.company_status !== 'company') {
-            const certPdfBuffer = await generateCertificatePDF(transaction, buyer, seller);
-            const certFileName = `certificate_${transaction.id}.pdf`;
-            
-            const { error: uploadError } = await supabase.storage
-                .from('documents')
-                .upload(`${buyer_id}/${certFileName}`, certPdfBuffer, {
-                    contentType: 'application/pdf',
-                    upsert: true
-                });
+        if (buyer.user_type !== 'business') {
+            try {
+                const certPdfBuffer = await generateCertificatePDF(transaction, buyer, seller);
+                const certFileName = `potrdilo_${transaction.id.substring(0,8)}.pdf`;
+                
+                await supabase.storage
+                    .from('documents')
+                    .upload(`${buyer_id}/${certFileName}`, certPdfBuffer, {
+                        contentType: 'application/pdf',
+                        upsert: true
+                    });
 
-            if (!uploadError) {
                 const { data: { publicUrl } } = supabase.storage.from('documents').getPublicUrl(`${buyer_id}/${certFileName}`);
+                
                 documentsToInsert.push({
                     transaction_id: transaction.id,
                     user_id: buyer_id,
@@ -178,6 +194,8 @@ async function startServer() {
                     filename: certFileName,
                     content: certPdfBuffer
                 });
+            } catch (certErr) {
+                console.error('Error generating/uploading certificate PDF:', certErr);
             }
         }
 
@@ -186,15 +204,29 @@ async function startServer() {
             await supabase.from('documents').insert(documentsToInsert);
         }
 
-        // 6. Send Email via Resend
-        if (buyer.email && process.env.RESEND_API_KEY) {
-            await resend.emails.send({
-                from: 'Drazba.si <noreply@drazba.si>',
-                to: buyer.email,
-                subject: 'Potrditev plačila in dokumenti / Payment Confirmation',
-                html: '<p>Spoštovani,</p><p>V priponki vam pošiljamo dokumente za vašo nedavno transakcijo na Drazba.si.</p><p>Hvala za zaupanje!</p>',
-                attachments: attachments
-            });
+        // 7. Send Real Email via Resend
+        const buyerEmail = buyer.email;
+        if (buyerEmail && process.env.RESEND_API_KEY) {
+            try {
+                await resend.emails.send({
+                    from: 'Drazba.si <obvestila@drazba.si>',
+                    to: buyerEmail,
+                    subject: 'Potrdilo o plačilu in dokumenti - Drazba.si',
+                    html: `
+                        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
+                            <h2 style="color: #0A1128;">Pozdravljeni, ${buyer.first_name || 'uporabnik'}!</h2>
+                            <p>Vaše plačilo za dražbo je bilo uspešno obdelano.</p>
+                            <p>V priponki vam pošiljamo <strong>račun</strong> za opravljeno storitev ter <strong>potrdilo o nakupu</strong>.</p>
+                            <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
+                            <p style="font-size: 12px; color: #666;">Ekipa Drazba.si</p>
+                        </div>
+                    `,
+                    attachments: attachments
+                });
+                console.log(`Email sent successfully to ${buyerEmail}`);
+            } catch (emailErr) {
+                console.error('Error sending success email:', emailErr);
+            }
         }
 
       } catch (err) {
