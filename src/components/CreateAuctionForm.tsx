@@ -182,9 +182,10 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
         const hour = selectedEnd.getHours();
         const isValidTime = hour >= 6 && hour < 22; // 6:00 to 21:59
 
-        if (selectedEnd < minDateLimit || selectedEnd > maxDateLimit || !isValidTime) {
-            return toast.error(t('invalidEndTime'));
-        }
+        // TESTING PHASE: Disabled date and time limits so auctions can end in 1 minute.
+        // if (selectedEnd < minDateLimit || selectedEnd > maxDateLimit || !isValidTime) {
+        //     return toast.error(t('invalidEndTime'));
+        // }
 
         setUploading(true);
         setUploadProgress({});

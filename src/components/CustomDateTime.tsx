@@ -87,7 +87,9 @@ export const CustomDatePicker = ({ value, onChange, minDateStr, maxDateStr }) =>
                             
                             const dateStr = formatDate(date);
                             const isSelected = value === dateStr;
-                            const isSelectable = date >= minDate && date <= maxDate;
+                            // TESTING PHASE: Allowed all dates
+                            // const isSelectable = date >= minDate && date <= maxDate;
+                            const isSelectable = true;
                             
                             return (
                                 <button
@@ -139,8 +141,10 @@ export const CustomTimePicker = ({ value, onChange }) => {
         onChange(`${hours}:${m}`);
     };
 
-    const validHours = Array.from({ length: 16 }, (_, i) => String(i + 6).padStart(2, '0')); // 06 to 21
-    const validMinutes = Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, '0')); // 00, 05, ... 55
+    // TESTING PHASE: Allowed all hours 0-23
+    const validHours = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0')); 
+    // TESTING PHASE: Allowed 1-minute increments
+    const validMinutes = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'));
 
     return (
         <div className="relative" ref={containerRef}>

@@ -107,7 +107,14 @@ const App: React.FC = () => {
   
   const [selectedItem, setSelectedItem] = useState<AuctionItem | null>(null);
   const [selectedSeller, setSelectedSeller] = useState<Seller | null>(null);
-  const [currentUserWinnings, setCurrentUserWinnings] = useState<AuctionItem[]>([]);
+
+  const currentUserWinnings = useMemo(() => {
+      if (!userData?.id) return [];
+      return auctions.filter(a => 
+          (a.winner_id === userData.id || a.winnerId === userData.id) && 
+          (a.status === 'completed' || a.endTime.getTime() <= Date.now())
+      );
+  }, [auctions, userData?.id]);
 
   // Pagination & Scroll
   const [baseItemsPerPage, setBaseItemsPerPage] = useState(12);
@@ -237,40 +244,6 @@ const App: React.FC = () => {
   // Firestore Sync
   useEffect(() => {
     fetchAuctions();
-
-    const fetchWinnings = async () => {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
-            setCurrentUserWinnings([]);
-            return;
-        }
-
-        // Fetch auctions where the user is the winner (highest bidder and auction ended)
-        // For simplicity in this mock-heavy app, we'll fetch auctions where winner_id matches
-        const { data, error } = await supabase
-            .from('auctions')
-            .select('*')
-            .eq('winner_id', user.id);
-
-        if (error) {
-            console.error("Error fetching winnings:", error);
-            return;
-        }
-
-        const wonItems: AuctionItem[] = data.map(d => ({
-            ...d,
-            endTime: new Date(d.end_time || d.endTime),
-            currentBid: d.current_price || d.currentBid,
-            bidCount: d.bid_count || d.bidCount
-        }));
-        setCurrentUserWinnings(wonItems);
-      } catch (err) {
-        console.error("Supabase error in fetchWinnings:", err);
-      }
-    };
-
-    fetchWinnings();
 
     // Real-time subscription with WebSocket check
     if (typeof window !== 'undefined' && window.WebSocket) {
@@ -447,6 +420,12 @@ const App: React.FC = () => {
   };
 
   const executeBid = async (item: AuctionItem, amount: number): Promise<'success' | 'outbid' | 'error'> => {
+    // Prevent bidding if auction has ended
+    if (item.status === 'completed' || item.status === 'cancelled' || new Date(item.endTime).getTime() <= Date.now()) {
+        console.warn("Cannot bid: Auction has already ended.");
+        return 'error';
+    }
+
     // Proxy Bidding Logic
     if (IS_LIVE || item.id.includes('-') || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.id)) {
         try {
