@@ -1087,7 +1087,7 @@ const App: React.FC = () => {
                     </div>
                     
                     <div className="grid gap-8 justify-center" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 320px))' }}>
-                        {auctions.filter(a => bidAuctionIds.includes(a.id)).map(item => (
+                        {auctions.filter(a => bidAuctionIds.includes(a.id)).filter(a => !((a.winner_id === userData.id || a.winnerId === userData.id) && (a.status === 'completed' || new Date(a.endTime) <= new Date()))).map(item => (
                             <AuctionCard 
                                 key={item.id} 
                                 item={item} 
@@ -1103,7 +1103,7 @@ const App: React.FC = () => {
                                 onSellerClick={(seller) => { setSelectedSeller(seller); setActiveView('sellerProfile'); }} 
                             />
                         ))}
-                        {auctions.filter(a => bidAuctionIds.includes(a.id)).length === 0 && (
+                        {auctions.filter(a => bidAuctionIds.includes(a.id)).filter(a => !((a.winner_id === userData.id || a.winnerId === userData.id) && (a.status === 'completed' || new Date(a.endTime) <= new Date()))).length === 0 && (
                             <div className="col-span-full py-20 text-center bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200">
                                 <Gavel size={48} className="mx-auto mb-4 text-slate-300" />
                                 <p className="text-slate-500 font-black uppercase tracking-widest text-xs">{t('noBids')}</p>
@@ -1158,7 +1158,16 @@ const App: React.FC = () => {
                             <div key={wonItem.id} className="flex flex-col md:flex-row items-center gap-8 p-6 rounded-[2.5rem] border-2 border-slate-100 hover:border-[#FEBA4F] transition-colors group">
                                 <img src={wonItem.images[0]} alt="Item" className="w-32 h-32 rounded-3xl object-cover shadow-md group-hover:scale-105 transition-transform" />
                                 <div className="flex-1 text-center md:text-left">
-                                    <h3 className="text-2xl font-black uppercase tracking-tighter text-[#0A1128] mb-2">{wonItem.title[language as keyof typeof wonItem.title] || wonItem.title.SLO}</h3>
+                                    <h3 
+                                        className="text-2xl font-black uppercase tracking-tighter text-[#0A1128] mb-2 cursor-pointer hover:text-[#FEBA4F] transition-colors"
+                                        onClick={() => {
+                                            setSelectedItem(wonItem);
+                                            setActiveView('detail');
+                                            window.scrollTo({ top: 0, behavior: 'instant' });
+                                        }}
+                                    >
+                                        {wonItem.title[language as keyof typeof wonItem.title] || wonItem.title.SLO}
+                                    </h3>
                                     <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 text-sm font-bold text-slate-400">
                                         <span className="flex items-center gap-1.5"><Gavel size={16}/> Končni znesek: <span className="text-[#0A1128] font-black">€{wonItem.currentBid.toLocaleString('sl-SI')}</span></span>
                                     </div>
@@ -1247,7 +1256,7 @@ const App: React.FC = () => {
                     </div>
                     
                     <div className="grid gap-8 justify-center" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 320px))' }}>
-                        {auctions.filter(a => watchedIds.includes(a.id)).map(item => (
+                        {auctions.filter(a => watchedIds.includes(a.id)).filter(a => !((a.winner_id === userData.id || a.winnerId === userData.id) && (a.status === 'completed' || new Date(a.endTime) <= new Date()))).map(item => (
                             <AuctionCard 
                                 key={item.id} 
                                 item={item} 
@@ -1263,7 +1272,7 @@ const App: React.FC = () => {
                                 onSellerClick={(seller) => { setSelectedSeller(seller); setActiveView('sellerProfile'); }} 
                             />
                         ))}
-                        {auctions.filter(a => watchedIds.includes(a.id)).length === 0 && (
+                        {auctions.filter(a => watchedIds.includes(a.id)).filter(a => !((a.winner_id === userData.id || a.winnerId === userData.id) && (a.status === 'completed' || new Date(a.endTime) <= new Date()))).length === 0 && (
                             <div className="col-span-full py-20 text-center bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200">
                                 <Eye size={48} className="mx-auto mb-4 text-slate-300" />
                                 <p className="text-slate-500 font-black uppercase tracking-widest text-xs">Nimate opazovanih dražb</p>

@@ -14,7 +14,10 @@ const getImageUrl = (path: string) => {
 export const HeroCarousel: React.FC<{ items: AuctionItem[]; onSelectItem: (item: AuctionItem) => void; t: any; language: string }> = ({ items, onSelectItem, t, language }) => {
   const [activeIndex, setActiveIndex] = useState(0);
   const [signedImages, setSignedImages] = useState<Record<string, string>>({});
-  const featuredItems = useMemo(() => items.filter(a => a.status === 'active').slice(0, 10), [items]);
+  const featuredItems = useMemo(() => {
+    const now = new Date();
+    return items.filter(a => a.status === 'active' && new Date(a.endTime) > now).slice(0, 10);
+  }, [items]);
   
   useEffect(() => {
     const fetchImages = async () => {
