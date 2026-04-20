@@ -312,7 +312,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/stripe/account_session", async (req, res) => {
+  app.post("/api/stripe-account-session", async (req, res) => {
     try {
       const { user_id } = req.body;
       const stripe = getStripe();
@@ -351,7 +351,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/stripe/check_account_status", async (req, res) => {
+  app.post("/api/stripe-check-account-status", async (req, res) => {
     try {
       const { user_id } = req.body;
       const stripe = getStripe();

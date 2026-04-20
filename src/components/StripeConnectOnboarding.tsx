@@ -22,8 +22,14 @@ export const StripeConnectOnboarding: React.FC<Props> = ({ userId, isComplete, o
         body: JSON.stringify({ user_id: userId }),
       });
       if (!response.ok) {
-        const { error } = await response.json();
-        throw new Error(error || 'Failed to fetch client secret');
+        let errorMsg = 'Failed to fetch client secret';
+        try {
+            const data = await response.json();
+            if (data.error) errorMsg = data.error;
+        } catch(e) {
+            errorMsg = `Server error: ${response.status} ${response.statusText}`;
+        }
+        throw new Error(errorMsg);
       }
       const { client_secret } = await response.json();
       return client_secret;
