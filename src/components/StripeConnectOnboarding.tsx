@@ -16,7 +16,7 @@ export const StripeConnectOnboarding: React.FC<Props> = ({ userId, isComplete, o
 
   const handleStartOnboarding = () => {
     const fetchClientSecret = async () => {
-      const response = await fetch('/api/stripe/account_session', {
+      const response = await fetch('/api/stripe-account-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_id: userId }),
@@ -92,7 +92,7 @@ export const StripeConnectOnboarding: React.FC<Props> = ({ userId, isComplete, o
               onExit={() => {
                 // When user clicks exit or completes
                 // Let's verify status from our backend
-                fetch('/api/stripe/check_account_status', {
+                fetch('/api/stripe-check-account-status', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ user_id: userId }),
