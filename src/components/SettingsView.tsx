@@ -1,8 +1,9 @@
 import React, { useState, useRef } from 'react';
 import { User, Camera, CheckCircle2, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
+import { StripeConnectOnboarding } from './StripeConnectOnboarding';
 
-export const SettingsView: React.FC<{ t: any; user: any; onSave: (data: any) => Promise<void>; onVerify: () => void }> = ({ t, user, onSave, onVerify }) => {
+export const SettingsView: React.FC<{ t: any; user: any; onSave: (data: any) => Promise<void>; onVerify: () => void; onStripeVerified: () => void }> = ({ t, user, onSave, onVerify, onStripeVerified }) => {
   const [isSaving, setIsSaving] = useState(false);
   const [formData, setFormData] = useState({
     username: user?.username || '',
@@ -118,6 +119,15 @@ export const SettingsView: React.FC<{ t: any; user: any; onSave: (data: any) => 
                     </div>
                 )}
             </div>
+        </div>
+
+        <div className="mb-10">
+          <StripeConnectOnboarding 
+            userId={user?.id || ''} 
+            isComplete={!!user?.stripe_onboarding_complete} 
+            onComplete={onStripeVerified} 
+            t={t} 
+          />
         </div>
 
         <div className="mb-8">

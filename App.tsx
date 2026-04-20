@@ -944,7 +944,44 @@ const App: React.FC = () => {
             />
         ); 
         break;
-    case 'createAuction': content = <CreateAuctionForm onBack={() => setActiveView('grid')} t={t} onPublish={handlePublish} isLoggedIn={isLoggedIn} />; break;
+    case 'createAuction': 
+      if (!isLoggedIn) {
+          content = <AuthView onLoginSuccess={() => setActiveView('createAuction')} t={t} />;
+      } else if (!userData.stripe_onboarding_complete && IS_LIVE) {
+          content = (
+              <div className="max-w-3xl mx-auto py-32 px-6 flex flex-col items-center text-center animate-in">
+                  <div className="bg-red-50 text-red-500 w-24 h-24 rounded-full flex items-center justify-center mb-8 border-4 border-red-100">
+                     <AlertCircle size={48} />
+                  </div>
+                  <h2 className="text-4xl font-black uppercase tracking-tighter text-[#0A1128] mb-6">Plačila niso nastavljena</h2>
+                  <p className="text-lg font-bold text-slate-500 mb-10 max-w-xl">
+                      Za objavo dražbe morate najprej overiti svoj bančni račun preko sistema Stripe za prejemanje nakazil (Destination charges).
+                  </p>
+                  <button onClick={() => { setActiveView('settings'); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-colors shadow-xl">
+                      Pojdi v nastavitve
+                  </button>
+              </div>
+          );
+      } else if (!userData.stripe_onboarding_complete) {
+          // Allow testing if not IS_LIVE, but still show a warning or just block. The prompt says "ne more objaviti". So let's block even in mock if possible, or assume backend is ready? Let's just block strictly.
+          content = (
+              <div className="max-w-3xl mx-auto py-32 px-6 flex flex-col items-center text-center animate-in">
+                  <div className="bg-red-50 text-red-500 w-24 h-24 rounded-full flex items-center justify-center mb-8 border-4 border-red-100">
+                     <AlertCircle size={48} />
+                  </div>
+                  <h2 className="text-4xl font-black uppercase tracking-tighter text-[#0A1128] mb-6">Plačila niso nastavljena</h2>
+                  <p className="text-lg font-bold text-slate-500 mb-10 max-w-xl">
+                      Za objavo dražbe morate najprej overiti svoj bančni račun preko sistema Stripe za prejemanje nakazil.
+                  </p>
+                  <button onClick={() => { setActiveView('settings'); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-colors shadow-xl">
+                      Pojdi v nastavitve
+                  </button>
+              </div>
+          );
+      } else {
+          content = <CreateAuctionForm onBack={() => setActiveView('grid')} t={t} onPublish={handlePublish} isLoggedIn={isLoggedIn} />; 
+      }
+      break;
     case 'chat': content = <ChatView onBack={() => setActiveView('grid')} t={t} currentUserId={userData.id} language={language} />; break;
     case 'detail':
       if (selectedItem) content = (
@@ -1068,7 +1105,15 @@ const App: React.FC = () => {
         );
         break;
     case 'settings':
-        content = <SettingsView t={t} user={userData} onSave={handleSaveSettings} onVerify={() => setActiveView('verification')} />;
+        content = <SettingsView t={t} user={userData} onSave={handleSaveSettings} onVerify={() => setActiveView('verification')} onStripeVerified={async () => {
+             const { data } = await supabase.from('users').select('*').eq('id', userData.id).single();
+             if (data) {
+                 setUserData(prev => ({ ...prev, stripe_onboarding_complete: data.stripe_onboarding_complete, stripe_account_id: data.stripe_account_id }));
+             } else {
+                 setUserData(prev => ({ ...prev, stripe_onboarding_complete: true }));
+             }
+             toast.success('Plačila so uspešno nastavljena! Sedaj lahko objavljate dražbe.');
+        }}/>;
         break;
     case 'subscriptions':
         content = <SubscriptionsView t={t} currentPlan={currentPlan} onSubscribe={handleSubscribe} isVerified={isVerified} />;

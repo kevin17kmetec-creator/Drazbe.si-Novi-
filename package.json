@@ -12,6 +12,8 @@
   },
   "dependencies": {
     "@google/genai": "^1.48.0",
+    "@stripe/connect-js": "^3.3.35",
+    "@stripe/react-connect-js": "^3.3.34",
     "@stripe/react-stripe-js": "^5.6.1",
     "@stripe/stripe-js": "^8.11.0",
     "@supabase/supabase-js": "^2.103.1",

@@ -42,6 +42,8 @@ export interface Seller {
   unpaidStrikes: number; // 0-3
   isBlocked: boolean;
   savedCards: PaymentCard[];
+  stripe_account_id?: string;
+  stripe_onboarding_complete?: boolean;
 }
 
 export interface Review {
