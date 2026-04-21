@@ -84,6 +84,7 @@ export const StripeConnectOnboarding: React.FC<Props> = ({ userId, isComplete, o
           </div>
         </div>
         <button
+          type="button"
           onClick={handleStartOnboarding}
           className="shrink-0 bg-[#0A1128] text-white px-6 py-3 rounded-xl font-black uppercase tracking-widest text-xs hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-colors shadow-lg"
         >
