@@ -52,7 +52,6 @@ export const StripeConnectOnboarding: React.FC<Props> = ({ userId, isComplete, o
       fetchClientSecret: fetchClientSecret,
       locale: getStripeLocale(language),
       appearance: {
-        overlays: 'dialog',
         variables: {
           colorPrimary: '#FEBA4F',
           colorBackground: '#ffffff',
