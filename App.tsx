@@ -113,7 +113,7 @@ const App: React.FC = () => {
       return auctions.filter(a => 
           (a.winner_id === userData.id || a.winnerId === userData.id) && 
           (a.status === 'completed' || a.endTime.getTime() <= Date.now())
-      );
+      ).sort((a, b) => b.endTime.getTime() - a.endTime.getTime());
   }, [auctions, userData?.id]);
 
   // Pagination & Scroll

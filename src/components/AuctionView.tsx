@@ -5,6 +5,7 @@ import {
   CreditCard, Landmark, Plus, Minus, X, Calendar as CalendarIcon, Phone, Mail, User
 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
+import { getIncrement } from '../lib/utils';
 
 const TimeBox = ({ value, label }: { value: number, label: string }) => (
   <div className="flex flex-col items-center justify-center bg-white/10 rounded-xl w-14 h-14 md:w-16 md:h-16 border border-white/10">
@@ -66,7 +67,7 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
     const now = new Date().getTime();
     return Math.max(0, Math.floor((end - now) / 1000));
   });
-  const [bidAmount, setBidAmount] = useState<string>(String((item?.currentBid || 0) + 10));
+  const [bidAmount, setBidAmount] = useState<string>(String((item?.currentBid || 0) + getIncrement(item?.currentBid || 0)));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -94,8 +95,8 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
   }, [endTime, item?.status]);
 
   useEffect(() => {
-    if (Number(bidAmount) < currentBid + 10) {
-      setBidAmount(String(currentBid + 10));
+    if (Number(bidAmount) < currentBid + getIncrement(currentBid)) {
+      setBidAmount(String(currentBid + getIncrement(currentBid)));
     }
   }, [currentBid]);
 
@@ -349,7 +350,7 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                           </div>
                           <div>
                             <p className="text-xs font-black text-[#0A1128]">
-                              {bid.userId === currentUserId ? t('you') : `${t('bidder')} ${bid.userId.substring(0, 4)}...`}
+                              {(bid.userId || bid.bidderId) === currentUserId ? t('you') : `${t('bidder')} ${(bid.userId || bid.bidderId)?.substring(0, 4) || 'Unko'}...`}
                             </p>
                             <p className="text-[10px] font-bold text-slate-400">
                               {new Date(bid.timestamp).toLocaleString('sl-SI')}

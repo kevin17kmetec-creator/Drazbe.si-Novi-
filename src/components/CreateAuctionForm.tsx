@@ -258,12 +258,13 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
 
     const handleNumericChange = (field: string, value: string) => {
         let numericValue = value.replace(/\D/g, '');
-        if (field === 'startingPrice') {
-            if (numericValue === '' || parseInt(numericValue) < 1) {
-                numericValue = '1';
-            }
-        }
         setFormData(prev => ({ ...prev, [field]: numericValue }));
+    };
+
+    const handleStartingPriceBlur = () => {
+        if (!formData.startingPrice || parseInt(formData.startingPrice) < 1) {
+            setFormData(prev => ({ ...prev, startingPrice: '1' }));
+        }
     };
 
     return (
@@ -290,6 +291,7 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
                                     className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-5 pl-6 pr-12 font-bold focus:ring-4 focus:ring-[#FEBA4F]/20 focus:border-[#FEBA4F] transition-all outline-none" 
                                     value={formData.startingPrice}
                                     onChange={e => handleNumericChange('startingPrice', e.target.value)} 
+                                    onBlur={handleStartingPriceBlur}
                                 />
                                 <span className="absolute right-6 font-black text-[#0A1128] pointer-events-none">€</span>
                             </div>
