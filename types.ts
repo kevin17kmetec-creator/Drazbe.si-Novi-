@@ -115,4 +115,4 @@ export enum Region {
   Osrednjeslovenska = 'Osrednjeslovenska'
 }
 
-export type ViewState = 'grid' | 'detail' | 'login' | 'onboarding' | 'terms' | 'sellerProfile' | 'createAuction' | 'settings' | 'verification' | 'winnings' | 'lastChance' | 'subscriptions' | 'watchlist' | 'myBids' | 'chat';
+export type ViewState = 'grid' | 'detail' | 'login' | 'onboarding' | 'terms' | 'sellerProfile' | 'createAuction' | 'settings' | 'verification' | 'winnings' | 'lastChance' | 'subscriptions' | 'watchlist' | 'myBids' | 'chat' | 'mySold';

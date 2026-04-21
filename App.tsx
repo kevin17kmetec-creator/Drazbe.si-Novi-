@@ -60,6 +60,48 @@ const SignedImg = ({ src, alt, className, onClick }: { src: string, alt: string,
     return <img src={signedUrl || src} alt={alt} loading="lazy" className={className} onClick={onClick} referrerPolicy="no-referrer" />;
 };
 
+import { Timer } from 'lucide-react';
+
+const PaymentTimer: React.FC<{ endTime: string | Date }> = ({ endTime }) => {
+    const [timeLeft, setTimeLeft] = useState<{ hours: number, minutes: number, seconds: number } | null>(null);
+
+    useEffect(() => {
+        const deadline = new Date(endTime).getTime() + 24 * 60 * 60 * 1000;
+        
+        const updateTimer = () => {
+            const now = new Date().getTime();
+            const difference = deadline - now;
+            
+            if (difference <= 0) {
+                setTimeLeft({ hours: 0, minutes: 0, seconds: 0 });
+                return;
+            }
+            
+            setTimeLeft({
+                hours: Math.floor((difference / (1000 * 60 * 60)) % 24),
+                minutes: Math.floor((difference / 1000 / 60) % 60),
+                seconds: Math.floor((difference / 1000) % 60)
+            });
+        };
+        
+        updateTimer();
+        const interval = setInterval(updateTimer, 1000);
+        return () => clearInterval(interval);
+    }, [endTime]);
+
+    if (!timeLeft) return null;
+    
+    if (timeLeft.hours === 0 && timeLeft.minutes === 0 && timeLeft.seconds === 0) {
+        return <span className="text-red-500 font-bold flex items-center gap-1.5"><Timer size={14} /> Čas za plačilo je potekel</span>;
+    }
+
+    return (
+        <span className="text-amber-500 font-bold flex items-center gap-1.5 bg-amber-50 px-3 py-1.5 rounded-xl border border-amber-100">
+            <Timer size={16} /> Čas za plačilo: {String(timeLeft.hours).padStart(2, '0')}:{String(timeLeft.minutes).padStart(2, '0')}:{String(timeLeft.seconds).padStart(2, '0')}
+        </span>
+    );
+};
+
 const App: React.FC = () => {
   const [language, setLanguage] = useState('SLO');
   const t = (key: string) => translations[language]?.[key] || key;
@@ -114,6 +156,12 @@ const App: React.FC = () => {
   };
   const [activeLegal, setActiveLegal] = useState<'terms' | 'privacy' | 'how' | null>(null);
   const [currentPlan, setCurrentPlan] = useState<SubscriptionTier>(SubscriptionTier.FREE);
+  const [isSubscriptionCanceled, setIsSubscriptionCanceled] = useState(false);
+  const nextBillingDate = useMemo(() => {
+     const date = new Date();
+     date.setMonth(date.getMonth() + 1);
+     return date;
+  }, []);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [checkoutData, setCheckoutData] = useState<{ amount: number; title: string; onSuccess: () => void; metadata?: any } | null>(null);
   const [userData, setUserData] = useState({ id: '', firstName: '', lastName: '', email: '', profilePicture: '', is_verified: false });
@@ -764,6 +812,7 @@ const App: React.FC = () => {
     
     const saveSubscription = async (newTier: SubscriptionTier) => {
       setCurrentPlan(newTier);
+      setIsSubscriptionCanceled(false);
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user) {
@@ -1168,7 +1217,18 @@ const App: React.FC = () => {
         }}/>;
         break;
     case 'subscriptions':
-        content = <SubscriptionsView t={t} currentPlan={currentPlan} onSubscribe={handleSubscribe} isVerified={isVerified} />;
+        content = <SubscriptionsView 
+            t={t} 
+            currentPlan={currentPlan} 
+            onSubscribe={handleSubscribe} 
+            isVerified={isVerified}
+            isCanceled={isSubscriptionCanceled}
+            nextBillingDate={nextBillingDate}
+            onCancelSubscription={() => {
+                setIsSubscriptionCanceled(true);
+                toast.success("Avtomatska bremenitev je preklicana. Naročnina vam ostane veljavna do konca obračunskega obdobja.");
+            }}
+        />;
         break;
     case 'myBids':
         content = (
@@ -1281,8 +1341,9 @@ const App: React.FC = () => {
                                     >
                                         {wonItem.title[language as keyof typeof wonItem.title] || wonItem.title.SLO}
                                     </h3>
-                                    <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 text-sm font-bold text-slate-400">
-                                        <span className="flex items-center gap-1.5"><Gavel size={16}/> Končni znesek (vklj. s provizijo in DDV): <span className="text-[#0A1128] font-black">€{totalAmountToPay.toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></span>
+                                    <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 text-sm font-bold text-slate-400 mt-2">
+                                        <span className="flex items-center gap-1.5 bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200"><Gavel size={16}/> Končni znesek (vklj. s provizijo in DDV): <span className="text-[#0A1128] font-black">€{totalAmountToPay.toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></span>
+                                        {wonItem.payment_status !== 'paid' && <PaymentTimer endTime={wonItem.endTime} />}
                                     </div>
                                 </div>
                                 <div className="flex flex-col gap-3 w-full md:w-auto">
@@ -1326,6 +1387,75 @@ const App: React.FC = () => {
                                     )}
                                 </div>
                             </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            </div>
+        );
+        break;
+    case 'mySold':
+        const currentUserSold = auctions.filter(a => ((a.sellerId === userData.id || (a as any).seller_id === userData.id) && (a.status === 'completed' || new Date(a.endTime) <= new Date())));
+        content = (
+            <div className="max-w-[1600px] mx-auto py-16 px-6 animate-in">
+                <button onClick={() => setActiveView('grid')} className="flex items-center gap-2 text-slate-400 mb-10 font-black uppercase text-[10px] tracking-widest hover:text-[#0A1128] transition-colors"><ArrowLeft size={16}/> Nazaj</button>
+                <div className="bg-white rounded-[4rem] p-12 shadow-2xl border border-slate-100 min-h-[500px]">
+                    <div className="flex items-center gap-6 mb-12">
+                        <div className="bg-[#FEBA4F] p-4 rounded-3xl shadow-lg shadow-[#FEBA4F]/20">
+                            <CreditCard size={40} className="text-[#0A1128]" />
+                        </div>
+                        <div>
+                            <h2 className="text-4xl font-black uppercase tracking-tighter text-[#0A1128]">Prodane dražbe</h2>
+                            <p className="text-slate-400 font-bold mt-2">Pregled vaših zaključenih in prodanih dražb</p>
+                        </div>
+                    </div>
+                    
+                    <div className="space-y-6">
+                        {currentUserSold.length === 0 ? (
+                            <div className="py-12 text-center">
+                                <p className="text-slate-500 font-black uppercase tracking-widest text-lg">Nimate prodanih dražb</p>
+                            </div>
+                        ) : currentUserSold.map(soldItem => {
+                            return (
+                                <div key={soldItem.id} className="flex flex-col md:flex-row items-center gap-8 p-6 rounded-[2.5rem] border-2 border-slate-100 hover:border-[#FEBA4F] transition-colors group">
+                                    <SignedImg 
+                                        src={soldItem.images[0]} 
+                                        alt="Item" 
+                                        className="w-32 h-32 rounded-3xl object-cover shadow-md cursor-pointer group-hover:scale-105 transition-transform" 
+                                        onClick={() => {
+                                            setSelectedItem(soldItem);
+                                            setActiveView('detail');
+                                            window.scrollTo({ top: 0, behavior: 'instant' });
+                                        }}
+                                    />
+                                    <div className="flex-1 text-center md:text-left">
+                                        <h3 
+                                            className="text-2xl font-black uppercase tracking-tighter text-[#0A1128] mb-2 cursor-pointer hover:text-[#FEBA4F] transition-colors"
+                                            onClick={() => {
+                                                setSelectedItem(soldItem);
+                                                setActiveView('detail');
+                                                window.scrollTo({ top: 0, behavior: 'instant' });
+                                            }}
+                                        >
+                                            {soldItem.title[language as keyof typeof soldItem.title] || soldItem.title.SLO}
+                                        </h3>
+                                        <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 text-sm font-bold text-slate-400">
+                                            <span className="flex items-center gap-1.5"><Gavel size={16}/> Prodajna cena: <span className="text-[#0A1128] font-black">€{soldItem.currentBid.toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></span>
+                                        </div>
+                                    </div>
+                                    <div className="flex flex-col gap-3 w-full md:w-auto">
+                                        <button 
+                                            onClick={() => {
+                                                setSelectedItem(soldItem);
+                                                setActiveView('detail');
+                                                window.scrollTo({ top: 0, behavior: 'instant' });
+                                            }}
+                                            className="bg-slate-100 text-[#0A1128] px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] transition-all shadow-xl flex items-center justify-center gap-2"
+                                        >
+                                            Odpri dražbo
+                                        </button>
+                                    </div>
+                                </div>
                             );
                         })}
                     </div>
@@ -1514,6 +1644,7 @@ const App: React.FC = () => {
             onCreateAuction={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('createAuction'); }} 
             onMyWinnings={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('winnings'); }} 
             onMyBids={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('myBids'); }}
+            onMySold={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('mySold'); }}
             onChat={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('chat'); }}
             onWatchlist={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('watchlist'); }}
             activeView={activeView} 
