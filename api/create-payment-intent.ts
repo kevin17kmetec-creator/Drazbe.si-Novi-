@@ -22,6 +22,10 @@ export default async function handler(
       throw new Error('STRIPE_SECRET_KEY is not set');
     }
 
+    if (!amount || typeof amount !== 'number') {
+      throw new Error('Podan ni bil ustrezen znesek (amount).');
+    }
+
     // Fetch the actual auction to securely determine the final bid price
     let currentPrice = amount / 1.122; // Fallback
     if (auction_id) {
@@ -58,17 +62,23 @@ export default async function handler(
     const totalPlatformFeeGross = platformFee + vatAmount;
 
     // Ensure platform fee does not exceed total amount (failsafe)
-    const applicationFeeAmount = Math.min(Math.round(totalPlatformFeeGross * 100), Math.round(amount * 100));
+    let applicationFeeAmount = Math.min(Math.round(totalPlatformFeeGross * 100), Math.round(amount * 100));
 
     // Fetch seller connected account
     let sellerAccountId = null;
-    if (seller_id) {
-        const { data: seller } = await supabase.from('users').select('stripe_account_id, stripe_onboarding_complete').eq('id', seller_id).single();
+    if (seller_id && seller_id !== 'dizain-doo' && !seller_id.startsWith('sell')) {
+        // Query database safely
+        const { data: seller, error } = await supabase.from('users').select('stripe_account_id, stripe_onboarding_complete').eq('id', seller_id).single();
         
-        if (!seller?.stripe_account_id || !seller?.stripe_onboarding_complete) {
-           return res.status(400).json({ error: "Prodajalec še nima nastavljenega računa za prejemanje plačil (Stripe Connect ni zaključen). Nakupa na žalost ni mogoče izvesti trenutno." });
+        if (error || !seller) {
+           return res.status(400).json({ error: "Prodajalca ni mogoče najti v bazi, prenos sredstev ni mogoč." });
         }
-        sellerAccountId = seller.stripe_account_id;
+
+        const accountId = seller.stripe_account_id;
+        if (!accountId || !seller.stripe_onboarding_complete) {
+           return res.status(400).json({ error: "Prodajalec še nima nastavljenega Stripe računa za prejemanje plačil! Nakupa ni mogoče izvesti." });
+        }
+        sellerAccountId = accountId;
     }
 
     const payload: any = {
@@ -78,25 +88,36 @@ export default async function handler(
         enabled: true,
       },
       metadata: {
-          auction_id,
-          buyer_id,
-          seller_id,
-          fee_percentage
+          auction_id: auction_id || '',
+          buyer_id: buyer_id || '',
+          seller_id: seller_id || '',
+          fee_percentage: feePercentage
       }
     };
 
-    if (sellerAccountId && applicationFeeAmount) {
-        payload.application_fee_amount = applicationFeeAmount;
+    if (sellerAccountId) {
+        if (applicationFeeAmount > 0) {
+            payload.application_fee_amount = applicationFeeAmount;
+        }
         payload.transfer_data = {
            destination: sellerAccountId
         };
+        console.log("Creating direct destination charge for account:", sellerAccountId, "with fee:", applicationFeeAmount);
     }
 
-    const paymentIntent = await stripe.paymentIntents.create(payload);
+    try {
+      const paymentIntent = await stripe.paymentIntents.create(payload);
+      return res.status(200).json({ clientSecret: paymentIntent.client_secret, paymentIntentId: paymentIntent.id });
+    } catch (stripeErr: any) {
+      console.error("Stripe API Native Error:", stripeErr);
+      return res.status(500).json({ 
+        error: "Stripe zavrnil transakcijo - preveri konzolo",
+        details: stripeErr.raw || stripeErr.message || stripeErr 
+      });
+    }
 
-    return res.status(200).json({ clientSecret: paymentIntent.client_secret });
   } catch (error: any) {
-    console.error('Stripe Payment Intent Error:', error);
+    console.error('General Stripe Payment Intent Error:', error);
     return res.status(500).json({ error: error.message });
   }
 }

@@ -34,9 +34,14 @@ const CheckoutForm: React.FC<{ amount: number; title: string; t: any; onSuccess:
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ amount, ...metadata })
       });
-      const { clientSecret, error: backendError } = await res.json();
+      const data = await res.json();
       
-      if (backendError) throw new Error(backendError);
+      if (data.error) {
+          console.error("Backend Error Details:", data.details || data.error);
+          throw new Error(data.error);
+      }
+
+      const clientSecret = data.clientSecret;
 
       const cardElement = elements.getElement(CardElement);
       if (!cardElement) throw new Error("Card element not found");
