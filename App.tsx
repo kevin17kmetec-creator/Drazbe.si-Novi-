@@ -38,7 +38,7 @@ import { AuctionItem, Region, ViewState, Seller, Review, SellerType, Subscriptio
 import { Toaster, toast } from 'sonner';
 
 // --- CONFIGURATION ---
-const IS_LIVE = false; 
+const IS_LIVE = true; 
 
 import { EXTENDED_MOCK_AUCTIONS } from './src/lib/mockData';
 
