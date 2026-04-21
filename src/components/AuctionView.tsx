@@ -276,7 +276,7 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                 </div>
                 
                 <div className="text-center border-r border-white/10 pt-4 border-t">
-                  <p className="text-2xl font-black text-slate-500">{isWinner ? `€ ${item.hiddenMaxBid || item.hidden_max_bid || '-'}` : '-'}</p>
+                  <p className="text-2xl font-black text-green-400">{isWinner ? `€ ${item.hiddenMaxBid || item.hidden_max_bid || '-'}` : '-'}</p>
                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1 flex items-center justify-center gap-1"><Lock size={10}/> {t('myMaxBid')}</p>
                 </div>
                 <div className="text-center pt-4 border-t border-white/10">
@@ -335,6 +335,7 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
               </div>
             </div>
 
+            {!(isEnded && isWinner) && (
             <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
               <div className="p-4 border-b border-slate-100 bg-slate-50">
                 <h3 className="text-[#0A1128] font-black uppercase tracking-widest text-xs">{t('biddingHistory')}</h3>
@@ -350,7 +351,7 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                           </div>
                           <div>
                             <p className="text-xs font-black text-[#0A1128]">
-                              {(bid.userId || bid.bidderId) === currentUserId ? t('you') : `${t('bidder')} ${(bid.userId || bid.bidderId)?.substring(0, 4) || 'Unko'}...`}
+                              {(bid.userId || bid.bidderId) === currentUserId ? t('you') : `${t('bidder')} ${(bid.userId || bid.bidderId)?.substring(0, 4) || 'Unknown'}...`}
                             </p>
                             <p className="text-[10px] font-bold text-slate-400">
                               {new Date(bid.timestamp).toLocaleString('sl-SI')}
@@ -370,6 +371,7 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                 )}
               </div>
             </div>
+            )}
           </div>
 
           <div className="lg:col-span-4 order-4">

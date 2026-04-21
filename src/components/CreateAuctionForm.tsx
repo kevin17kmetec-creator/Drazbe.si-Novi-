@@ -1,10 +1,12 @@
-import React, { useState, useEffect } from 'react';
-import { ArrowLeft, FileUp, Trash2, Gavel, Wand2 } from 'lucide-react';
-import { Category, Region } from '../../types.ts';
+import React, { useState, useEffect, useRef } from 'react';
+import { ArrowLeft, FileUp, Trash2, Gavel, Wand2, X, Eye } from 'lucide-react';
+import { Category, Region, AuctionItem } from '../../types.ts';
 import { supabase } from '../lib/supabaseClient';
 import { toast } from 'sonner';
 import { GoogleGenAI } from '@google/genai';
 import imageCompression from 'browser-image-compression';
+import { AuctionCard } from './AuctionCard';
+import AuctionView from './AuctionView';
 
 const REGION_LOCATIONS: Record<Region, string[]> = {
     [Region.Prekmurje]: ['Murska Sobota', 'Lendava', 'Ljutomer', 'Beltinci', 'Gornja Radgona'],
@@ -159,6 +161,17 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
         }
     };
 
+    const [showPreview, setShowPreview] = useState(false);
+    const cancelRef = useRef(false);
+    const uploadedFilesRef = useRef<string[]>([]);
+
+    useEffect(() => {
+        // cleanup on unmount
+        return () => {
+            uploadedFilesRef.current = [];
+        };
+    }, []);
+
     const handlePublish = async () => {
         if (!formData.title || !formData.description) return toast.error(t('enterAllData'));
         if (imageFiles.length === 0) return toast.error('Naložite vsaj eno sliko.');
@@ -168,76 +181,50 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
             return toast.error(t('priceMin1'));
         }
 
-        // Validation for end time
         const selectedEnd = new Date(`${formData.endDate}T${formData.endTime}`);
-        const now = new Date();
         
-        // Use local midnight for comparison to be fair with "days from today"
-        const minDateLimit = new Date();
-        minDateLimit.setDate(now.getDate() + 3);
-        minDateLimit.setHours(0, 0, 0, 0);
-
-        const maxDateLimit = new Date();
-        maxDateLimit.setDate(now.getDate() + 14);
-        maxDateLimit.setHours(23, 59, 59, 999);
-
-        const hour = selectedEnd.getHours();
-        const isValidTime = hour >= 6 && hour < 22; // 6:00 to 21:59
-
-        // TESTING PHASE: Disabled date and time limits so auctions can end in 1 minute.
-        // if (selectedEnd < minDateLimit || selectedEnd > maxDateLimit || !isValidTime) {
-        //     return toast.error(t('invalidEndTime'));
-        // }
-
         setUploading(true);
         setUploadProgress({});
+        cancelRef.current = false;
+        uploadedFilesRef.current = [];
+
         try {
             let imageUrls: string[] = [];
             
             if (isLoggedIn) {
-                const uploadPromises = imageFiles.map(async (file, index) => {
-                    try {
-                        setUploadProgress(prev => ({ ...prev, [index]: { state: 'Stiskanje...', percent: 20 } }));
-                        
-                        const options = {
-                            maxSizeMB: 1,
-                            maxWidthOrHeight: 1200,
-                            useWebWorker: true,
-                            initialQuality: 0.8
-                        };
-                        const compressedFile = await imageCompression(file, options);
-                        
-                        setUploadProgress(prev => ({ ...prev, [index]: { state: 'Nalaganje...', percent: 60 } }));
-                        
-                        const fileName = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
-                        const arrayBuffer = await compressedFile.arrayBuffer();
-                        
-                        const { data: uploadData, error: uploadError } = await supabase.storage.from('auction-images').upload(fileName, arrayBuffer, {
-                            contentType: compressedFile.type,
-                            upsert: true
-                        });
-                        
-                        if (uploadError) {
-                            console.error("Podrobnosti napake pri nalaganju:", uploadError);
-                            throw uploadError;
-                        }
-                        
-                        setUploadProgress(prev => ({ ...prev, [index]: { state: 'Zaključeno', percent: 100 } }));
-                        return fileName;
-                    } catch (error) {
-                        setUploadProgress(prev => ({ ...prev, [index]: { state: 'Napaka', percent: 0 } }));
-                        throw error;
+                // Sequential upload allows cancellation easily
+                for (let i = 0; i < imageFiles.length; i++) {
+                    if (cancelRef.current) throw new Error('CANCELED');
+                    
+                    const file = imageFiles[i];
+                    setUploadProgress(prev => ({ ...prev, [i]: { state: 'Stiskanje...', percent: 20 } }));
+                    
+                    const options = { maxSizeMB: 1, maxWidthOrHeight: 1200, useWebWorker: true, initialQuality: 0.8 };
+                    const compressedFile = await imageCompression(file, options);
+                    
+                    if (cancelRef.current) throw new Error('CANCELED');
+                    setUploadProgress(prev => ({ ...prev, [i]: { state: 'Nalaganje...', percent: 60 } }));
+                    
+                    const fileName = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
+                    const arrayBuffer = await compressedFile.arrayBuffer();
+                    
+                    const { error: uploadError } = await supabase.storage.from('auction-images').upload(fileName, arrayBuffer, {
+                        contentType: compressedFile.type,
+                        upsert: true
+                    });
+                    
+                    if (uploadError) {
+                        setUploadProgress(prev => ({ ...prev, [i]: { state: 'Napaka', percent: 0 } }));
+                        throw uploadError;
                     }
-                });
-                
-                const uploadPromiseAll = Promise.all(uploadPromises);
-                const timeoutPromise = new Promise<string[]>((_, reject) => 
-                    setTimeout(() => reject(new Error("Čas za nalaganje slikovnih datotek je potekel (Timeout 30s).")), 30000)
-                );
-                
-                imageUrls = await Promise.race([uploadPromiseAll, timeoutPromise]);
+
+                    uploadedFilesRef.current.push(fileName);
+                    imageUrls.push(fileName);
+                    setUploadProgress(prev => ({ ...prev, [i]: { state: 'Zaključeno', percent: 100 } }));
+                }
+
+                if (cancelRef.current) throw new Error('CANCELED');
             } else {
-                // Demo user: use local object URLs
                 for (const file of imageFiles) {
                     imageUrls.push(URL.createObjectURL(file));
                 }
@@ -255,10 +242,23 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
                 images: imageUrls
             });
         } catch (error: any) { 
+            if (error.message === 'CANCELED') {
+                toast.error("Nalaganje prekinjeno.");
+                if (uploadedFilesRef.current.length > 0) {
+                    await supabase.storage.from('auction-images').remove(uploadedFilesRef.current);
+                }
+                return;
+            }
             console.error("Error publishing auction:", error); 
             const errorMsg = error.message || JSON.stringify(error);
             toast.error(`${t('imageUploadError')} ${errorMsg}`, { duration: 5000 });
-        } finally { setUploading(false); }
+        } finally { 
+            setUploading(false); 
+        }
+    };
+
+    const handleCancelUpload = () => {
+        cancelRef.current = true;
     };
 
     const handleNumericChange = (field: string, value: string) => {
@@ -418,6 +418,12 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
                         </div>
                     )}
 
+                    {!uploading && (
+                        <button onClick={() => setShowPreview(true)} className="w-full bg-slate-100 text-[#0A1128] py-4 rounded-[1.5rem] font-black uppercase tracking-widest text-sm hover:bg-slate-200 transition-all shadow-sm flex flex-col sm:flex-row items-center justify-center gap-2 mb-4">
+                            <Eye size={18} /> PREDOGLED
+                        </button>
+                    )}
+
                     <button onClick={handlePublish} disabled={uploading} className="w-full bg-[#0A1128] text-white py-8 rounded-[2rem] font-black uppercase tracking-widest text-lg hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-2xl flex items-center justify-center gap-3 active:scale-[0.98]">
                         {uploading ? (
                             <>
@@ -431,8 +437,97 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
                             </>
                         )}
                     </button>
+
+                    {uploading && (
+                        <button onClick={handleCancelUpload} className="mt-4 w-full bg-red-500 text-white py-4 rounded-[1.5rem] font-black uppercase tracking-widest text-sm hover:bg-red-600 transition-all shadow-sm flex items-center justify-center gap-2 lg:mb-4 relative overflow-hidden group">
+                           <span className="relative z-10 flex items-center gap-2"><X size={18} strokeWidth={3} /> Prekini nalaganje</span>
+                           <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
+                        </button>
+                    )}
                 </div>
             </div>
+
+            {showPreview && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 lg:p-8 overflow-y-auto">
+                    <div className="bg-[#f8fafc] w-full max-w-7xl rounded-[3rem] border border-white/20 shadow-2xl overflow-hidden relative mt-20 md:mt-0">
+                        <div className="flex justify-between items-center p-6 border-b border-slate-200 bg-white sticky top-0 z-20">
+                            <h2 className="text-2xl font-black uppercase tracking-tighter text-[#0A1128]">Predogled dražbe</h2>
+                            <button onClick={() => setShowPreview(false)} className="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-500 hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all cursor-pointer"><X size={20} strokeWidth={3} /></button>
+                        </div>
+                        <div className="p-8 h-[80vh] overflow-y-auto flex flex-col gap-12" onClick={e => e.stopPropagation()}>
+                            <div>
+                               <h3 className="text-xl font-black uppercase tracking-tighter text-[#0A1128] mb-6 border-b pb-4">Predogled kartice (Glavna stran)</h3>
+                               <div className="w-full max-w-sm mx-auto">
+                                   <AuctionCard 
+                                      item={{
+                                         id: 'preview',
+                                         title: { SLO: formData.title || 'Naslov', EN: formData.title, DE: formData.title },
+                                         description: formData.description || 'Opis',
+                                         currentBid: parseInt(formData.startingPrice) || 0,
+                                         startingPrice: parseInt(formData.startingPrice) || 0,
+                                         bidCount: 0,
+                                         images: previews.length > 0 ? previews : ['https://picsum.photos/seed/placeholder/800/800'],
+                                         endTime: new Date(`${formData.endDate}T${formData.endTime}`),
+                                         sellerId: 'demo',
+                                         sellerName: 'Demo Prodajalec',
+                                         location: { SLO: formData.location || 'Lokacija' },
+                                         status: 'active',
+                                         category: formData.category,
+                                         region: formData.region,
+                                         condition: formData.condition,
+                                         createdAt: new Date()
+                                      } as unknown as AuctionItem} 
+                                      t={t} 
+                                      language="SLO" 
+                                      isVerified={isLoggedIn} 
+                                      currentUserId="mock" 
+                                      isWatched={false} 
+                                      onWatchToggle={()=>{}} 
+                                      onClick={()=>{}} 
+                                      onBidSubmit={async () => undefined} 
+                                      onSellerClick={()=>{}} 
+                                   />
+                               </div>
+                            </div>
+                            <div className="pb-12">
+                               <h3 className="text-xl font-black uppercase tracking-tighter text-[#0A1128] mb-6 border-b pb-4">Predogled strani (Podrobnosti)</h3>
+                               <div className="border border-slate-200 rounded-[2.5rem] overflow-hidden bg-slate-50">
+                                   <div className="pointer-events-none">
+                                       <AuctionView 
+                                          item={{
+                                             id: 'preview',
+                                             title: { SLO: formData.title || 'Naslov', EN: formData.title, DE: formData.title },
+                                             description: formData.description || 'Opis',
+                                             currentBid: parseInt(formData.startingPrice) || 0,
+                                             startingPrice: parseInt(formData.startingPrice) || 0,
+                                             bidCount: 0,
+                                             images: previews.length > 0 ? previews : ['https://picsum.photos/seed/placeholder/800/800'],
+                                             endTime: new Date(`${formData.endDate}T${formData.endTime}`),
+                                             sellerId: 'demo',
+                                             sellerName: 'Demo Prodajalec',
+                                             location: { SLO: formData.location || 'Lokacija' },
+                                             status: 'active',
+                                             category: formData.category,
+                                             region: formData.region,
+                                             condition: formData.condition,
+                                             createdAt: new Date()
+                                          } as unknown as AuctionItem} 
+                                          t={t} 
+                                          language="SLO" 
+                                          isVerified={isLoggedIn} 
+                                          userData={{id:'mock'}} 
+                                          onBack={()=>{}} 
+                                          onBidSubmit={async () => undefined} 
+                                          onCheckout={()=>{}} 
+                                          onSellerClick={()=>{}} 
+                                       />
+                                   </div>
+                               </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

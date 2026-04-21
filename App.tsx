@@ -47,6 +47,19 @@ import { getIncrement, formatSeconds } from './src/lib/utils';
 
 // --- MAIN APP COMPONENT ---
 
+// SignedImg component for fetching Supabase signed URLs
+const SignedImg = ({ src, alt, className, onClick }: { src: string, alt: string, className?: string, onClick?: () => void }) => {
+    const [signedUrl, setSignedUrl] = useState<string>('');
+    useEffect(() => {
+        if (!src) return;
+        if (src.startsWith('http')) { setSignedUrl(src); return; }
+        supabase.storage.from('auction-images').createSignedUrl(src, 3600).then(({data}) => {
+            if (data?.signedUrl) setSignedUrl(data.signedUrl);
+        });
+    }, [src]);
+    return <img src={signedUrl || src} alt={alt} loading="lazy" className={className} onClick={onClick} referrerPolicy="no-referrer" />;
+};
+
 const App: React.FC = () => {
   const [language, setLanguage] = useState('SLO');
   const t = (key: string) => translations[language]?.[key] || key;
@@ -1247,7 +1260,16 @@ const App: React.FC = () => {
                             
                             return (
                             <div key={wonItem.id} className="flex flex-col md:flex-row items-center gap-8 p-6 rounded-[2.5rem] border-2 border-slate-100 hover:border-[#FEBA4F] transition-colors group">
-                                <img src={wonItem.images[0]} alt="Item" className="w-32 h-32 rounded-3xl object-cover shadow-md group-hover:scale-105 transition-transform" />
+                                <SignedImg 
+                                    src={wonItem.images[0]} 
+                                    alt="Item" 
+                                    className="w-32 h-32 rounded-3xl object-cover shadow-md group-hover:scale-105 transition-transform cursor-pointer" 
+                                    onClick={() => {
+                                        setSelectedItem(wonItem);
+                                        setActiveView('detail');
+                                        window.scrollTo({ top: 0, behavior: 'instant' });
+                                    }}
+                                />
                                 <div className="flex-1 text-center md:text-left">
                                     <h3 
                                         className="text-2xl font-black uppercase tracking-tighter text-[#0A1128] mb-2 cursor-pointer hover:text-[#FEBA4F] transition-colors"

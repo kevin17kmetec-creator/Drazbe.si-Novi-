@@ -168,6 +168,9 @@ export const AuctionCard: React.FC<{
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{t('currentBid')}</p>
               <p className="text-xl font-black text-[#FEBA4F]">€{item.currentBid.toLocaleString('sl-SI')}</p>
+              {isWinner && (item.hiddenMaxBid || item.hidden_max_bid) > item.currentBid && (
+                  <p className="text-[9px] font-black uppercase tracking-widest text-green-400 mt-1">Moja max: €{Number(item.hiddenMaxBid || item.hidden_max_bid).toLocaleString('sl-SI')}</p>
+              )}
             </div>
             <div className="text-right">
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{t('bidCount')}</p>
