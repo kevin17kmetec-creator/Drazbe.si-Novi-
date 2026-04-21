@@ -1105,7 +1105,7 @@ const App: React.FC = () => {
         );
         break;
     case 'settings':
-        content = <SettingsView t={t} user={userData} onSave={handleSaveSettings} onVerify={() => setActiveView('verification')} onStripeVerified={async () => {
+        content = <SettingsView t={t} language={language} user={userData} onSave={handleSaveSettings} onVerify={() => setActiveView('verification')} onStripeVerified={async () => {
              const { data } = await supabase.from('users').select('*').eq('id', userData.id).single();
              if (data) {
                  setUserData(prev => ({ ...prev, stripe_onboarding_complete: data.stripe_onboarding_complete, stripe_account_id: data.stripe_account_id }));

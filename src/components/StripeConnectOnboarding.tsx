@@ -8,13 +8,25 @@ interface Props {
   isComplete: boolean;
   onComplete: () => void;
   t: (key: string) => string;
+  language: string;
 }
 
-export const StripeConnectOnboarding: React.FC<Props> = ({ userId, isComplete, onComplete, t }) => {
+export const StripeConnectOnboarding: React.FC<Props> = ({ userId, isComplete, onComplete, t, language }) => {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [stripeConnectInstance, setStripeConnectInstance] = useState<any>(null);
 
+  const getStripeLocale = (lang: string) => {
+    switch (lang) {
+      case 'SLO': return 'sl';
+      case 'DE': return 'de';
+      default: return 'en-US';
+    }
+  };
+
   const handleStartOnboarding = () => {
+    // Prevent starting again if already showing to avoid multiple instances
+    if (showOnboarding) return;
+
     const fetchClientSecret = async () => {
       const response = await fetch('/api/stripe-account-session', {
         method: 'POST',
@@ -38,6 +50,7 @@ export const StripeConnectOnboarding: React.FC<Props> = ({ userId, isComplete, o
     const instance = loadConnectAndInitialize({
       publishableKey: import.meta.env.VITE_STRIPE_PUBLIC_KEY,
       fetchClientSecret: fetchClientSecret,
+      locale: getStripeLocale(language),
       appearance: {
         overlays: 'dialog',
         variables: {
