@@ -89,7 +89,7 @@ export const ChatView: React.FC<{
                         bidCount: a.bid_count
                     },
                     otherPartyId: isSeller ? a.winner_id : a.seller_id,
-                    otherPartyEmail: isSeller ? (a.winner?.email || 'Zmagovalec') : (a.users?.email || 'Prodajalec')
+                    otherPartyEmail: isSeller ? (a.winner?.email || t('winner')) : (a.users?.email || t('seller'))
                 };
             }).filter(s => s.otherPartyId); // Ensure there is another party (winner exists)
 
@@ -158,8 +158,8 @@ export const ChatView: React.FC<{
                         <ArrowLeft size={20} />
                     </button>
                     <div>
-                        <h2 className="text-3xl font-black uppercase tracking-tighter text-[#0A1128]">Sporočila</h2>
-                        <p className="text-slate-400 font-bold text-sm">Dogovor o prevzemu predmetov</p>
+                        <h2 className="text-3xl font-black uppercase tracking-tighter text-[#0A1128]">{t('messages')}</h2>
+                        <p className="text-slate-400 font-bold text-sm">{t('chatDesc')}</p>
                     </div>
                 </div>
             </div>
@@ -168,14 +168,14 @@ export const ChatView: React.FC<{
                 {/* Sidebar */}
                 <div className="w-80 border-r border-slate-100 flex flex-col bg-slate-50/50">
                     <div className="p-6 border-b border-slate-100 bg-white">
-                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Vaši klepeti</p>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{t('yourChats')}</p>
                     </div>
                     <div className="flex-1 overflow-y-auto">
                         {sessions.length === 0 ? (
                             <div className="p-10 text-center">
                                 <MessageSquare size={32} className="mx-auto mb-4 text-slate-200" />
-                                <p className="text-xs font-black uppercase tracking-widest text-slate-400">Ni aktivnih klepetov</p>
-                                <p className="text-[10px] text-slate-300 mt-2">Klepeti se pojavijo po končani dražbi med prodajalcem in zmagovalcem.</p>
+                                <p className="text-xs font-black uppercase tracking-widest text-slate-400">{t('noActiveChats')}</p>
+                                <p className="text-[10px] text-slate-300 mt-2">{t('chatStartNotice')}</p>
                             </div>
                         ) : (
                             sessions.map((session) => (
@@ -220,7 +220,7 @@ export const ChatView: React.FC<{
                                     </div>
                                 </div>
                                 <div className="text-right">
-                                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Znesek</p>
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{t('amount')}</p>
                                     <p className="text-lg font-black text-[#FEBA4F]">€{selectedSession.auction.currentBid}</p>
                                 </div>
                             </div>
@@ -246,8 +246,8 @@ export const ChatView: React.FC<{
                                 {messages.length === 0 && (
                                     <div className="h-full flex flex-col items-center justify-center text-center opacity-30">
                                         <MessageSquare size={48} className="mb-4" />
-                                        <p className="font-black uppercase tracking-widest text-sm">Začnite pogovor</p>
-                                        <p className="text-xs font-bold mt-2">Dogovorite se za prevzem predmeta</p>
+                                        <p className="font-black uppercase tracking-widest text-sm">{t('startConversation')}</p>
+                                        <p className="text-xs font-bold mt-2">{t('pickupAgreement')}</p>
                                     </div>
                                 )}
                             </div>
@@ -277,8 +277,8 @@ export const ChatView: React.FC<{
                             <div className="w-24 h-24 bg-slate-50 rounded-[2rem] flex items-center justify-center text-slate-200 mb-6">
                                 <MessageSquare size={48} />
                             </div>
-                            <h3 className="text-2xl font-black uppercase tracking-tighter text-[#0A1128] mb-2">Vaš predal</h3>
-                            <p className="text-slate-400 font-bold max-w-md">Izberite klepet na levi strani, da začnete pogovor s prodajalcem ali zmagovalcem dražbe.</p>
+                            <h3 className="text-2xl font-black uppercase tracking-tighter text-[#0A1128] mb-2">{t('yourInbox')}</h3>
+                            <p className="text-slate-400 font-bold max-w-md">{t('selectChatDesc')}</p>
                         </div>
                     )}
                 </div>

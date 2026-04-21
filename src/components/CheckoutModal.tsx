@@ -5,7 +5,15 @@ import { Elements, CardElement, useStripe, useElements } from '@stripe/react-str
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY || (() => { throw new Error("VITE_STRIPE_PUBLIC_KEY is not defined"); })());
 
-const CheckoutForm: React.FC<{ amount: number; title: string; t: any; onSuccess: () => void; onClose: () => void; metadata?: any }> = ({ amount, title, t, onSuccess, onClose, metadata }) => {
+const CheckoutForm: React.FC<{ 
+    amount: number; 
+    title: string; 
+    t: any; 
+    language: string;
+    onSuccess: () => void; 
+    onClose: () => void; 
+    metadata?: any 
+}> = ({ amount, title, t, language, onSuccess, onClose, metadata }) => {
   const stripe = useStripe();
   const elements = useElements();
   const [method, setMethod] = useState<'card' | 'google' | 'apple' | 'paypal'>('card');
@@ -21,7 +29,7 @@ const CheckoutForm: React.FC<{ amount: number; title: string; t: any; onSuccess:
     if (!stripe || !elements) return;
 
     if (amount > 10000 && (!idFront || !idBack)) {
-        setError("Za nakupe nad 10.000 € je obvezna naložitev osebnega dokumenta (sprednja in zadnja stran).");
+        setError(t('idWarning'));
         return;
     }
 
@@ -64,6 +72,14 @@ const CheckoutForm: React.FC<{ amount: number; title: string; t: any; onSuccess:
     }
   };
 
+  const getLocaleForStripe = (lang: string) => {
+      switch(lang) {
+          case 'SLO': return 'sl';
+          case 'DE': return 'de';
+          default: return 'en';
+      }
+  };
+
   return (
     <form onSubmit={handlePay} className="relative bg-white w-full max-w-lg rounded-[3rem] p-10 shadow-2xl animate-in border-4 border-[#FEBA4F]">
         <button type="button" onClick={onClose} className="absolute top-8 right-8 p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400"><X size={24} /></button>
@@ -82,19 +98,19 @@ const CheckoutForm: React.FC<{ amount: number; title: string; t: any; onSuccess:
           </button>
           <button type="button" onClick={() => {
               setMethod('google');
-              setError('To plačilno sredstvo je trenutno v pripravi.');
+              setError(t('paymentInPrep'));
           }} className={`flex items-center justify-center gap-2 p-4 rounded-2xl border-2 font-black text-xs uppercase tracking-widest transition-all ${method === 'google' ? 'border-[#FEBA4F] bg-[#FEBA4F]/10 text-[#0A1128]' : 'border-slate-100 text-slate-400 hover:border-slate-200'}`}>
             Google Pay
           </button>
           <button type="button" onClick={() => {
               setMethod('apple');
-              setError('To plačilno sredstvo je trenutno v pripravi.');
+              setError(t('paymentInPrep'));
           }} className={`flex items-center justify-center gap-2 p-4 rounded-2xl border-2 font-black text-xs uppercase tracking-widest transition-all ${method === 'apple' ? 'border-[#FEBA4F] bg-[#FEBA4F]/10 text-[#0A1128]' : 'border-slate-100 text-slate-400 hover:border-slate-200'}`}>
             Apple Pay
           </button>
           <button type="button" onClick={() => {
               setMethod('paypal');
-              setError('To plačilno sredstvo je trenutno v pripravi.');
+              setError(t('paymentInPrep'));
           }} className={`flex items-center justify-center gap-2 p-4 rounded-2xl border-2 font-black text-xs uppercase tracking-widest transition-all ${method === 'paypal' ? 'border-[#FEBA4F] bg-[#FEBA4F]/10 text-[#0A1128]' : 'border-slate-100 text-slate-400 hover:border-slate-200'}`}>
             PayPal
           </button>
@@ -122,14 +138,14 @@ const CheckoutForm: React.FC<{ amount: number; title: string; t: any; onSuccess:
 
         {amount > 10000 && (
             <div className="mb-8 p-6 bg-slate-50 rounded-2xl border border-slate-200">
-                <h4 className="text-xs font-black uppercase tracking-widest text-[#0A1128] mb-4">Obvezna identifikacija (Nakup nad 10.000 €)</h4>
+                <h4 className="text-xs font-black uppercase tracking-widest text-[#0A1128] mb-4">{t('idRequired')}</h4>
                 <div className="space-y-4">
                     <div>
-                        <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Osebni dokument - Sprednja stran</label>
+                        <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{t('idFront')}</label>
                         <input type="file" accept="image/*" onChange={(e) => setIdFront(e.target.files?.[0] || null)} className="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-black file:uppercase file:tracking-widest file:bg-[#FEBA4F]/10 file:text-[#0A1128] hover:file:bg-[#FEBA4F]/20 cursor-pointer" />
                     </div>
                     <div>
-                        <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Osebni dokument - Zadnja stran</label>
+                        <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{t('idBack')}</label>
                         <input type="file" accept="image/*" onChange={(e) => setIdBack(e.target.files?.[0] || null)} className="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-black file:uppercase file:tracking-widest file:bg-[#FEBA4F]/10 file:text-[#0A1128] hover:file:bg-[#FEBA4F]/20 cursor-pointer" />
                     </div>
                 </div>
@@ -152,16 +168,25 @@ export const CheckoutModal: React.FC<{
   amount: number;
   title: string;
   t: any;
+  language: string;
   onSuccess: () => void;
   metadata?: any;
-}> = ({ isOpen, onClose, amount, title, t, onSuccess, metadata }) => {
+}> = ({ isOpen, onClose, amount, title, t, language, onSuccess, metadata }) => {
   if (!isOpen) return null;
+
+  const getLocaleForStripe = (lang: string) => {
+    switch(lang) {
+        case 'SLO': return 'sl';
+        case 'DE': return 'de';
+        default: return 'en';
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-[#0A1128]/95 backdrop-blur-md" onClick={onClose}></div>
-      <Elements stripe={stripePromise}>
-        <CheckoutForm amount={amount} title={title} t={t} onSuccess={onSuccess} onClose={onClose} metadata={metadata} />
+      <Elements stripe={stripePromise} options={{ locale: getLocaleForStripe(language) }}>
+        <CheckoutForm amount={amount} title={title} t={t} language={language} onSuccess={onSuccess} onClose={onClose} metadata={metadata} />
       </Elements>
     </div>
   );

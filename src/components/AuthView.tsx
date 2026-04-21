@@ -36,7 +36,7 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
 
   const strength = getPasswordStrength();
   const strengthColor = strength <= 1 ? 'bg-red-500' : strength === 2 ? 'bg-amber-500' : strength === 3 ? 'bg-green-400' : 'bg-green-600';
-  const strengthText = strength <= 1 ? 'Šibko' : strength === 2 ? 'Srednje' : strength === 3 ? 'Dobro' : 'Odlično';
+  const strengthText = strength <= 1 ? t('weak') : strength === 2 ? t('moderate') : strength === 3 ? t('good') : t('excellent');
 
   const handleForgotPassword = async (e: React.FormEvent) => {
       e.preventDefault();
@@ -167,15 +167,15 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
       return (
         <div className="max-w-[1600px] mx-auto px-6 py-20 animate-in flex justify-center">
           <div className="bg-white w-full max-w-xl rounded-[4rem] p-10 lg:p-16 shadow-2xl border border-slate-100">
-            <button onClick={() => setIsForgotPassword(false)} className="flex items-center gap-2 text-slate-400 mb-8 font-black uppercase text-[10px] tracking-widest hover:text-[#0A1128] transition-colors"><ArrowLeft size={16}/> Nazaj na prijavo</button>
+            <button onClick={() => setIsForgotPassword(false)} className="flex items-center gap-2 text-slate-400 mb-8 font-black uppercase text-[10px] tracking-widest hover:text-[#0A1128] transition-colors"><ArrowLeft size={16}/> {t('backToLogin')}</button>
             <div className="text-center mb-10">
                 <div className="bg-[#FEBA4F] w-20 h-20 rounded-[2rem] flex items-center justify-center mx-auto mb-6 shadow-lg"><ShieldCheck size={40} className="text-[#0A1128]" /></div>
-                <h2 className="text-4xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">Pozabljeno geslo</h2>
-                <p className="text-slate-400 font-bold text-sm">Vnesite svoj e-poštni naslov in poslali vam bomo povezavo za ponastavitev gesla.</p>
+                <h2 className="text-4xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">{t('forgotPassword')}</h2>
+                <p className="text-slate-400 font-bold text-sm">{t('forgotPasswordDesc')}</p>
             </div>
             <form onSubmit={handleForgotPassword} className="space-y-6">
               <input type="email" required className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 px-6 font-bold focus:ring-2 focus:ring-[#FEBA4F] outline-none" placeholder={t('email')} onChange={e => setEmail(e.target.value)} />
-              <button type="submit" disabled={loading} className="w-full bg-[#0A1128] text-white py-6 rounded-[2rem] font-black uppercase tracking-widest hover:bg-[#FEBA4F] transition-all shadow-xl">{loading ? t('processing') : 'Pošlji povezavo'}</button>
+              <button type="submit" disabled={loading} className="w-full bg-[#0A1128] text-white py-6 rounded-[2rem] font-black uppercase tracking-widest hover:bg-[#FEBA4F] transition-all shadow-xl">{loading ? t('processing') : t('sendLink')}</button>
             </form>
           </div>
         </div>
@@ -198,7 +198,7 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
               {!isLogin && password.length > 0 && (
                   <div className="px-2 animate-in fade-in slide-in-from-top-2">
                       <div className="flex items-center justify-between mb-2">
-                          <span className="text-xs font-bold text-slate-500">Moč gesla:</span>
+                          <span className="text-xs font-bold text-slate-500">{t('strength')}:</span>
                           <span className={`text-xs font-black uppercase tracking-widest ${strength <= 1 ? 'text-red-500' : strength === 2 ? 'text-amber-500' : 'text-green-600'}`}>{strengthText}</span>
                       </div>
                       <div className="flex gap-1 h-1.5 mb-4">
@@ -210,13 +210,13 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
                       
                       <div className="space-y-1.5 text-xs font-bold">
                           <div className={`flex items-center gap-2 ${hasMinLength ? 'text-green-600' : 'text-slate-400'}`}>
-                              {hasMinLength ? <CheckCircle2 size={14} /> : <XCircle size={14} />} Vsaj 8 znakov
+                              {hasMinLength ? <CheckCircle2 size={14} /> : <XCircle size={14} />} {t('min8chars')}
                           </div>
                           <div className={`flex items-center gap-2 ${hasUppercase ? 'text-green-600' : 'text-slate-400'}`}>
-                              {hasUppercase ? <CheckCircle2 size={14} /> : <XCircle size={14} />} Vsaj 1 velika začetnica
+                              {hasUppercase ? <CheckCircle2 size={14} /> : <XCircle size={14} />} {t('oneUpper')}
                           </div>
                           <div className={`flex items-center gap-2 ${hasNumber ? 'text-green-600' : 'text-slate-400'}`}>
-                              {hasNumber ? <CheckCircle2 size={14} /> : <XCircle size={14} />} Vsaj 1 številka
+                              {hasNumber ? <CheckCircle2 size={14} /> : <XCircle size={14} />} {t('oneNumber')}
                           </div>
                       </div>
                   </div>
@@ -229,10 +229,10 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
                       type="password" 
                       required 
                       className={`w-full bg-slate-50 border ${!passwordsMatch ? 'border-red-500 focus:ring-red-500' : 'border-slate-200 focus:ring-[#FEBA4F]'} rounded-2xl py-4 px-6 font-bold focus:ring-2 outline-none`} 
-                      placeholder="Potrdi geslo" 
+                      placeholder={t('confirmPassword')} 
                       onChange={e => setConfirmPassword(e.target.value)} 
                   />
-                  {!passwordsMatch && <p className="text-red-500 text-xs font-bold px-2">Gesli se ne ujemata!</p>}
+                  {!passwordsMatch && <p className="text-red-500 text-xs font-bold px-2">{t('passwordsNotMatch')}</p>}
               </div>
           )}
 
@@ -246,9 +246,9 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
                           onChange={(e) => setRememberMe(e.target.checked)}
                           className="w-4 h-4 text-[#FEBA4F] bg-slate-50 border-slate-200 rounded focus:ring-[#FEBA4F] cursor-pointer"
                       />
-                      <label htmlFor="rememberMe" className="text-xs font-bold text-slate-500 cursor-pointer">Zapomni si me</label>
+                      <label htmlFor="rememberMe" className="text-xs font-bold text-slate-500 cursor-pointer">{t('rememberMe')}</label>
                   </div>
-                  <button type="button" onClick={() => setIsForgotPassword(true)} className="text-xs font-black uppercase tracking-widest text-slate-400 hover:text-[#0A1128] transition-colors">Pozabljeno geslo?</button>
+                  <button type="button" onClick={() => setIsForgotPassword(true)} className="text-xs font-black uppercase tracking-widest text-slate-400 hover:text-[#0A1128] transition-colors">{t('forgotPasswordQuestion')}</button>
               </div>
           )}
 
@@ -266,7 +266,7 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
           {isLogin && (
             <div className="relative flex items-center justify-center py-4">
               <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-100"></div></div>
-              <span className="relative bg-white px-4 text-[10px] font-black text-slate-300 uppercase tracking-widest">ali</span>
+              <span className="relative bg-white px-4 text-[10px] font-black text-slate-300 uppercase tracking-widest">{t('or')}</span>
             </div>
           )}
 
@@ -283,7 +283,7 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
                 <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/>
                 <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
               </svg>
-              Prijava z Googlom
+              {t('googleLogin')}
             </button>
           )}
 

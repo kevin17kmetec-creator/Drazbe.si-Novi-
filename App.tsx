@@ -809,6 +809,11 @@ const App: React.FC = () => {
 
   const handleSubscribe = async (tier: SubscriptionTier) => {
     const prices = { [SubscriptionTier.FREE]: 0, [SubscriptionTier.BASIC]: 20, [SubscriptionTier.PRO]: 50 };
+    const planNames = {
+        [SubscriptionTier.BASIC]: t('basicTier'),
+        [SubscriptionTier.PRO]: t('proTier'),
+        [SubscriptionTier.FREE]: t('freeTier')
+    };
     
     const saveSubscription = async (newTier: SubscriptionTier) => {
       setCurrentPlan(newTier);
@@ -834,10 +839,10 @@ const App: React.FC = () => {
     }
     setCheckoutData({
       amount: prices[tier],
-      title: `Naročnina - ${tier}`,
+      title: `${t('subscription')} - ${planNames[tier]}`,
       onSuccess: async () => {
-        await saveSubscription(tier);
         setIsCheckoutOpen(false);
+        await saveSubscription(tier);
         toast.success(t('paymentSuccess'));
       }
     });
@@ -1097,9 +1102,9 @@ const App: React.FC = () => {
               amount: item.currentBid || item.current_price, 
               title: item.title?.[language] || item.title?.['SLO'] || t('auctionFallback'), 
               onSuccess: async () => { 
+                setIsCheckoutOpen(false); 
                 await supabase.from('auctions').update({ payment_status: 'paid', paid_at: new Date().toISOString() }).eq('id', item.id);
                 toast.success(t('paymentSuccess')); 
-                setIsCheckoutOpen(false); 
                 fetchAuctions();
               },
               metadata: {
@@ -1363,11 +1368,11 @@ const App: React.FC = () => {
                                             onClick={async () => {
                                                 setCheckoutData({
                                                     amount: parseFloat(totalAmountToPay.toFixed(2)),
-                                                    title: `Plačilo za: ${wonItem.title.SLO}`,
+                                                    title: `${t('paymentFor')}: ${wonItem.title[language as keyof typeof wonItem.title] || wonItem.title.SLO}`,
                                                     onSuccess: async () => {
-                                                        await supabase.from('auctions').update({ payment_status: 'paid', paid_at: new Date().toISOString() }).eq('id', wonItem.id);
                                                         setIsCheckoutOpen(false);
-                                                        toast.success('Plačilo uspešno! Račun in potrdilo sta bila poslana na vaš e-mail.');
+                                                        await supabase.from('auctions').update({ payment_status: 'paid', paid_at: new Date().toISOString() }).eq('id', wonItem.id);
+                                                        toast.success(t('paymentSuccessEmail'));
                                                         // Refresh to show paid status
                                                         setTimeout(() => fetchAuctions(), 1500);
                                                     },
@@ -1711,6 +1716,7 @@ const App: React.FC = () => {
             <CheckoutModal 
                 isOpen={isCheckoutOpen}
                 t={t} 
+                language={language}
                 amount={checkoutData.amount} 
                 title={checkoutData.title} 
                 onClose={() => setIsCheckoutOpen(false)} 
