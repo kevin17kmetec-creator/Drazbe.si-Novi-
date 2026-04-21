@@ -230,7 +230,12 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
                     }
                 });
                 
-                imageUrls = await Promise.all(uploadPromises);
+                const uploadPromiseAll = Promise.all(uploadPromises);
+                const timeoutPromise = new Promise<string[]>((_, reject) => 
+                    setTimeout(() => reject(new Error("Čas za nalaganje slikovnih datotek je potekel (Timeout 30s).")), 30000)
+                );
+                
+                imageUrls = await Promise.race([uploadPromiseAll, timeoutPromise]);
             } else {
                 // Demo user: use local object URLs
                 for (const file of imageFiles) {

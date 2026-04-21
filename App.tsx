@@ -247,10 +247,16 @@ const App: React.FC = () => {
   useEffect(() => {
     fetchAuctions();
 
+    // Auto-polling fallback for immediate real-time sync (in case WebSockets or Supabase Replication are blocked)
+    const pollInterval = setInterval(() => {
+        fetchAuctions();
+    }, 3000);
+
     // Real-time subscription with WebSocket check
+    let channel: any = null;
     if (typeof window !== 'undefined' && window.WebSocket) {
       try {
-        const channel = supabase.channel('public:auctions')
+        channel = supabase.channel('public:auctions')
           .on('postgres_changes', { event: '*', schema: 'public', table: 'auctions' }, () => {
             fetchAuctions();
           })
@@ -259,17 +265,34 @@ const App: React.FC = () => {
               console.warn("Supabase Realtime channel error. Live updates might be unavailable.");
             }
           });
-
-        return () => { 
-          supabase.removeChannel(channel); 
-        };
       } catch (err) {
         console.warn("Supabase Realtime subscription failed:", err);
       }
     } else {
       console.warn("WebSockets are not supported or blocked in this environment. Real-time updates are disabled.");
     }
+    
+    return () => {
+        clearInterval(pollInterval);
+        if (channel) supabase.removeChannel(channel); 
+    }
   }, []);
+
+  // Sync selectedItem if it was updated in the background
+  useEffect(() => {
+      if (selectedItem) {
+          const updated = auctions.find(a => a.id === selectedItem.id);
+          if (updated && (
+              updated.currentBid !== selectedItem.currentBid || 
+              updated.winner_id !== selectedItem.winner_id ||
+              updated.status !== selectedItem.status ||
+              updated.endTime.getTime() !== selectedItem.endTime.getTime() ||
+              updated.bidCount !== selectedItem.bidCount
+          )) {
+              setSelectedItem(updated);
+          }
+      }
+  }, [auctions, selectedItem]);
 
   // Auth Sync
   useEffect(() => {
@@ -491,6 +514,14 @@ const App: React.FC = () => {
             };
             const updatedHistory = [...(auction.bidding_history || []), newBid];
 
+            // Anti-sniping logic
+            let newEndTime = auction.end_time;
+            const nowTime = Date.now();
+            const auctionEndTime = new Date(auction.end_time).getTime();
+            if (auctionEndTime - nowTime < 60000 && auctionEndTime > nowTime) {
+                newEndTime = new Date(nowTime + 60000).toISOString();
+            }
+
             const { error: updateError, data: updatedDbData } = await supabase
                 .from('auctions')
                 .update({
@@ -498,7 +529,8 @@ const App: React.FC = () => {
                     winner_id: newWinnerId,
                     hidden_max_bid: newMaxBid,
                     bid_count: (auction.bid_count || 0) + 1,
-                    bidding_history: updatedHistory
+                    bidding_history: updatedHistory,
+                    end_time: newEndTime
                 })
                 .eq('id', item.id)
                 .select()
@@ -520,7 +552,9 @@ const App: React.FC = () => {
                 hiddenMaxBid: newMaxBid,
                 hidden_max_bid: newMaxBid,
                 biddingHistory: updatedHistory,
-                bidding_history: updatedHistory
+                bidding_history: updatedHistory,
+                endTime: new Date(newEndTime),
+                end_time: newEndTime
             };
 
             // Proactively update local state to avoid red border flash
@@ -674,7 +708,7 @@ const App: React.FC = () => {
           });
 
           const timeoutPromise = new Promise<{data: any, error: any}>(resolve => 
-              setTimeout(() => resolve({ data: null, error: { message: "Povezava s strežnikom je potekla." } }), 10000)
+              setTimeout(() => resolve({ data: null, error: { message: "Povezava s strežnikom je potekla (Timeout 30s)." } }), 30000)
           );
 
           const { error } = await Promise.race([insertPromise, timeoutPromise]) as any;
@@ -1000,7 +1034,12 @@ const App: React.FC = () => {
             setCheckoutData({ 
               amount: item.currentBid || item.current_price, 
               title: item.title?.[language] || item.title?.['SLO'] || t('auctionFallback'), 
-              onSuccess: () => { toast.success(t('paymentSuccess')); setIsCheckoutOpen(false); },
+              onSuccess: async () => { 
+                await supabase.from('auctions').update({ payment_status: 'paid', paid_at: new Date().toISOString() }).eq('id', item.id);
+                toast.success(t('paymentSuccess')); 
+                setIsCheckoutOpen(false); 
+                fetchAuctions();
+              },
               metadata: {
                 auction_id: item.id,
                 buyer_id: userData.id,
@@ -1243,6 +1282,7 @@ const App: React.FC = () => {
                                                     amount: parseFloat(totalAmountToPay.toFixed(2)),
                                                     title: `Plačilo za: ${wonItem.title.SLO}`,
                                                     onSuccess: async () => {
+                                                        await supabase.from('auctions').update({ payment_status: 'paid', paid_at: new Date().toISOString() }).eq('id', wonItem.id);
                                                         setIsCheckoutOpen(false);
                                                         toast.success('Plačilo uspešno! Račun in potrdilo sta bila poslana na vaš e-mail.');
                                                         // Refresh to show paid status
