@@ -35,7 +35,7 @@ export const AuctionCard: React.FC<{
       if (!item?.images) return;
       try {
         const urls = await Promise.all(item.images.map(async (imgPath: string) => {
-          if (imgPath.startsWith('http')) return imgPath;
+          if (imgPath.startsWith('http') || imgPath.startsWith('blob:') || imgPath.startsWith('data:')) return imgPath;
           const { data, error } = await supabase.storage.from('auction-images').createSignedUrl(imgPath, 3600);
           if (error) throw error;
           return data?.signedUrl || imgPath;

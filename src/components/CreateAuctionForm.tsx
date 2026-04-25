@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, FileUp, Trash2, Gavel, Wand2, X, Eye, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ArrowLeft, FileUp, Trash2, Gavel, Wand2, X, Eye, ChevronLeft, ChevronRight, GripHorizontal } from 'lucide-react';
 import { Category, Region, AuctionItem } from '../../types.ts';
 import { supabase } from '../lib/supabaseClient';
 import { toast } from 'sonner';
@@ -62,6 +62,8 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
     const [uploadProgress, setUploadProgress] = useState<Record<number, { state: string, percent: number }>>({});
     const [enhancingIndex, setEnhancingIndex] = useState<number | null>(null);
     const [isCompressing, setIsCompressing] = useState(false);
+    const [draggedItemIndex, setDraggedItemIndex] = useState<number | null>(null);
+    const [zoomedImage, setZoomedImage] = useState<string | null>(null);
 
     useEffect(() => {
         if (!REGION_LOCATIONS[formData.region].includes(formData.location)) {
@@ -70,6 +72,12 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
     }, [formData.region]);
 
     const handleFiles = async (files: File[]) => {
+        if (previews.length + files.length > 10) {
+            toast.error(t('maxImagesError'));
+            files = files.slice(0, 10 - previews.length);
+        }
+        if (files.length === 0) return;
+
         setIsCompressing(true);
         try {
             const compressedFiles = await Promise.all(
@@ -113,6 +121,27 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
                 return newArr;
             });
         }
+    };
+
+    const handleDrop = (e: React.DragEvent, dropIndex: number) => {
+        e.preventDefault();
+        if (draggedItemIndex === null || draggedItemIndex === dropIndex) return;
+        
+        const newPreviews = [...previews];
+        const newFiles = [...imageFiles];
+        
+        const draggedPreview = newPreviews[draggedItemIndex];
+        const draggedFile = newFiles[draggedItemIndex];
+        
+        newPreviews.splice(draggedItemIndex, 1);
+        newPreviews.splice(dropIndex, 0, draggedPreview);
+        
+        newFiles.splice(draggedItemIndex, 1);
+        newFiles.splice(dropIndex, 0, draggedFile);
+        
+        setPreviews(newPreviews);
+        setImageFiles(newFiles);
+        setDraggedItemIndex(null);
     };
 
     const enhanceImage = async (index: number) => {
@@ -215,7 +244,8 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
 
     const handlePublish = async () => {
         if (!formData.title || !formData.description) return toast.error(t('enterAllData'));
-        if (imageFiles.length === 0) return toast.error('Naložite vsaj eno sliko.');
+        if (imageFiles.length < 3) return toast.error(t('minImagesError'));
+        if (imageFiles.length > 10) return toast.error(t('maxImagesError'));
         
         const startingPriceNum = parseInt(formData.startingPrice);
         if (isNaN(startingPriceNum) || startingPriceNum < 1) {
@@ -417,55 +447,55 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
                     {previews.length > 0 && (
                         <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-4 animate-in">
                             {previews.map((src, i) => (
-                                <div key={i} className="relative group aspect-square rounded-2xl overflow-hidden border-2 border-slate-100 shadow-sm transition-transform hover:scale-105">
-                                    <img src={src} className="w-full h-full object-cover" />
-                                    {i === 0 && <div className="absolute top-2 left-2 bg-[#FEBA4F] text-[#0A1128] text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest z-10">{t('mainImage')}</div>}
-                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center p-2 gap-2">
-                                        <div className="flex items-center gap-2">
-                                            {i > 0 && (
-                                                <button onClick={(e) => { e.preventDefault(); moveImage(i, 'left'); }} className="bg-white text-[#0A1128] p-1.5 rounded-lg shadow-xl hover:bg-[#FEBA4F] transition-colors">
-                                                    <ChevronLeft size={16} strokeWidth={3} />
-                                                </button>
-                                            )}
-                                            {i < previews.length - 1 && (
-                                                <button onClick={(e) => { e.preventDefault(); moveImage(i, 'right'); }} className="bg-white text-[#0A1128] p-1.5 rounded-lg shadow-xl hover:bg-[#FEBA4F] transition-colors">
-                                                    <ChevronRight size={16} strokeWidth={3} />
-                                                </button>
-                                            )}
-                                        </div>
-                                        <div className="flex gap-2">
-                                            <button 
-                                                onClick={(e) => {
-                                                    e.preventDefault();
-                                                    enhanceImage(i);
-                                                }} 
-                                                disabled={enhancingIndex !== null}
-                                                className="bg-[#FEBA4F] text-[#0A1128] p-2 rounded-xl shadow-xl hover:scale-110 transition-all duration-300 disabled:opacity-50"
-                                                title="Polepšaj sliko"
-                                            >
-                                                {enhancingIndex === i ? (
-                                                    <div className="w-4 h-4 border-2 border-[#0A1128]/20 border-t-[#0A1128] rounded-full animate-spin"></div>
-                                                ) : (
-                                                    <Wand2 size={16} strokeWidth={2.5} />
-                                                )}
-                                            </button>
-                                            <button onClick={(e) => {
-                                                e.preventDefault();
-                                                setPreviews(prev => prev.filter((_, idx) => idx !== i));
-                                                setImageFiles(prev => prev.filter((_, idx) => idx !== i));
-                                            }} className="bg-red-500 text-white p-2 rounded-xl shadow-xl hover:scale-110 transition-all duration-300">
-                                                <Trash2 size={16} strokeWidth={2.5} />
-                                            </button>
-                                        </div>
-                                    </div>
-                                    {uploading && uploadProgress[i] && (
-                                        <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center p-3 z-20">
-                                            <span className="text-white text-xs font-bold mb-3">{uploadProgress[i].state}</span>
-                                            <div className="w-full bg-gray-600 rounded-full h-2 overflow-hidden">
-                                                <div className="bg-[#FEBA4F] h-full transition-all duration-300" style={{ width: `${uploadProgress[i].percent}%` }}></div>
+                                <div 
+                                    key={i} 
+                                    className="flex flex-col gap-2"
+                                    draggable
+                                    onDragStart={() => setDraggedItemIndex(i)}
+                                    onDragOver={(e) => e.preventDefault()}
+                                    onDrop={(e) => handleDrop(e, i)}
+                                >
+                                    <div className="relative group aspect-square rounded-2xl overflow-hidden border-2 border-slate-100 shadow-sm transition-transform hover:scale-105 cursor-pointer" onClick={() => setZoomedImage(src)}>
+                                        <img src={src} className="w-full h-full object-cover" />
+                                        {i === 0 && <div className="absolute top-2 left-2 bg-[#FEBA4F] text-[#0A1128] text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest z-10">{t('mainImage')}</div>}
+                                        <div className="absolute inset-x-0 top-0 h-1/2 bg-gradient-to-b from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-start justify-center pt-2">
+                                            <div className="bg-white/80 backdrop-blur-sm shadow text-[#0A1128] p-1.5 rounded-lg cursor-grab active:cursor-grabbing hover:bg-white" onClick={e => e.stopPropagation()}>
+                                                <GripHorizontal size={16} />
                                             </div>
                                         </div>
-                                    )}
+                                        {uploading && uploadProgress[i] && (
+                                            <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center p-3 z-20 pointer-events-none">
+                                                <span className="text-white text-xs font-bold mb-3">{uploadProgress[i].state}</span>
+                                                <div className="w-full bg-gray-600 rounded-full h-2 overflow-hidden">
+                                                    <div className="bg-[#FEBA4F] h-full transition-all duration-300" style={{ width: `${uploadProgress[i].percent}%` }}></div>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <button 
+                                            onClick={(e) => {
+                                                e.preventDefault();
+                                                enhanceImage(i);
+                                            }} 
+                                            disabled={enhancingIndex !== null}
+                                            className="flex-1 bg-slate-100 text-[#0A1128] p-2 rounded-xl hover:bg-[#FEBA4F] transition-all duration-300 disabled:opacity-50 flex items-center justify-center"
+                                            title="Polepšaj sliko"
+                                        >
+                                            {enhancingIndex === i ? (
+                                                <div className="w-4 h-4 border-2 border-[#0A1128]/20 border-t-[#0A1128] rounded-full animate-spin"></div>
+                                            ) : (
+                                                <Wand2 size={16} strokeWidth={2.5} />
+                                            )}
+                                        </button>
+                                        <button onClick={(e) => {
+                                            e.preventDefault();
+                                            setPreviews(prev => prev.filter((_, idx) => idx !== i));
+                                            setImageFiles(prev => prev.filter((_, idx) => idx !== i));
+                                        }} className="flex-1 bg-slate-100 text-slate-500 hover:text-white p-2 rounded-xl hover:bg-red-500 transition-all duration-300 flex items-center justify-center">
+                                            <Trash2 size={16} strokeWidth={2.5} />
+                                        </button>
+                                    </div>
                                 </div>
                             ))}
                         </div>
@@ -500,9 +530,16 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
                 </div>
             </div>
 
+            {zoomedImage && (
+                <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 animate-in" onClick={() => setZoomedImage(null)}>
+                    <button onClick={() => setZoomedImage(null)} className="absolute top-6 right-6 w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center text-white hover:bg-white hover:text-black transition-all cursor-pointer"><X size={20} strokeWidth={3} /></button>
+                    <img src={zoomedImage} className="max-w-full max-h-full rounded-xl shadow-2xl object-contain" onClick={e => e.stopPropagation()} />
+                </div>
+            )}
+
             {showPreview && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 lg:p-8 overflow-y-auto">
-                    <div className="bg-[#f8fafc] w-full max-w-7xl rounded-[3rem] border border-white/20 shadow-2xl overflow-hidden relative mt-20 md:mt-0">
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 lg:p-8 overflow-y-auto" onClick={() => setShowPreview(false)}>
+                    <div className="bg-[#f8fafc] w-full max-w-7xl rounded-[3rem] border border-white/20 shadow-2xl overflow-hidden relative mt-20 md:mt-0" onClick={e => e.stopPropagation()}>
                         <div className="flex justify-between items-center p-6 border-b border-slate-200 bg-white sticky top-0 z-20">
                             <h2 className="text-2xl font-black uppercase tracking-tighter text-[#0A1128]">{t('auctionPreview')}</h2>
                             <button onClick={() => setShowPreview(false)} className="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-500 hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all cursor-pointer"><X size={20} strokeWidth={3} /></button>
