@@ -85,7 +85,7 @@ export const Header: React.FC<{
                   title="Sporočila"
                 >
                   <MessageSquare size={18} />
-                  <span className="hidden lg:inline">Sporočila</span>
+                  <span className="hidden lg:inline">{t('messages')}</span>
                 </button>
               )}
               <div className="relative h-full flex items-center"
@@ -122,13 +122,13 @@ export const Header: React.FC<{
                   {isUserMenuOpen && (
                     <div className="absolute top-full right-0 mt-3 w-64 bg-white border border-slate-200 rounded-[2rem] shadow-2xl py-4 text-[#0A1128] overflow-hidden z-[100] animate-in">
                         <div className="px-6 py-4 border-b border-slate-100 mb-2">
-                            <p className="text-[10px] font-black text-slate-400 uppercase">Prijavljen kot</p>
+                            <p className="text-[10px] font-black text-slate-400 uppercase">{t('loggedInAs')}</p>
                             <p className="font-black text-xs truncate">{userEmail || 'Uporabnik Drazba.si'}</p>
                         </div>
                         <button onClick={() => { onCreateAuction(); setIsUserMenuOpen(false); }} className="w-full flex items-center gap-3 px-6 py-4 hover:bg-slate-50 transition-colors text-xs font-black uppercase tracking-widest"><PlusCircle size={18} /> {t('createAuction')}</button>
                         <button onClick={() => { onMyWinnings(); setIsUserMenuOpen(false); }} className="w-full flex items-center gap-3 px-6 py-4 hover:bg-slate-50 transition-colors text-xs font-black uppercase tracking-widest"><Trophy size={18} /> {t('myWinnings')}</button>
                         <button onClick={() => { onMyBids(); setIsUserMenuOpen(false); }} className="w-full flex items-center gap-3 px-6 py-4 hover:bg-slate-50 transition-colors text-xs font-black uppercase tracking-widest"><Gavel size={18} /> {t('myBids')}</button>
-                        <button onClick={() => { onMySold?.(); setIsUserMenuOpen(false); }} className="w-full flex items-center gap-3 px-6 py-4 hover:bg-slate-50 transition-colors text-xs font-black uppercase tracking-widest"><CreditCard size={18} /> Prodane dražbe</button>
+                        <button onClick={() => { onMySold?.(); setIsUserMenuOpen(false); }} className="w-full flex items-center gap-3 px-6 py-4 hover:bg-slate-50 transition-colors text-xs font-black uppercase tracking-widest"><CreditCard size={18} /> {t('soldAuctions')}</button>
                         <button onClick={() => { onWatchlist(); setIsUserMenuOpen(false); }} className="w-full flex items-center gap-3 px-6 py-4 hover:bg-slate-50 transition-colors text-xs font-black uppercase tracking-widest"><Eye size={18} /> {t('watchlist')}</button>
                         <button onClick={() => { onSubscriptions(); setIsUserMenuOpen(false); }} className="w-full flex items-center gap-3 px-6 py-4 hover:bg-slate-50 transition-colors text-xs font-black uppercase tracking-widest"><CreditCard size={18} /> {t('subscriptions')}</button>
                         <button onClick={() => { onSettings(); setIsUserMenuOpen(false); }} className="w-full flex items-center gap-3 px-6 py-4 hover:bg-slate-50 transition-colors text-xs font-black uppercase tracking-widest"><Settings size={18} /> {t('settings')}</button>
@@ -151,8 +151,8 @@ export const Header: React.FC<{
                 {isRegOpen && (
                     <div className="absolute top-full left-0 w-[800px] bg-[#0A1128] border border-white/10 rounded-b-[2rem] shadow-2xl p-8 z-[1000] animate-in">
                         <div className="mb-6 flex justify-between items-center">
-                          <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest">Zemljevid regij</p>
-                          <button onClick={() => onRegionSelect(null)} className="text-[9px] text-[#FEBA4F] hover:underline">Počisti filter</button>
+                          <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest">{t('regionMap')}</p>
+                          <button onClick={() => onRegionSelect(null)} className="text-[9px] text-[#FEBA4F] hover:underline">{t('clearFilter')}</button>
                         </div>
                         <svg viewBox="0 0 1000 750" className="w-full h-auto drop-shadow-2xl">
                           <defs>

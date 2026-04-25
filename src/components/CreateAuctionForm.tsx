@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, FileUp, Trash2, Gavel, Wand2, X, Eye } from 'lucide-react';
+import { ArrowLeft, FileUp, Trash2, Gavel, Wand2, X, Eye, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Category, Region, AuctionItem } from '../../types.ts';
 import { supabase } from '../lib/supabaseClient';
 import { toast } from 'sonner';
@@ -61,6 +61,7 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
     const [uploading, setUploading] = useState(false);
     const [uploadProgress, setUploadProgress] = useState<Record<number, { state: string, percent: number }>>({});
     const [enhancingIndex, setEnhancingIndex] = useState<number | null>(null);
+    const [isCompressing, setIsCompressing] = useState(false);
 
     useEffect(() => {
         if (!REGION_LOCATIONS[formData.region].includes(formData.location)) {
@@ -68,10 +69,50 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
         }
     }, [formData.region]);
 
-    const handleFiles = (files: File[]) => {
-        setImageFiles(prev => [...prev, ...files]);
-        const newPreviews = files.map(f => URL.createObjectURL(f));
-        setPreviews(prev => [...prev, ...newPreviews]);
+    const handleFiles = async (files: File[]) => {
+        setIsCompressing(true);
+        try {
+            const compressedFiles = await Promise.all(
+                files.map(async (file) => {
+                    const options = { maxSizeMB: 1, maxWidthOrHeight: 1200, useWebWorker: true, initialQuality: 0.8 };
+                    return await imageCompression(file, options);
+                })
+            );
+            setImageFiles(prev => [...prev, ...compressedFiles]);
+            const newPreviews = compressedFiles.map(f => URL.createObjectURL(f));
+            setPreviews(prev => [...prev, ...newPreviews]);
+        } catch (error) {
+            console.error('Error compressing files', error);
+            toast.error(t('imageUploadError'));
+        } finally {
+            setIsCompressing(false);
+        }
+    };
+
+    const moveImage = (index: number, direction: 'left' | 'right') => {
+        if (direction === 'left' && index > 0) {
+            setPreviews(prev => {
+                const newArr = [...prev];
+                [newArr[index - 1], newArr[index]] = [newArr[index], newArr[index - 1]];
+                return newArr;
+            });
+            setImageFiles(prev => {
+                const newArr = [...prev];
+                [newArr[index - 1], newArr[index]] = [newArr[index], newArr[index - 1]];
+                return newArr;
+            });
+        } else if (direction === 'right' && index < previews.length - 1) {
+            setPreviews(prev => {
+                const newArr = [...prev];
+                [newArr[index], newArr[index + 1]] = [newArr[index + 1], newArr[index]];
+                return newArr;
+            });
+            setImageFiles(prev => {
+                const newArr = [...prev];
+                [newArr[index], newArr[index + 1]] = [newArr[index + 1], newArr[index]];
+                return newArr;
+            });
+        }
     };
 
     const enhanceImage = async (index: number) => {
@@ -196,16 +237,13 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
                 for (let i = 0; i < imageFiles.length; i++) {
                     if (cancelRef.current) throw new Error('CANCELED');
                     
-                    const file = imageFiles[i];
-                    setUploadProgress(prev => ({ ...prev, [i]: { state: 'Stiskanje...', percent: 20 } }));
-                    
-                    const options = { maxSizeMB: 1, maxWidthOrHeight: 1200, useWebWorker: true, initialQuality: 0.8 };
-                    const compressedFile = await imageCompression(file, options);
+                    const compressedFile = imageFiles[i];
+                    setUploadProgress(prev => ({ ...prev, [i]: { state: t('preparing'), percent: 50 } }));
                     
                     if (cancelRef.current) throw new Error('CANCELED');
-                    setUploadProgress(prev => ({ ...prev, [i]: { state: 'Nalaganje...', percent: 60 } }));
+                    setUploadProgress(prev => ({ ...prev, [i]: { state: t('uploading'), percent: 60 } }));
                     
-                    const fileName = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
+                    const fileName = `${Date.now()}-${compressedFile.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
                     const arrayBuffer = await compressedFile.arrayBuffer();
                     
                     const { error: uploadError } = await supabase.storage.from('auction-images').upload(fileName, arrayBuffer, {
@@ -310,13 +348,13 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                         <div className="space-y-4">
-                            <label className="text-[10px] font-black uppercase text-slate-400 ml-2">Stanje predmeta</label>
+                            <label className="text-[10px] font-black uppercase text-slate-400 ml-2">{t('itemCondition')}</label>
                             <select value={formData.condition} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-5 px-6 font-bold focus:ring-4 focus:ring-[#FEBA4F]/20 focus:border-[#FEBA4F] transition-all outline-none appearance-none cursor-pointer" onChange={e => setFormData({...formData, condition: e.target.value})}>
-                                <option value="Novo">Novo</option>
-                                <option value="Kot novo">Kot novo</option>
-                                <option value="Rabljeno">Rabljeno</option>
-                                <option value="Potrebno obnove">Potrebno obnove</option>
-                                <option value="Za dele">Za dele</option>
+                                <option value="Novo">{t('cond_new')}</option>
+                                <option value="Kot novo">{t('cond_likeNew')}</option>
+                                <option value="Rabljeno">{t('cond_used')}</option>
+                                <option value="Potrebno obnove">{t('cond_needsFix')}</option>
+                                <option value="Za dele">{t('cond_parts')}</option>
                             </select>
                         </div>
                         <div className="space-y-4">
@@ -326,7 +364,7 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
                             </select>
                         </div>
                         <div className="space-y-4">
-                            <label className="text-[10px] font-black uppercase text-slate-400 ml-2">Mesto / Vas</label>
+                            <label className="text-[10px] font-black uppercase text-slate-400 ml-2">{t('city')}</label>
                             <select value={formData.location} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-5 px-6 font-bold focus:ring-4 focus:ring-[#FEBA4F]/20 focus:border-[#FEBA4F] transition-all outline-none appearance-none cursor-pointer" onChange={e => setFormData({...formData, location: e.target.value})}>
                                 {REGION_LOCATIONS[formData.region].map(loc => <option key={loc} value={loc}>{loc}</option>)}
                             </select>
@@ -366,10 +404,10 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
                             <input type="file" multiple accept="image/*" className="absolute inset-0 opacity-0 cursor-pointer z-10" onChange={e => e.target.files && handleFiles(Array.from(e.target.files))} />
                             <div className="flex flex-col items-center gap-4">
                                 <div className={`p-6 rounded-full transition-all duration-300 ${isDragging ? 'bg-[#FEBA4F] text-[#0A1128] scale-110' : 'bg-white text-slate-300 group-hover:text-[#FEBA4F]'}`}>
-                                    <FileUp size={48} strokeWidth={1.5} />
+                                    {isCompressing ? <div className="w-12 h-12 border-4 border-[#0A1128]/20 border-t-[#FEBA4F] rounded-full animate-spin"></div> : <FileUp size={48} strokeWidth={1.5} />}
                                 </div>
                                 <div>
-                                    <p className="text-lg font-black text-[#0A1128]">{t('dragImages')}</p>
+                                    <p className="text-lg font-black text-[#0A1128]">{isCompressing ? t('preparingAndOptimizing') : t('dragImages')}</p>
                                     <p className="text-slate-400 font-bold text-sm">{t('supportedFormats')}</p>
                                 </div>
                             </div>
@@ -381,29 +419,44 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
                             {previews.map((src, i) => (
                                 <div key={i} className="relative group aspect-square rounded-2xl overflow-hidden border-2 border-slate-100 shadow-sm transition-transform hover:scale-105">
                                     <img src={src} className="w-full h-full object-cover" />
-                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                                        <button 
-                                            onClick={(e) => {
-                                                e.preventDefault();
-                                                enhanceImage(i);
-                                            }} 
-                                            disabled={enhancingIndex !== null}
-                                            className="bg-[#FEBA4F] text-[#0A1128] p-2.5 rounded-xl shadow-xl transform translate-y-2 group-hover:translate-y-0 transition-all duration-300 disabled:opacity-50"
-                                            title="Polepšaj sliko"
-                                        >
-                                            {enhancingIndex === i ? (
-                                                <div className="w-4 h-4 border-2 border-[#0A1128]/20 border-t-[#0A1128] rounded-full animate-spin"></div>
-                                            ) : (
-                                                <Wand2 size={18} strokeWidth={2.5} />
+                                    {i === 0 && <div className="absolute top-2 left-2 bg-[#FEBA4F] text-[#0A1128] text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest z-10">{t('mainImage')}</div>}
+                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center p-2 gap-2">
+                                        <div className="flex items-center gap-2">
+                                            {i > 0 && (
+                                                <button onClick={(e) => { e.preventDefault(); moveImage(i, 'left'); }} className="bg-white text-[#0A1128] p-1.5 rounded-lg shadow-xl hover:bg-[#FEBA4F] transition-colors">
+                                                    <ChevronLeft size={16} strokeWidth={3} />
+                                                </button>
                                             )}
-                                        </button>
-                                        <button onClick={(e) => {
-                                            e.preventDefault();
-                                            setPreviews(prev => prev.filter((_, idx) => idx !== i));
-                                            setImageFiles(prev => prev.filter((_, idx) => idx !== i));
-                                        }} className="bg-red-500 text-white p-2.5 rounded-xl shadow-xl transform translate-y-2 group-hover:translate-y-0 transition-all duration-300">
-                                            <Trash2 size={18} strokeWidth={2.5} />
-                                        </button>
+                                            {i < previews.length - 1 && (
+                                                <button onClick={(e) => { e.preventDefault(); moveImage(i, 'right'); }} className="bg-white text-[#0A1128] p-1.5 rounded-lg shadow-xl hover:bg-[#FEBA4F] transition-colors">
+                                                    <ChevronRight size={16} strokeWidth={3} />
+                                                </button>
+                                            )}
+                                        </div>
+                                        <div className="flex gap-2">
+                                            <button 
+                                                onClick={(e) => {
+                                                    e.preventDefault();
+                                                    enhanceImage(i);
+                                                }} 
+                                                disabled={enhancingIndex !== null}
+                                                className="bg-[#FEBA4F] text-[#0A1128] p-2 rounded-xl shadow-xl hover:scale-110 transition-all duration-300 disabled:opacity-50"
+                                                title="Polepšaj sliko"
+                                            >
+                                                {enhancingIndex === i ? (
+                                                    <div className="w-4 h-4 border-2 border-[#0A1128]/20 border-t-[#0A1128] rounded-full animate-spin"></div>
+                                                ) : (
+                                                    <Wand2 size={16} strokeWidth={2.5} />
+                                                )}
+                                            </button>
+                                            <button onClick={(e) => {
+                                                e.preventDefault();
+                                                setPreviews(prev => prev.filter((_, idx) => idx !== i));
+                                                setImageFiles(prev => prev.filter((_, idx) => idx !== i));
+                                            }} className="bg-red-500 text-white p-2 rounded-xl shadow-xl hover:scale-110 transition-all duration-300">
+                                                <Trash2 size={16} strokeWidth={2.5} />
+                                            </button>
+                                        </div>
                                     </div>
                                     {uploading && uploadProgress[i] && (
                                         <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center p-3 z-20">
@@ -420,7 +473,7 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
 
                     {!uploading && (
                         <button onClick={() => setShowPreview(true)} className="w-full bg-slate-100 text-[#0A1128] py-4 rounded-[1.5rem] font-black uppercase tracking-widest text-sm hover:bg-slate-200 transition-all shadow-sm flex flex-col sm:flex-row items-center justify-center gap-2 mb-4">
-                            <Eye size={18} /> PREDOGLED
+                            <Eye size={18} /> {t('auctionPreview')}
                         </button>
                     )}
 
@@ -440,7 +493,7 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
 
                     {uploading && (
                         <button onClick={handleCancelUpload} className="mt-4 w-full bg-red-500 text-white py-4 rounded-[1.5rem] font-black uppercase tracking-widest text-sm hover:bg-red-600 transition-all shadow-sm flex items-center justify-center gap-2 lg:mb-4 relative overflow-hidden group">
-                           <span className="relative z-10 flex items-center gap-2"><X size={18} strokeWidth={3} /> Prekini nalaganje</span>
+                           <span className="relative z-10 flex items-center gap-2"><X size={18} strokeWidth={3} /> {t('cancelUpload')}</span>
                            <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
                         </button>
                     )}
@@ -451,12 +504,12 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
                 <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 lg:p-8 overflow-y-auto">
                     <div className="bg-[#f8fafc] w-full max-w-7xl rounded-[3rem] border border-white/20 shadow-2xl overflow-hidden relative mt-20 md:mt-0">
                         <div className="flex justify-between items-center p-6 border-b border-slate-200 bg-white sticky top-0 z-20">
-                            <h2 className="text-2xl font-black uppercase tracking-tighter text-[#0A1128]">Predogled dražbe</h2>
+                            <h2 className="text-2xl font-black uppercase tracking-tighter text-[#0A1128]">{t('auctionPreview')}</h2>
                             <button onClick={() => setShowPreview(false)} className="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-500 hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all cursor-pointer"><X size={20} strokeWidth={3} /></button>
                         </div>
                         <div className="p-8 h-[80vh] overflow-y-auto flex flex-col gap-12" onClick={e => e.stopPropagation()}>
                             <div>
-                               <h3 className="text-xl font-black uppercase tracking-tighter text-[#0A1128] mb-6 border-b pb-4">Predogled kartice (Glavna stran)</h3>
+                               <h3 className="text-xl font-black uppercase tracking-tighter text-[#0A1128] mb-6 border-b pb-4">{t('cardPreview')}</h3>
                                <div className="w-full max-w-sm mx-auto">
                                    <AuctionCard 
                                       item={{
@@ -490,9 +543,9 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
                                </div>
                             </div>
                             <div className="pb-12">
-                               <h3 className="text-xl font-black uppercase tracking-tighter text-[#0A1128] mb-6 border-b pb-4">Predogled strani (Podrobnosti)</h3>
-                               <div className="border border-slate-200 rounded-[2.5rem] overflow-hidden bg-slate-50">
-                                   <div className="pointer-events-none">
+                               <h3 className="text-xl font-black uppercase tracking-tighter text-[#0A1128] mb-6 border-b pb-4">{t('pagePreview')}</h3>
+                               <div className="border border-slate-200 rounded-[2.5rem] overflow-hidden bg-slate-50 w-full relative h-[600px] md:h-[800px] overflow-x-auto">
+                                   <div className="pointer-events-none w-[1280px] origin-top-left transform scale-[0.4] sm:scale-[0.5] md:scale-[0.7] lg:scale-[0.8] xl:scale-[0.9]">
                                        <AuctionView 
                                           item={{
                                              id: 'preview',
