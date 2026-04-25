@@ -515,9 +515,12 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
                                           t={t} 
                                           language="SLO" 
                                           isVerified={isLoggedIn} 
-                                          userData={{id:'mock'}} 
+                                          currentUserId="mock" 
+                                          currentPlan="FREE"
+                                          isWatched={false}
+                                          onWatchToggle={()=>{}}
                                           onBack={()=>{}} 
-                                          onBidSubmit={async () => undefined} 
+                                          onBidSubmit={async () => 'success'} 
                                           onCheckout={()=>{}} 
                                           onSellerClick={()=>{}} 
                                        />

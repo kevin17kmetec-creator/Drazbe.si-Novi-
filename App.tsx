@@ -974,7 +974,7 @@ const App: React.FC = () => {
             .slice(0, 200);
       } else {
           filtered = filtered.filter(item => {
-              if (new Date(item.endTime) <= now) return false;
+              if (item.status === 'completed' || new Date(item.endTime) <= now) return false;
               if (selectedRegion && item.region !== selectedRegion) return false;
               if (selectedCategory && item.category !== selectedCategory) return false;
               if (searchQuery) {
@@ -1251,7 +1251,7 @@ const App: React.FC = () => {
                     </div>
                     
                     <div className="grid gap-8 justify-center" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 320px))' }}>
-                        {auctions.filter(a => bidAuctionIds.includes(a.id)).filter(a => !((a.winner_id === userData.id || a.winnerId === userData.id) && (a.status === 'completed' || new Date(a.endTime) <= new Date()))).map(item => (
+                        {auctions.filter(a => bidAuctionIds.includes(a.id)).filter(a => a.status === 'active' && new Date(a.endTime) > new Date()).map(item => (
                             <AuctionCard 
                                 key={item.id} 
                                 item={item} 
@@ -1267,7 +1267,7 @@ const App: React.FC = () => {
                                 onSellerClick={(seller) => { setSelectedSeller(seller); setActiveView('sellerProfile'); }} 
                             />
                         ))}
-                        {auctions.filter(a => bidAuctionIds.includes(a.id)).filter(a => !((a.winner_id === userData.id || a.winnerId === userData.id) && (a.status === 'completed' || new Date(a.endTime) <= new Date()))).length === 0 && (
+                        {auctions.filter(a => bidAuctionIds.includes(a.id)).filter(a => a.status === 'active' && new Date(a.endTime) > new Date()).length === 0 && (
                             <div className="col-span-full py-20 text-center bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200">
                                 <Gavel size={48} className="mx-auto mb-4 text-slate-300" />
                                 <p className="text-slate-500 font-black uppercase tracking-widest text-xs">{t('noBids')}</p>
@@ -1484,7 +1484,7 @@ const App: React.FC = () => {
                     </div>
                     
                     <div className="grid gap-8 justify-center" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 320px))' }}>
-                        {auctions.filter(a => watchedIds.includes(a.id)).filter(a => !((a.winner_id === userData.id || a.winnerId === userData.id) && (a.status === 'completed' || new Date(a.endTime) <= new Date()))).map(item => (
+                        {auctions.filter(a => watchedIds.includes(a.id)).filter(a => a.status === 'active' && new Date(a.endTime) > new Date()).map(item => (
                             <AuctionCard 
                                 key={item.id} 
                                 item={item} 
@@ -1500,7 +1500,7 @@ const App: React.FC = () => {
                                 onSellerClick={(seller) => { setSelectedSeller(seller); setActiveView('sellerProfile'); }} 
                             />
                         ))}
-                        {auctions.filter(a => watchedIds.includes(a.id)).filter(a => !((a.winner_id === userData.id || a.winnerId === userData.id) && (a.status === 'completed' || new Date(a.endTime) <= new Date()))).length === 0 && (
+                        {auctions.filter(a => watchedIds.includes(a.id)).filter(a => a.status === 'active' && new Date(a.endTime) > new Date()).length === 0 && (
                             <div className="col-span-full py-20 text-center bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200">
                                 <Eye size={48} className="mx-auto mb-4 text-slate-300" />
                                 <p className="text-slate-500 font-black uppercase tracking-widest text-xs">Nimate opazovanih dražb</p>

@@ -67,32 +67,20 @@ export const StripeConnectOnboarding: React.FC<Props> = ({ userId, isComplete, o
     setShowOnboarding(true);
   };
 
-  if (isComplete) {
-    return (
-      <div className="p-6 bg-green-50 rounded-2xl border border-green-100 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center text-green-600">
-            <CheckCircle2 size={24} />
-          </div>
-          <div>
-            <h4 className="text-sm font-black uppercase tracking-widest text-green-800">Stripe račun povezan</h4>
-            <p className="text-xs font-bold text-green-600/80 mt-1">Vaš račun je potrjen in pripravljen za prejemanje plačil ter objavo dražb.</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100">
+    <div className={`p-6 rounded-2xl border ${isComplete ? 'bg-green-50/50 border-green-100' : 'bg-slate-50 border-slate-100'}`}>
       <div className="flex items-start md:items-center justify-between flex-col md:flex-row gap-6">
         <div className="flex gap-4">
-          <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center text-red-500 shrink-0">
-            <AlertCircle size={24} />
+          <div className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 ${isComplete ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-500'}`}>
+            {isComplete ? <CheckCircle2 size={24} /> : <AlertCircle size={24} />}
           </div>
           <div>
-            <h4 className="text-sm font-black uppercase tracking-widest text-[#0A1128]">Stripe preverjanje in izplačila</h4>
-            <p className="text-xs font-bold text-slate-500 mt-2 max-w-sm">Za objavo dražb in prejemanje sredstev morate overiti in povezati bančni račun. Preverjanje poteka varno na naši platformi preko sistema Stripe.</p>
+            <h4 className={`text-sm font-black uppercase tracking-widest ${isComplete ? 'text-green-800' : 'text-[#0A1128]'}`}>
+                {isComplete ? 'Stripe račun in izplačila' : 'Stripe preverjanje in izplačila'}
+            </h4>
+            <p className="text-xs font-bold text-slate-500 mt-2 max-w-sm">
+                {isComplete ? 'Vaš račun je povezan. Lahko preglejte in posodobite svoje bančne podatke ter nastavitve izplačil.' : 'Za objavo dražb in prejemanje sredstev morate overiti in povezati bančni račun. Preverjanje poteka varno na naši platformi preko sistema Stripe.'}
+            </p>
           </div>
         </div>
         <button
@@ -100,7 +88,7 @@ export const StripeConnectOnboarding: React.FC<Props> = ({ userId, isComplete, o
           onClick={handleStartOnboarding}
           className="shrink-0 bg-[#0A1128] text-white px-6 py-3 rounded-xl font-black uppercase tracking-widest text-xs hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-colors shadow-lg"
         >
-          Začni preverjanje
+          {isComplete ? 'Upravljaj bančni račun' : 'Začni preverjanje'}
         </button>
       </div>
 
