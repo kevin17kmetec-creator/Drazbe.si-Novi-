@@ -27,7 +27,8 @@ export const ChatView: React.FC<{
     currentUserId: string;
     language: string;
 }> = ({ onBack, t, currentUserId, language }) => {
-    const [sessions, setSessions] = useState<ChatSession[]>([]);
+    const [buyingSessions, setBuyingSessions] = useState<ChatSession[]>([]);
+    const [sellingSessions, setSellingSessions] = useState<ChatSession[]>([]);
     const [selectedSession, setSelectedSession] = useState<ChatSession | null>(null);
     const [messages, setMessages] = useState<Message[]>([]);
     const [newMessage, setNewMessage] = useState('');
@@ -36,8 +37,11 @@ export const ChatView: React.FC<{
     const scrollRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
+        if (!currentUserId) return;
         fetchSessions();
     }, [currentUserId]);
+
+    // ... useEffects for messages
 
     useEffect(() => {
         if (selectedSession) {
@@ -70,30 +74,64 @@ export const ChatView: React.FC<{
     const fetchSessions = async () => {
         setLoading(true);
         try {
-            // Fetch completed auctions where user is seller or winner
             const { data: auctions, error } = await supabase
                 .from('auctions')
-                .select('*, users!auctions_seller_id_fkey(email), winner:users!auctions_winner_id_fkey(email)')
+                .select('*')
                 .eq('status', 'completed')
                 .or(`seller_id.eq.${currentUserId},winner_id.eq.${currentUserId}`);
 
             if (error) throw error;
+            if (!auctions) {
+                setBuyingSessions([]);
+                setSellingSessions([]);
+                return;
+            }
 
-            const chatSessions: ChatSession[] = auctions.map((a: any) => {
+            const userIds = new Set<string>();
+            auctions.forEach((a: any) => {
+                if (a.seller_id) userIds.add(a.seller_id);
+                if (a.winner_id) userIds.add(a.winner_id);
+            });
+
+            const { data: users, error: usersError } = await supabase
+                .from('users')
+                .select('id, email')
+                .in('id', Array.from(userIds));
+
+            // Default to empty array if error or no users
+            const userMap = new Map<string, string>();
+            if (!usersError && users) {
+                users.forEach((u: any) => userMap.set(u.id, u.email));
+            }
+
+            const buying: ChatSession[] = [];
+            const selling: ChatSession[] = [];
+
+            auctions.forEach((a: any) => {
                 const isSeller = a.seller_id === currentUserId;
-                return {
+                const otherId = isSeller ? a.winner_id : a.seller_id;
+                if (!otherId) return;
+
+                const session: ChatSession = {
                     auction: {
                         ...a,
-                        endTime: new Date(a.end_time),
-                        currentBid: a.current_price,
-                        bidCount: a.bid_count
+                        id: a.id,
+                        title: a.title,
+                        endTime: new Date(a.end_time || a.endTime),
+                        currentBid: a.current_price || a.currentBid,
+                        bidCount: a.bid_count || a.bidCount
                     },
-                    otherPartyId: isSeller ? a.winner_id : a.seller_id,
-                    otherPartyEmail: isSeller ? (a.winner?.email || t('winner')) : (a.users?.email || t('seller'))
+                    otherPartyId: otherId,
+                    otherPartyEmail: userMap.get(otherId) || (isSeller ? t('winner') : t('seller'))
                 };
-            }).filter(s => s.otherPartyId); // Ensure there is another party (winner exists)
 
-            setSessions(chatSessions);
+                if (isSeller) selling.push(session);
+                else buying.push(session);
+            });
+
+            setBuyingSessions(buying);
+            setSellingSessions(selling);
+
         } catch (err) {
             console.error("Error fetching chat sessions:", err);
             toast.error(t('chatLoadError'));
@@ -171,33 +209,76 @@ export const ChatView: React.FC<{
                         <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{t('yourChats')}</p>
                     </div>
                     <div className="flex-1 overflow-y-auto">
-                        {sessions.length === 0 ? (
+                        {buyingSessions.length === 0 && sellingSessions.length === 0 ? (
                             <div className="p-10 text-center">
                                 <MessageSquare size={32} className="mx-auto mb-4 text-slate-200" />
                                 <p className="text-xs font-black uppercase tracking-widest text-slate-400">{t('noActiveChats')}</p>
                                 <p className="text-[10px] text-slate-300 mt-2">{t('chatStartNotice')}</p>
                             </div>
                         ) : (
-                            sessions.map((session) => (
-                                <button 
-                                    key={session.auction.id}
-                                    onClick={() => setSelectedSession(session)}
-                                    className={`w-full p-6 text-left border-b border-slate-100 transition-all flex flex-col gap-2 ${selectedSession?.auction.id === session.auction.id ? 'bg-white border-l-4 border-l-[#FEBA4F] shadow-inner' : 'hover:bg-white'}`}
-                                >
-                                    <div className="flex justify-between items-start">
-                                        <p className="text-[10px] font-black uppercase tracking-widest text-[#FEBA4F] truncate max-w-[120px]">
-                                            {session.otherPartyEmail}
-                                        </p>
-                                        <CheckCircle2 size={12} className="text-green-500" />
+                            <>
+                                {buyingSessions.length > 0 && (
+                                    <div className="mb-4">
+                                        <div className="px-6 py-3 bg-slate-50 border-b border-slate-100 flex items-center gap-2">
+                                            <div className="w-6 h-6 rounded-full bg-[#FEBA4F]/20 flex items-center justify-center text-[#FEBA4F]">
+                                                <TrendingUp size={12} strokeWidth={3} />
+                                            </div>
+                                            <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Sporočila s prodajalci (moji nakupi)</p>
+                                        </div>
+                                        {buyingSessions.map((session) => (
+                                            <button 
+                                                key={session.auction.id}
+                                                onClick={() => setSelectedSession(session)}
+                                                className={`w-full p-6 text-left border-b border-slate-100 transition-all flex flex-col gap-2 ${selectedSession?.auction.id === session.auction.id ? 'bg-white border-l-4 border-l-[#FEBA4F] shadow-inner' : 'hover:bg-white'}`}
+                                            >
+                                                <div className="flex justify-between items-start">
+                                                    <p className="text-[10px] font-black uppercase tracking-widest text-[#FEBA4F] truncate max-w-[120px]">
+                                                        {session.otherPartyEmail}
+                                                    </p>
+                                                    <CheckCircle2 size={12} className="text-green-500" />
+                                                </div>
+                                                <p className="font-black text-xs text-[#0A1128] line-clamp-1">
+                                                    {session.auction.title[language] || session.auction.title['SLO']}
+                                                </p>
+                                                <p className="text-[9px] text-slate-400 font-bold">
+                                                    Zmagovalna ponudba: €{session.auction.currentBid}
+                                                </p>
+                                            </button>
+                                        ))}
                                     </div>
-                                    <p className="font-black text-xs text-[#0A1128] line-clamp-1">
-                                        {session.auction.title[language] || session.auction.title['SLO']}
-                                    </p>
-                                    <p className="text-[9px] text-slate-400 font-bold">
-                                        Zmagovalna ponudba: €{session.auction.currentBid}
-                                    </p>
-                                </button>
-                            ))
+                                )}
+                                
+                                {sellingSessions.length > 0 && (
+                                    <div>
+                                        <div className="px-6 py-3 bg-slate-50 border-y border-slate-100 flex items-center gap-2">
+                                            <div className="w-6 h-6 rounded-full bg-[#0A1128]/10 flex items-center justify-center text-[#0A1128]">
+                                                <Gavel size={12} strokeWidth={3} />
+                                            </div>
+                                            <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Sporočila s kupci (moje prodaje)</p>
+                                        </div>
+                                        {sellingSessions.map((session) => (
+                                            <button 
+                                                key={session.auction.id}
+                                                onClick={() => setSelectedSession(session)}
+                                                className={`w-full p-6 text-left border-b border-slate-100 transition-all flex flex-col gap-2 ${selectedSession?.auction.id === session.auction.id ? 'bg-white border-l-4 border-l-[#FEBA4F] shadow-inner' : 'hover:bg-white'}`}
+                                            >
+                                                <div className="flex justify-between items-start">
+                                                    <p className="text-[10px] font-black uppercase tracking-widest text-[#FEBA4F] truncate max-w-[120px]">
+                                                        {session.otherPartyEmail}
+                                                    </p>
+                                                    <CheckCircle2 size={12} className="text-green-500" />
+                                                </div>
+                                                <p className="font-black text-xs text-[#0A1128] line-clamp-1">
+                                                    {session.auction.title[language] || session.auction.title['SLO']}
+                                                </p>
+                                                <p className="text-[9px] text-slate-400 font-bold">
+                                                    Zmagovalna ponudba: €{session.auction.currentBid}
+                                                </p>
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                            </>
                         )}
                     </div>
                 </div>
