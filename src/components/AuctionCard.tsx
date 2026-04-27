@@ -31,23 +31,13 @@ export const AuctionCard: React.FC<{
   const hasEndedFiredRef = useRef(false);
 
   useEffect(() => {
-    const fetchImages = async () => {
-      if (!item?.images) return;
-      try {
-        const urls = await Promise.all(item.images.map(async (imgPath: string) => {
-          if (imgPath.startsWith('http') || imgPath.startsWith('blob:') || imgPath.startsWith('data:')) return imgPath;
-          const { data, error } = await supabase.storage.from('auction-images').createSignedUrl(imgPath, 3600);
-          if (error) throw error;
-          return data?.signedUrl || imgPath;
-        }));
-        setSignedImages(urls);
-      } catch (err) {
-        console.error("Error fetching signed images:", err);
-        // Fallback to original paths if signed URLs fail
-        setSignedImages(item.images);
-      }
-    };
-    fetchImages();
+    if (!item?.images) return;
+    const urls = item.images.map((imgPath: string) => {
+      if (imgPath.startsWith('http') || imgPath.startsWith('blob:') || imgPath.startsWith('data:')) return imgPath;
+      const { data } = supabase.storage.from('auction-images').getPublicUrl(imgPath);
+      return data.publicUrl || imgPath;
+    });
+    setSignedImages(urls);
   }, [item?.images]);
 
   useEffect(() => { setBidValue(item.currentBid + getIncrement(item.currentBid)); }, [item.currentBid]);
@@ -132,14 +122,6 @@ export const AuctionCard: React.FC<{
           <div className="bg-[#FEBA4F] text-[#0A1128] backdrop-blur-sm px-4 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg">
             {item.region}
           </div>
-          <div className="bg-white/10 text-white backdrop-blur-sm px-4 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg border border-white/10">
-            {item.category}
-          </div>
-          {item.condition && (
-          <div className="bg-white/10 text-white backdrop-blur-sm px-4 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg border border-white/10">
-            {typeof item.condition === 'string' ? item.condition : item.condition[language] || item.condition['SLO']}
-          </div>
-          )}
           {isWinner && (
             <div className="bg-green-500 text-white backdrop-blur-sm px-4 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg flex items-center gap-1.5 border border-green-400/50 animate-pulse">
               <Trophy size={10} /> {t('leading') || 'Vodilni'}

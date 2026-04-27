@@ -157,9 +157,9 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
                 const mimeType = file.type;
 
                 try {
-                    const apiKey = process.env.GEMINI_API_KEY || '';
+                    const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
                     if (!apiKey) {
-                        throw new Error('Gemini API Key is missing');
+                        throw new Error('Gemini API Key is missing. Prosimo preverite .env datoteko in dodajte VITE_GEMINI_API_KEY.');
                     }
                     const ai = new GoogleGenAI({ apiKey });
                     
@@ -217,9 +217,13 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
                         toast.info(t('imageNotChanged'));
                     }
                     
-                } catch (err) {
+                } catch (err: any) {
                     console.error("Gemini API error:", err);
-                    toast.error(t('imageEnhanceError'));
+                    if (err.message?.includes('API Key is missing')) {
+                         toast.error('Gemini API ključ manjka. Prosimo preverite .env datoteko.', { duration: 5000 });
+                    } else {
+                         toast.error(t('imageEnhanceError'));
+                    }
                 } finally {
                     setEnhancingIndex(null);
                 }

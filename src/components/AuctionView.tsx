@@ -42,24 +42,14 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
   }, [item]);
 
   useEffect(() => {
-    const fetchImages = async () => {
-      if (!item?.images) return;
-      try {
-        const urls = await Promise.all(item.images.map(async (imgPath: string) => {
-          if (imgPath.startsWith('http') || imgPath.startsWith('blob:') || imgPath.startsWith('data:')) return imgPath;
-          const { data, error } = await supabase.storage.from('auction-images').createSignedUrl(imgPath, 3600);
-          if (error) throw error;
-          return data?.signedUrl || imgPath;
-        }));
-        setSignedImages(urls);
-        if (urls.length > 0) setSelectedImage(urls[0]);
-      } catch (err) {
-        console.error("Error fetching signed images in AuctionView:", err);
-        setSignedImages(item.images);
-        if (item.images.length > 0) setSelectedImage(item.images[0]);
-      }
-    };
-    fetchImages();
+    if (!item?.images) return;
+    const urls = item.images.map((imgPath: string) => {
+      if (imgPath.startsWith('http') || imgPath.startsWith('blob:') || imgPath.startsWith('data:')) return imgPath;
+      const { data } = supabase.storage.from('auction-images').getPublicUrl(imgPath);
+      return data.publicUrl || imgPath;
+    });
+    setSignedImages(urls);
+    if (urls.length > 0) setSelectedImage(urls[0]);
   }, [item?.images]);
 
   const [timeLeft, setTimeLeft] = useState<number>(() => {
