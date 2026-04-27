@@ -57,6 +57,8 @@ export const ChatView: React.FC<{
     useEffect(() => {
         if (selectedSession) {
             fetchMessages(selectedSession.auction.id);
+            
+            // Channel for marking new incoming messages as read instantly if drawer is open
             const subscription = supabase
                 .channel(`messages:${selectedSession.auction.id}`)
                 .on('postgres_changes', { 
@@ -64,12 +66,22 @@ export const ChatView: React.FC<{
                     schema: 'public', 
                     table: 'messages',
                     filter: `auction_id=eq.${selectedSession.auction.id}`
-                }, (payload) => {
+                }, async (payload) => {
                     const msg = payload.new as Message;
+                    
+                    // Add message to state
                     setMessages(prev => {
                         if (prev.find(m => m.id === msg.id)) return prev;
                         return [...prev, msg];
                     });
+
+                    // If we are the receiver, mark it as read immediately
+                    if (msg.receiver_id === currentUserId && !msg.is_read) {
+                        await supabase
+                            .from('messages')
+                            .update({ is_read: true })
+                            .eq('id', msg.id);
+                    }
                 })
                 .subscribe();
 
@@ -285,37 +297,42 @@ export const ChatView: React.FC<{
                                             <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Sporočila s prodajalci (moji nakupi)</p>
                                         </div>
                                         {buyingSessions.map((session) => (
-                                            <button 
-                                                key={session.auction.id}
-                                                onClick={() => setSelectedSession(session)}
-                                                className={`w-full p-5 text-left border-b border-slate-200 transition-all flex flex-col gap-3 ${selectedSession?.auction.id === session.auction.id ? 'bg-white border-l-4 border-l-[#FEBA4F] shadow-md' : 'hover:bg-slate-100 bg-white'}`}
-                                            >
-                                                <div className="flex items-center gap-3">
-                                                    {session.otherPartyPic ? (
-                                                        <img src={session.otherPartyPic} className="w-8 h-8 rounded-full border border-slate-200 object-cover" />
-                                                    ) : (
-                                                        <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-500">
-                                                            <User size={14} />
-                                                        </div>
-                                                    )}
-                                                    <div className="flex-1 overflow-hidden">
-                                                        <div className="flex justify-between items-center w-full">
-                                                            <p className="text-[11px] font-black uppercase tracking-widest text-[#0A1128] truncate pr-2">
-                                                                {session.otherPartyEmail}
-                                                            </p>
-                                                            <CheckCircle2 size={14} className="text-green-500 flex-shrink-0" />
+                                            <div key={session.auction.id} className="px-3 mb-2">
+                                                <button 
+                                                    onClick={() => setSelectedSession(session)}
+                                                    className={`w-full p-4 text-left rounded-2xl transition-all flex flex-col gap-3 group relative ${
+                                                        selectedSession?.auction.id === session.auction.id 
+                                                        ? 'bg-white ring-4 ring-[#FEBA4F] shadow-xl z-10' 
+                                                        : 'hover:bg-white bg-white/40 border border-slate-100'
+                                                    }`}
+                                                >
+                                                    <div className="flex items-center gap-3">
+                                                        {session.otherPartyPic ? (
+                                                            <img src={session.otherPartyPic} className="w-8 h-8 rounded-full border border-slate-200 object-cover" />
+                                                        ) : (
+                                                            <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-500">
+                                                                <User size={14} />
+                                                            </div>
+                                                        )}
+                                                        <div className="flex-1 overflow-hidden">
+                                                            <div className="flex justify-between items-center w-full">
+                                                                <p className="text-[11px] font-black uppercase tracking-widest text-[#0A1128] truncate pr-2">
+                                                                    {session.otherPartyEmail}
+                                                                </p>
+                                                                <CheckCircle2 size={14} className="text-green-500 flex-shrink-0" />
+                                                            </div>
                                                         </div>
                                                     </div>
-                                                </div>
-                                                <div className="pl-11">
-                                                    <p className="font-bold text-xs text-slate-600 line-clamp-1">
-                                                        {session.auction.title[language] || session.auction.title['SLO']}
-                                                    </p>
-                                                    <p className="text-[10px] text-slate-400 font-bold mt-1">
-                                                        Zmagovalna ponudba: €{session.auction.currentBid}
-                                                    </p>
-                                                </div>
-                                            </button>
+                                                    <div className="pl-11">
+                                                        <p className="font-bold text-xs text-slate-600 line-clamp-1">
+                                                            {session.auction.title[language] || session.auction.title['SLO']}
+                                                        </p>
+                                                        <p className="text-[10px] text-slate-400 font-bold mt-1">
+                                                            Zmagovalna ponudba: €{session.auction.currentBid}
+                                                        </p>
+                                                    </div>
+                                                </button>
+                                            </div>
                                         ))}
                                     </div>
                                 )}
@@ -329,37 +346,42 @@ export const ChatView: React.FC<{
                                             <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Sporočila s kupci (moje prodaje)</p>
                                         </div>
                                         {sellingSessions.map((session) => (
-                                            <button 
-                                                key={session.auction.id}
-                                                onClick={() => setSelectedSession(session)}
-                                                className={`w-full p-5 text-left border-b border-slate-200 transition-all flex flex-col gap-3 ${selectedSession?.auction.id === session.auction.id ? 'bg-white border-l-4 border-l-[#FEBA4F] shadow-md' : 'hover:bg-slate-100 bg-white'}`}
-                                            >
-                                                <div className="flex items-center gap-3">
-                                                    {session.otherPartyPic ? (
-                                                        <img src={session.otherPartyPic} className="w-8 h-8 rounded-full border border-slate-200 object-cover" />
-                                                    ) : (
-                                                        <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-500">
-                                                            <User size={14} />
-                                                        </div>
-                                                    )}
-                                                    <div className="flex-1 overflow-hidden">
-                                                        <div className="flex justify-between items-center w-full">
-                                                            <p className="text-[11px] font-black uppercase tracking-widest text-[#0A1128] truncate pr-2">
-                                                                {session.otherPartyEmail}
-                                                            </p>
-                                                            <CheckCircle2 size={14} className="text-green-500 flex-shrink-0" />
+                                            <div key={session.auction.id} className="px-3 mb-2">
+                                                <button 
+                                                    onClick={() => setSelectedSession(session)}
+                                                    className={`w-full p-4 text-left rounded-2xl transition-all flex flex-col gap-3 group relative ${
+                                                        selectedSession?.auction.id === session.auction.id 
+                                                        ? 'bg-white ring-4 ring-[#FEBA4F] shadow-xl z-10' 
+                                                        : 'hover:bg-white bg-white/40 border border-slate-100'
+                                                    }`}
+                                                >
+                                                    <div className="flex items-center gap-3">
+                                                        {session.otherPartyPic ? (
+                                                            <img src={session.otherPartyPic} className="w-8 h-8 rounded-full border border-slate-200 object-cover" />
+                                                        ) : (
+                                                            <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-500">
+                                                                <User size={14} />
+                                                            </div>
+                                                        )}
+                                                        <div className="flex-1 overflow-hidden">
+                                                            <div className="flex justify-between items-center w-full">
+                                                                <p className="text-[11px] font-black uppercase tracking-widest text-[#0A1128] truncate pr-2">
+                                                                    {session.otherPartyEmail}
+                                                                </p>
+                                                                <CheckCircle2 size={14} className="text-green-500 flex-shrink-0" />
+                                                            </div>
                                                         </div>
                                                     </div>
-                                                </div>
-                                                <div className="pl-11">
-                                                    <p className="font-bold text-xs text-slate-600 line-clamp-1">
-                                                        {session.auction.title[language] || session.auction.title['SLO']}
-                                                    </p>
-                                                    <p className="text-[10px] text-slate-400 font-bold mt-1">
-                                                        Zmagovalna ponudba: €{session.auction.currentBid}
-                                                    </p>
-                                                </div>
-                                            </button>
+                                                    <div className="pl-11">
+                                                        <p className="font-bold text-xs text-slate-600 line-clamp-1">
+                                                            {session.auction.title[language] || session.auction.title['SLO']}
+                                                        </p>
+                                                        <p className="text-[10px] text-slate-400 font-bold mt-1">
+                                                            Zmagovalna ponudba: €{session.auction.currentBid}
+                                                        </p>
+                                                    </div>
+                                                </button>
+                                            </div>
                                         ))}
                                     </div>
                                 )}
