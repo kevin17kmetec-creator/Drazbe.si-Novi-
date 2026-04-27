@@ -29,7 +29,8 @@ export const Header: React.FC<{
   auctions: AuctionItem[];
   userEmail?: string;
   userProfilePicture?: string;
-}> = ({ onHome, onSearch, onRegionSelect, onCategorySelect, onLastChance, onLogin, onLogout, onSettings, onSubscriptions, onCreateAuction, onMyWinnings, onMyBids, onMySold, onChat, onWatchlist, activeView, selectedRegion, selectedCategory, isLoggedIn, isVerified, language, onLanguageChange, t, auctions, userEmail, userProfilePicture }) => {
+  unreadMessagesCount?: number;
+}> = ({ onHome, onSearch, onRegionSelect, onCategorySelect, onLastChance, onLogin, onLogout, onSettings, onSubscriptions, onCreateAuction, onMyWinnings, onMyBids, onMySold, onChat, onWatchlist, activeView, selectedRegion, selectedCategory, isLoggedIn, isVerified, language, onLanguageChange, t, auctions, userEmail, userProfilePicture, unreadMessagesCount = 0 }) => {
   const [isRegOpen, setIsRegOpen] = useState(false);
   const [isCatOpen, setIsCatOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
@@ -107,10 +108,15 @@ export const Header: React.FC<{
               {isLoggedIn && (
                 <button 
                   onClick={onChat}
-                  className={`p-3 rounded-xl border transition-all flex items-center gap-2 font-black text-xs uppercase tracking-widest ${activeView === 'chat' ? 'bg-[#FEBA4F] text-[#0A1128] border-[#FEBA4F]' : 'bg-white/5 text-white border-white/10 hover:bg-white/10'}`}
+                  className={`p-3 rounded-xl border transition-all flex items-center gap-2 font-black text-xs uppercase tracking-widest relative ${activeView === 'chat' ? 'bg-[#FEBA4F] text-[#0A1128] border-[#FEBA4F]' : 'bg-white/5 text-white border-white/10 hover:bg-white/10'}`}
                   title="Sporočila"
                 >
                   <MessageSquare size={18} />
+                  {unreadMessagesCount > 0 && (
+                    <span className="absolute -top-2 -right-2 bg-red-500 text-white text-[9px] font-black w-5 h-5 flex items-center justify-center rounded-full border-2 border-[#0A1128]">
+                      {unreadMessagesCount}
+                    </span>
+                  )}
                   <span className="hidden lg:inline">{t('messages')}</span>
                 </button>
               )}

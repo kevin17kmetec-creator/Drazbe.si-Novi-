@@ -165,6 +165,43 @@ const App: React.FC = () => {
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [checkoutData, setCheckoutData] = useState<{ amount: number; title: string; onSuccess: () => void; metadata?: any } | null>(null);
   const [userData, setUserData] = useState({ id: '', firstName: '', lastName: '', email: '', profilePicture: '', is_verified: false });
+  const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
+  
+  useEffect(() => {
+    if (!userData.id) {
+        setUnreadMessagesCount(0);
+        return;
+    }
+
+    const fetchUnread = async () => {
+        const { count, error } = await supabase
+            .from('messages')
+            .select('*', { count: 'exact', head: true })
+            .eq('receiver_id', userData.id)
+            .eq('is_read', false);
+        
+        if (!error && count !== null) {
+            setUnreadMessagesCount(count);
+        }
+    };
+
+    fetchUnread();
+
+    const channel = supabase.channel('unread-messages')
+        .on('postgres_changes', {
+            event: '*',
+            schema: 'public',
+            table: 'messages',
+            filter: `receiver_id=eq.${userData.id}`
+        }, () => {
+            fetchUnread();
+        })
+        .subscribe();
+
+    return () => {
+        supabase.removeChannel(channel);
+    };
+  }, [userData.id]);
   
   const [selectedItem, setSelectedItem] = useState<AuctionItem | null>(null);
   const [selectedSeller, setSelectedSeller] = useState<Seller | null>(null);
@@ -1083,7 +1120,16 @@ const App: React.FC = () => {
           content = <CreateAuctionForm onBack={() => setActiveView('grid')} t={t} onPublish={handlePublish} isLoggedIn={isLoggedIn} />; 
       }
       break;
-    case 'chat': content = <ChatView onBack={() => setActiveView('grid')} t={t} currentUserId={userData.id} language={language} />; break;
+    case 'chat': 
+      content = <ChatView 
+          onBack={() => setActiveView('grid')} 
+          onViewProfile={(seller) => { setSelectedSeller(seller); setActiveView('sellerProfile'); }}
+          onViewAuction={(item) => { setSelectedItem(item); setActiveView('detail'); }}
+          t={t} 
+          currentUserId={userData.id} 
+          language={language} 
+      />; 
+      break;
     case 'detail':
       if (selectedItem) content = (
         <AuctionView 
@@ -1664,6 +1710,7 @@ const App: React.FC = () => {
             auctions={auctions}
             userEmail={userData.email}
             userProfilePicture={userData.profile_picture_url || userData.profilePicture}
+            unreadMessagesCount={unreadMessagesCount}
         />
         <main>{content}</main>
         {activeView === 'grid' && <Footer t={t} onLegal={setActiveLegal} />}
