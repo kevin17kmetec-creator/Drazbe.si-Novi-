@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Search, Globe, ChevronDown, User, PlusCircle, Trophy, Eye, CreditCard, Settings, LogOut, ChevronRight, Gavel, MessageSquare } from 'lucide-react';
 import { ViewState, Region, Category, AuctionItem } from '../../types.ts';
 
@@ -34,6 +34,32 @@ export const Header: React.FC<{
   const [isCatOpen, setIsCatOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isLangOpen, setIsLangOpen] = useState(false);
+
+  const userMenuRef = useRef<HTMLDivElement>(null);
+  const langMenuRef = useRef<HTMLDivElement>(null);
+  const catMenuRef = useRef<HTMLDivElement>(null);
+  const regMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
+        setIsUserMenuOpen(false);
+      }
+      if (langMenuRef.current && !langMenuRef.current.contains(event.target as Node)) {
+        setIsLangOpen(false);
+      }
+      if (catMenuRef.current && !catMenuRef.current.contains(event.target as Node)) {
+        setIsCatOpen(false);
+      }
+      if (regMenuRef.current && !regMenuRef.current.contains(event.target as Node)) {
+        setIsRegOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
 
   const languages = [
       { code: 'SLO', label: 'Slovenščina' },
@@ -89,6 +115,7 @@ export const Header: React.FC<{
                 </button>
               )}
               <div className="relative h-full flex items-center"
+                   ref={langMenuRef}
                    onMouseEnter={() => setIsLangOpen(true)}
                    onMouseLeave={() => setIsLangOpen(false)}>
                   <button className="bg-white/5 px-4 py-2.5 rounded-xl border border-white/10 hover:bg-white/10 transition-all font-black text-xs flex items-center gap-2">
@@ -106,7 +133,7 @@ export const Header: React.FC<{
               </div>
 
               {isLoggedIn ? (
-                <div className="relative">
+                <div className="relative" ref={userMenuRef}>
                   <button 
                     onClick={() => setIsUserMenuOpen(!isUserMenuOpen)} 
                     className="flex items-center gap-3 bg-white text-[#0A1128] px-6 py-2.5 rounded-2xl font-black text-sm shadow-xl hover:bg-[#FEBA4F] transition-colors"
@@ -145,6 +172,7 @@ export const Header: React.FC<{
             <button onClick={onHome} className={`hover:text-[#FEBA4F] transition-colors ${activeView === 'grid' && !selectedRegion && !selectedCategory ? 'text-[#FEBA4F]' : ''}`}>{t('allAuctions')}</button>
             
             <div className="relative h-full flex items-center" 
+                 ref={regMenuRef}
                  onMouseEnter={() => setIsRegOpen(true)}
                  onMouseLeave={() => setIsRegOpen(false)}>
                 <button className={`flex items-center gap-1.5 h-full hover:text-[#FEBA4F] transition-colors ${selectedRegion ? 'text-[#FEBA4F]' : ''}`}>{t('regions')} <ChevronDown size={12}/></button>
@@ -195,6 +223,7 @@ export const Header: React.FC<{
             </div>
 
             <div className="relative h-full flex items-center" 
+                 ref={catMenuRef}
                  onMouseEnter={() => setIsCatOpen(true)}
                  onMouseLeave={() => setIsCatOpen(false)}>
                 <button className={`flex items-center gap-1.5 h-full hover:text-[#FEBA4F] transition-colors ${selectedCategory ? 'text-[#FEBA4F]' : ''}`}>{t('categories')} <ChevronDown size={12}/></button>

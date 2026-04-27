@@ -1095,6 +1095,7 @@ const App: React.FC = () => {
           onWatchToggle={() => toggleWatch(selectedItem.id)}
           currentPlan={currentPlan} 
           currentUserId={userData.id}
+          onChatStart={() => setActiveView('chat')}
           onBack={() => { setActiveView('grid'); setSelectedItem(null); }} 
           onBidSubmit={handleBidSubmit} 
           onCheckout={(item) => { 

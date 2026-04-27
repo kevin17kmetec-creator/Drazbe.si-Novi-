@@ -34,7 +34,6 @@ export const ChatView: React.FC<{
     const [newMessage, setNewMessage] = useState('');
     const [loading, setLoading] = useState(true);
     const [sending, setSending] = useState(false);
-    const scrollRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         if (!currentUserId) return;
@@ -55,7 +54,7 @@ export const ChatView: React.FC<{
                     filter: `auction_id=eq.${selectedSession.auction.id}`
                 }, (payload) => {
                     const msg = payload.new as Message;
-                    setMessages(prev => [...prev, msg]);
+                    setMessages(prev => [msg, ...prev]);
                 })
                 .subscribe();
 
@@ -65,20 +64,14 @@ export const ChatView: React.FC<{
         }
     }, [selectedSession]);
 
-    useEffect(() => {
-        if (scrollRef.current) {
-            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-        }
-    }, [messages]);
-
     const fetchSessions = async () => {
         setLoading(true);
         try {
             const { data: auctions, error } = await supabase
                 .from('auctions')
                 .select('*')
-                .eq('status', 'completed')
-                .or(`seller_id.eq.${currentUserId},winner_id.eq.${currentUserId}`);
+                .or(`seller_id.eq.${currentUserId},winner_id.eq.${currentUserId}`)
+                .or(`status.eq.completed,end_time.lte.${new Date().toISOString()}`);
 
             if (error) throw error;
             if (!auctions) {
@@ -146,7 +139,7 @@ export const ChatView: React.FC<{
                 .from('messages')
                 .select('*')
                 .eq('auction_id', auctionId)
-                .order('created_at', { ascending: true });
+                .order('created_at', { ascending: false });
 
             if (error) throw error;
             setMessages(data || []);
@@ -308,8 +301,7 @@ export const ChatView: React.FC<{
 
                             {/* Messages */}
                             <div 
-                                ref={scrollRef}
-                                className="flex-1 overflow-y-auto p-8 space-y-6 bg-slate-50/20"
+                                className="flex-1 overflow-y-auto p-8 flex flex-col gap-6 bg-slate-50/20"
                             >
                                 {messages.map((msg) => (
                                     <div 
