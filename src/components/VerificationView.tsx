@@ -144,7 +144,7 @@ export const VerificationView: React.FC<{ onBack: () => void; t: any; onVerify: 
                             <p className="text-slate-400 font-bold">Vaš profil je verificiran kot <span className="text-[#0A1128]">{type === 'individual' ? t('individual') : t('business')}</span>. Sprememba tipa računa po verifikaciji ni več mogoča.</p>
                         </div>
                         <div className="pt-8 border-t border-slate-100 grid grid-cols-2 gap-4">
-                            <div className="bg-slate-50 p-6 rounded-3xl text-left"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">{t('verificationDate')}</p><p className="font-bold">{new Date().toLocaleDateString(language === 'SLO' ? 'sl-SI' : language === 'EN' ? 'en-US' : 'de-DE')}</p></div>
+                            <div className="bg-slate-50 p-6 rounded-3xl text-left"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">{t('verificationDate')}</p><p className="font-bold">{new Date().toLocaleDateString(window.localStorage.getItem('language') === 'SLO' ? 'sl-SI' : window.localStorage.getItem('language') === 'EN' ? 'en-US' : 'de-DE')}</p></div>
                             <div className="bg-slate-50 p-6 rounded-3xl text-left"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">{t('statusText')}</p><p className="font-bold text-green-600">{t('statusActive')}</p></div>
                         </div>
                         <button onClick={onBack} className="w-full bg-[#0A1128] text-white py-6 rounded-[2rem] font-black uppercase tracking-widest hover:bg-[#FEBA4F] transition-all">{t('backToAuctions')}</button>
