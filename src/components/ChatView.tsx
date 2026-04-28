@@ -329,7 +329,7 @@ export const ChatView: React.FC<{
                                                 >
                                                     <div className="flex items-center gap-3">
                                                         {session.otherPartyPic ? (
-                                                            <img src={session.otherPartyPic} className="w-8 h-8 rounded-full border border-slate-200 object-cover" />
+                                                            <SignedImg src={session.otherPartyPic} alt="profile" className="w-8 h-8 rounded-full border border-slate-200 object-cover" />
                                                         ) : (
                                                             <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-500">
                                                                 <User size={14} />
@@ -344,14 +344,21 @@ export const ChatView: React.FC<{
                                                             </div>
                                                         </div>
                                                     </div>
-                                                    <div className="pl-11">
-                                                        <p className="font-bold text-xs text-slate-600 line-clamp-1">
-                                                            {session.auction.title[language] || session.auction.title['SLO']}
-                                                        </p>
-                                                        <p className="text-[10px] text-slate-400 font-bold mt-1">
-                                                            Zmagovalna ponudba: €{session.auction.currentBid}
-                                                        </p>
-                                                    </div>
+                                                    <div className="pl-11 flex items-center gap-3">
+    {session.auction.images?.[0] ? (
+        <SignedImg src={session.auction.images[0]} alt="Auction" className="w-10 h-10 rounded-xl object-cover shrink-0" />
+    ) : (
+        <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center shrink-0"><Gavel size={16} className="text-slate-300"/></div>
+    )}
+    <div className="min-w-0">
+        <p className="font-bold text-xs text-slate-600 line-clamp-1">
+            {session.auction.title?.[language] || session.auction.title?.['SLO'] || 'Zasebno sporočilo'}
+        </p>
+        <p className="text-[10px] text-slate-400 font-bold mt-1">
+            Zmagovalna ponudba: €{session.auction.currentBid}
+        </p>
+    </div>
+</div>
                                                 </button>
                                             </div>
                                         ))}
@@ -378,7 +385,7 @@ export const ChatView: React.FC<{
                                                 >
                                                     <div className="flex items-center gap-3">
                                                         {session.otherPartyPic ? (
-                                                            <img src={session.otherPartyPic} className="w-8 h-8 rounded-full border border-slate-200 object-cover" />
+                                                            <SignedImg src={session.otherPartyPic} alt="profile" className="w-8 h-8 rounded-full border border-slate-200 object-cover" />
                                                         ) : (
                                                             <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-500">
                                                                 <User size={14} />
@@ -393,14 +400,21 @@ export const ChatView: React.FC<{
                                                             </div>
                                                         </div>
                                                     </div>
-                                                    <div className="pl-11">
-                                                        <p className="font-bold text-xs text-slate-600 line-clamp-1">
-                                                            {session.auction.title[language] || session.auction.title['SLO']}
-                                                        </p>
-                                                        <p className="text-[10px] text-slate-400 font-bold mt-1">
-                                                            Zmagovalna ponudba: €{session.auction.currentBid}
-                                                        </p>
-                                                    </div>
+                                                    <div className="pl-11 flex items-center gap-3">
+    {session.auction.images?.[0] ? (
+        <SignedImg src={session.auction.images[0]} alt="Auction" className="w-10 h-10 rounded-xl object-cover shrink-0" />
+    ) : (
+        <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center shrink-0"><Gavel size={16} className="text-slate-300"/></div>
+    )}
+    <div className="min-w-0">
+        <p className="font-bold text-xs text-slate-600 line-clamp-1">
+            {session.auction.title?.[language] || session.auction.title?.['SLO'] || 'Zasebno sporočilo'}
+        </p>
+        <p className="text-[10px] text-slate-400 font-bold mt-1">
+            Zmagovalna ponudba: €{session.auction.currentBid}
+        </p>
+    </div>
+</div>
                                                 </button>
                                             </div>
                                         ))}
@@ -431,7 +445,7 @@ export const ChatView: React.FC<{
                                     <div>
                                         <p className="font-black text-sm text-[#0A1128] hover:text-[#FEBA4F] transition-colors">{selectedSession.otherPartyEmail}</p>
                                         <p className="text-[10px] font-bold text-slate-400 flex items-center gap-1">
-                                            <Gavel size={10} /> {selectedSession.auction.title[language] || selectedSession.auction.title['SLO']}
+                                            <Gavel size={10} /> {selectedSession.auction.title?.[language] || selectedSession.auction.title?.['SLO'] || 'Zasebno sporočilo'}
                                         </p>
                                     </div>
                                 </div>
@@ -460,7 +474,7 @@ export const ChatView: React.FC<{
                                     >
                                         <div className={`max-w-[70%] p-5 rounded-[1.5rem] shadow-sm ${msg.sender_id === currentUserId ? 'bg-[#0A1128] text-white rounded-tr-none' : 'bg-white border border-slate-100 text-[#0A1128] rounded-tl-none'}`}>
                                             <p className="text-sm font-bold leading-relaxed">{msg.content}</p>
-                                            <p className={`text-[10px] mt-2 font-black uppercase tracking-widest ${msg.sender_id === currentUserId ? 'text-white/60' : 'text-slate-500'}`}>
+                                            <p className={`text-[11px] mt-2 font-black uppercase tracking-widest ${msg.sender_id === currentUserId ? 'text-white/60' : 'text-slate-700'}`}>
                                                 {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                             </p>
                                         </div>

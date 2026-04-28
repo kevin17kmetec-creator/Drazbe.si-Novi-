@@ -171,7 +171,7 @@ const SellerView: React.FC<SellerViewProps> = ({
                   {/* Reuse the card style logic here or pass a simplified card component */}
                   <div className="bg-[#0A1128] rounded-[2.5rem] overflow-hidden shadow-2xl hover:-translate-y-2 transition-all duration-300 group flex flex-col h-full border border-white/5 relative">
                     <div className="relative h-64 overflow-hidden">
-                      <img src={item.images[0]} alt={item.title[language]} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 opacity-90 group-hover:opacity-100" />
+                      <img src={item.images?.[0] || ''} alt={item.title?.[language] || 'Slika'} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 opacity-90 group-hover:opacity-100" />
                       <div className="absolute top-4 left-4 bg-[#0A1128]/90 backdrop-blur-sm px-4 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest text-white shadow-lg flex items-center gap-1.5 border border-white/10">
                         <MapPin size={10} className="text-[#FEBA4F]" /> {item.location[language] || item.location['SLO']}
                       </div>
@@ -180,7 +180,7 @@ const SellerView: React.FC<SellerViewProps> = ({
                       </div>
                     </div>
                     <div className="p-8 flex flex-col flex-1">
-                      <h3 className="text-lg font-black leading-tight text-white hover:text-[#FEBA4F] transition-colors line-clamp-2 mb-4">{item.title[language] || item.title['SLO']}</h3>
+                      <h3 className="text-lg font-black leading-tight text-white hover:text-[#FEBA4F] transition-colors line-clamp-2 mb-4">{item.title?.[language] || item.title?.['SLO'] || 'Zasebno sporočilo'}</h3>
                       <div className="mt-auto pt-6 border-t border-white/10">
                         <div className="flex justify-between items-end">
                           <div>
@@ -215,7 +215,7 @@ const SellerView: React.FC<SellerViewProps> = ({
                 <div key={item.id} className="opacity-75 grayscale hover:grayscale-0 transition-all">
                    <div className="bg-white rounded-[2.5rem] overflow-hidden shadow-xl border border-slate-100 flex flex-col h-full relative">
                     <div className="relative h-64 overflow-hidden">
-                      <img src={item.images[0]} alt={item.title[language]} className="w-full h-full object-cover" />
+                      <img src={item.images?.[0] || ''} alt={item.title?.[language] || 'Slika'} className="w-full h-full object-cover" />
                       <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
                         <div className="bg-white text-[#0A1128] px-6 py-2 rounded-2xl font-black uppercase text-xs tracking-widest shadow-2xl">
                           {t('ended')}
@@ -223,7 +223,7 @@ const SellerView: React.FC<SellerViewProps> = ({
                       </div>
                     </div>
                     <div className="p-8 flex flex-col flex-1">
-                      <h3 className="text-lg font-black leading-tight text-[#0A1128] line-clamp-2 mb-4">{item.title[language] || item.title['SLO']}</h3>
+                      <h3 className="text-lg font-black leading-tight text-[#0A1128] line-clamp-2 mb-4">{item.title?.[language] || item.title?.['SLO'] || 'Zasebno sporočilo'}</h3>
                       <div className="mt-auto pt-6 border-t border-slate-100">
                         <div className="flex justify-between items-end">
                           <div>

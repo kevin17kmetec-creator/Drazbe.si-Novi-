@@ -166,24 +166,25 @@ const App: React.FC = () => {
   const [checkoutData, setCheckoutData] = useState<{ amount: number; title: string; onSuccess: () => void; metadata?: any } | null>(null);
   const [userData, setUserData] = useState({ id: '', firstName: '', lastName: '', email: '', profilePicture: '', is_verified: false });
   const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
-  
+
+  const fetchUnread = async () => {
+      if (!userData.id) return;
+      const { count, error } = await supabase
+          .from('messages')
+          .select('*', { count: 'exact', head: true })
+          .eq('receiver_id', userData.id)
+          .eq('is_read', false);
+      
+      if (!error && count !== null) {
+          setUnreadMessagesCount(count);
+      }
+  };
+
   useEffect(() => {
     if (!userData.id) {
         setUnreadMessagesCount(0);
         return;
     }
-
-    const fetchUnread = async () => {
-        const { count, error } = await supabase
-            .from('messages')
-            .select('*', { count: 'exact', head: true })
-            .eq('receiver_id', userData.id)
-            .eq('is_read', false);
-        
-        if (!error && count !== null) {
-            setUnreadMessagesCount(count);
-        }
-    };
 
     fetchUnread();
 

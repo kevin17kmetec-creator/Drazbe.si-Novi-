@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { 
   Clock, Lock, CheckCircle2, AlertCircle, Image as ImageIcon,
   ChevronLeft, ChevronRight, Eye, MapPin, Info, Gavel, Truck, Trophy,
-  CreditCard, Landmark, Plus, Minus, X, Calendar as CalendarIcon, Phone, Mail, User
+  CreditCard, Landmark, Plus, Minus, X, Calendar as CalendarIcon, Phone, Mail, User,
+  MessageSquare
 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import { getIncrement } from '../lib/utils';
@@ -14,7 +15,7 @@ const TimeBox = ({ value, label }: { value: number, label: string }) => (
   </div>
 );
 
-export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onSellerClick, t, language, isVerified, currentPlan, isWatched, onWatchToggle, currentUserId }: { 
+export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onSellerClick, t, language, isVerified, currentPlan, isWatched, onWatchToggle, currentUserId, onChatStart }: { 
   item: any, 
   onBack: () => void, 
   onBidSubmit: (item: any, amount: number) => Promise<"error" | "success" | "outbid" | "login_required" | "cancelled">,
