@@ -94,8 +94,11 @@ export const ChatView: React.FC<{
                             .from('messages')
                             .update({ is_read: true })
                             .eq('id', msg.id);
-                        if (!updateError) {
+                        if (updateError) {
+                            console.error("Failed to mark realtime message as read:", updateError);
+                        } else {
                             onMessagesRead?.();
+                            setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, is_read: true } : m));
                         }
                     }
                 })
@@ -208,8 +211,12 @@ export const ChatView: React.FC<{
                     .from('messages')
                     .update({ is_read: true })
                     .in('id', unreadIds);
-                if (!updateError) {
+                if (updateError) {
+                    console.error("Failed to mark messages as read:", updateError);
+                } else {
                     onMessagesRead?.();
+                    // Local state update just in case
+                    setMessages(prev => prev.map(m => unreadIds.includes(m.id) ? { ...m, is_read: true } : m));
                 }
             }
         } catch (err) {

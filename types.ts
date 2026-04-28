@@ -78,6 +78,8 @@ export interface AuctionItem {
   paid_at?: string;
   winnerId?: string;
   hiddenMaxBid?: number; // For proxy bidding logic
+  delivery_method?: 'pickup' | 'post';
+  buyer_received?: boolean;
 }
 
 export interface BidHistory {
