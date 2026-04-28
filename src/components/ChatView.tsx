@@ -436,7 +436,7 @@ export const ChatView: React.FC<{
                                     onClick={() => handleProfileClick(selectedSession)}
                                 >
                                     {selectedSession.otherPartyPic ? (
-                                        <img src={selectedSession.otherPartyPic} alt={selectedSession.otherPartyEmail} className="w-12 h-12 rounded-2xl object-cover border border-slate-200" />
+                                        <SignedImg src={selectedSession.otherPartyPic} alt={selectedSession.otherPartyEmail} className="w-12 h-12 rounded-2xl object-cover border border-slate-200" />
                                     ) : (
                                         <div className="w-12 h-12 bg-[#0A1128] rounded-2xl flex items-center justify-center text-[#FEBA4F]">
                                             <User size={24} />
@@ -457,8 +457,12 @@ export const ChatView: React.FC<{
                                         <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 group-hover:text-[#FEBA4F] transition-colors">{t('amount')}</p>
                                         <p className="text-lg font-black text-[#0A1128] group-hover:text-[#FEBA4F] transition-colors">€{selectedSession.auction.currentBid}</p>
                                     </div>
-                                    {selectedSession.auction.images && selectedSession.auction.images[0] && (
+                                    {selectedSession.auction.images && selectedSession.auction.images[0] ? (
                                         <SignedImg src={selectedSession.auction.images[0]} alt="Auction" className="w-12 h-12 rounded-xl object-cover border border-slate-200" />
+                                    ) : (
+                                        <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center text-slate-300">
+                                            <Gavel size={24} />
+                                        </div>
                                     )}
                                 </div>
                             </div>
@@ -474,7 +478,7 @@ export const ChatView: React.FC<{
                                     >
                                         <div className={`max-w-[70%] p-5 rounded-[1.5rem] shadow-sm ${msg.sender_id === currentUserId ? 'bg-[#0A1128] text-white rounded-tr-none' : 'bg-white border border-slate-100 text-[#0A1128] rounded-tl-none'}`}>
                                             <p className="text-sm font-bold leading-relaxed">{msg.content}</p>
-                                            <p className={`text-[11px] mt-2 font-black uppercase tracking-widest ${msg.sender_id === currentUserId ? 'text-white/60' : 'text-slate-700'}`}>
+                                            <p className={`text-[11px] mt-2 font-black uppercase tracking-widest ${msg.sender_id === currentUserId ? 'text-white' : 'text-[#0A1128]/70'}`}>
                                                 {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                             </p>
                                         </div>

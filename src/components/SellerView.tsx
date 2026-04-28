@@ -90,7 +90,7 @@ const SellerView: React.FC<SellerViewProps> = ({
           <div className="flex-1">
             <div className="flex flex-wrap items-center gap-4 mb-4">
               <h1 className="text-4xl lg:text-5xl font-black uppercase tracking-tighter text-[#0A1128] italic">
-                {seller.name[language] || seller.name['SLO']}
+                {seller?.name?.[language] || seller?.name?.['SLO'] || 'Neznan prodajalec'}
               </h1>
               <div className="bg-[#FEBA4F]/10 text-[#FEBA4F] px-4 py-1.5 rounded-xl font-black uppercase text-[10px] tracking-widest border border-[#FEBA4F]/20">
                 {seller.type === 'business' ? t('businessSeller') : t('individualSeller')}
@@ -98,7 +98,7 @@ const SellerView: React.FC<SellerViewProps> = ({
             </div>
 
             <div className="flex flex-wrap items-center gap-6 text-slate-400 font-bold mb-8">
-              <span className="flex items-center gap-2"><MapPin size={18} className="text-[#FEBA4F]" /> {seller.location[language] || seller.location['SLO']}</span>
+              <span className="flex items-center gap-2"><MapPin size={18} className="text-[#FEBA4F]" /> {seller?.location?.[language] || seller?.location?.['SLO'] || 'Neznano'}</span>
               <span className="flex items-center gap-2"><Calendar size={18} className="text-[#FEBA4F]" /> {t('memberSince')} {seller.memberSince}</span>
               <div className="flex items-center gap-1.5 bg-slate-50 px-3 py-1 rounded-lg">
                 <Star size={16} className="text-[#FEBA4F] fill-[#FEBA4F]" />
@@ -108,7 +108,7 @@ const SellerView: React.FC<SellerViewProps> = ({
             </div>
 
             <p className="text-slate-600 font-bold leading-relaxed text-lg max-w-3xl mb-10">
-              {seller.description[language] || seller.description['SLO']}
+              {seller?.description?.[language] || seller?.description?.['SLO'] || ''}
             </p>
 
             {/* Stats Grid */}
@@ -173,7 +173,7 @@ const SellerView: React.FC<SellerViewProps> = ({
                     <div className="relative h-64 overflow-hidden">
                       <img src={item.images?.[0] || ''} alt={item.title?.[language] || 'Slika'} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 opacity-90 group-hover:opacity-100" />
                       <div className="absolute top-4 left-4 bg-[#0A1128]/90 backdrop-blur-sm px-4 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest text-white shadow-lg flex items-center gap-1.5 border border-white/10">
-                        <MapPin size={10} className="text-[#FEBA4F]" /> {item.location[language] || item.location['SLO']}
+                        <MapPin size={10} className="text-[#FEBA4F]" /> {item?.location?.[language] || item?.location?.['SLO'] || (typeof item?.location === 'string' ? item.location : 'Neznano')}
                       </div>
                       <div className="absolute top-4 right-4 bg-[#FEBA4F] text-[#0A1128] backdrop-blur-sm px-4 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg">
                         {item.region}
