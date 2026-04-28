@@ -1125,6 +1125,7 @@ const App: React.FC = () => {
           onBack={() => setActiveView('grid')} 
           onViewProfile={(seller) => { setSelectedSeller(seller); setActiveView('sellerProfile'); }}
           onViewAuction={(item) => { setSelectedItem(item); setActiveView('detail'); }}
+          onMessagesRead={fetchUnread}
           t={t} 
           currentUserId={userData.id} 
           language={language} 
@@ -1339,6 +1340,7 @@ const App: React.FC = () => {
                     language={language}
                     isLoggedIn={isLoggedIn}
                     currentUserWinnings={currentUserWinnings}
+                    auctions={auctions}
                 />
             );
         } else {

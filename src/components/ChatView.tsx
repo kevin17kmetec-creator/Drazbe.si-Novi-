@@ -22,6 +22,18 @@ interface ChatSession {
     lastMessage?: string;
 }
 
+const SignedImg = ({ src, alt, className, onClick }: { src: string, alt: string, className?: string, onClick?: () => void }) => {
+    const [signedUrl, setSignedUrl] = useState<string>('');
+    useEffect(() => {
+        if (!src) return;
+        if (src.startsWith('http')) { setSignedUrl(src); return; }
+        supabase.storage.from('auction-images').createSignedUrl(src, 3600).then(({data}) => {
+            if (data?.signedUrl) setSignedUrl(data.signedUrl);
+        });
+    }, [src]);
+    return <img src={signedUrl || src} alt={alt} loading="lazy" className={className} onClick={onClick} referrerPolicy="no-referrer" />;
+};
+
 export const ChatView: React.FC<{ 
     onBack: () => void; 
     t: any; 
@@ -29,7 +41,8 @@ export const ChatView: React.FC<{
     language: string;
     onViewProfile?: (seller: Seller) => void;
     onViewAuction?: (item: AuctionItem) => void;
-}> = ({ onBack, t, currentUserId, language, onViewProfile, onViewAuction }) => {
+    onMessagesRead?: () => void;
+}> = ({ onBack, t, currentUserId, language, onViewProfile, onViewAuction, onMessagesRead }) => {
     const [buyingSessions, setBuyingSessions] = useState<ChatSession[]>([]);
     const [sellingSessions, setSellingSessions] = useState<ChatSession[]>([]);
     const [selectedSession, setSelectedSession] = useState<ChatSession | null>(null);
@@ -77,10 +90,13 @@ export const ChatView: React.FC<{
 
                     // If we are the receiver, mark it as read immediately
                     if (msg.receiver_id === currentUserId && !msg.is_read) {
-                        await supabase
+                        const { error: updateError } = await supabase
                             .from('messages')
                             .update({ is_read: true })
                             .eq('id', msg.id);
+                        if (!updateError) {
+                            onMessagesRead?.();
+                        }
                     }
                 })
                 .subscribe();
@@ -113,14 +129,16 @@ export const ChatView: React.FC<{
                 if (a.winner_id) userIds.add(a.winner_id);
             });
 
-            const { data: users, error: usersError } = await supabase
-                .from('users')
-                .select('id, email, first_name, last_name, profile_picture_url')
-                .in('id', Array.from(userIds));
-
             const userMap = new Map<string, any>();
-            if (!usersError && users) {
-                users.forEach((u: any) => userMap.set(u.id, u));
+            if (userIds.size > 0) {
+                const { data: users, error: usersError } = await supabase
+                    .from('users')
+                    .select('id, email, first_name, last_name, profile_picture_url')
+                    .in('id', Array.from(userIds));
+
+                if (!usersError && users) {
+                    users.forEach((u: any) => userMap.set(u.id, u));
+                }
             }
 
             const buying: ChatSession[] = [];
@@ -186,10 +204,13 @@ export const ChatView: React.FC<{
                 .map((m: any) => m.id);
 
             if (unreadIds.length > 0) {
-                await supabase
+                const { error: updateError } = await supabase
                     .from('messages')
                     .update({ is_read: true })
                     .in('id', unreadIds);
+                if (!updateError) {
+                    onMessagesRead?.();
+                }
             }
         } catch (err) {
             console.error("Error fetching messages:", err);
@@ -423,7 +444,7 @@ export const ChatView: React.FC<{
                                         <p className="text-lg font-black text-[#0A1128] group-hover:text-[#FEBA4F] transition-colors">€{selectedSession.auction.currentBid}</p>
                                     </div>
                                     {selectedSession.auction.images && selectedSession.auction.images[0] && (
-                                        <img src={selectedSession.auction.images[0]} alt="Auction" className="w-12 h-12 rounded-xl object-cover border border-slate-200" />
+                                        <SignedImg src={selectedSession.auction.images[0]} alt="Auction" className="w-12 h-12 rounded-xl object-cover border border-slate-200" />
                                     )}
                                 </div>
                             </div>
@@ -439,7 +460,7 @@ export const ChatView: React.FC<{
                                     >
                                         <div className={`max-w-[70%] p-5 rounded-[1.5rem] shadow-sm ${msg.sender_id === currentUserId ? 'bg-[#0A1128] text-white rounded-tr-none' : 'bg-white border border-slate-100 text-[#0A1128] rounded-tl-none'}`}>
                                             <p className="text-sm font-bold leading-relaxed">{msg.content}</p>
-                                            <p className={`text-[9px] mt-2 font-black uppercase tracking-widest opacity-40 ${msg.sender_id === currentUserId ? 'text-white' : 'text-slate-400'}`}>
+                                            <p className={`text-[10px] mt-2 font-black uppercase tracking-widest ${msg.sender_id === currentUserId ? 'text-white/60' : 'text-slate-500'}`}>
                                                 {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                             </p>
                                         </div>
