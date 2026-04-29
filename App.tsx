@@ -192,30 +192,6 @@ const App: React.FC = () => {
 
     fetchUnread();
 
-    const handleVisibilityChange = async () => {
-        if (document.visibilityState === 'visible') {
-            fetchUnread();
-            fetchAuctions(); // Refresh auctions list too
-            // Refresh session to ensure we don't have a stale token after being backgrounded
-            try {
-                const { data: { session }, error } = await supabase.auth.getSession();
-                if (error) throw error;
-                if (session) {
-                    setIsLoggedIn(true);
-                    const newId = session.user.id;
-                    const newEmail = session.user.email || '';
-                    setUserData(prev => {
-                        if (prev.id === newId && prev.email === newEmail) return prev;
-                        return { ...prev, id: newId, email: newEmail };
-                    });
-                }
-            } catch (err) {
-                console.warn("Visibility change auth refresh failed:", err);
-            }
-        }
-    };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
     const channel = supabase.channel('unread-messages')
         .on('postgres_changes', {
             event: '*',
@@ -228,7 +204,6 @@ const App: React.FC = () => {
         .subscribe();
 
     return () => {
-        document.removeEventListener('visibilitychange', handleVisibilityChange);
         supabase.removeChannel(channel);
     };
   }, [userData.id]);
@@ -491,7 +466,11 @@ const App: React.FC = () => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (session?.user) {
         setIsLoggedIn(true);
-        setUserData(prev => ({ ...prev, email: session.user.email || '' }));
+        setUserData(prev => {
+            const newEmail = session.user.email || '';
+            if (prev.email === newEmail && prev.id === session.user.id) return prev;
+            return { ...prev, id: session.user.id, email: newEmail };
+        });
         
         // Only fetch user data from DB on initial load or sign in to prevent infinite loops
         // if a DB query triggers a token refresh which triggers another DB query.

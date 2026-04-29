@@ -50,8 +50,21 @@ export const ChatView: React.FC<{
     const [messages, setMessages] = useState<Message[]>([]);
     const [newMessage, setNewMessage] = useState('');
     const [loading, setLoading] = useState(false);
+    const [showFailsafe, setShowFailsafe] = useState(false);
     const [sending, setSending] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        let timeout: any;
+        if (loading) {
+            timeout = setTimeout(() => {
+                setShowFailsafe(true);
+            }, 5000);
+        } else {
+            setShowFailsafe(false);
+        }
+        return () => clearTimeout(timeout);
+    }, [loading]);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -115,22 +128,9 @@ export const ChatView: React.FC<{
                 .subscribe();
         };
 
-        const handleVisibilityChange = async () => {
-            if (document.visibilityState === 'visible') {
-                const { data: { session } } = await supabase.auth.getSession();
-                if (session) {
-                    setupRealtime();
-                    fetchSessions(false);
-                }
-            }
-        };
-
         setupRealtime();
 
-        document.addEventListener('visibilitychange', handleVisibilityChange);
-
         return () => {
-            document.removeEventListener('visibilitychange', handleVisibilityChange);
             if (channel) {
                 supabase.removeChannel(channel);
             }
@@ -138,11 +138,14 @@ export const ChatView: React.FC<{
     }, [selectedSession?.auction.id, currentUserId]);
 
     const fetchSessions = useCallback(async (isInitial = false, retryCount = 0) => {
-        // Only show spinner if we really have nothing to show to avoid flicker/stuck states
-        if (isInitial && buyingSessions.length === 0 && sellingSessions.length === 0 && retryCount === 0) {
-            setLoading(true);
-        }
-        
+        setLoading(prev => {
+            // Only show spinner if we really have nothing to show to avoid flicker/stuck states
+            if (isInitial && prev === false && retryCount === 0) {
+                return true; 
+            }
+            return prev;
+        });
+
         try {
             const now = new Date().toISOString();
             
@@ -156,6 +159,7 @@ export const ChatView: React.FC<{
             if (!auctions) {
                 setBuyingSessions([]);
                 setSellingSessions([]);
+                setLoading(false);
                 return;
             }
 
@@ -215,30 +219,36 @@ export const ChatView: React.FC<{
             setBuyingSessions(buying);
             setSellingSessions(selling);
 
-            if (initialAuctionId && !selectedSession) {
-                const target = [...buying, ...selling].find(s => s.auction.id === initialAuctionId);
-                if (target) setSelectedSession(target);
+            if (initialAuctionId) {
+                setSelectedSession(prevSelected => {
+                    if (!prevSelected) {
+                        const target = [...buying, ...selling].find(s => s.auction.id === initialAuctionId);
+                        return target || null;
+                    }
+                    return prevSelected;
+                });
             }
 
         } catch (err: any) {
             console.error("Error fetching chat sessions:", err);
             
-            // Retry logic for network drops when waking up from background tabs
             if (retryCount < 3 && (err.message?.includes('fetch') || err.message?.includes('Network') || err.message?.includes('timeout') || !navigator.onLine)) {
                 setTimeout(() => {
                     fetchSessions(isInitial, retryCount + 1);
                 }, 1500);
-                return; // Do not set loading to false yet
+                return; 
             }
 
-            // Don't toast on background silent refresh to avoid annoying the user
-            if (isInitial || (buyingSessions.length === 0 && sellingSessions.length === 0)) {
+            // Fallback for silent failure
+            setLoading(false);
+            
+            if (isInitial) {
                 toast.error(t('chatLoadError'));
             }
         } finally {
             setLoading(false);
         }
-    }, [currentUserId, buyingSessions.length, sellingSessions.length, initialAuctionId, selectedSession, t]);
+    }, [currentUserId, initialAuctionId, t]);
 
     const fetchMessages = useCallback(async (auctionId: string, retryCount = 0) => {
         try {
@@ -343,6 +353,17 @@ export const ChatView: React.FC<{
                 <div className="flex flex-col items-center gap-4">
                     <div className="w-12 h-12 border-4 border-[#FEBA4F] border-t-transparent rounded-full animate-spin"></div>
                     <p className="text-slate-400 font-bold animate-pulse uppercase tracking-widest text-[10px]">Nalaganje vaših sporočil...</p>
+                    {showFailsafe && (
+                        <button 
+                            onClick={() => {
+                                setLoading(false);
+                                fetchSessions(true);
+                            }}
+                            className="mt-4 px-6 py-2 bg-slate-100 border border-slate-200 rounded-xl text-slate-500 font-bold text-sm tracking-wide lowercase hover:bg-slate-200 transition-colors"
+                        >
+                            Osveži sporočila
+                        </button>
+                    )}
                 </div>
             </div>
         );
