@@ -352,7 +352,7 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
               </div>
             </div>
 
-            {!(isEnded && isWinner) && (
+            {!isEnded && (
             <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
               <div className="p-4 border-b border-slate-100 bg-slate-50">
                 <h3 className="text-[#0A1128] font-black uppercase tracking-widest text-xs">{t('biddingHistory')}</h3>
