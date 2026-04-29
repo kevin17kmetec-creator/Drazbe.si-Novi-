@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Send, User, ArrowLeft, MessageSquare, Clock, Gavel, CheckCircle2, Star } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import { AuctionItem, Seller, SellerType, SubscriptionTier } from '../../types.ts';
@@ -74,11 +74,19 @@ export const ChatView: React.FC<{
     // ... useEffects for messages
 
     useEffect(() => {
-        if (selectedSession) {
-            fetchMessages(selectedSession.auction.id);
+        let channel: any = null;
+
+        const setupRealtime = async () => {
+            if (!selectedSession) return;
             
-            // Channel for marking new incoming messages as read instantly if drawer is open
-            const channel = supabase
+            await fetchMessages(selectedSession.auction.id);
+            
+            // Cleanup existing channel just to be safe
+            if (channel) {
+                await supabase.removeChannel(channel);
+            }
+
+            channel = supabase
                 .channel(`messages:${selectedSession.auction.id}`)
                 .on('postgres_changes', { 
                     event: 'INSERT', 
@@ -88,13 +96,11 @@ export const ChatView: React.FC<{
                 }, async (payload) => {
                     const msg = payload.new as Message;
                     
-                    // Add message to state
                     setMessages(prev => {
                         if (prev.find(m => m.id === msg.id)) return prev;
                         return [...prev, msg];
                     });
 
-                    // If we are the receiver, mark it as read immediately
                     if (msg.receiver_id === currentUserId && !msg.is_read) {
                         const { error: updateError } = await supabase
                             .from('messages')
@@ -107,14 +113,31 @@ export const ChatView: React.FC<{
                     }
                 })
                 .subscribe();
+        };
 
-            return () => {
+        const handleVisibilityChange = async () => {
+            if (document.visibilityState === 'visible') {
+                const { data: { session } } = await supabase.auth.getSession();
+                if (session) {
+                    setupRealtime();
+                    fetchSessions(false);
+                }
+            }
+        };
+
+        setupRealtime();
+
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        return () => {
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+            if (channel) {
                 supabase.removeChannel(channel);
-            };
-        }
+            }
+        };
     }, [selectedSession?.auction.id, currentUserId]);
 
-    const fetchSessions = async (isInitial = false, retryCount = 0) => {
+    const fetchSessions = useCallback(async (isInitial = false, retryCount = 0) => {
         // Only show spinner if we really have nothing to show to avoid flicker/stuck states
         if (isInitial && buyingSessions.length === 0 && sellingSessions.length === 0 && retryCount === 0) {
             setLoading(true);
@@ -215,9 +238,9 @@ export const ChatView: React.FC<{
         } finally {
             setLoading(false);
         }
-    };
+    }, [currentUserId, buyingSessions.length, sellingSessions.length, initialAuctionId, selectedSession, t]);
 
-    const fetchMessages = async (auctionId: string, retryCount = 0) => {
+    const fetchMessages = useCallback(async (auctionId: string, retryCount = 0) => {
         try {
             const { data, error } = await supabase
                 .from('messages')
@@ -242,7 +265,7 @@ export const ChatView: React.FC<{
                     console.error("Failed to mark messages as read:", updateError);
                 } else {
                     onMessagesRead?.();
-                    // Local state update just in case
+                    // Local state update just in case using functional set state
                     setMessages(prev => prev.map(m => unreadIds.includes(m.id) ? { ...m, is_read: true } : m));
                 }
             }
@@ -252,9 +275,12 @@ export const ChatView: React.FC<{
                 setTimeout(() => {
                     fetchMessages(auctionId, retryCount + 1);
                 }, 1500);
+                return; // Wait for retry to finish
             }
+        } finally {
+            setLoading(false);
         }
-    };
+    }, [currentUserId, onMessagesRead]);
 
     const sendMessage = async (e: React.FormEvent) => {
         e.preventDefault();

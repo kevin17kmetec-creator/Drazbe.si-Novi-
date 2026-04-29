@@ -307,7 +307,7 @@ const App: React.FC = () => {
     meta.setAttribute('content', metaDesc);
   }, [activeView, selectedItem, selectedSeller, language]);
 
-  const fetchAuctions = async () => {
+  const fetchAuctions = useCallback(async () => {
     try {
       const { data, error } = await supabase.from('auctions').select('*');
       if (error) {
@@ -348,24 +348,30 @@ const App: React.FC = () => {
           };
       });
 
-      if (IS_LIVE) {
-          setAuctions(supabaseData);
-      } else {
-          const merged = [...EXTENDED_MOCK_AUCTIONS];
-          supabaseData.forEach(fd => {
-              const idx = merged.findIndex(m => m.id === fd.id);
-              if (idx > -1) merged[idx] = fd;
-              else merged.unshift(fd);
-          });
-          setAuctions(merged);
-      }
+      setAuctions(prev => {
+          const newData = IS_LIVE ? supabaseData : (() => {
+              const merged = [...EXTENDED_MOCK_AUCTIONS];
+              supabaseData.forEach(fd => {
+                  const idx = merged.findIndex(m => m.id === fd.id);
+                  if (idx > -1) merged[idx] = fd;
+                  else merged.unshift(fd);
+              });
+              return merged;
+          })();
+
+          if (prev.length === newData.length && prev.every((p, i) => p.id === newData[i].id && p.status === newData[i].status && p.currentBid === newData[i].currentBid && p.bidCount === newData[i].bidCount && p.payment_status === newData[i].payment_status)) {
+              return prev;
+          }
+          return newData;
+      });
+
     } catch (err) {
       console.error("Supabase connection error:", err);
       if (!IS_LIVE) {
-        setAuctions([...EXTENDED_MOCK_AUCTIONS]);
+        setAuctions(prev => prev.length === EXTENDED_MOCK_AUCTIONS.length ? prev : [...EXTENDED_MOCK_AUCTIONS]);
       }
     }
-  };
+  }, []);
 
   // Effect to reset page and scroll to top on ANY view/category change
   useEffect(() => {
