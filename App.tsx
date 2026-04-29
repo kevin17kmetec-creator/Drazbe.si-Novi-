@@ -202,7 +202,12 @@ const App: React.FC = () => {
                 if (error) throw error;
                 if (session) {
                     setIsLoggedIn(true);
-                    setUserData(prev => ({ ...prev, id: session.user.id, email: session.user.email || '' }));
+                    const newId = session.user.id;
+                    const newEmail = session.user.email || '';
+                    setUserData(prev => {
+                        if (prev.id === newId && prev.email === newEmail) return prev;
+                        return { ...prev, id: newId, email: newEmail };
+                    });
                 }
             } catch (err) {
                 console.warn("Visibility change auth refresh failed:", err);

@@ -238,6 +238,10 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                 <div className="absolute inset-0 bg-[#0A1128]/90 backdrop-blur-sm z-10 flex flex-col items-center justify-center p-8 text-center">
                   <CheckCircle2 size={48} className="text-green-500 mb-4" />
                   <h3 className="text-2xl font-black uppercase tracking-tighter text-white mb-2">{t('auctionEnded')}</h3>
+                  <div className="bg-white/10 rounded-2xl px-6 py-4 mb-6 border border-white/10">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Končna cena</p>
+                    <p className="text-3xl font-black text-[#FEBA4F]">€ {item.currentBid?.toLocaleString('sl-SI') || 0}</p>
+                  </div>
                   
                   {isWinner ? (
                     <>

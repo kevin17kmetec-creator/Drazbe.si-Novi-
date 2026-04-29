@@ -51,6 +51,7 @@ export const ChatView: React.FC<{
     const [newMessage, setNewMessage] = useState('');
     const [loading, setLoading] = useState(false);
     const [sending, setSending] = useState(false);
+    const abortControllerRef = useRef<AbortController | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     const scrollToBottom = () => {
@@ -62,17 +63,30 @@ export const ChatView: React.FC<{
             setLoading(false);
             return;
         }
+
+        // Initialize abort controller
+        abortControllerRef.current = new AbortController();
+        
         fetchSessions(true);
 
-        const handleVisibilityChange = () => {
+        const handleVisibilityFocus = () => {
             if (document.visibilityState === 'visible') {
-                // Refresh sessions silently in background
                 fetchSessions(false);
+                if (selectedSession) {
+                    fetchMessages(selectedSession.auction.id);
+                }
             }
         };
-        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        document.addEventListener('visibilitychange', handleVisibilityFocus);
+        window.addEventListener('focus', handleVisibilityFocus);
+        
         return () => {
-            document.removeEventListener('visibilitychange', handleVisibilityChange);
+            document.removeEventListener('visibilitychange', handleVisibilityFocus);
+            window.removeEventListener('focus', handleVisibilityFocus);
+            if (abortControllerRef.current) {
+                abortControllerRef.current.abort();
+            }
         };
     }, [currentUserId]); 
 
@@ -117,34 +131,35 @@ export const ChatView: React.FC<{
                 })
                 .subscribe();
 
-            // Also reload messages on visibility change if a session is selected
-            const handleVis = () => {
-                if (document.visibilityState === 'visible' && selectedSession) {
-                    fetchMessages(selectedSession.auction.id);
-                }
-            };
-            document.addEventListener('visibilitychange', handleVis);
-
             return () => {
                 supabase.removeChannel(channel);
-                document.removeEventListener('visibilitychange', handleVis);
             };
         }
     }, [selectedSession?.auction.id, currentUserId]);
 
     const fetchSessions = async (isInitial = false) => {
-        // Only show spinner on first load OR if we really have nothing to show
+        // Only show spinner if we really have nothing to show to avoid flicker/stuck states
         if (isInitial && buyingSessions.length === 0 && sellingSessions.length === 0) {
             setLoading(true);
         }
         
         try {
             const now = new Date().toISOString();
-            const { data: auctions, error } = await supabase
+            
+            // Add a timeout fallback for the fetch
+            const fetchPromise = supabase
                 .from('auctions')
                 .select('*')
                 .or(`seller_id.eq.${currentUserId},winner_id.eq.${currentUserId}`)
-                .or(`status.eq.completed,status.eq.cancelled,end_time.lte.${now}`);
+                .or(`status.eq.completed,status.eq.cancelled,end_time.lte.${now}`)
+                .abortSignal(abortControllerRef.current?.signal || (new AbortController()).signal);
+
+            const { data: auctions, error } = await Promise.race([
+                fetchPromise,
+                new Promise<{data: any, error: any}>((_, reject) => 
+                    setTimeout(() => reject(new Error('Fetch timeout')), 10000)
+                )
+            ]) as any;
 
             if (error) throw error;
             if (!auctions) {
@@ -227,11 +242,19 @@ export const ChatView: React.FC<{
 
     const fetchMessages = async (auctionId: string) => {
         try {
-            const { data, error } = await supabase
+            const fetchPromise = supabase
                 .from('messages')
                 .select('*')
                 .eq('auction_id', auctionId)
-                .order('created_at', { ascending: true }); // Starejša zgoraj, novejša spodaj
+                .order('created_at', { ascending: true })
+                .abortSignal(abortControllerRef.current?.signal || (new AbortController()).signal);
+
+            const { data, error } = await Promise.race([
+                fetchPromise,
+                new Promise<{data: any, error: any}>((_, reject) => 
+                    setTimeout(() => reject(new Error('Messages fetch timeout')), 10000)
+                )
+            ]) as any;
 
             if (error) throw error;
             setMessages(data || []);
@@ -314,10 +337,13 @@ export const ChatView: React.FC<{
         }
     };
 
-    if (loading) {
+    if (loading && buyingSessions.length === 0 && sellingSessions.length === 0) {
         return (
-            <div className="flex items-center justify-center h-[600px]">
-                <div className="w-12 h-12 border-4 border-[#FEBA4F] border-t-transparent rounded-full animate-spin"></div>
+            <div className="max-w-6xl mx-auto px-6 py-10 h-[calc(100vh-120px)] flex items-center justify-center">
+                <div className="flex flex-col items-center gap-4">
+                    <div className="w-12 h-12 border-4 border-[#FEBA4F] border-t-transparent rounded-full animate-spin"></div>
+                    <p className="text-slate-400 font-bold animate-pulse uppercase tracking-widest text-[10px]">Nalaganje vaših sporočil...</p>
+                </div>
             </div>
         );
     }
