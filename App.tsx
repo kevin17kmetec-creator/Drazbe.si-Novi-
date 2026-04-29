@@ -195,6 +195,7 @@ const App: React.FC = () => {
     const handleVisibilityChange = async () => {
         if (document.visibilityState === 'visible') {
             fetchUnread();
+            fetchAuctions(); // Refresh auctions list too
             // Refresh session to ensure we don't have a stale token after being backgrounded
             try {
                 const { data: { session }, error } = await supabase.auth.getSession();

@@ -49,7 +49,7 @@ export const ChatView: React.FC<{
     const [selectedSession, setSelectedSession] = useState<ChatSession | null>(null);
     const [messages, setMessages] = useState<Message[]>([]);
     const [newMessage, setNewMessage] = useState('');
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(false);
     const [sending, setSending] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -58,11 +58,15 @@ export const ChatView: React.FC<{
     };
 
     useEffect(() => {
-        if (!currentUserId) return;
+        if (!currentUserId) {
+            setLoading(false);
+            return;
+        }
         fetchSessions(true);
 
         const handleVisibilityChange = () => {
             if (document.visibilityState === 'visible') {
+                // Refresh sessions silently in background
                 fetchSessions(false);
             }
         };
@@ -83,7 +87,7 @@ export const ChatView: React.FC<{
             fetchMessages(selectedSession.auction.id);
             
             // Channel for marking new incoming messages as read instantly if drawer is open
-            const subscription = supabase
+            const channel = supabase
                 .channel(`messages:${selectedSession.auction.id}`)
                 .on('postgres_changes', { 
                     event: 'INSERT', 
@@ -105,9 +109,7 @@ export const ChatView: React.FC<{
                             .from('messages')
                             .update({ is_read: true })
                             .eq('id', msg.id);
-                        if (updateError) {
-                            console.error("Failed to mark realtime message as read:", updateError);
-                        } else {
+                        if (!updateError) {
                             onMessagesRead?.();
                             setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, is_read: true } : m));
                         }
@@ -124,22 +126,25 @@ export const ChatView: React.FC<{
             document.addEventListener('visibilitychange', handleVis);
 
             return () => {
-                supabase.removeChannel(subscription);
+                supabase.removeChannel(channel);
                 document.removeEventListener('visibilitychange', handleVis);
             };
         }
-    }, [selectedSession, currentUserId]);
+    }, [selectedSession?.auction.id, currentUserId]);
 
     const fetchSessions = async (isInitial = false) => {
-        if (isInitial || (buyingSessions.length === 0 && sellingSessions.length === 0)) {
+        // Only show spinner on first load OR if we really have nothing to show
+        if (isInitial && buyingSessions.length === 0 && sellingSessions.length === 0) {
             setLoading(true);
         }
+        
         try {
+            const now = new Date().toISOString();
             const { data: auctions, error } = await supabase
                 .from('auctions')
                 .select('*')
                 .or(`seller_id.eq.${currentUserId},winner_id.eq.${currentUserId}`)
-                .filter('status', 'in', '("completed", "cancelled")'); // Simplified filter
+                .or(`status.eq.completed,status.eq.cancelled,end_time.lte.${now}`);
 
             if (error) throw error;
             if (!auctions) {
