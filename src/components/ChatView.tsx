@@ -51,7 +51,6 @@ export const ChatView: React.FC<{
     const [newMessage, setNewMessage] = useState('');
     const [loading, setLoading] = useState(false);
     const [sending, setSending] = useState(false);
-    const abortControllerRef = useRef<AbortController | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     const scrollToBottom = () => {
@@ -64,30 +63,8 @@ export const ChatView: React.FC<{
             return;
         }
 
-        // Initialize abort controller
-        abortControllerRef.current = new AbortController();
-        
         fetchSessions(true);
 
-        const handleVisibilityFocus = () => {
-            if (document.visibilityState === 'visible') {
-                fetchSessions(false);
-                if (selectedSession) {
-                    fetchMessages(selectedSession.auction.id);
-                }
-            }
-        };
-
-        document.addEventListener('visibilitychange', handleVisibilityFocus);
-        window.addEventListener('focus', handleVisibilityFocus);
-        
-        return () => {
-            document.removeEventListener('visibilitychange', handleVisibilityFocus);
-            window.removeEventListener('focus', handleVisibilityFocus);
-            if (abortControllerRef.current) {
-                abortControllerRef.current.abort();
-            }
-        };
     }, [currentUserId]); 
 
     useEffect(() => {
@@ -137,29 +114,20 @@ export const ChatView: React.FC<{
         }
     }, [selectedSession?.auction.id, currentUserId]);
 
-    const fetchSessions = async (isInitial = false) => {
+    const fetchSessions = async (isInitial = false, retryCount = 0) => {
         // Only show spinner if we really have nothing to show to avoid flicker/stuck states
-        if (isInitial && buyingSessions.length === 0 && sellingSessions.length === 0) {
+        if (isInitial && buyingSessions.length === 0 && sellingSessions.length === 0 && retryCount === 0) {
             setLoading(true);
         }
         
         try {
             const now = new Date().toISOString();
             
-            // Add a timeout fallback for the fetch
-            const fetchPromise = supabase
+            const { data: auctions, error } = await supabase
                 .from('auctions')
                 .select('*')
                 .or(`seller_id.eq.${currentUserId},winner_id.eq.${currentUserId}`)
-                .or(`status.eq.completed,status.eq.cancelled,end_time.lte.${now}`)
-                .abortSignal(abortControllerRef.current?.signal || (new AbortController()).signal);
-
-            const { data: auctions, error } = await Promise.race([
-                fetchPromise,
-                new Promise<{data: any, error: any}>((_, reject) => 
-                    setTimeout(() => reject(new Error('Fetch timeout')), 10000)
-                )
-            ]) as any;
+                .or(`status.eq.completed,status.eq.cancelled,end_time.lte.${now}`);
 
             if (error) throw error;
             if (!auctions) {
@@ -229,8 +197,17 @@ export const ChatView: React.FC<{
                 if (target) setSelectedSession(target);
             }
 
-        } catch (err) {
+        } catch (err: any) {
             console.error("Error fetching chat sessions:", err);
+            
+            // Retry logic for network drops when waking up from background tabs
+            if (retryCount < 3 && (err.message?.includes('fetch') || err.message?.includes('Network') || err.message?.includes('timeout') || !navigator.onLine)) {
+                setTimeout(() => {
+                    fetchSessions(isInitial, retryCount + 1);
+                }, 1500);
+                return; // Do not set loading to false yet
+            }
+
             // Don't toast on background silent refresh to avoid annoying the user
             if (isInitial || (buyingSessions.length === 0 && sellingSessions.length === 0)) {
                 toast.error(t('chatLoadError'));
@@ -240,21 +217,13 @@ export const ChatView: React.FC<{
         }
     };
 
-    const fetchMessages = async (auctionId: string) => {
+    const fetchMessages = async (auctionId: string, retryCount = 0) => {
         try {
-            const fetchPromise = supabase
+            const { data, error } = await supabase
                 .from('messages')
                 .select('*')
                 .eq('auction_id', auctionId)
-                .order('created_at', { ascending: true })
-                .abortSignal(abortControllerRef.current?.signal || (new AbortController()).signal);
-
-            const { data, error } = await Promise.race([
-                fetchPromise,
-                new Promise<{data: any, error: any}>((_, reject) => 
-                    setTimeout(() => reject(new Error('Messages fetch timeout')), 10000)
-                )
-            ]) as any;
+                .order('created_at', { ascending: true });
 
             if (error) throw error;
             setMessages(data || []);
@@ -277,8 +246,13 @@ export const ChatView: React.FC<{
                     setMessages(prev => prev.map(m => unreadIds.includes(m.id) ? { ...m, is_read: true } : m));
                 }
             }
-        } catch (err) {
+        } catch (err: any) {
             console.error("Error fetching messages:", err);
+            if (retryCount < 3 && (err.message?.includes('fetch') || err.message?.includes('Network') || err.message?.includes('timeout') || !navigator.onLine)) {
+                setTimeout(() => {
+                    fetchMessages(auctionId, retryCount + 1);
+                }, 1500);
+            }
         }
     };
 
