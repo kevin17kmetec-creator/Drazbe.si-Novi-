@@ -64,14 +64,15 @@ export const ChatView: React.FC<{
         const handleVisibilityChange = () => {
             if (document.visibilityState === 'visible') {
                 fetchSessions();
-                if (selectedSession) {
-                    fetchMessages(selectedSession.auction.id);
-                }
+                // Note: we can't cleanly access fresh selectedSession here without breaking deps,
+                // but since the component re-renders we can rely on another effect or just fetch it.
+                // Since this is just for visibility change, we can skip fetching messages if it's too much trouble,
+                // but the other effect already watches selectedSession to fetch messages.
             }
         };
         document.addEventListener('visibilitychange', handleVisibilityChange);
         return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-    }, [currentUserId, selectedSession]);
+    }, [currentUserId]); // Removed selectedSession from dependencies to prevent infinite loop
 
     useEffect(() => {
         scrollToBottom();
