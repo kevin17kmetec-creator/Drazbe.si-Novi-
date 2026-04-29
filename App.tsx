@@ -192,9 +192,20 @@ const App: React.FC = () => {
 
     fetchUnread();
 
-    const handleVisibilityChange = () => {
+    const handleVisibilityChange = async () => {
         if (document.visibilityState === 'visible') {
             fetchUnread();
+            // Refresh session to ensure we don't have a stale token after being backgrounded
+            try {
+                const { data: { session }, error } = await supabase.auth.getSession();
+                if (error) throw error;
+                if (session) {
+                    setIsLoggedIn(true);
+                    setUserData(prev => ({ ...prev, id: session.user.id, email: session.user.email || '' }));
+                }
+            } catch (err) {
+                console.warn("Visibility change auth refresh failed:", err);
+            }
         }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);

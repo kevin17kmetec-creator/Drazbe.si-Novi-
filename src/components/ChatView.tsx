@@ -59,20 +59,18 @@ export const ChatView: React.FC<{
 
     useEffect(() => {
         if (!currentUserId) return;
-        fetchSessions();
+        fetchSessions(true);
 
         const handleVisibilityChange = () => {
             if (document.visibilityState === 'visible') {
-                fetchSessions();
-                // Note: we can't cleanly access fresh selectedSession here without breaking deps,
-                // but since the component re-renders we can rely on another effect or just fetch it.
-                // Since this is just for visibility change, we can skip fetching messages if it's too much trouble,
-                // but the other effect already watches selectedSession to fetch messages.
+                fetchSessions(false);
             }
         };
         document.addEventListener('visibilitychange', handleVisibilityChange);
-        return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-    }, [currentUserId]); // Removed selectedSession from dependencies to prevent infinite loop
+        return () => {
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
+    }, [currentUserId]); 
 
     useEffect(() => {
         scrollToBottom();
@@ -117,20 +115,31 @@ export const ChatView: React.FC<{
                 })
                 .subscribe();
 
+            // Also reload messages on visibility change if a session is selected
+            const handleVis = () => {
+                if (document.visibilityState === 'visible' && selectedSession) {
+                    fetchMessages(selectedSession.auction.id);
+                }
+            };
+            document.addEventListener('visibilitychange', handleVis);
+
             return () => {
                 supabase.removeChannel(subscription);
+                document.removeEventListener('visibilitychange', handleVis);
             };
         }
-    }, [selectedSession]);
+    }, [selectedSession, currentUserId]);
 
-    const fetchSessions = async () => {
-        setLoading(true);
+    const fetchSessions = async (isInitial = false) => {
+        if (isInitial || (buyingSessions.length === 0 && sellingSessions.length === 0)) {
+            setLoading(true);
+        }
         try {
             const { data: auctions, error } = await supabase
                 .from('auctions')
                 .select('*')
                 .or(`seller_id.eq.${currentUserId},winner_id.eq.${currentUserId}`)
-                .or(`status.eq.completed,end_time.lte.${new Date().toISOString()}`);
+                .filter('status', 'in', '("completed", "cancelled")'); // Simplified filter
 
             if (error) throw error;
             if (!auctions) {
@@ -195,14 +204,17 @@ export const ChatView: React.FC<{
             setBuyingSessions(buying);
             setSellingSessions(selling);
 
-            if (initialAuctionId) {
+            if (initialAuctionId && !selectedSession) {
                 const target = [...buying, ...selling].find(s => s.auction.id === initialAuctionId);
                 if (target) setSelectedSession(target);
             }
 
         } catch (err) {
             console.error("Error fetching chat sessions:", err);
-            toast.error(t('chatLoadError'));
+            // Don't toast on background silent refresh to avoid annoying the user
+            if (isInitial || (buyingSessions.length === 0 && sellingSessions.length === 0)) {
+                toast.error(t('chatLoadError'));
+            }
         } finally {
             setLoading(false);
         }

@@ -83,7 +83,18 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
     };
     updateTimer();
     const interval = setInterval(updateTimer, 1000);
-    return () => clearInterval(interval);
+    
+    const handleVis = () => {
+      if (document.visibilityState === 'visible') {
+        updateTimer();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVis);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVis);
+    };
   }, [endTime, item?.status]);
 
   useEffect(() => {
