@@ -121,8 +121,8 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
 
   if (!item) return <div className="p-10 text-center font-bold text-slate-500 animate-pulse">{t('loading')}...</div>;
 
-  const isWinner = currentUser && (item.winnerId === currentUser.id || item.winner_id === currentUser.id);
-  const isSeller = currentUser && (item.sellerId === currentUser.id || item.seller_id === currentUser.id);
+  const isWinner = currentUserId && (item.winnerId === currentUserId || item.winner_id === currentUserId);
+  const isSeller = currentUserId && (item.sellerId === currentUserId || item.seller_id === currentUserId);
   const isEnded = item.status === 'completed' || item.status === 'cancelled' || timeLeft === 0;
 
   const d = Math.floor(timeLeft / (3600 * 24));

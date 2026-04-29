@@ -42,7 +42,8 @@ export const ChatView: React.FC<{
     onViewProfile?: (seller: Seller) => void;
     onViewAuction?: (item: AuctionItem) => void;
     onMessagesRead?: () => void;
-}> = ({ onBack, t, currentUserId, language, onViewProfile, onViewAuction, onMessagesRead }) => {
+    initialAuctionId?: string | null;
+}> = ({ onBack, t, currentUserId, language, onViewProfile, onViewAuction, onMessagesRead, initialAuctionId }) => {
     const [buyingSessions, setBuyingSessions] = useState<ChatSession[]>([]);
     const [sellingSessions, setSellingSessions] = useState<ChatSession[]>([]);
     const [selectedSession, setSelectedSession] = useState<ChatSession | null>(null);
@@ -59,7 +60,18 @@ export const ChatView: React.FC<{
     useEffect(() => {
         if (!currentUserId) return;
         fetchSessions();
-    }, [currentUserId]);
+
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible') {
+                fetchSessions();
+                if (selectedSession) {
+                    fetchMessages(selectedSession.auction.id);
+                }
+            }
+        };
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+    }, [currentUserId, selectedSession]);
 
     useEffect(() => {
         scrollToBottom();
@@ -181,6 +193,11 @@ export const ChatView: React.FC<{
 
             setBuyingSessions(buying);
             setSellingSessions(selling);
+
+            if (initialAuctionId) {
+                const target = [...buying, ...selling].find(s => s.auction.id === initialAuctionId);
+                if (target) setSelectedSession(target);
+            }
 
         } catch (err) {
             console.error("Error fetching chat sessions:", err);

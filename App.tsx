@@ -117,6 +117,7 @@ const App: React.FC = () => {
   const [selectedRegion, setSelectedRegion] = useState<Region | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedChatAuctionId, setSelectedChatAuctionId] = useState<string | null>(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isVerified, setIsVerified] = useState(false);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
@@ -191,6 +192,13 @@ const App: React.FC = () => {
 
     fetchUnread();
 
+    const handleVisibilityChange = () => {
+        if (document.visibilityState === 'visible') {
+            fetchUnread();
+        }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     const channel = supabase.channel('unread-messages')
         .on('postgres_changes', {
             event: '*',
@@ -203,6 +211,7 @@ const App: React.FC = () => {
         .subscribe();
 
     return () => {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
         supabase.removeChannel(channel);
     };
   }, [userData.id]);
@@ -1180,13 +1189,14 @@ const App: React.FC = () => {
       break;
     case 'chat': 
       content = <ChatView 
-          onBack={() => setActiveView('grid')} 
+          onBack={() => { setActiveView('grid'); setSelectedChatAuctionId(null); }} 
           onViewProfile={(seller) => { setSelectedSeller(seller); setActiveView('sellerProfile'); }}
           onViewAuction={(item) => { setSelectedItem(item); setActiveView('detail'); }}
           onMessagesRead={fetchUnread}
           t={t} 
           currentUserId={userData.id} 
           language={language} 
+          initialAuctionId={selectedChatAuctionId}
       />; 
       break;
     case 'detail':
@@ -1200,7 +1210,7 @@ const App: React.FC = () => {
           onWatchToggle={() => toggleWatch(selectedItem.id)}
           currentPlan={currentPlan} 
           currentUserId={userData.id}
-          onChatStart={() => setActiveView('chat')}
+          onChatStart={() => { setSelectedChatAuctionId(selectedItem.id); setActiveView('chat'); }}
           onBack={() => { setActiveView('grid'); setSelectedItem(null); }} 
           onBidSubmit={handleBidSubmit} 
           onCheckout={(item) => { 
@@ -1785,7 +1795,7 @@ const App: React.FC = () => {
             onMyWinnings={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('winnings'); }} 
             onMyBids={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('myBids'); }}
             onMySold={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('mySold'); }}
-            onChat={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('chat'); }}
+            onChat={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setSelectedChatAuctionId(null); setActiveView('chat'); }}
             onWatchlist={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('watchlist'); }}
             activeView={activeView} 
             selectedRegion={selectedRegion}
