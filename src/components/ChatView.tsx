@@ -88,21 +88,19 @@ export const ChatView: React.FC<{
     useEffect(() => {
         const handleFocus = async () => {
             const now = Date.now();
-            if (now - lastFocusRef.current < 3000) return;
+            if (now - lastFocusRef.current < 5000) return;
             lastFocusRef.current = now;
 
             if (document.visibilityState === 'visible') {
-                console.log("Tab focused, refreshing messaging state...");
-                
-                // If we were hanging, this soft refresh might kick things back into gear
-                // but we don't set global 'loading' to true to avoid flashing the spinner
+                console.log("Tab focused, silent refresh of messaging state...");
+                // Silent refresh: don't set global 'loading' state
                 try {
                     await fetchSessions(false); 
                     if (selectedSession?.auction.id) {
                         await fetchMessages(selectedSession.auction.id);
                     }
                 } catch (err) {
-                    console.warn("Messaging background refresh failed:", err);
+                    console.warn("Messaging background refresh skipped or failed:", err);
                 }
             }
         };
@@ -113,7 +111,7 @@ export const ChatView: React.FC<{
             window.removeEventListener('visibilitychange', handleFocus);
             window.removeEventListener('focus', handleFocus);
         };
-    }, [selectedSession?.auction.id, currentUserId]);
+    }, [selectedSession?.auction.id, currentUserId, fetchSessions, fetchMessages]);
 
     useEffect(() => {
         if (!currentUserId) {
@@ -133,7 +131,7 @@ export const ChatView: React.FC<{
 
     const hasSessionsRef = useRef(false);
 
-    const fetchSessions = useCallback(async (isInitial = false, retryCount = 0) => {
+    const fetchSessions = useCallback(async (isInitial = false) => {
         // Only show full-page loading on initial mount or if forcefully requested
         if (isInitial && !hasSessionsRef.current) {
             setLoading(true);
@@ -232,27 +230,21 @@ export const ChatView: React.FC<{
 
         } catch (err: any) {
             console.error("Error fetching chat sessions:", err);
-            
-            if (retryCount < 3 && (err.message?.includes('fetch') || err.message?.includes('Network') || err.message?.includes('timeout') || !navigator.onLine)) {
-                setTimeout(() => {
-                    fetchSessions(isInitial, retryCount + 1);
-                }, 1500);
-                return; 
-            }
+            // No automatic retries here to prevent flooding. Let focus handler or manual retry handle it.
             if (isInitial && !hasSessionsRef.current) {
-                // Ignore toast error for missing translations context dependency
+                setPageError("Prišlo je do napake pri nalaganju. Preverite povezavo.");
             }
         } finally {
             setLoading(false);
         }
-    }, [currentUserId, initialAuctionId]);
+    }, [currentUserId, initialAuctionId, t]);
 
     const onMessagesReadRef = useRef(onMessagesRead);
     useEffect(() => {
         onMessagesReadRef.current = onMessagesRead;
     }, [onMessagesRead]);
 
-    const fetchMessages = useCallback(async (auctionId: string, retryCount = 0) => {
+    const fetchMessages = useCallback(async (auctionId: string) => {
         try {
             const fetchPromise = supabase
                 .from('messages')
@@ -275,23 +267,17 @@ export const ChatView: React.FC<{
                 .map((m: any) => m.id);
 
             if (unreadIds.length > 0) {
-                const { error: updateError } = await supabase
+                await supabase
                     .from('messages')
                     .update({ is_read: true })
                     .in('id', unreadIds);
-                if (updateError) {
-                    console.error("Failed to mark messages as read:", updateError);
-                } else {
-                    onMessagesReadRef.current?.();
-                    // Local state update just in case using functional set state
-                    setMessages(prev => prev.map(m => unreadIds.includes(m.id) ? { ...m, is_read: true } : m));
-                }
+                    
+                onMessagesReadRef.current?.();
+                setMessages(prev => prev.map(m => unreadIds.includes(m.id) ? { ...m, is_read: true } : m));
             }
         } catch (err: any) {
             console.error("Error fetching messages:", err);
-            if (retryCount < 2) {
-                setTimeout(() => fetchMessages(auctionId, retryCount + 1), 2000);
-            }
+            // No auto-retry here
         }
     }, [currentUserId]);
 

@@ -185,13 +185,18 @@ const App: React.FC = () => {
       }
   };
 
+  const lastSessionCheckRef = useRef(0);
   const isCheckingSessionRef = useRef(false);
 
   useEffect(() => {
     const handleVis = async () => {
       if (document.visibilityState === 'visible') {
+        const now = Date.now();
+        if (now - lastSessionCheckRef.current < 60000) return; // Only check once per minute on focus
+        
         if (isCheckingSessionRef.current) return;
         isCheckingSessionRef.current = true;
+        
         try {
           // Use getSession with a timeout race to prevent infinite hanging
           const sessionPromise = supabase.auth.getSession();
@@ -201,14 +206,21 @@ const App: React.FC = () => {
           
           const { data: { session }, error } = await Promise.race([sessionPromise, timeoutPromise]) as any;
           
+          lastSessionCheckRef.current = Date.now();
+
           if (error && (error.name === 'AbortError' || error.message?.includes('timeout'))) {
              console.warn("Session check aborted or timed out on visibility change.");
              return;
           }
           
-          if (session?.user && userData.id) {
+          if (session?.user) {
+            if (!isLoggedIn) {
+                // Recover session if it was lost
+                setIsLoggedIn(true);
+            }
             fetchUnread();
           } else if (!session && isLoggedIn) {
+            console.log("No session found on focus, logging out...");
             setIsLoggedIn(false);
             setIsVerified(false);
             setUserData({ id: '', firstName: '', lastName: '', email: '', profilePicture: '', is_verified: false } as any);
@@ -223,7 +235,11 @@ const App: React.FC = () => {
       }
     };
     document.addEventListener('visibilitychange', handleVis);
-    return () => document.removeEventListener('visibilitychange', handleVis);
+    window.addEventListener('focus', handleVis);
+    return () => {
+        document.removeEventListener('visibilitychange', handleVis);
+        window.removeEventListener('focus', handleVis);
+    };
   }, [userData.id, isLoggedIn]);
 
   useEffect(() => {
