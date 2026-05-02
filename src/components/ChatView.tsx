@@ -50,8 +50,21 @@ export const ChatView: React.FC<{
     const [messages, setMessages] = useState<Message[]>([]);
     const [newMessage, setNewMessage] = useState('');
     const [loading, setLoading] = useState(false);
+    const [pageError, setPageError] = useState<string | null>(null);
     const [sending, setSending] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        if (loading) {
+            const timer = setTimeout(() => {
+                setLoading(false);
+                if (buyingSessions.length === 0 && sellingSessions.length === 0) {
+                     setPageError("Nalaganje traja dlje kot običajno. Prosimo, poskusite znova.");
+                }
+            }, 5000);
+            return () => clearTimeout(timer);
+        }
+    }, [loading, buyingSessions.length, sellingSessions.length]);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -187,7 +200,7 @@ export const ChatView: React.FC<{
         onMessagesReadRef.current = onMessagesRead;
     }, [onMessagesRead]);
 
-    const fetchMessages = useCallback(async (auctionId: string) => {
+    const fetchMessages = useCallback(async (auctionId: string, retryCount = 0) => {
         try {
             const { data, error } = await supabase
                 .from('messages')
@@ -218,6 +231,9 @@ export const ChatView: React.FC<{
             }
         } catch (err: any) {
             console.error("Error fetching messages:", err);
+            if (retryCount < 2) {
+                setTimeout(() => fetchMessages(auctionId, retryCount + 1), 2000);
+            }
         }
     }, [currentUserId]);
 
@@ -253,17 +269,25 @@ export const ChatView: React.FC<{
                 });
 
                 if (msg.receiver_id === currentUserId && !msg.is_read) {
-                    const { error: updateError } = await supabase
-                        .from('messages')
-                        .update({ is_read: true })
-                        .eq('id', msg.id);
-                    if (!updateError) {
-                        onMessagesReadRef.current?.();
-                        setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, is_read: true } : m));
+                    try {
+                        const { error: updateError } = await supabase
+                            .from('messages')
+                            .update({ is_read: true })
+                            .eq('id', msg.id);
+                        if (!updateError) {
+                            onMessagesReadRef.current?.();
+                            setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, is_read: true } : m));
+                        }
+                    } catch (err) {
+                        console.error("Error marking msg as read in hook:", err);
                     }
                 }
             })
-            .subscribe();
+            .subscribe((status) => {
+                if (status === 'CHANNEL_ERROR') {
+                    console.error("Chat channel error for auction:", auctionId);
+                }
+            });
 
         return () => {
             if (channelRef.current) {
@@ -334,6 +358,29 @@ export const ChatView: React.FC<{
                 <div className="flex flex-col items-center gap-4">
                     <div className="w-12 h-12 border-4 border-[#FEBA4F] border-t-transparent rounded-full animate-spin"></div>
                     <p className="text-slate-400 font-bold animate-pulse uppercase tracking-widest text-[10px]">Nalaganje vaših sporočil...</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (pageError) {
+        return (
+            <div className="max-w-6xl mx-auto px-6 py-10 h-[calc(100vh-120px)] flex items-center justify-center">
+                <div className="flex flex-col items-center gap-6 text-center max-w-sm">
+                    <div className="w-20 h-20 bg-red-50 text-red-500 rounded-full flex items-center justify-center">
+                        <MessageSquare size={40} />
+                    </div>
+                    <div>
+                        <h3 className="text-xl font-black uppercase tracking-tighter text-[#0A1128] mb-2">Ups! Nekaj je šlo narobe</h3>
+                        <p className="text-slate-400 font-bold text-sm">{pageError}</p>
+                    </div>
+                    <button 
+                        onClick={() => { setPageError(null); fetchSessions(true); }}
+                        className="w-full py-4 bg-[#0A1128] text-white rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl"
+                    >
+                        Poskusi znova
+                    </button>
+                    <button onClick={onBack} className="text-slate-400 font-bold text-xs uppercase tracking-widest hover:text-[#0A1128]">Nazaj</button>
                 </div>
             </div>
         );

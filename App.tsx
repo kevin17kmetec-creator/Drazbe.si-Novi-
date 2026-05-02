@@ -234,10 +234,14 @@ const App: React.FC = () => {
         }, () => {
             fetchUnread();
         })
-        .subscribe();
+        .subscribe((status) => {
+            if (status === 'CHANNEL_ERROR') {
+                console.error("Unread messages subscription error.");
+            }
+        });
 
     return () => {
-        supabase.removeChannel(channel);
+        if (channel) supabase.removeChannel(channel).catch(() => {});
     };
   }, [userData.id]);
   
@@ -418,7 +422,9 @@ const App: React.FC = () => {
     
     return () => {
         clearInterval(pollInterval);
-        if (channel) supabase.removeChannel(channel); 
+        if (channel) {
+          supabase.removeChannel(channel).catch(() => {});
+        }
     }
   }, []);
 
