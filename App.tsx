@@ -185,18 +185,24 @@ const App: React.FC = () => {
       }
   };
 
+  const isCheckingSessionRef = useRef(false);
+
   useEffect(() => {
     const handleVis = async () => {
       if (document.visibilityState === 'visible') {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.user && userData.id) {
-          fetchUnread();
-          // The heartbeat will inherently revive lost real-time connections if needed.
-        } else if (!session && isLoggedIn) {
-          // They were logged out in another tab
-          setIsLoggedIn(false);
-          setIsVerified(false);
-          setUserData({ id: '', firstName: '', lastName: '', email: '', profilePicture: '', is_verified: false });
+        if (isCheckingSessionRef.current) return;
+        isCheckingSessionRef.current = true;
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session?.user && userData.id) {
+            fetchUnread();
+          } else if (!session && isLoggedIn) {
+            setIsLoggedIn(false);
+            setIsVerified(false);
+            setUserData({ id: '', firstName: '', lastName: '', email: '', profilePicture: '', is_verified: false } as any);
+          }
+        } finally {
+            isCheckingSessionRef.current = false;
         }
       }
     };

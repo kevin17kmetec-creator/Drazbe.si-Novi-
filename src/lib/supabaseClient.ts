@@ -29,5 +29,9 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
         autoRefreshToken: true,
         persistSession: true,
         detectSessionInUrl: true,
+        lock: async (name, acquireTimeout, fn) => {
+            // Bypass Web Locks API to prevent tab-freeze deadlocks & 'steal' errors
+            return await fn();
+        }
     }
 });
