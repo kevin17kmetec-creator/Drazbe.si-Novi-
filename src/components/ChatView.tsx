@@ -86,61 +86,11 @@ export const ChatView: React.FC<{
 
     // ... useEffects for messages
 
-    useEffect(() => {
-        let channel: any = null;
-
-        const setupRealtime = async () => {
-            if (!selectedSession) return;
-            
-            await fetchMessages(selectedSession.auction.id);
-            
-            // Cleanup existing channel just to be safe
-            if (channel) {
-                await supabase.removeChannel(channel);
-            }
-
-            channel = supabase
-                .channel(`messages:${selectedSession.auction.id}`)
-                .on('postgres_changes', { 
-                    event: 'INSERT', 
-                    schema: 'public', 
-                    table: 'messages',
-                    filter: `auction_id=eq.${selectedSession.auction.id}`
-                }, async (payload) => {
-                    const msg = payload.new as Message;
-                    
-                    setMessages(prev => {
-                        if (prev.find(m => m.id === msg.id)) return prev;
-                        return [...prev, msg];
-                    });
-
-                    if (msg.receiver_id === currentUserId && !msg.is_read) {
-                        const { error: updateError } = await supabase
-                            .from('messages')
-                            .update({ is_read: true })
-                            .eq('id', msg.id);
-                        if (!updateError) {
-                            onMessagesRead?.();
-                            setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, is_read: true } : m));
-                        }
-                    }
-                })
-                .subscribe();
-        };
-
-        setupRealtime();
-
-        return () => {
-            if (channel) {
-                supabase.removeChannel(channel);
-            }
-        };
-    }, [selectedSession?.auction.id, currentUserId]);
+    const hasSessionsRef = useRef(false);
 
     const fetchSessions = useCallback(async (isInitial = false, retryCount = 0) => {
         setLoading(prev => {
-            // Only show spinner if we really have nothing to show to avoid flicker/stuck states
-            if (isInitial && prev === false && retryCount === 0) {
+            if (isInitial && prev === false && retryCount === 0 && !hasSessionsRef.current) {
                 return true; 
             }
             return prev;
@@ -156,12 +106,14 @@ export const ChatView: React.FC<{
                 .or(`status.eq.completed,status.eq.cancelled,end_time.lte.${now}`);
 
             if (error) throw error;
-            if (!auctions) {
+            if (!auctions || auctions.length === 0) {
                 setBuyingSessions([]);
                 setSellingSessions([]);
                 setLoading(false);
                 return;
             }
+            
+            hasSessionsRef.current = true;
 
             const userIds = new Set<string>();
             auctions.forEach((a: any) => {
@@ -238,11 +190,7 @@ export const ChatView: React.FC<{
                 }, 1500);
                 return; 
             }
-
-            // Fallback for silent failure
-            setLoading(false);
-            
-            if (isInitial) {
+            if (isInitial && !hasSessionsRef.current) {
                 toast.error(t('chatLoadError'));
             }
         } finally {
@@ -250,7 +198,12 @@ export const ChatView: React.FC<{
         }
     }, [currentUserId, initialAuctionId, t]);
 
-    const fetchMessages = useCallback(async (auctionId: string, retryCount = 0) => {
+    const onMessagesReadRef = useRef(onMessagesRead);
+    useEffect(() => {
+        onMessagesReadRef.current = onMessagesRead;
+    }, [onMessagesRead]);
+
+    const fetchMessages = useCallback(async (auctionId: string) => {
         try {
             const { data, error } = await supabase
                 .from('messages')
@@ -274,23 +227,67 @@ export const ChatView: React.FC<{
                 if (updateError) {
                     console.error("Failed to mark messages as read:", updateError);
                 } else {
-                    onMessagesRead?.();
+                    onMessagesReadRef.current?.();
                     // Local state update just in case using functional set state
                     setMessages(prev => prev.map(m => unreadIds.includes(m.id) ? { ...m, is_read: true } : m));
                 }
             }
         } catch (err: any) {
             console.error("Error fetching messages:", err);
-            if (retryCount < 3 && (err.message?.includes('fetch') || err.message?.includes('Network') || err.message?.includes('timeout') || !navigator.onLine)) {
-                setTimeout(() => {
-                    fetchMessages(auctionId, retryCount + 1);
-                }, 1500);
-                return; // Wait for retry to finish
-            }
-        } finally {
-            setLoading(false);
         }
-    }, [currentUserId, onMessagesRead]);
+    }, [currentUserId]);
+
+    const channelRef = useRef<any>(null);
+
+    useEffect(() => {
+        if (!selectedSession?.auction.id || !currentUserId) return;
+        
+        const auctionId = selectedSession.auction.id;
+        
+        // Background fetch messages
+        fetchMessages(auctionId);
+        
+        // Cleanup existing channel
+        if (channelRef.current) {
+            supabase.removeChannel(channelRef.current);
+            channelRef.current = null;
+        }
+
+        channelRef.current = supabase
+            .channel(`messages:${auctionId}`)
+            .on('postgres_changes', { 
+                event: 'INSERT', 
+                schema: 'public', 
+                table: 'messages',
+                filter: `auction_id=eq.${auctionId}`
+            }, async (payload) => {
+                const msg = payload.new as Message;
+                
+                setMessages(prev => {
+                    if (prev.find(m => m.id === msg.id)) return prev;
+                    return [...prev, msg];
+                });
+
+                if (msg.receiver_id === currentUserId && !msg.is_read) {
+                    const { error: updateError } = await supabase
+                        .from('messages')
+                        .update({ is_read: true })
+                        .eq('id', msg.id);
+                    if (!updateError) {
+                        onMessagesReadRef.current?.();
+                        setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, is_read: true } : m));
+                    }
+                }
+            })
+            .subscribe();
+
+        return () => {
+            if (channelRef.current) {
+                supabase.removeChannel(channelRef.current);
+                channelRef.current = null;
+            }
+        };
+    }, [selectedSession?.auction.id, currentUserId]);
 
     const sendMessage = async (e: React.FormEvent) => {
         e.preventDefault();

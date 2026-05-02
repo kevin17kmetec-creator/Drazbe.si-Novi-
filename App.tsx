@@ -185,6 +185,25 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
+    const handleVis = async () => {
+      if (document.visibilityState === 'visible') {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user && userData.id) {
+          fetchUnread();
+          // The heartbeat will inherently revive lost real-time connections if needed.
+        } else if (!session && isLoggedIn) {
+          // They were logged out in another tab
+          setIsLoggedIn(false);
+          setIsVerified(false);
+          setUserData({ id: '', firstName: '', lastName: '', email: '', profilePicture: '', is_verified: false });
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', handleVis);
+    return () => document.removeEventListener('visibilitychange', handleVis);
+  }, [userData.id, isLoggedIn]);
+
+  useEffect(() => {
     if (!userData.id) {
         setUnreadMessagesCount(0);
         return;
@@ -475,7 +494,8 @@ const App: React.FC = () => {
         // Only fetch user data from DB on initial load or sign in to prevent infinite loops
         // if a DB query triggers a token refresh which triggers another DB query.
         if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
-            setIsAuthLoading(true);
+            // Guard: don't show loading and fetch again if we already have this user's data
+            // This prevents rapid flashing on window focus when Supabase broadcasts heartbeats
             try {
               let { data } = await supabase.from('users').select('*').eq('id', session.user.id).single();
               
