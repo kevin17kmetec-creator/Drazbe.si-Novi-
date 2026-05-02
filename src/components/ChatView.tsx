@@ -54,21 +54,30 @@ export const ChatView: React.FC<{
     const [sending, setSending] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const lastFocusRef = useRef<number>(0);
+    const loadTimeoutRef = useRef<any>(null);
 
+    // Robust loading state cleanup
     useEffect(() => {
-        let timer: any;
         if (loading) {
-            timer = setTimeout(() => {
+            if (loadTimeoutRef.current) clearTimeout(loadTimeoutRef.current);
+            loadTimeoutRef.current = setTimeout(() => {
                 if (loading) {
-                    console.warn("Messaging load timeout reached (5s). Triggering circuit breaker.");
+                    console.warn("Messaging load timeout reached (7s). Forcing loading state to false.");
                     setLoading(false);
                     if (buyingSessions.length === 0 && sellingSessions.length === 0) {
-                        setPageError("Nalaganje traja dlje kot običajno. Preverite internetno povezavo in poskusite znova.");
+                        setPageError("Sistem ne odziva pravilno. Prosimo, osvežite stran ali poskusite znova.");
                     }
                 }
-            }, 5000);
+            }, 7000);
+        } else {
+            if (loadTimeoutRef.current) {
+                clearTimeout(loadTimeoutRef.current);
+                loadTimeoutRef.current = null;
+            }
         }
-        return () => clearTimeout(timer);
+        return () => {
+            if (loadTimeoutRef.current) clearTimeout(loadTimeoutRef.current);
+        };
     }, [loading, buyingSessions.length, sellingSessions.length]);
 
     const scrollToBottom = () => {
@@ -77,17 +86,23 @@ export const ChatView: React.FC<{
 
     // Recover from background/hibernation
     useEffect(() => {
-        const handleFocus = () => {
+        const handleFocus = async () => {
             const now = Date.now();
-            // Prevent double-firing within 2 seconds
-            if (now - lastFocusRef.current < 2000) return;
+            if (now - lastFocusRef.current < 3000) return;
             lastFocusRef.current = now;
 
             if (document.visibilityState === 'visible') {
                 console.log("Tab focused, refreshing messaging state...");
-                fetchSessions(false); 
-                if (selectedSession?.auction.id) {
-                    fetchMessages(selectedSession.auction.id);
+                
+                // If we were hanging, this soft refresh might kick things back into gear
+                // but we don't set global 'loading' to true to avoid flashing the spinner
+                try {
+                    await fetchSessions(false); 
+                    if (selectedSession?.auction.id) {
+                        await fetchMessages(selectedSession.auction.id);
+                    }
+                } catch (err) {
+                    console.warn("Messaging background refresh failed:", err);
                 }
             }
         };
@@ -127,11 +142,17 @@ export const ChatView: React.FC<{
         try {
             const now = new Date().toISOString();
             
-            const { data: auctions, error } = await supabase
+            const fetchPromise = supabase
                 .from('auctions')
                 .select('*')
                 .or(`seller_id.eq.${currentUserId},winner_id.eq.${currentUserId}`)
                 .or(`status.eq.completed,status.eq.cancelled,end_time.lte.${now}`);
+
+            const timeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Fetch sessions timeout')), 7000)
+            );
+
+            const { data: auctions, error } = await Promise.race([fetchPromise, timeoutPromise]) as any;
 
             if (error) throw error;
             if (!auctions || auctions.length === 0) {
@@ -233,11 +254,17 @@ export const ChatView: React.FC<{
 
     const fetchMessages = useCallback(async (auctionId: string, retryCount = 0) => {
         try {
-            const { data, error } = await supabase
+            const fetchPromise = supabase
                 .from('messages')
                 .select('*')
                 .eq('auction_id', auctionId)
                 .order('created_at', { ascending: true });
+
+            const timeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Fetch messages timeout')), 6000)
+            );
+
+            const { data, error } = await Promise.race([fetchPromise, timeoutPromise]) as any;
 
             if (error) throw error;
             setMessages(data || []);
@@ -280,7 +307,7 @@ export const ChatView: React.FC<{
         
         // Cleanup existing channel
         if (channelRef.current) {
-            supabase.removeChannel(channelRef.current);
+            supabase.removeChannel(channelRef.current).catch(() => {});
             channelRef.current = null;
         }
 
@@ -322,7 +349,7 @@ export const ChatView: React.FC<{
 
         return () => {
             if (channelRef.current) {
-                supabase.removeChannel(channelRef.current);
+                supabase.removeChannel(channelRef.current).catch(() => {});
                 channelRef.current = null;
             }
         };

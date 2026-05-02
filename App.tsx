@@ -193,10 +193,19 @@ const App: React.FC = () => {
         if (isCheckingSessionRef.current) return;
         isCheckingSessionRef.current = true;
         try {
-          const { data: { session }, error } = await supabase.auth.getSession();
-          if (error && error.name === 'AbortError') {
+          // Use getSession with a timeout race to prevent infinite hanging
+          const sessionPromise = supabase.auth.getSession();
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Session fetch timeout')), 5000)
+          );
+          
+          const { data: { session }, error } = await Promise.race([sessionPromise, timeoutPromise]) as any;
+          
+          if (error && (error.name === 'AbortError' || error.message?.includes('timeout'))) {
+             console.warn("Session check aborted or timed out on visibility change.");
              return;
           }
+          
           if (session?.user && userData.id) {
             fetchUnread();
           } else if (!session && isLoggedIn) {
@@ -205,7 +214,7 @@ const App: React.FC = () => {
             setUserData({ id: '', firstName: '', lastName: '', email: '', profilePicture: '', is_verified: false } as any);
           }
         } catch (err: any) {
-          if (err.name !== 'AbortError') {
+          if (err.name !== 'AbortError' && !err.message?.includes('timeout')) {
              console.error("Session check error on visibility change:", err);
           }
         } finally {
