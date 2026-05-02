@@ -423,7 +423,15 @@ const App: React.FC = () => {
               setSelectedItem(updated);
           }
       }
-  }, [auctions, selectedItem]);
+  }, [
+      auctions, 
+      selectedItem?.id, 
+      selectedItem?.currentBid, 
+      selectedItem?.winner_id, 
+      selectedItem?.status, 
+      selectedItem?.bidCount, 
+      selectedItem?.endTime?.getTime?.() 
+  ]);
 
   // Auth Sync
   useEffect(() => {
@@ -1776,12 +1784,9 @@ const App: React.FC = () => {
   useEffect(() => {
     const userDataVerified = !!(userData as any).is_verified || !!(userData as any).isVerified || !!(userData as any).isverified;
     if (isLoggedIn && isVerified !== userDataVerified) {
-      console.log("Syncing isVerified from userData:", userDataVerified);
       setIsVerified(userDataVerified);
     }
-  }, [userData, isLoggedIn, isVerified]);
-
-  console.log("RENDER DEBUG:", { isLoggedIn, isVerified, isBannerActive });
+  }, [userData.is_verified, userData.isVerified, userData.isverified, isLoggedIn, isVerified]);
 
   return (
     <div className="min-h-screen bg-[#f3f4f6] font-sans selection:bg-[#FEBA4F] selection:text-[#0A1128] overflow-x-hidden">

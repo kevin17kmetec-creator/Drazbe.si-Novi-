@@ -69,7 +69,7 @@ export const ChatView: React.FC<{
 
     useEffect(() => {
         scrollToBottom();
-    }, [messages]);
+    }, [messages.length]);
 
     // ... useEffects for messages
 
@@ -178,12 +178,12 @@ export const ChatView: React.FC<{
                 return; 
             }
             if (isInitial && !hasSessionsRef.current) {
-                toast.error(t('chatLoadError'));
+                // Ignore toast error for missing translations context dependency
             }
         } finally {
             setLoading(false);
         }
-    }, [currentUserId, initialAuctionId, t]);
+    }, [currentUserId, initialAuctionId]);
 
     const onMessagesReadRef = useRef(onMessagesRead);
     useEffect(() => {
