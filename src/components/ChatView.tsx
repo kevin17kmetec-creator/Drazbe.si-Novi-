@@ -100,10 +100,12 @@ export const ChatView: React.FC<{
                     .in('id', unreadIds);
                     
                 onMessagesRead?.();
+                // Avoid using previous state here to ensure fresh markers
                 setMessages(prev => prev.map(m => unreadIds.includes(m.id) ? { ...m, is_read: true } : m));
             }
         } catch (err: any) {
             console.error("Error fetching messages:", err);
+            // Non-blocking catch
         }
     }, [currentUserId, onMessagesRead]);
 
@@ -115,15 +117,16 @@ export const ChatView: React.FC<{
         }
 
         try {
-            const now = new Date().toISOString();
+            const nowTime = new Date();
             
+            // Simpler query: just get auctions where user is involved. Filter status in JS.
             const { data: auctions, error } = await supabase
                 .from('auctions')
                 .select('*')
-                .or(`seller_id.eq.${currentUserId},winner_id.eq.${currentUserId}`)
-                .or(`status.eq.completed,status.eq.cancelled,end_time.lte.${now}`);
+                .or(`seller_id.eq.${currentUserId},winner_id.eq.${currentUserId}`);
 
             if (error) throw error;
+            
             if (!auctions || auctions.length === 0) {
                 setBuyingSessions([]);
                 setSellingSessions([]);
@@ -141,13 +144,17 @@ export const ChatView: React.FC<{
 
             const userMap = new Map<string, any>();
             if (userIds.size > 0) {
-                const { data: users, error: usersError } = await supabase
-                    .from('users')
-                    .select('id, email, first_name, last_name, profile_picture_url')
-                    .in('id', Array.from(userIds));
+                try {
+                    const { data: users, error: usersError } = await supabase
+                        .from('users')
+                        .select('id, email, first_name, last_name, profile_picture_url')
+                        .in('id', Array.from(userIds));
 
-                if (!usersError && users) {
-                    users.forEach((u: any) => userMap.set(u.id, u));
+                    if (!usersError && users) {
+                        users.forEach((u: any) => userMap.set(u.id, u));
+                    }
+                } catch (userErr) {
+                    console.warn("Secondary user fetch failed:", userErr);
                 }
             }
 
@@ -155,6 +162,13 @@ export const ChatView: React.FC<{
             const selling: ChatSession[] = [];
 
             auctions.forEach((a: any) => {
+                // filter status in JS for robustness
+                const status = (a.status || '').toLowerCase();
+                const endTime = new Date(a.end_time || a.endTime || 0);
+                const isOver = status === 'completed' || status === 'cancelled' || (endTime.getTime() > 0 && endTime.getTime() <= nowTime.getTime());
+                
+                if (!isOver) return;
+
                 const isSeller = a.seller_id === currentUserId;
                 const otherId = isSeller ? a.winner_id : a.seller_id;
                 if (!otherId) return;
@@ -162,21 +176,21 @@ export const ChatView: React.FC<{
                 const otherPartyData = userMap.get(otherId) || {};
                 const displayName = otherPartyData.first_name && otherPartyData.last_name 
                     ? `${otherPartyData.first_name} ${otherPartyData.last_name}` 
-                    : (otherPartyData.email || 'Uporabnik');
+                    : (otherPartyData.email || (isSeller ? t?.('winner') || 'Kupec' : t?.('seller') || 'Prodajalec'));
 
                 const session: ChatSession = {
                     auction: {
                         ...a,
                         id: a.id,
-                        title: a.title,
-                        endTime: new Date(a.end_time || a.endTime),
-                        currentBid: a.current_price || a.currentBid,
-                        bidCount: a.bid_count || a.bidCount,
+                        title: a.title || { SLO: 'Dražba', EN: 'Auction' },
+                        endTime: endTime,
+                        currentBid: a.current_price || a.currentBid || 0,
+                        bidCount: a.bid_count || a.bidCount || 0,
                         images: a.images || []
                     },
                     otherPartyId: otherId,
                     otherPartyEmail: displayName,
-                    otherPartyPic: otherPartyData.profile_picture_url
+                    otherPartyPic: otherPartyData.profile_picture_url || ''
                 };
 
                 if (isSeller) selling.push(session);
@@ -202,12 +216,12 @@ export const ChatView: React.FC<{
         } catch (err: any) {
             console.error("Error fetching chat sessions:", err);
             if (isInitial && !hasSessionsRef.current) {
-                setPageError("Prišlo je do napake pri nalaganju.");
+                setPageError(t?.('error') || "Prišlo je do napake pri nalaganju.");
             }
         } finally {
             setLoading(false);
         }
-    }, [currentUserId, initialAuctionId]);
+    }, [currentUserId, initialAuctionId, t]);
 
     // Recover from background/hibernation
     useEffect(() => {
@@ -241,9 +255,65 @@ export const ChatView: React.FC<{
         scrollToBottom();
     }, [messages.length]);
 
-    // ... useEffects for messages
-
     const channelRef = useRef<any>(null);
+
+    useEffect(() => {
+        if (!selectedSession?.auction.id || !currentUserId) return;
+        
+        const auctionId = selectedSession.auction.id;
+        
+        // Background fetch messages
+        fetchMessages(auctionId);
+        
+        // Cleanup existing channel
+        if (channelRef.current) {
+            supabase.removeChannel(channelRef.current).catch(() => {});
+            channelRef.current = null;
+        }
+
+        channelRef.current = supabase
+            .channel(`messages:${auctionId}`)
+            .on('postgres_changes', { 
+                event: 'INSERT', 
+                schema: 'public', 
+                table: 'messages',
+                filter: `auction_id=eq.${auctionId}`
+            }, async (payload) => {
+                const msg = payload.new as Message;
+                
+                setMessages(prev => {
+                    if (prev.find(m => m.id === msg.id)) return prev;
+                    return [...prev, msg];
+                });
+
+                if (msg.receiver_id === currentUserId && !msg.is_read) {
+                    try {
+                        const { error: updateError } = await supabase
+                            .from('messages')
+                            .update({ is_read: true })
+                            .eq('id', msg.id);
+                        if (!updateError) {
+                            onMessagesRead?.();
+                            setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, is_read: true } : m));
+                        }
+                    } catch (err) {
+                        console.error("Error marking msg as read in hook:", err);
+                    }
+                }
+            })
+            .subscribe((status) => {
+                if (status === 'CHANNEL_ERROR') {
+                    console.error("Chat channel error for auction:", auctionId);
+                }
+            });
+
+        return () => {
+            if (channelRef.current) {
+                supabase.removeChannel(channelRef.current).catch(() => {});
+                channelRef.current = null;
+            }
+        };
+    }, [selectedSession?.auction.id, currentUserId, fetchMessages, onMessagesRead]);
 
     const sendMessage = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -334,6 +404,13 @@ export const ChatView: React.FC<{
         );
     }
 
+    const tSafe = (key: string, fallback: string = '') => {
+        if (typeof t === 'function') {
+            try { return t(key) || fallback || key; } catch (e) { return fallback || key; }
+        }
+        return fallback || key;
+    };
+
     return (
         <div className="max-w-6xl mx-auto px-6 py-10 animate-in h-[calc(100vh-120px)] flex flex-col">
             <div className="flex items-center justify-between mb-8">
@@ -342,8 +419,8 @@ export const ChatView: React.FC<{
                         <ArrowLeft size={20} />
                     </button>
                     <div>
-                        <h2 className="text-3xl font-black uppercase tracking-tighter text-[#0A1128]">{t('messages')}</h2>
-                        <p className="text-slate-400 font-bold text-sm">{t('chatDesc')}</p>
+                        <h2 className="text-3xl font-black uppercase tracking-tighter text-[#0A1128]">{tSafe('messages')}</h2>
+                        <p className="text-slate-400 font-bold text-sm">{tSafe('chatDesc')}</p>
                     </div>
                 </div>
             </div>
@@ -352,14 +429,14 @@ export const ChatView: React.FC<{
                 {/* Sidebar */}
                 <div className="w-80 border-r border-slate-100 flex flex-col bg-slate-50/50">
                     <div className="p-6 border-b border-slate-100 bg-white">
-                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{t('yourChats')}</p>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{tSafe('yourChats')}</p>
                     </div>
                     <div className="flex-1 overflow-y-auto">
                         {buyingSessions.length === 0 && sellingSessions.length === 0 ? (
                             <div className="p-10 text-center">
                                 <MessageSquare size={32} className="mx-auto mb-4 text-slate-200" />
-                                <p className="text-xs font-black uppercase tracking-widest text-slate-400">{t('noActiveChats')}</p>
-                                <p className="text-[10px] text-slate-300 mt-2">{t('chatStartNotice')}</p>
+                                <p className="text-xs font-black uppercase tracking-widest text-slate-400">{tSafe('noActiveChats')}</p>
+                                <p className="text-[10px] text-slate-300 mt-2">{tSafe('chatStartNotice')}</p>
                             </div>
                         ) : (
                             <>
@@ -508,7 +585,7 @@ export const ChatView: React.FC<{
                                     onClick={() => onViewAuction?.(selectedSession.auction)}
                                 >
                                     <div>
-                                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 group-hover:text-[#FEBA4F] transition-colors">{t('amount')}</p>
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 group-hover:text-[#FEBA4F] transition-colors">{tSafe('amount')}</p>
                                         <p className="text-lg font-black text-[#0A1128] group-hover:text-[#FEBA4F] transition-colors">€{selectedSession.auction.currentBid}</p>
                                     </div>
                                     {selectedSession.auction.images && selectedSession.auction.images[0] ? (
@@ -542,8 +619,8 @@ export const ChatView: React.FC<{
                                 {messages.length === 0 && (
                                     <div className="h-full flex flex-col items-center justify-center text-center opacity-30">
                                         <MessageSquare size={48} className="mb-4" />
-                                        <p className="font-black uppercase tracking-widest text-sm">{t('startConversation')}</p>
-                                        <p className="text-xs font-bold mt-2">{t('pickupAgreement')}</p>
+                                        <p className="font-black uppercase tracking-widest text-sm">{tSafe('startConversation')}</p>
+                                        <p className="text-xs font-bold mt-2">{tSafe('pickupAgreement')}</p>
                                     </div>
                                 )}
                             </div>
@@ -579,8 +656,8 @@ export const ChatView: React.FC<{
                             <div className="w-24 h-24 bg-slate-50 rounded-[2rem] flex items-center justify-center text-slate-200 mb-6">
                                 <MessageSquare size={48} />
                             </div>
-                            <h3 className="text-2xl font-black uppercase tracking-tighter text-[#0A1128] mb-2">{t('yourInbox')}</h3>
-                            <p className="text-slate-400 font-bold max-w-md">{t('selectChatDesc')}</p>
+                            <h3 className="text-2xl font-black uppercase tracking-tighter text-[#0A1128] mb-2">{tSafe('yourInbox')}</h3>
+                            <p className="text-slate-400 font-bold max-w-md">{tSafe('selectChatDesc')}</p>
                         </div>
                     )}
                 </div>
