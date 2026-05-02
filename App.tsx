@@ -172,18 +172,22 @@ const App: React.FC = () => {
   const [userData, setUserData] = useState({ id: '', firstName: '', lastName: '', email: '', profilePicture: '', is_verified: false });
   const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
 
-  const fetchUnread = async () => {
+  const fetchUnread = useCallback(async () => {
       if (!userData.id) return;
-      const { count, error } = await supabase
-          .from('messages')
-          .select('*', { count: 'exact', head: true })
-          .eq('receiver_id', userData.id)
-          .eq('is_read', false);
-      
-      if (!error && count !== null) {
-          setUnreadMessagesCount(count);
+      try {
+        const { count, error } = await supabase
+            .from('messages')
+            .select('*', { count: 'exact', head: true })
+            .eq('receiver_id', userData.id)
+            .eq('is_read', false);
+        
+        if (!error && count !== null) {
+            setUnreadMessagesCount(count);
+        }
+      } catch (err) {
+        console.warn("Silent unread fetch failed.");
       }
-  };
+  }, [userData.id]);
 
   const lastSessionCheckRef = useRef(0);
   const isCheckingSessionRef = useRef(false);

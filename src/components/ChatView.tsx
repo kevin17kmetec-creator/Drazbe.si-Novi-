@@ -55,84 +55,61 @@ export const ChatView: React.FC<{
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const lastFocusRef = useRef<number>(0);
     const loadTimeoutRef = useRef<any>(null);
+    const hasSessionsRef = useRef(false);
 
     // Robust loading state cleanup
     useEffect(() => {
+        let timer: any;
         if (loading) {
-            if (loadTimeoutRef.current) clearTimeout(loadTimeoutRef.current);
-            loadTimeoutRef.current = setTimeout(() => {
+            timer = setTimeout(() => {
                 if (loading) {
-                    console.warn("Messaging load timeout reached (7s). Forcing loading state to false.");
+                    console.warn("Messaging load timeout reached - forcing end.");
                     setLoading(false);
-                    if (buyingSessions.length === 0 && sellingSessions.length === 0) {
-                        setPageError("Sistem ne odziva pravilno. Prosimo, osvežite stran ali poskusite znova.");
-                    }
                 }
-            }, 7000);
-        } else {
-            if (loadTimeoutRef.current) {
-                clearTimeout(loadTimeoutRef.current);
-                loadTimeoutRef.current = null;
-            }
+            }, 10000);
         }
-        return () => {
-            if (loadTimeoutRef.current) clearTimeout(loadTimeoutRef.current);
-        };
-    }, [loading, buyingSessions.length, sellingSessions.length]);
+        return () => clearTimeout(timer);
+    }, [loading]);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     };
 
-    // Recover from background/hibernation
-    useEffect(() => {
-        const handleFocus = async () => {
-            const now = Date.now();
-            if (now - lastFocusRef.current < 5000) return;
-            lastFocusRef.current = now;
+    // Global fetch functions defined at top level for stability
+    const fetchMessages = useCallback(async (auctionId: string) => {
+        if (!auctionId || !currentUserId) return;
+        try {
+            const { data, error } = await supabase
+                .from('messages')
+                .select('*')
+                .eq('auction_id', auctionId)
+                .order('created_at', { ascending: true });
 
-            if (document.visibilityState === 'visible') {
-                console.log("Tab focused, silent refresh of messaging state...");
-                // Silent refresh: don't set global 'loading' state
-                try {
-                    await fetchSessions(false); 
-                    if (selectedSession?.auction.id) {
-                        await fetchMessages(selectedSession.auction.id);
-                    }
-                } catch (err) {
-                    console.warn("Messaging background refresh skipped or failed:", err);
-                }
+            if (error) throw error;
+            setMessages(data || []);
+
+            // Mark unread messages sent TO the current user as read
+            const unreadIds = (data || [])
+                .filter((m: any) => m.receiver_id === currentUserId && !m.is_read)
+                .map((m: any) => m.id);
+
+            if (unreadIds.length > 0) {
+                await supabase
+                    .from('messages')
+                    .update({ is_read: true })
+                    .in('id', unreadIds);
+                    
+                onMessagesRead?.();
+                setMessages(prev => prev.map(m => unreadIds.includes(m.id) ? { ...m, is_read: true } : m));
             }
-        };
-
-        window.addEventListener('visibilitychange', handleFocus);
-        window.addEventListener('focus', handleFocus);
-        return () => {
-            window.removeEventListener('visibilitychange', handleFocus);
-            window.removeEventListener('focus', handleFocus);
-        };
-    }, [selectedSession?.auction.id, currentUserId, fetchSessions, fetchMessages]);
-
-    useEffect(() => {
-        if (!currentUserId) {
-            setLoading(false);
-            return;
+        } catch (err: any) {
+            console.error("Error fetching messages:", err);
         }
-
-        fetchSessions(true);
-
-    }, [currentUserId]); 
-
-    useEffect(() => {
-        scrollToBottom();
-    }, [messages.length]);
-
-    // ... useEffects for messages
-
-    const hasSessionsRef = useRef(false);
+    }, [currentUserId, onMessagesRead]);
 
     const fetchSessions = useCallback(async (isInitial = false) => {
-        // Only show full-page loading on initial mount or if forcefully requested
+        if (!currentUserId) return;
+        
         if (isInitial && !hasSessionsRef.current) {
             setLoading(true);
         }
@@ -140,17 +117,11 @@ export const ChatView: React.FC<{
         try {
             const now = new Date().toISOString();
             
-            const fetchPromise = supabase
+            const { data: auctions, error } = await supabase
                 .from('auctions')
                 .select('*')
                 .or(`seller_id.eq.${currentUserId},winner_id.eq.${currentUserId}`)
                 .or(`status.eq.completed,status.eq.cancelled,end_time.lte.${now}`);
-
-            const timeoutPromise = new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('Fetch sessions timeout')), 7000)
-            );
-
-            const { data: auctions, error } = await Promise.race([fetchPromise, timeoutPromise]) as any;
 
             if (error) throw error;
             if (!auctions || auctions.length === 0) {
@@ -191,7 +162,7 @@ export const ChatView: React.FC<{
                 const otherPartyData = userMap.get(otherId) || {};
                 const displayName = otherPartyData.first_name && otherPartyData.last_name 
                     ? `${otherPartyData.first_name} ${otherPartyData.last_name}` 
-                    : (otherPartyData.email || (isSeller ? t('winner') : t('seller')));
+                    : (otherPartyData.email || 'Uporabnik');
 
                 const session: ChatSession = {
                     auction: {
@@ -230,116 +201,49 @@ export const ChatView: React.FC<{
 
         } catch (err: any) {
             console.error("Error fetching chat sessions:", err);
-            // No automatic retries here to prevent flooding. Let focus handler or manual retry handle it.
             if (isInitial && !hasSessionsRef.current) {
-                setPageError("Prišlo je do napake pri nalaganju. Preverite povezavo.");
+                setPageError("Prišlo je do napake pri nalaganju.");
             }
         } finally {
             setLoading(false);
         }
-    }, [currentUserId, initialAuctionId, t]);
+    }, [currentUserId, initialAuctionId]);
 
-    const onMessagesReadRef = useRef(onMessagesRead);
+    // Recover from background/hibernation
     useEffect(() => {
-        onMessagesReadRef.current = onMessagesRead;
-    }, [onMessagesRead]);
+        const handleFocus = () => {
+            const now = Date.now();
+            if (now - lastFocusRef.current < 5000) return;
+            lastFocusRef.current = now;
 
-    const fetchMessages = useCallback(async (auctionId: string) => {
-        try {
-            const fetchPromise = supabase
-                .from('messages')
-                .select('*')
-                .eq('auction_id', auctionId)
-                .order('created_at', { ascending: true });
-
-            const timeoutPromise = new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('Fetch messages timeout')), 6000)
-            );
-
-            const { data, error } = await Promise.race([fetchPromise, timeoutPromise]) as any;
-
-            if (error) throw error;
-            setMessages(data || []);
-
-            // Mark unread messages sent TO the current user as read
-            const unreadIds = (data || [])
-                .filter((m: any) => m.receiver_id === currentUserId && !m.is_read)
-                .map((m: any) => m.id);
-
-            if (unreadIds.length > 0) {
-                await supabase
-                    .from('messages')
-                    .update({ is_read: true })
-                    .in('id', unreadIds);
-                    
-                onMessagesReadRef.current?.();
-                setMessages(prev => prev.map(m => unreadIds.includes(m.id) ? { ...m, is_read: true } : m));
-            }
-        } catch (err: any) {
-            console.error("Error fetching messages:", err);
-            // No auto-retry here
-        }
-    }, [currentUserId]);
-
-    const channelRef = useRef<any>(null);
-
-    useEffect(() => {
-        if (!selectedSession?.auction.id || !currentUserId) return;
-        
-        const auctionId = selectedSession.auction.id;
-        
-        // Background fetch messages
-        fetchMessages(auctionId);
-        
-        // Cleanup existing channel
-        if (channelRef.current) {
-            supabase.removeChannel(channelRef.current).catch(() => {});
-            channelRef.current = null;
-        }
-
-        channelRef.current = supabase
-            .channel(`messages:${auctionId}`)
-            .on('postgres_changes', { 
-                event: 'INSERT', 
-                schema: 'public', 
-                table: 'messages',
-                filter: `auction_id=eq.${auctionId}`
-            }, async (payload) => {
-                const msg = payload.new as Message;
-                
-                setMessages(prev => {
-                    if (prev.find(m => m.id === msg.id)) return prev;
-                    return [...prev, msg];
-                });
-
-                if (msg.receiver_id === currentUserId && !msg.is_read) {
-                    try {
-                        const { error: updateError } = await supabase
-                            .from('messages')
-                            .update({ is_read: true })
-                            .eq('id', msg.id);
-                        if (!updateError) {
-                            onMessagesReadRef.current?.();
-                            setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, is_read: true } : m));
-                        }
-                    } catch (err) {
-                        console.error("Error marking msg as read in hook:", err);
-                    }
+            if (document.visibilityState === 'visible') {
+                fetchSessions(false); 
+                if (selectedSession?.auction.id) {
+                    fetchMessages(selectedSession.auction.id);
                 }
-            })
-            .subscribe((status) => {
-                if (status === 'CHANNEL_ERROR') {
-                    console.error("Chat channel error for auction:", auctionId);
-                }
-            });
-
-        return () => {
-            if (channelRef.current) {
-                supabase.removeChannel(channelRef.current).catch(() => {});
-                channelRef.current = null;
             }
         };
-    }, [selectedSession?.auction.id, currentUserId]);
+
+        window.addEventListener('visibilitychange', handleFocus);
+        window.addEventListener('focus', handleFocus);
+        return () => {
+            window.removeEventListener('visibilitychange', handleFocus);
+            window.removeEventListener('focus', handleFocus);
+        };
+    }, [selectedSession?.auction.id, fetchSessions, fetchMessages]);
+
+    useEffect(() => {
+        if (!currentUserId) return;
+        fetchSessions(true);
+    }, [currentUserId, fetchSessions]); 
+
+    useEffect(() => {
+        scrollToBottom();
+    }, [messages.length]);
+
+    // ... useEffects for messages
+
+    const channelRef = useRef<any>(null);
 
     const sendMessage = async (e: React.FormEvent) => {
         e.preventDefault();
