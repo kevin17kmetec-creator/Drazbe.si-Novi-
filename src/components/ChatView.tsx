@@ -53,22 +53,52 @@ export const ChatView: React.FC<{
     const [pageError, setPageError] = useState<string | null>(null);
     const [sending, setSending] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const lastFocusRef = useRef<number>(0);
 
     useEffect(() => {
+        let timer: any;
         if (loading) {
-            const timer = setTimeout(() => {
-                setLoading(false);
-                if (buyingSessions.length === 0 && sellingSessions.length === 0) {
-                     setPageError("Nalaganje traja dlje kot običajno. Prosimo, poskusite znova.");
+            timer = setTimeout(() => {
+                if (loading) {
+                    console.warn("Messaging load timeout reached (5s). Triggering circuit breaker.");
+                    setLoading(false);
+                    if (buyingSessions.length === 0 && sellingSessions.length === 0) {
+                        setPageError("Nalaganje traja dlje kot običajno. Preverite internetno povezavo in poskusite znova.");
+                    }
                 }
             }, 5000);
-            return () => clearTimeout(timer);
         }
+        return () => clearTimeout(timer);
     }, [loading, buyingSessions.length, sellingSessions.length]);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     };
+
+    // Recover from background/hibernation
+    useEffect(() => {
+        const handleFocus = () => {
+            const now = Date.now();
+            // Prevent double-firing within 2 seconds
+            if (now - lastFocusRef.current < 2000) return;
+            lastFocusRef.current = now;
+
+            if (document.visibilityState === 'visible') {
+                console.log("Tab focused, refreshing messaging state...");
+                fetchSessions(false); 
+                if (selectedSession?.auction.id) {
+                    fetchMessages(selectedSession.auction.id);
+                }
+            }
+        };
+
+        window.addEventListener('visibilitychange', handleFocus);
+        window.addEventListener('focus', handleFocus);
+        return () => {
+            window.removeEventListener('visibilitychange', handleFocus);
+            window.removeEventListener('focus', handleFocus);
+        };
+    }, [selectedSession?.auction.id, currentUserId]);
 
     useEffect(() => {
         if (!currentUserId) {
@@ -89,7 +119,8 @@ export const ChatView: React.FC<{
     const hasSessionsRef = useRef(false);
 
     const fetchSessions = useCallback(async (isInitial = false, retryCount = 0) => {
-        if (!hasSessionsRef.current && isInitial) {
+        // Only show full-page loading on initial mount or if forcefully requested
+        if (isInitial && !hasSessionsRef.current) {
             setLoading(true);
         }
 

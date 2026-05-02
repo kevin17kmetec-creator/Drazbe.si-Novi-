@@ -319,13 +319,20 @@ const App: React.FC = () => {
     meta.setAttribute('content', metaDesc);
   }, [activeView, selectedItem, selectedSeller, language]);
 
+  const consecutiveErrorsRef = useRef(0);
   const fetchAuctions = useCallback(async () => {
     try {
       const { data, error } = await supabase.from('auctions').select('*');
       if (error) {
+          consecutiveErrorsRef.current++;
           console.error("Error fetching auctions:", error);
+          if (consecutiveErrorsRef.current > 5) {
+              console.warn("Too many consecutive fetch errors. Slowing down polling.");
+          }
           return;
       }
+      
+      consecutiveErrorsRef.current = 0;
 
       // Fetch users to map seller names
       const { data: usersData } = await supabase.from('users').select('id, username, company_name, user_type, first_name, last_name');
@@ -391,14 +398,28 @@ const App: React.FC = () => {
     window.scrollTo({ top: 0, behavior: 'instant' });
   }, [activeView, selectedRegion, selectedCategory, searchQuery]);
 
-  // Firestore Sync
+  // Firestore Sync & Polling with Backoff
   useEffect(() => {
-    fetchAuctions();
+    let timeoutId: any;
+    let currentDelay = 3000;
 
-    // Auto-polling fallback for immediate real-time sync (in case WebSockets or Supabase Replication are blocked)
-    const pollInterval = setInterval(() => {
-        fetchAuctions();
-    }, 3000);
+    const poll = async () => {
+        const start = Date.now();
+        await fetchAuctions();
+        
+        // If we had errors, increase delay (backoff), otherwise reset to 3s
+        if (consecutiveErrorsRef.current > 0) {
+            currentDelay = Math.min(currentDelay * 1.5, 30000); // Max 30s
+        } else {
+            currentDelay = 3000;
+        }
+
+        const elapsed = Date.now() - start;
+        const nextDelay = Math.max(currentDelay - elapsed, 100);
+        timeoutId = setTimeout(poll, nextDelay);
+    };
+
+    poll();
 
     // Real-time subscription with WebSocket check
     let channel: any = null;
@@ -416,17 +437,15 @@ const App: React.FC = () => {
       } catch (err) {
         console.warn("Supabase Realtime subscription failed:", err);
       }
-    } else {
-      console.warn("WebSockets are not supported or blocked in this environment. Real-time updates are disabled.");
     }
     
     return () => {
-        clearInterval(pollInterval);
+        clearTimeout(timeoutId);
         if (channel) {
           supabase.removeChannel(channel).catch(() => {});
         }
     }
-  }, []);
+  }, [fetchAuctions]);
 
   // Sync selectedItem if it was updated in the background
   useEffect(() => {
