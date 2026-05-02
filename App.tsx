@@ -123,6 +123,7 @@ const App: React.FC = () => {
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [userType, setUserType] = useState<'individual' | 'business' | null>(null);
   const [watchedIds, setWatchedIds] = useState<string[]>([]);
+  const [chatRefreshKey, setChatRefreshKey] = useState(0);
 
   // Redirect to home if logged in and on login page
   useEffect(() => {
@@ -1211,6 +1212,7 @@ const App: React.FC = () => {
       break;
     case 'chat': 
       content = <ChatView 
+          key={`chat-view-${chatRefreshKey}`}
           onBack={() => { setActiveView('grid'); setSelectedChatAuctionId(null); }} 
           onViewProfile={(seller) => { setSelectedSeller(seller); setActiveView('sellerProfile'); }}
           onViewAuction={(item) => { setSelectedItem(item); setActiveView('detail'); }}
@@ -1232,7 +1234,7 @@ const App: React.FC = () => {
           onWatchToggle={() => toggleWatch(selectedItem.id)}
           currentPlan={currentPlan} 
           currentUserId={userData.id}
-          onChatStart={() => { setSelectedChatAuctionId(selectedItem.id); setActiveView('chat'); }}
+          onChatStart={() => { setSelectedChatAuctionId(selectedItem.id); setChatRefreshKey(prev => prev + 1); setActiveView('chat'); }}
           onBack={() => { setActiveView('grid'); setSelectedItem(null); }} 
           onBidSubmit={handleBidSubmit} 
           onCheckout={(item) => { 
@@ -1817,7 +1819,7 @@ const App: React.FC = () => {
             onMyWinnings={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('winnings'); }} 
             onMyBids={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('myBids'); }}
             onMySold={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('mySold'); }}
-            onChat={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setSelectedChatAuctionId(null); setActiveView('chat'); }}
+            onChat={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setSelectedChatAuctionId(null); setChatRefreshKey(prev => prev + 1); setActiveView('chat'); }}
             onWatchlist={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('watchlist'); }}
             activeView={activeView} 
             selectedRegion={selectedRegion}

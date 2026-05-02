@@ -50,21 +50,8 @@ export const ChatView: React.FC<{
     const [messages, setMessages] = useState<Message[]>([]);
     const [newMessage, setNewMessage] = useState('');
     const [loading, setLoading] = useState(false);
-    const [showFailsafe, setShowFailsafe] = useState(false);
     const [sending, setSending] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
-
-    useEffect(() => {
-        let timeout: any;
-        if (loading) {
-            timeout = setTimeout(() => {
-                setShowFailsafe(true);
-            }, 5000);
-        } else {
-            setShowFailsafe(false);
-        }
-        return () => clearTimeout(timeout);
-    }, [loading]);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -350,17 +337,6 @@ export const ChatView: React.FC<{
                 <div className="flex flex-col items-center gap-4">
                     <div className="w-12 h-12 border-4 border-[#FEBA4F] border-t-transparent rounded-full animate-spin"></div>
                     <p className="text-slate-400 font-bold animate-pulse uppercase tracking-widest text-[10px]">Nalaganje vaših sporočil...</p>
-                    {showFailsafe && (
-                        <button 
-                            onClick={() => {
-                                setLoading(false);
-                                fetchSessions(true);
-                            }}
-                            className="mt-4 px-6 py-2 bg-slate-100 border border-slate-200 rounded-xl text-slate-500 font-bold text-sm tracking-wide lowercase hover:bg-slate-200 transition-colors"
-                        >
-                            Osveži sporočila
-                        </button>
-                    )}
                 </div>
             </div>
         );
