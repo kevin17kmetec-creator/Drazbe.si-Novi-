@@ -435,62 +435,9 @@ const App: React.FC = () => {
 
   // Auth Sync
   useEffect(() => {
-    const syncAuth = async () => {
-      setIsAuthLoading(true);
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.user) {
-          setIsLoggedIn(true);
-          setUserData(prev => ({ ...prev, email: session.user.email || '' }));
-          
-          let { data } = await supabase.from('users').select('*').eq('id', session.user.id).single();
-          
-          // If user doesn't exist in 'users' table, create them now
-          if (!data) {
-              const { data: newUser, error: insertError } = await supabase.from('users').insert({ 
-                  id: session.user.id, 
-                  email: session.user.email, 
-                  is_verified: false, 
-                  unpaid_strikes: 0, 
-                  subscription: 'FREE' 
-              }).select().single();
-              
-              if (!insertError && newUser) {
-                  data = newUser;
-              } else {
-                  const { data: existingUser } = await supabase.from('users').select('*').eq('id', session.user.id).single();
-                  if (existingUser) data = existingUser;
-              }
-          }
-
-          if (data) {
-            console.log("Auth Sync - User data:", data);
-            const verified = !!(data.is_verified || data.isVerified || data.isverified);
-            setIsVerified(verified);
-            setUserType(data.user_type || data.userType || 'individual');
-            setUserData(prev => ({ ...prev, ...data, id: session.user.id, is_verified: verified }));
-            if (data.watched_auctions) {
-              setWatchedIds(data.watched_auctions);
-            }
-            if (data.has_accepted_terms) {
-              setHasAcceptedTerms(true);
-            }
-            if (data.bid_auction_ids) {
-              setBidAuctionIds(data.bid_auction_ids);
-            }
-            if (data.subscription) {
-              setCurrentPlan(data.subscription);
-            }
-          }
-        }
-      } catch (err) {
-        console.error("Supabase auth sync error:", err);
-      } finally {
-        setIsAuthLoading(false);
-      }
-    };
-    syncAuth();
-
+    // Only use onAuthStateChange, which inherently fires an INITIAL_SESSION event
+    // on setup. Avoid calling getSession() manually here to prevent race conditions 
+    // and duplicate loads.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (session?.user) {
         setIsLoggedIn(true);
@@ -500,15 +447,10 @@ const App: React.FC = () => {
             return { ...prev, id: session.user.id, email: newEmail };
         });
         
-        // Only fetch user data from DB on initial load or sign in to prevent infinite loops
-        // if a DB query triggers a token refresh which triggers another DB query.
         if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
-            // Guard: don't show loading and fetch again if we already have this user's data
-            // This prevents rapid flashing on window focus when Supabase broadcasts heartbeats
             try {
               let { data } = await supabase.from('users').select('*').eq('id', session.user.id).single();
               
-              // If user doesn't exist in 'users' table, create them now
               if (!data) {
                   const { data: newUser, error: insertError } = await supabase.from('users').insert({ 
                       id: session.user.id, 
@@ -551,10 +493,13 @@ const App: React.FC = () => {
               setIsAuthLoading(false);
             }
             fetchAuctions();
+        } else if (event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+            setIsAuthLoading(false);
         }
       } else {
         setIsLoggedIn(false);
         setIsVerified(false);
+        setUserData({} as any);
         setIsAuthLoading(false);
         fetchAuctions();
       }

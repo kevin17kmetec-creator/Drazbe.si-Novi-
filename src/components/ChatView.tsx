@@ -76,12 +76,9 @@ export const ChatView: React.FC<{
     const hasSessionsRef = useRef(false);
 
     const fetchSessions = useCallback(async (isInitial = false, retryCount = 0) => {
-        setLoading(prev => {
-            if (isInitial && prev === false && retryCount === 0 && !hasSessionsRef.current) {
-                return true; 
-            }
-            return prev;
-        });
+        if (!hasSessionsRef.current && isInitial) {
+            setLoading(true);
+        }
 
         try {
             const now = new Date().toISOString();
