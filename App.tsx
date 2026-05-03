@@ -104,6 +104,7 @@ const App: React.FC = () => {
   
   const [auctions, setAuctions] = useState<AuctionItem[]>(EXTENDED_MOCK_AUCTIONS);
   const [activeView, setActiveView] = useState<ViewState>('grid');
+  const [republishData, setRepublishData] = useState<any>(null);
   const [bidAuctionIds, setBidAuctionIds] = useState<string[]>([]);
   const [hasAcceptedTerms, setHasAcceptedTerms] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
@@ -1193,7 +1194,13 @@ const App: React.FC = () => {
               </div>
           );
       } else {
-          content = <CreateAuctionForm onBack={() => setActiveView('grid')} t={t} onPublish={handlePublish} isLoggedIn={isLoggedIn} />; 
+          content = <CreateAuctionForm 
+              onBack={() => { setActiveView('grid'); setRepublishData(null); }} 
+              t={t} 
+              onPublish={handlePublish} 
+              isLoggedIn={isLoggedIn}
+              initialData={republishData}
+          />; 
       }
       break;
     case 'detail':
@@ -1525,7 +1532,7 @@ const App: React.FC = () => {
         );
         break;
     case 'mySold':
-        const currentUserSold = auctions.filter(a => ((a.sellerId === userData.id || (a as any).seller_id === userData.id) && (a.status === 'completed' || new Date(a.endTime) <= new Date())));
+        const currentUserSold = auctions.filter(a => ((a.sellerId === userData.id || (a as any).seller_id === userData.id) && (a.status === 'completed' || new Date(a.endTime) <= new Date()) && !!(a.winnerId || (a as any).winner_id)));
         content = (
             <div className="max-w-[1600px] mx-auto py-16 px-6 animate-in">
                 <button onClick={() => setActiveView('grid')} className="flex items-center gap-2 text-slate-400 mb-10 font-black uppercase text-[10px] tracking-widest hover:text-[#0A1128] transition-colors"><ArrowLeft size={16}/> Nazaj</button>
@@ -1571,6 +1578,15 @@ const App: React.FC = () => {
                                         </h3>
                                         <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 text-sm font-bold text-slate-400">
                                             <span className="flex items-center gap-1.5"><Gavel size={16}/> Prodajna cena: <span className="text-[#0A1128] font-black">€{soldItem.currentBid.toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></span>
+                                            {soldItem.payment_status === 'paid' ? (
+                                                <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
+                                                    <CheckCircle2 size={12} /> Plačano
+                                                </span>
+                                            ) : (
+                                                <span className="bg-red-100 text-red-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
+                                                    <Clock size={12} /> Čaka na plačilo
+                                                </span>
+                                            )}
                                         </div>
                                     </div>
                                     <div className="flex flex-col gap-3 w-full md:w-auto">
@@ -1584,6 +1600,7 @@ const App: React.FC = () => {
                                         >
                                             Odpri dražbo
                                         </button>
+
                                         
                                         <div className="flex flex-col items-center gap-2 mt-2">
                                             {soldItem.delivery_method ? (
@@ -1600,6 +1617,83 @@ const App: React.FC = () => {
                                                 </button>
                                             )}
                                         </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            </div>
+        );
+        break;
+    case 'myUnsold':
+        // Filter: seller is current user, auction has ended, NO winner AND it ended less than 30 days ago
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        const currentUserUnsold = auctions.filter(a => (
+            (a.sellerId === userData.id || (a as any).seller_id === userData.id) && 
+            (a.status === 'completed' || new Date(a.endTime) <= new Date()) && 
+            !(a.winnerId || (a as any).winner_id) &&
+            new Date(a.endTime) > thirtyDaysAgo
+        ));
+        content = (
+            <div className="max-w-[1600px] mx-auto py-16 px-6 animate-in">
+                <button onClick={() => setActiveView('grid')} className="flex items-center gap-2 text-slate-400 mb-10 font-black uppercase text-[10px] tracking-widest hover:text-[#0A1128] transition-colors"><ArrowLeft size={16}/> Nazaj</button>
+                <div className="bg-white rounded-[4rem] p-12 shadow-2xl border border-slate-100 min-h-[500px]">
+                    <div className="flex items-center gap-6 mb-12">
+                        <div className="bg-slate-100 p-4 rounded-3xl shadow-lg">
+                            <MessageSquare size={40} className="text-slate-400" />
+                        </div>
+                        <div>
+                            <h2 className="text-4xl font-black uppercase tracking-tighter text-[#0A1128]">Neprodane dražbe</h2>
+                            <p className="text-slate-400 font-bold mt-2">Dražbe, na katere ni bilo ponudb. Po 30 dneh bodo samodejno izbrisane.</p>
+                        </div>
+                    </div>
+                    
+                    <div className="space-y-6">
+                        {currentUserUnsold.length === 0 ? (
+                            <div className="py-12 text-center">
+                                <p className="text-slate-500 font-black uppercase tracking-widest text-lg">Nimate neprodanih dražb</p>
+                            </div>
+                        ) : currentUserUnsold.map(soldItem => {
+                            return (
+                                <div key={soldItem.id} className="flex flex-col md:flex-row items-center gap-8 p-6 rounded-[2.5rem] border-2 border-slate-100 hover:border-slate-300 transition-colors group">
+                                    <SignedImg 
+                                        src={soldItem.images[0]} 
+                                        alt="Item" 
+                                        className="w-32 h-32 rounded-3xl object-cover shadow-md cursor-pointer group-hover:scale-105 transition-transform" 
+                                        onClick={() => {
+                                            setSelectedItem(soldItem);
+                                            setActiveView('detail');
+                                            window.scrollTo({ top: 0, behavior: 'instant' });
+                                        }}
+                                    />
+                                    <div className="flex-1 text-center md:text-left">
+                                        <h3 
+                                            className="text-2xl font-black uppercase tracking-tighter text-slate-500 mb-2 cursor-pointer hover:text-[#0A1128] transition-colors"
+                                            onClick={() => {
+                                                setSelectedItem(soldItem);
+                                                setActiveView('detail');
+                                                window.scrollTo({ top: 0, behavior: 'instant' });
+                                            }}
+                                        >
+                                            {soldItem.title[language as keyof typeof soldItem.title] || soldItem.title.SLO}
+                                        </h3>
+                                        <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 text-sm font-bold text-slate-400">
+                                            <span className="flex items-center gap-1.5"><Calendar size={16}/> Končano: {new Date(soldItem.endTime).toLocaleDateString('sl-SI')}</span>
+                                        </div>
+                                    </div>
+                                    <div className="flex flex-col gap-3 w-full md:w-auto">
+                                        <button 
+                                            onClick={() => {
+                                                setRepublishData(soldItem);
+                                                setActiveView('createAuction');
+                                                window.scrollTo({ top: 0, behavior: 'instant' });
+                                            }}
+                                            className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl flex items-center justify-center gap-2"
+                                        >
+                                            <Upload size={16} /> Ponovno objavi
+                                        </button>
                                     </div>
                                 </div>
                             );
@@ -1796,6 +1890,7 @@ const App: React.FC = () => {
             onMyWinnings={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('winnings'); }} 
             onMyBids={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('myBids'); }}
             onMySold={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('mySold'); }}
+            onMyUnsold={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('myUnsold'); }}
             onWatchlist={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('watchlist'); }}
             activeView={activeView} 
             selectedRegion={selectedRegion}

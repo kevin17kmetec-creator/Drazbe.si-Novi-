@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { User, Camera, CheckCircle2, AlertCircle, Shield, CreditCard, Building, MapPin, Key } from 'lucide-react';
 import { toast } from 'sonner';
 import { StripeConnectOnboarding } from './StripeConnectOnboarding';
@@ -39,6 +39,24 @@ const COUNTRIES = [
 export const SettingsView: React.FC<{ t: any; language: string; user: any; onSave: (data: any) => Promise<void>; onVerify: () => void; onStripeVerified: () => void }> = ({ t, language, user, onSave, onVerify, onStripeVerified }) => {
   const [activeTab, setActiveTab] = useState<'profile' | 'personal' | 'stripe'>('profile');
   const [isSaving, setIsSaving] = useState(false);
+  const [stripeStatusChecked, setStripeStatusChecked] = useState(false);
+
+  useEffect(() => {
+     if (user?.id && !stripeStatusChecked && activeTab === 'stripe') {
+         setStripeStatusChecked(true);
+         // Dynamically check Stripe onboarding status when they switch to this tab
+         fetch('/api/stripe-check-account-status', {
+             method: 'POST',
+             headers: { 'Content-Type': 'application/json' },
+             body: JSON.stringify({ user_id: user.id })
+         }).then(res => res.json()).then(data => {
+             if (data.complete && !user.stripe_onboarding_complete) {
+                 onStripeVerified(); // trigger parent update if needed
+             }
+         }).catch(console.error);
+     }
+  }, [user?.id, activeTab, stripeStatusChecked, user?.stripe_onboarding_complete, onStripeVerified]);
+
   const [formData, setFormData] = useState({
     username: user?.username || '',
     firstName: user?.first_name || user?.firstName || '',

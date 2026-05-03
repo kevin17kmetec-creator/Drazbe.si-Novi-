@@ -21,7 +21,13 @@ const REGION_LOCATIONS: Record<Region, string[]> = {
 
 import { CustomDatePicker, CustomTimePicker } from './CustomDateTime';
 
-export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish: (item: any) => void; isLoggedIn: boolean }> = ({ onBack, t, onPublish, isLoggedIn }) => {
+export const CreateAuctionForm: React.FC<{ 
+    onBack: () => void; 
+    t: any; 
+    onPublish: (item: any) => void; 
+    isLoggedIn: boolean;
+    initialData?: any;
+}> = ({ onBack, t, onPublish, isLoggedIn, initialData }) => {
     const getLocalDateStr = (date: Date) => {
         const year = date.getFullYear();
         const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -44,13 +50,13 @@ export const CreateAuctionForm: React.FC<{ onBack: () => void; t: any; onPublish
     const maxDateStr = getLocalDateStr(maxDate);
 
     const [formData, setFormData] = useState({ 
-        title: '', 
-        category: Category.Ostalo, 
-        region: Region.Stajerska, 
-        location: REGION_LOCATIONS[Region.Stajerska][0],
-        condition: 'Rabljeno',
-        description: '', 
-        startingPrice: '1', 
+        title: initialData?.title?.SLO || initialData?.title || '', 
+        category: initialData?.category || Category.Ostalo, 
+        region: initialData?.region || Region.Stajerska, 
+        location: initialData?.location?.SLO || initialData?.location || (REGION_LOCATIONS[initialData?.region as Region || Region.Stajerska][0]),
+        condition: initialData?.condition || 'Rabljeno',
+        description: initialData?.description || '', 
+        startingPrice: initialData?.startingPrice?.toString() || '1', 
         minStep: '5',
         endDate: defaultDateStr,
         endTime: defaultTimeStr

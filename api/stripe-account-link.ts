@@ -11,6 +11,9 @@ export default async function handler(
   req: VercelRequest,
   res: VercelResponse
 ) {
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -19,7 +22,7 @@ export default async function handler(
     const { user_id, return_url, refresh_url } = req.body;
 
     // Check if user already has an account
-    const { data: user } = await supabase.from('users').select('stripe_account_id').eq('id', user_id).single();
+    const { data: user } = await supabase.from('users').select('stripe_account_id, stripe_onboarding_complete').eq('id', user_id).single();
     let accountId = user?.stripe_account_id;
 
     if (!accountId) {
@@ -36,8 +39,14 @@ export default async function handler(
       // Save to DB
       await supabase.from('users').update({ stripe_account_id: accountId }).eq('id', user_id);
     }
+    
+    // If onboarding is complete, generate a Login Link for the Express Dashboard
+    if (accountId && user?.stripe_onboarding_complete) {
+        const loginLink = await stripe.accounts.createLoginLink(accountId);
+        return res.status(200).json({ url: loginLink.url });
+    }
 
-    // Create an AccountLink
+    // Create an AccountLink for onboarding
     const accountLink = await stripe.accountLinks.create({
       account: accountId,
       refresh_url: refresh_url,
