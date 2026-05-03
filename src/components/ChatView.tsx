@@ -221,7 +221,7 @@ export const ChatView: React.FC<{
         } finally {
             setLoading(false);
         }
-    }, [currentUserId, initialAuctionId, t]);
+    }, [currentUserId, initialAuctionId]);
 
     // Recover from background/hibernation
     useEffect(() => {

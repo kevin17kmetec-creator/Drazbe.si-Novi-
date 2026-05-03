@@ -104,7 +104,7 @@ const PaymentTimer: React.FC<{ endTime: string | Date }> = ({ endTime }) => {
 
 const App: React.FC = () => {
   const [language, setLanguage] = useState('SLO');
-  const t = (key: string) => translations[language]?.[key] || key;
+  const t = useCallback((key: string) => translations[language]?.[key] || key, [language]);
   
   const [auctions, setAuctions] = useState<AuctionItem[]>(EXTENDED_MOCK_AUCTIONS);
   const [activeView, setActiveView] = useState<ViewState>('grid');
@@ -196,6 +196,7 @@ const App: React.FC = () => {
     const handleVis = async () => {
       if (document.visibilityState === 'visible') {
         const now = Date.now();
+        fetchAuctions(); // Instantly refresh bids
         if (now - lastSessionCheckRef.current < 60000) return; // Only check once per minute on focus
         
         if (isCheckingSessionRef.current) return;

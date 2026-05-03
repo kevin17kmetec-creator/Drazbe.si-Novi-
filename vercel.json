@@ -5,7 +5,7 @@
       "headers": [
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com https://js.stripe.com https://*.stripe.com https://m.stripe.network https://*.supabase.co wss://*.supabase.co https://*.sentry.io; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://*.stripe.com https://m.stripe.network https://cdn.jsdelivr.net; connect-src 'self' https://api.stripe.com https://*.stripe.com https://m.stripe.network wss://*.supabase.co https://*.supabase.co https://generativelanguage.googleapis.com https://*.sentry.io; frame-src 'self' 'unsafe-inline' https://js.stripe.com https://*.stripe.com https://m.stripe.network; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://m.stripe.network https://*.stripe.com; font-src 'self' https://fonts.gstatic.com https://fonts.googleapis.com data:; img-src 'self' data: blob: https://*.stripe.com https://picsum.photos https://lh3.googleusercontent.com https://images.unsplash.com https://*.supabase.co; worker-src 'self' blob: https://cdn.jsdelivr.net; base-uri 'self'; form-action 'self'; object-src 'none';"
+          "value": "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; script-src * 'unsafe-inline' 'unsafe-eval' data: blob:; connect-src * 'unsafe-inline'; img-src * data: blob: 'unsafe-inline'; frame-src *; style-src * 'unsafe-inline'; font-src * data: 'unsafe-inline'; worker-src * blob: data:;"
         }
       ]
     }
