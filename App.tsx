@@ -4,7 +4,6 @@ import SellerView from './src/components/SellerView';
 import { SubscriptionsView } from './src/components/SubscriptionsView';
 import { VerificationView } from './src/components/VerificationView';
 import { CreateAuctionForm } from './src/components/CreateAuctionForm';
-import { ChatView } from './src/components/ChatView';
 import { AuthView } from './src/components/AuthView';
 import { LegalModal } from './src/components/LegalModal';
 import { VerificationBanner } from './src/components/VerificationBanner';
@@ -117,13 +116,12 @@ const App: React.FC = () => {
   const [selectedRegion, setSelectedRegion] = useState<Region | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedChatAuctionId, setSelectedChatAuctionId] = useState<string | null>(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isVerified, setIsVerified] = useState(false);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [userType, setUserType] = useState<'individual' | 'business' | null>(null);
   const [watchedIds, setWatchedIds] = useState<string[]>([]);
-  const [chatRefreshKey, setChatRefreshKey] = useState(0);
+  const [isPollingStopped, setIsPollingStopped] = useState(false);
 
   // Redirect to home if logged in and on login page
   useEffect(() => {
@@ -170,24 +168,6 @@ const App: React.FC = () => {
   const [receiptConfirmModal, setReceiptConfirmModal] = useState<{isOpen: boolean, auctionId: string, sellerId: string}>({isOpen: false, auctionId: '', sellerId: ''});
   const [ratingModal, setRatingModal] = useState<{isOpen: boolean, auctionId: string, sellerId: string, rating: number, comment: string}>({isOpen: false, auctionId: '', sellerId: '', rating: 0, comment: ''});
   const [userData, setUserData] = useState({ id: '', firstName: '', lastName: '', email: '', profilePicture: '', is_verified: false });
-  const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
-
-  const fetchUnread = useCallback(async () => {
-      if (!userData.id) return;
-      try {
-        const { count, error } = await supabase
-            .from('messages')
-            .select('*', { count: 'exact', head: true })
-            .eq('receiver_id', userData.id)
-            .eq('is_read', false);
-        
-        if (!error && count !== null) {
-            setUnreadMessagesCount(count);
-        }
-      } catch (err) {
-        console.warn("Silent unread fetch failed.");
-      }
-  }, [userData.id]);
 
   const lastSessionCheckRef = useRef(0);
   const isCheckingSessionRef = useRef(false);
@@ -223,7 +203,6 @@ const App: React.FC = () => {
                 // Recover session if it was lost
                 setIsLoggedIn(true);
             }
-            fetchUnread();
           } else if (!session && isLoggedIn) {
             console.log("No session found on focus, logging out...");
             setIsLoggedIn(false);
@@ -247,34 +226,6 @@ const App: React.FC = () => {
     };
   }, [userData.id, isLoggedIn]);
 
-  useEffect(() => {
-    if (!userData.id) {
-        setUnreadMessagesCount(0);
-        return;
-    }
-
-    fetchUnread();
-
-    const channel = supabase.channel('unread-messages')
-        .on('postgres_changes', {
-            event: '*',
-            schema: 'public',
-            table: 'messages',
-            filter: `receiver_id=eq.${userData.id}`
-        }, () => {
-            fetchUnread();
-        })
-        .subscribe((status) => {
-            if (status === 'CHANNEL_ERROR') {
-                console.error("Unread messages subscription error.");
-            }
-        });
-
-    return () => {
-        if (channel) supabase.removeChannel(channel).catch(() => {});
-    };
-  }, [userData.id]);
-  
   const [selectedItem, setSelectedItem] = useState<AuctionItem | null>(null);
   const [selectedSeller, setSelectedSeller] = useState<Seller | null>(null);
 
@@ -352,21 +303,27 @@ const App: React.FC = () => {
   const consecutiveErrorsRef = useRef(0);
   const fetchAuctions = useCallback(async () => {
     try {
+      // Adding a timeout check just in case, though Supabase has one
       const { data, error } = await supabase.from('auctions').select('*');
       if (error) {
           consecutiveErrorsRef.current++;
-          console.error("Error fetching auctions:", error);
-          if (consecutiveErrorsRef.current > 5) {
-              console.warn("Too many consecutive fetch errors. Slowing down polling.");
+          
+          if (consecutiveErrorsRef.current >= 5) {
+              console.error(`Error fetching auctions: ${error.message} (Code: ${error.code}). Stopping polling.`);
+              setIsPollingStopped(true);
           }
           return;
       }
       
       consecutiveErrorsRef.current = 0;
+      if (isPollingStopped) setIsPollingStopped(false);
 
       // Fetch users to map seller names
-      const { data: usersData } = await supabase.from('users').select('id, username, company_name, user_type, first_name, last_name');
-      const usersMap = new Map(usersData?.map(u => [u.id, u]) || []);
+      const { data: usersData, error: usersError } = await supabase.from('users').select('id, username, company_name, user_type, first_name, last_name');
+      if (usersError) {
+          console.error("Error fetching users for map:", usersError.message);
+      }
+      const usersMap = new Map((usersData || []).map(u => [u.id, u]));
       
       const supabaseData: AuctionItem[] = data.map(d => {
           const seller = usersMap.get(d.seller_id);
@@ -414,8 +371,15 @@ const App: React.FC = () => {
           return newData;
       });
 
-    } catch (err) {
-      console.error("Supabase connection error:", err);
+    } catch (err: any) {
+      consecutiveErrorsRef.current++;
+      const errorMessage = err?.message || String(err);
+      
+      if (consecutiveErrorsRef.current >= 5) {
+          console.error(`Fetch exception: ${errorMessage}. Source: ${err?.stack || 'Unknown'}. Stopping polling.`);
+          setIsPollingStopped(true);
+      }
+      
       if (!IS_LIVE) {
         setAuctions(prev => prev.length === EXTENDED_MOCK_AUCTIONS.length ? prev : [...EXTENDED_MOCK_AUCTIONS]);
       }
@@ -430,13 +394,18 @@ const App: React.FC = () => {
 
   // Firestore Sync & Polling with Backoff
   useEffect(() => {
-    let timeoutId: any;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
     let currentDelay = 3000;
+    let isMounted = true;
 
     const poll = async () => {
+        if (!isMounted || consecutiveErrorsRef.current >= 5) return;
+        
         const start = Date.now();
         await fetchAuctions();
         
+        if (!isMounted || consecutiveErrorsRef.current >= 5) return;
+
         // If we had errors, increase delay (backoff), otherwise reset to 3s
         if (consecutiveErrorsRef.current > 0) {
             currentDelay = Math.min(currentDelay * 1.5, 30000); // Max 30s
@@ -452,12 +421,12 @@ const App: React.FC = () => {
     poll();
 
     // Real-time subscription with WebSocket check
-    let channel: any = null;
+    let channel: ReturnType<typeof supabase.channel> | null = null;
     if (typeof window !== 'undefined' && window.WebSocket) {
       try {
         channel = supabase.channel('public:auctions')
           .on('postgres_changes', { event: '*', schema: 'public', table: 'auctions' }, () => {
-            fetchAuctions();
+             if (consecutiveErrorsRef.current < 5) fetchAuctions();
           })
           .subscribe((status) => {
             if (status === 'CHANNEL_ERROR') {
@@ -470,10 +439,9 @@ const App: React.FC = () => {
     }
     
     return () => {
-        clearTimeout(timeoutId);
-        if (channel) {
-          supabase.removeChannel(channel).catch(() => {});
-        }
+        isMounted = false;
+        if (timeoutId) clearTimeout(timeoutId);
+        if (channel) supabase.removeChannel(channel).catch(() => {});
     }
   }, [fetchAuctions]);
 
@@ -1231,19 +1199,6 @@ const App: React.FC = () => {
           content = <CreateAuctionForm onBack={() => setActiveView('grid')} t={t} onPublish={handlePublish} isLoggedIn={isLoggedIn} />; 
       }
       break;
-    case 'chat': 
-      content = <ChatView 
-          key={`chat-view-${chatRefreshKey}`}
-          onBack={() => { setActiveView('grid'); setSelectedChatAuctionId(null); }} 
-          onViewProfile={(seller) => { setSelectedSeller(seller); setActiveView('sellerProfile'); }}
-          onViewAuction={(item) => { setSelectedItem(item); setActiveView('detail'); }}
-          onMessagesRead={fetchUnread}
-          t={t} 
-          currentUserId={userData.id} 
-          language={language} 
-          initialAuctionId={selectedChatAuctionId}
-      />; 
-      break;
     case 'detail':
       if (selectedItem) content = (
         <AuctionView 
@@ -1255,7 +1210,6 @@ const App: React.FC = () => {
           onWatchToggle={() => toggleWatch(selectedItem.id)}
           currentPlan={currentPlan} 
           currentUserId={userData.id}
-          onChatStart={() => { setSelectedChatAuctionId(selectedItem.id); setChatRefreshKey(prev => prev + 1); setActiveView('chat'); }}
           onBack={() => { setActiveView('grid'); setSelectedItem(null); }} 
           onBidSubmit={handleBidSubmit} 
           onCheckout={(item) => { 
@@ -1823,6 +1777,14 @@ const App: React.FC = () => {
             }} 
         />
         <VerificationBanner isVisible={isBannerActive} onAction={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('verification'); }} t={t} />
+        {isPollingStopped && (
+            <div className="bg-red-500 text-white text-center py-2 px-4 shadow-md font-bold text-sm sticky top-0 z-[6000] flex justify-center items-center gap-4 animate-in slide-in-from-top fade-in duration-300">
+                <span>Povezava s strežnikom je prekinjena.</span>
+                <button onClick={() => window.location.reload()} className="bg-white text-red-500 hover:bg-red-50 px-3 py-1 rounded-full text-xs uppercase tracking-wider transition-colors focus:ring-2 focus:ring-white focus:outline-none">
+                    Osveži stran
+                </button>
+            </div>
+        )}
         <Header 
             onHome={() => { setActiveView('grid'); setSelectedRegion(null); setSelectedCategory(null); setSearchQuery(''); }} 
             onSearch={setSearchQuery} 
@@ -1837,7 +1799,6 @@ const App: React.FC = () => {
             onMyWinnings={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('winnings'); }} 
             onMyBids={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('myBids'); }}
             onMySold={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('mySold'); }}
-            onChat={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setSelectedChatAuctionId(null); setChatRefreshKey(prev => prev + 1); setActiveView('chat'); }}
             onWatchlist={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('watchlist'); }}
             activeView={activeView} 
             selectedRegion={selectedRegion}
@@ -1850,7 +1811,6 @@ const App: React.FC = () => {
             auctions={auctions}
             userEmail={userData.email}
             userProfilePicture={userData.profile_picture_url || userData.profilePicture}
-            unreadMessagesCount={unreadMessagesCount}
         />
         <main>{content}</main>
         {activeView === 'grid' && <Footer t={t} onLegal={setActiveLegal} />}

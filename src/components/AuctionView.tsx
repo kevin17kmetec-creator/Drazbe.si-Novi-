@@ -15,7 +15,7 @@ const TimeBox = ({ value, label }: { value: number, label: string }) => (
   </div>
 );
 
-export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onSellerClick, t, language, isVerified, currentPlan, isWatched, onWatchToggle, currentUserId, onChatStart }: { 
+export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onSellerClick, t, language, isVerified, currentPlan, isWatched, onWatchToggle, currentUserId }: { 
   item: any, 
   onBack: () => void, 
   onBidSubmit: (item: any, amount: number) => Promise<"error" | "success" | "outbid" | "login_required" | "cancelled">,
@@ -27,8 +27,7 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
   currentPlan: string,
   isWatched?: boolean,
   onWatchToggle?: () => void,
-  currentUserId?: string,
-  onChatStart?: () => void
+  currentUserId?: string
 }) {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
@@ -253,22 +252,10 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                       >
                         <Lock size={18} /> {loading ? '...' : t('payNow')}
                       </button>
-                      <button 
-                        onClick={onChatStart}
-                        className="w-full bg-slate-800 text-white px-8 py-4 rounded-xl font-black uppercase tracking-widest hover:bg-slate-700 transition-all flex items-center justify-center gap-2 border border-slate-700"
-                      >
-                        <MessageSquare size={18} /> Začni pogovor s prodajalcem
-                      </button>
                     </>
                   ) : isSeller ? (
                     <>
                       <p className="text-slate-300 font-bold mb-4">{t('sellerWinnerNotice')}</p>
-                      <button 
-                        onClick={onChatStart}
-                        className="w-full bg-slate-800 text-white px-8 py-4 rounded-xl font-black uppercase tracking-widest hover:bg-slate-700 transition-all flex items-center justify-center gap-2 border border-slate-700"
-                      >
-                        <MessageSquare size={18} /> Začni pogovor s kupcem
-                      </button>
                     </>
                   ) : (
                     <p className="text-slate-300 font-bold">{t('notWinnerNotice')}</p>

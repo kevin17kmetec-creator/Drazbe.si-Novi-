@@ -180,7 +180,7 @@ const SellerView: React.FC<SellerViewProps> = ({
                       </div>
                     </div>
                     <div className="p-8 flex flex-col flex-1">
-                      <h3 className="text-lg font-black leading-tight text-white hover:text-[#FEBA4F] transition-colors line-clamp-2 mb-4">{item.title?.[language] || item.title?.['SLO'] || 'Zasebno sporočilo'}</h3>
+                      <h3 className="text-lg font-black leading-tight text-white hover:text-[#FEBA4F] transition-colors line-clamp-2 mb-4">{item.title?.[language] || item.title?.['SLO'] || 'Dražba'}</h3>
                       <div className="mt-auto pt-6 border-t border-white/10">
                         <div className="flex justify-between items-end">
                           <div>
@@ -223,7 +223,7 @@ const SellerView: React.FC<SellerViewProps> = ({
                       </div>
                     </div>
                     <div className="p-8 flex flex-col flex-1">
-                      <h3 className="text-lg font-black leading-tight text-[#0A1128] line-clamp-2 mb-4">{item.title?.[language] || item.title?.['SLO'] || 'Zasebno sporočilo'}</h3>
+                      <h3 className="text-lg font-black leading-tight text-[#0A1128] line-clamp-2 mb-4">{item.title?.[language] || item.title?.['SLO'] || 'Dražba'}</h3>
                       <div className="mt-auto pt-6 border-t border-slate-100">
                         <div className="flex justify-between items-end">
                           <div>
