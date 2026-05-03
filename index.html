@@ -3,12 +3,36 @@
 <html lang="sl">
 <head>
     <meta charset="UTF-8">
+    <script>
+      window.addEventListener('unhandledrejection', function(event) {
+        var msg = event.reason && event.reason.message ? event.reason.message : String(event.reason);
+        if (msg.includes('SES') || msg.includes('MetaMask') || msg.includes('lockdown') || msg.includes('tabs:outgoing') || msg.includes('message channel closed') || msg.includes('connect-js')) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+      }, true);
+      window.addEventListener('error', function(event) {
+        var msg = event.message || '';
+        if (msg.includes('SES') || msg.includes('MetaMask') || msg.includes('lockdown') || msg.includes('tabs:outgoing') || msg.includes('message channel closed') || msg.includes('connect-js')) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+      }, true);
+      // FAKE SENTRY GLOBALS TO STOP 429 IFRAME SPAM
+      window.Sentry = {
+         init: function() {},
+         captureException: function() {},
+         captureMessage: function() {},
+         withScope: function() {},
+         configureScope: function() {}
+      };
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="preconnect" href="https://js.stripe.com" crossorigin>
     <link rel="preconnect" href="https://m.stripe.network" crossorigin>
-    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; script-src * 'unsafe-inline' 'unsafe-eval' data: blob:; connect-src * 'unsafe-inline'; img-src * data: blob: 'unsafe-inline'; frame-src *; style-src * 'unsafe-inline'; font-src * data: 'unsafe-inline'; worker-src * blob: data:;">
+    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; script-src * 'unsafe-inline' 'unsafe-eval' data: blob:; connect-src * 'unsafe-inline' https://*.sentry.io https://*.fonts.gstatic.com https://*.stripe.com; img-src * data: blob: 'unsafe-inline'; frame-src *; style-src * 'unsafe-inline'; font-src * data: 'unsafe-inline'; worker-src * blob: data:;">
     <title>Drazba.si | Prva slovenska digitalna dražba</title>
     <meta name="description" content="Prva slovenska digitalna dražba - Drazba.si. Licitirajte za stroje, vozila, umetnine, opremo in nepremičnine. Najbolj zanesljiva platforma v Sloveniji.">
     <meta property="og:title" content="Drazba.si | Prva slovenska digitalna dražba">

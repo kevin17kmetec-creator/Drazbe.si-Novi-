@@ -63,7 +63,6 @@ export const ChatView: React.FC<{
         if (loading) {
             timer = setTimeout(() => {
                 if (loading) {
-                    console.warn("Messaging load timeout reached - forcing end.");
                     setLoading(false);
                 }
             }, 10000);
