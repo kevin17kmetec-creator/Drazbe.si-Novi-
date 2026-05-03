@@ -1,6 +1,4 @@
 import React, { useState } from 'react';
-import { loadConnectAndInitialize } from '@stripe/connect-js';
-import { ConnectAccountOnboarding, ConnectComponentsProvider } from '@stripe/react-connect-js';
 import { AlertCircle, CheckCircle2 } from 'lucide-react';
 
 interface Props {
@@ -12,29 +10,22 @@ interface Props {
 }
 
 export const StripeConnectOnboarding: React.FC<Props> = ({ userId, isComplete, onComplete, t, language }) => {
-  const [showOnboarding, setShowOnboarding] = useState(false);
-  const [stripeConnectInstance, setStripeConnectInstance] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
 
-  const getStripeLocale = (lang: string) => {
-    switch (lang) {
-      case 'SLO': return 'sl';
-      case 'DE': return 'de';
-      default: return 'en-US';
-    }
-  };
-
-  const handleStartOnboarding = () => {
-    // Prevent starting again if already showing to avoid multiple instances
-    if (showOnboarding) return;
-
-    const fetchClientSecret = async () => {
-      const response = await fetch('/api/stripe-account-session', {
+  const handleStartOnboarding = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch('/api/stripe-account-link', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: userId }),
+        body: JSON.stringify({ 
+            user_id: userId,
+            refresh_url: window.location.href,
+            return_url: window.location.href 
+        }),
       });
       if (!response.ok) {
-        let errorMsg = 'Failed to fetch client secret';
+        let errorMsg = 'Failed to create stripe link';
         try {
             const data = await response.json();
             if (data.error) errorMsg = data.error;
@@ -43,28 +34,15 @@ export const StripeConnectOnboarding: React.FC<Props> = ({ userId, isComplete, o
         }
         throw new Error(errorMsg);
       }
-      const { client_secret } = await response.json();
-      return client_secret;
-    };
-
-    const instance = loadConnectAndInitialize({
-      publishableKey: import.meta.env.VITE_STRIPE_PUBLIC_KEY,
-      fetchClientSecret: fetchClientSecret,
-      locale: getStripeLocale(language),
-      appearance: {
-        variables: {
-          colorPrimary: '#FEBA4F',
-          colorBackground: '#ffffff',
-          colorText: '#0A1128',
-          fontFamily: 'Inter, sans-serif',
-          colorDanger: '#ef4444',
-          borderRadius: '16px',
-        },
-      },
-    });
-
-    setStripeConnectInstance(instance);
-    setShowOnboarding(true);
+      const data = await response.json();
+      if (data.url) {
+          window.location.href = data.url;
+      }
+    } catch (err: any) {
+        console.error(err);
+        alert(err.message || 'Prišlo je do napake pri preusmeritvi na Stripe.');
+        setLoading(false);
+    }
   };
 
   return (
@@ -85,41 +63,14 @@ export const StripeConnectOnboarding: React.FC<Props> = ({ userId, isComplete, o
         </div>
         <button
           type="button"
+          disabled={loading}
           onClick={handleStartOnboarding}
-          className="shrink-0 bg-[#0A1128] text-white px-6 py-3 rounded-xl font-black uppercase tracking-widest text-xs hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-colors shadow-lg"
+          className="shrink-0 bg-[#0A1128] text-white px-6 py-3 rounded-xl font-black uppercase tracking-widest text-xs hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-colors shadow-lg disabled:opacity-50"
         >
-          {isComplete ? 'Upravljaj bančni račun' : 'Začni preverjanje'}
+          {loading ? 'Nalaganje...' : isComplete ? 'Upravljaj bančni račun' : 'Začni preverjanje'}
         </button>
       </div>
-
-      {showOnboarding && stripeConnectInstance && (
-        <div className="mt-8 border-t border-slate-200 pt-8" style={{ minHeight: '600px' }}>
-          <ConnectComponentsProvider connectInstance={stripeConnectInstance}>
-            <ConnectAccountOnboarding
-              onExit={() => {
-                // When user clicks exit or completes
-                // Let's verify status from our backend
-                fetch('/api/stripe-check-account-status', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ user_id: userId }),
-                })
-                  .then(res => res.json())
-                  .then(data => {
-                    if (data.complete) {
-                      setShowOnboarding(false);
-                      onComplete();
-                    } else {
-                      // Status not complete yet
-                      setShowOnboarding(false);
-                    }
-                  })
-                  .catch(console.error);
-              }}
-            />
-          </ConnectComponentsProvider>
-        </div>
-      )}
     </div>
   );
 };
+

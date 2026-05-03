@@ -312,9 +312,9 @@ async function startServer() {
     }
   });
 
-  app.post("/api/stripe-account-session", async (req, res) => {
+  app.post("/api/stripe-account-link", async (req, res) => {
     try {
-      const { user_id } = req.body;
+      const { user_id, return_url, refresh_url } = req.body;
       const stripe = getStripe();
 
       // Check if user already has an account
@@ -336,17 +336,17 @@ async function startServer() {
         await supabase.from('users').update({ stripe_account_id: accountId }).eq('id', user_id);
       }
 
-      // Create an AccountSession
-      const accountSession = await stripe.accountSessions.create({
+      // Create an AccountLink
+      const accountLink = await stripe.accountLinks.create({
         account: accountId,
-        components: {
-          account_onboarding: { enabled: true },
-        },
+        refresh_url: refresh_url,
+        return_url: return_url,
+        type: 'account_onboarding',
       });
 
-      res.json({ client_secret: accountSession.client_secret });
+      res.json({ url: accountLink.url });
     } catch (error: any) {
-      console.error("Stripe Account Session Error:", error);
+      console.error("Stripe Account Link Error:", error);
       res.status(500).json({ error: error.message });
     }
   });
