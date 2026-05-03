@@ -119,11 +119,16 @@ export const ChatView: React.FC<{
         try {
             const nowTime = new Date();
             
-            // Simpler query: just get auctions where user is involved. Filter status in JS.
-            const { data: auctions, error } = await supabase
+            const fetchPromise = supabase
                 .from('auctions')
                 .select('*')
                 .or(`seller_id.eq.${currentUserId},winner_id.eq.${currentUserId}`);
+                
+            const timeoutPromise = new Promise<{data: any, error: any}>((_, reject) => 
+                setTimeout(() => reject(new Error('Messaging load timeout resolved internally')), 5000)
+            );
+            
+            const { data: auctions, error } = await Promise.race([fetchPromise, timeoutPromise]);
 
             if (error) throw error;
             
@@ -162,7 +167,6 @@ export const ChatView: React.FC<{
             const selling: ChatSession[] = [];
 
             auctions.forEach((a: any) => {
-                // filter status in JS for robustness
                 const status = (a.status || '').toLowerCase();
                 const endTime = new Date(a.end_time || a.endTime || 0);
                 const isOver = status === 'completed' || status === 'cancelled' || (endTime.getTime() > 0 && endTime.getTime() <= nowTime.getTime());
@@ -214,7 +218,9 @@ export const ChatView: React.FC<{
             }
 
         } catch (err: any) {
-            console.error("Error fetching chat sessions:", err);
+            if (!err.message?.includes('timeout resolved internally')) {
+                 console.error("Error fetching chat sessions:", err);
+            }
             if (isInitial && !hasSessionsRef.current) {
                 setPageError(t?.('error') || "Prišlo je do napake pri nalaganju.");
             }
