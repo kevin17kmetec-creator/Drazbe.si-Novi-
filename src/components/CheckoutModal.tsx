@@ -17,6 +17,11 @@ export const CheckoutModal: React.FC<{
   const [error, setError] = useState<string | null>(null);
 
   const handlePay = async () => {
+    const popup = window.open('', 'stripeCheckout', 'width=800,height=700,left=200,top=100');
+    if (popup) {
+        popup.document.write('<div style="font-family: sans-serif; padding: 20px;">Pripravljam varno plačilo...</div>');
+    }
+
     setIsProcessing(true);
     setError(null);
 
@@ -37,10 +42,20 @@ export const CheckoutModal: React.FC<{
       }
 
       if (data.url) {
-          window.location.href = data.url;
+          if (popup) {
+              popup.location.href = data.url;
+          } else {
+              window.open(data.url, '_blank', 'width=800,height=700');
+          }
+          // We can also close the modal now that they are in the popup
+          onClose();
+      } else {
+          if (popup) popup.close();
       }
     } catch (err: any) {
+      if (popup) popup.close();
       setError(err.message || "Napaka pri preusmeritvi na plačilo");
+    } finally {
       setIsProcessing(false);
     }
   };

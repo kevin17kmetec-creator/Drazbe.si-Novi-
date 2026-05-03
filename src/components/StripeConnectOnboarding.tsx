@@ -13,6 +13,12 @@ export const StripeConnectOnboarding: React.FC<Props> = ({ userId, isComplete, o
   const [loading, setLoading] = useState(false);
 
   const handleStartOnboarding = async () => {
+    // Open a popup immediately on click to prevent Safari/mobile popup blockers
+    const popup = window.open('', 'stripeOnboarding', 'width=800,height=700,left=200,top=100');
+    if (popup) {
+        popup.document.write('<div style="font-family: sans-serif; padding: 20px;">Nalaganje Stripe vmesnika...</div>');
+    }
+
     setLoading(true);
     try {
       const response = await fetch('/api/stripe-account-link', {
@@ -36,11 +42,19 @@ export const StripeConnectOnboarding: React.FC<Props> = ({ userId, isComplete, o
       }
       const data = await response.json();
       if (data.url) {
-          window.location.href = data.url;
+          if (popup) {
+              popup.location.href = data.url;
+          } else {
+              window.open(data.url, '_blank', 'width=800,height=700');
+          }
+      } else {
+          if (popup) popup.close();
       }
     } catch (err: any) {
         console.error(err);
+        if (popup) popup.close();
         alert(err.message || 'Prišlo je do napake pri preusmeritvi na Stripe.');
+    } finally {
         setLoading(false);
     }
   };
