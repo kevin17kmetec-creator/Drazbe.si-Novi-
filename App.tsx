@@ -25,13 +25,10 @@ import {
   Trash2, Filter, LayoutGrid, List, Scale, FileText, HelpCircle, Languages, FileUp
 } from 'lucide-react';
 
-import { loadStripe } from '@stripe/stripe-js';
-import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import imageCompression from 'browser-image-compression';
 
 import { supabase } from './src/lib/supabaseClient';
 
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY || (() => { throw new Error("VITE_STRIPE_PUBLIC_KEY is not defined"); })());
 import { AuctionItem, Region, ViewState, Seller, Review, SellerType, SubscriptionTier, PaymentCard, WonItem, Category } from './types.ts';
 
 import { Toaster, toast } from 'sonner';
