@@ -903,12 +903,12 @@ const App: React.FC = () => {
       }
   };
 
-  const handleLogout = async () => {
+  const handleLogout = useCallback(async () => {
     // Clear state immediately for better UX
     setIsLoggedIn(false);
     setIsVerified(false);
     setUserType(null);
-    setUserData({ firstName: '', lastName: '', email: '', profilePicture: '' });
+    setUserData({ firstName: '', lastName: '', email: '', profilePicture: '' } as any);
     setHasAcceptedTerms(false);
     setBidAuctionIds([]);
     setActiveView('grid');
@@ -919,7 +919,19 @@ const App: React.FC = () => {
     } catch (err) {
       console.error("Error signing out:", err);
     }
-  };
+  }, [t]);
+
+  const handleStripeVerified = useCallback(async () => {
+    if (!userData.id) return;
+    const { data } = await supabase.from('users').select('*').eq('id', userData.id).single();
+    if (data) {
+        setUserData(prev => ({ ...prev, stripe_onboarding_complete: data.stripe_onboarding_complete, stripe_account_id: data.stripe_account_id }));
+        toast.success('Plačila so uspešno nastavljena! Sedaj lahko objavljate dražbe.');
+    } else {
+        setUserData(prev => ({ ...prev, stripe_onboarding_complete: true }));
+        toast.success('Plačila so uspešno nastavljena! Sedaj lahko objavljate dražbe.');
+    }
+  }, [userData.id]);
 
   const handleSubscribe = async (tier: SubscriptionTier) => {
     const prices = { [SubscriptionTier.FREE]: 0, [SubscriptionTier.BASIC]: 20, [SubscriptionTier.PRO]: 50 };
@@ -963,7 +975,7 @@ const App: React.FC = () => {
     setIsCheckoutOpen(true);
   };
 
-  const handleSaveSettings = async (data: any) => {
+  const handleSaveSettings = useCallback(async (data: any) => {
     console.log("handleSaveSettings called with data:", data);
     if (!userData?.id) {
         console.log("No user ID found in state");
@@ -1075,7 +1087,7 @@ const App: React.FC = () => {
         console.error("Error saving settings:", err);
         toast.error("Prišlo je do napake pri shranjevanju.");
     }
-  };
+  }, [userData?.id, userData?.email, t]);
 
   const getFilteredAuctions = useMemo(() => {
       let filtered = [...auctions];
@@ -1330,15 +1342,7 @@ const App: React.FC = () => {
         );
         break;
     case 'settings':
-        content = <SettingsView t={t} language={language} user={userData} onSave={handleSaveSettings} onVerify={() => setActiveView('verification')} onStripeVerified={async () => {
-             const { data } = await supabase.from('users').select('*').eq('id', userData.id).single();
-             if (data) {
-                 setUserData(prev => ({ ...prev, stripe_onboarding_complete: data.stripe_onboarding_complete, stripe_account_id: data.stripe_account_id }));
-             } else {
-                 setUserData(prev => ({ ...prev, stripe_onboarding_complete: true }));
-             }
-             toast.success('Plačila so uspešno nastavljena! Sedaj lahko objavljate dražbe.');
-        }}/>;
+        content = <SettingsView t={t} language={language} user={userData} onSave={handleSaveSettings} onVerify={() => setActiveView('verification')} onStripeVerified={handleStripeVerified}/>;
         break;
     case 'subscriptions':
         content = <SubscriptionsView 
