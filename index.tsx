@@ -88,7 +88,7 @@ class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasErr
     console.error("ErrorBoundary caught an error", error, errorInfo);
   }
 
-  render() {
+  override render() {
     if (this.state.hasError) {
       return (
         <div style={{ padding: '40px', fontFamily: 'sans-serif', color: 'red' }}>

@@ -37,6 +37,8 @@
   "devDependencies": {
     "@types/express": "^5.0.6",
     "@types/node": "^22.14.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
     "@vercel/node": "^5.7.1",
     "@vitejs/plugin-react": "^4.3.4",
     "tsx": "^4.21.0",

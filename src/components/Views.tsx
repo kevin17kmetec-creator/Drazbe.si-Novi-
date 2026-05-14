@@ -12,9 +12,9 @@ import { supabase } from '../lib/supabaseClient';
 import { toast } from 'sonner';
 
 export const WatchlistView = ({ 
-  watchlist, auctions, onAuctionClick, onWatchToggle, t, language, onBack 
+  watchlist, auctions, onAuctionClick, onWatchToggle, t, language, onBack, isVerified 
 }: { 
-  watchlist: string[], auctions: AuctionItem[], onAuctionClick: (a: AuctionItem) => void, onWatchToggle: (id: string) => void, t: any, language: string, onBack: () => void 
+  watchlist: string[], auctions: AuctionItem[], onAuctionClick: (a: AuctionItem) => void, onWatchToggle: (id: string) => void, t: any, language: string, onBack: () => void, isVerified: boolean 
 }) => {
   const watchedAuctions = auctions.filter(a => watchlist.includes(a.id));
 
@@ -39,8 +39,9 @@ export const WatchlistView = ({
               item={item} 
               t={t} 
               language={language} 
+              isVerified={isVerified}
               isWatched={true}
-              onWatchToggle={(e) => { e.stopPropagation(); onWatchToggle(item.id); }}
+              onWatchToggle={() => onWatchToggle(item.id)}
               onClick={() => onAuctionClick(item)} 
             />
           ))}

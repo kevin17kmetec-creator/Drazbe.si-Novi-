@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { MOCK_SELLERS, EXTENDED_MOCK_AUCTIONS } from './data';
 import AuctionView from './src/components/AuctionView';
 import SellerView from './src/components/SellerView';
 import { SubscriptionsView } from './src/components/SubscriptionsView';
@@ -15,6 +16,7 @@ import { Footer } from './src/components/Footer';
 import { CheckoutModal } from './src/components/CheckoutModal';
 import { SettingsView } from './src/components/SettingsView';
 import { ConfirmBidModal } from './src/components/ConfirmBidModal';
+import { MessagesView } from './src/components/MessagesView';
 import { 
   Search, User, Globe, ChevronLeft, ChevronRight, Clock, MapPin, TrendingUp, Gavel,
   ArrowLeft, ChevronDown, ShieldCheck, Building2, Eye,
@@ -35,8 +37,6 @@ import { Toaster, toast } from 'sonner';
 
 // --- CONFIGURATION ---
 const IS_LIVE = true; 
-
-import { EXTENDED_MOCK_AUCTIONS } from './src/lib/mockData';
 
 import { translations } from './src/lib/translations';
 import { getIncrement, formatSeconds } from './src/lib/utils';
@@ -104,6 +104,7 @@ const App: React.FC = () => {
   
   const [auctions, setAuctions] = useState<AuctionItem[]>(EXTENDED_MOCK_AUCTIONS);
   const [activeView, setActiveView] = useState<ViewState>('grid');
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [republishData, setRepublishData] = useState<any>(null);
   const [bidAuctionIds, setBidAuctionIds] = useState<string[]>([]);
   const [hasAcceptedTerms, setHasAcceptedTerms] = useState(false);
@@ -165,7 +166,19 @@ const App: React.FC = () => {
   const [deliveryMethodModal, setDeliveryMethodModal] = useState<{isOpen: boolean, auctionId: string, deliveryMethod: 'pickup'|'post'|null}>({isOpen: false, auctionId: '', deliveryMethod: null});
   const [receiptConfirmModal, setReceiptConfirmModal] = useState<{isOpen: boolean, auctionId: string, sellerId: string}>({isOpen: false, auctionId: '', sellerId: ''});
   const [ratingModal, setRatingModal] = useState<{isOpen: boolean, auctionId: string, sellerId: string, rating: number, comment: string}>({isOpen: false, auctionId: '', sellerId: '', rating: 0, comment: ''});
-  const [userData, setUserData] = useState({ id: '', firstName: '', lastName: '', email: '', profilePicture: '', is_verified: false });
+    const [userData, setUserData] = useState({ 
+        id: '', 
+        firstName: '', 
+        lastName: '', 
+        username: '',
+        email: '', 
+        profilePicture: '', 
+        is_verified: false,
+        stripe_onboarding_complete: false,
+        profile_picture_url: '',
+        first_name: '',
+        last_name: '' 
+    });
 
   const lastSessionCheckRef = useRef(0);
   const isCheckingSessionRef = useRef(false);
@@ -205,7 +218,19 @@ const App: React.FC = () => {
             console.log("No session found on focus, logging out...");
             setIsLoggedIn(false);
             setIsVerified(false);
-            setUserData({ id: '', firstName: '', lastName: '', email: '', profilePicture: '', is_verified: false } as any);
+            setUserData({ 
+                id: '', 
+                firstName: '', 
+                lastName: '', 
+                username: '',
+                email: '', 
+                profilePicture: '', 
+                is_verified: false,
+                stripe_onboarding_complete: false,
+                profile_picture_url: '',
+                first_name: '',
+                last_name: '' 
+            });
           }
         } catch (err: any) {
           if (err.name !== 'AbortError' && !err.message?.includes('timeout')) {
@@ -230,7 +255,7 @@ const App: React.FC = () => {
   const currentUserWinnings = useMemo(() => {
       if (!userData?.id) return [];
       return auctions.filter(a => 
-          (a.winner_id === userData.id || a.winnerId === userData.id) && 
+          ((a as any).winner_id === userData.id || a.winnerId === userData.id) && 
           (a.status === 'completed' || a.endTime.getTime() <= Date.now())
       ).sort((a, b) => b.endTime.getTime() - a.endTime.getTime());
   }, [auctions, userData?.id]);
@@ -449,7 +474,8 @@ const App: React.FC = () => {
           const updated = auctions.find(a => a.id === selectedItem.id);
           if (updated && (
               updated.currentBid !== selectedItem.currentBid || 
-              updated.winner_id !== selectedItem.winner_id ||
+              (updated as any).winner_id !== (selectedItem as any).winner_id ||
+              updated.winnerId !== selectedItem.winnerId ||
               updated.status !== selectedItem.status ||
               updated.endTime.getTime() !== selectedItem.endTime.getTime() ||
               updated.bidCount !== selectedItem.bidCount
@@ -461,7 +487,8 @@ const App: React.FC = () => {
       auctions, 
       selectedItem?.id, 
       selectedItem?.currentBid, 
-      selectedItem?.winner_id, 
+      (selectedItem as any)?.winner_id, 
+      selectedItem?.winnerId,
       selectedItem?.status, 
       selectedItem?.bidCount, 
       selectedItem?.endTime?.getTime?.() 
@@ -590,7 +617,7 @@ const App: React.FC = () => {
             }
 
             const currentPrice = auction.current_price || 0;
-            const currentWinnerId = auction.winner_id;
+            const currentWinnerId = (auction as any).winner_id || auction.winnerId;
             const currentMaxBid = auction.hidden_max_bid || 0;
             const increment = getIncrement(currentPrice);
 
@@ -631,7 +658,7 @@ const App: React.FC = () => {
             const newBid = {
                 id: crypto.randomUUID(),
                 bidderId: userData.id,
-                bidderName: userData.username || userData.first_name || 'Uporabnik',
+                bidderName: userData.username || userData.firstName || userData.first_name || 'Uporabnik',
                 amount: amount,
                 timestamp: new Date().toISOString()
             };
@@ -1173,7 +1200,14 @@ const App: React.FC = () => {
         break;
     case 'createAuction': 
       if (!isLoggedIn) {
-          content = <AuthView onLoginSuccess={() => setActiveView('createAuction')} t={t} />;
+          content = (
+            <AuthView 
+                onLoginSuccess={() => setActiveView('createAuction')} 
+                t={t} 
+                setIsVerified={setIsVerified}
+                setAppLoggedIn={(val) => setIsLoggedIn(val)}
+            />
+          );
       } else if (!userData.stripe_onboarding_complete && IS_LIVE) {
           content = (
               <div className="max-w-3xl mx-auto py-32 px-6 flex flex-col items-center text-center animate-in">
@@ -1247,8 +1281,10 @@ const App: React.FC = () => {
             }); 
             setIsCheckoutOpen(true); 
           }} 
-          onSellerClick={(seller) => {
-            setSelectedSeller(seller);
+          onSellerClick={(sellerId) => {
+            const s = MOCK_SELLERS.find(s => s.id === sellerId);
+            if (s) setSelectedSeller(s);
+            else if (typeof sellerId !== 'string') setSelectedSeller(sellerId);
             setActiveView('sellerProfile');
             window.scrollTo({ top: 0, behavior: 'instant' });
           }}
@@ -1498,11 +1534,18 @@ const App: React.FC = () => {
                                                     Potrdi prejem
                                                 </button>
                                             )}
+                                            <button
+                                                onClick={() => { setActiveConversationId(wonItem.id); setActiveView('messages'); window.scrollTo({ top: 0, behavior: 'instant' }); }}
+                                                className="mt-2 bg-white border-2 border-slate-200 text-[#0A1128] px-4 py-2 rounded-xl font-bold text-xs hover:border-[#FEBA4F] transition-all flex items-center justify-center gap-2"
+                                            >
+                                                <MessageSquare size={14} /> Sporočila
+                                            </button>
                                         </div>
                                     ) : (
-                                        <button 
-                                            onClick={async () => {
-                                                setCheckoutData({
+                                        <div className="flex flex-col gap-2 w-full">
+                                            <button 
+                                                onClick={async () => {
+                                                    setCheckoutData({
                                                     amount: parseFloat(totalAmountToPay.toFixed(2)),
                                                     title: `${t('paymentFor')}: ${wonItem.title[language as keyof typeof wonItem.title] || wonItem.title.SLO}`,
                                                     onSuccess: async () => {
@@ -1525,6 +1568,13 @@ const App: React.FC = () => {
                                         >
                                             <CardIcon size={18} /> Plačaj zdaj
                                         </button>
+                                        <button
+                                            onClick={() => { setActiveConversationId(wonItem.id); setActiveView('messages'); window.scrollTo({ top: 0, behavior: 'instant' }); }}
+                                            className="bg-white border-2 border-slate-200 text-[#0A1128] px-8 py-3 rounded-2xl font-black uppercase tracking-widest text-sm hover:border-[#FEBA4F] transition-all flex items-center justify-center gap-2"
+                                        >
+                                            <MessageSquare size={18} /> Sporočila
+                                        </button>
+                                    </div>
                                     )}
                                 </div>
                             </div>
@@ -1603,6 +1653,12 @@ const App: React.FC = () => {
                                             className="bg-slate-100 text-[#0A1128] px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] transition-all shadow-xl flex items-center justify-center gap-2"
                                         >
                                             Odpri dražbo
+                                        </button>
+                                        <button
+                                            onClick={() => { setActiveConversationId(soldItem.id); setActiveView('messages'); window.scrollTo({ top: 0, behavior: 'instant' }); }}
+                                            className="border-2 border-slate-200 text-[#0A1128] px-8 py-3 rounded-2xl font-black uppercase tracking-widest text-sm hover:border-[#FEBA4F] transition-all flex items-center justify-center gap-2"
+                                        >
+                                            <MessageSquare size={18} /> Sporočila
                                         </button>
 
                                         
@@ -1705,6 +1761,18 @@ const App: React.FC = () => {
                     </div>
                 </div>
             </div>
+        );
+        break;
+    case 'messages':
+        content = (
+            <MessagesView 
+                userId={userData.id}
+                t={t}
+                language={language}
+                initialAuctionId={activeConversationId}
+                auctions={auctions}
+                onBack={() => { setActiveView('grid'); setActiveConversationId(null); }}
+            />
         );
         break;
     case 'watchlist':
@@ -1844,11 +1912,11 @@ const App: React.FC = () => {
 
   // Sync isVerified state with userData as a fallback
   useEffect(() => {
-    const userDataVerified = !!(userData as any).is_verified || !!(userData as any).isVerified || !!(userData as any).isverified;
+    const userDataVerified = !!userData.is_verified;
     if (isLoggedIn && isVerified !== userDataVerified) {
       setIsVerified(userDataVerified);
     }
-  }, [userData.is_verified, userData.isVerified, userData.isverified, isLoggedIn, isVerified]);
+  }, [userData.is_verified, isLoggedIn, isVerified]);
 
   return (
     <div className="min-h-screen bg-[#f3f4f6] font-sans selection:bg-[#FEBA4F] selection:text-[#0A1128] overflow-x-hidden">
@@ -1896,6 +1964,7 @@ const App: React.FC = () => {
             onMySold={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('mySold'); }}
             onMyUnsold={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('myUnsold'); }}
             onWatchlist={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('watchlist'); }}
+            onMessages={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('messages'); }}
             activeView={activeView} 
             selectedRegion={selectedRegion}
             selectedCategory={selectedCategory} 

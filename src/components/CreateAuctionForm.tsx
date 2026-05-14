@@ -21,6 +21,18 @@ const REGION_LOCATIONS: Record<Region, string[]> = {
 
 import { CustomDatePicker, CustomTimePicker } from './CustomDateTime';
 
+const SignedImg = ({ src, alt, className, onClick }: { src: string, alt: string, className?: string, onClick?: () => void }) => {
+    const [signedUrl, setSignedUrl] = useState<string>('');
+    useEffect(() => {
+        if (!src) return;
+        if (src.startsWith('http')) { setSignedUrl(src); return; }
+        supabase.storage.from('auction-images').createSignedUrl(src, 3600).then(({data}) => {
+            if (data?.signedUrl) setSignedUrl(data.signedUrl);
+        });
+    }, [src]);
+    return <img src={signedUrl || src} alt={alt} loading="lazy" className={className} onClick={onClick} referrerPolicy="no-referrer" />;
+};
+
 export const CreateAuctionForm: React.FC<{ 
     onBack: () => void; 
     t: any; 
@@ -61,6 +73,7 @@ export const CreateAuctionForm: React.FC<{
         endDate: defaultDateStr,
         endTime: defaultTimeStr
     });
+    const [existingImages, setExistingImages] = useState<string[]>(initialData?.images || []);
     const [imageFiles, setImageFiles] = useState<File[]>([]);
     const [previews, setPreviews] = useState<string[]>([]);
     const [isDragging, setIsDragging] = useState(false);
@@ -70,6 +83,22 @@ export const CreateAuctionForm: React.FC<{
     const [isCompressing, setIsCompressing] = useState(false);
     const [draggedItemIndex, setDraggedItemIndex] = useState<number | null>(null);
     const [zoomedImage, setZoomedImage] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (initialData?.created_at && initialData?.end_time) {
+            const created = new Date(initialData.created_at).getTime();
+            const ended = new Date(initialData.end_time).getTime();
+            const durationMs = ended - created;
+            if (durationMs > 0) {
+                const newEndDate = new Date(Date.now() + durationMs);
+                setFormData(prev => ({
+                    ...prev,
+                    endDate: getLocalDateStr(newEndDate),
+                    endTime: `${String(newEndDate.getHours()).padStart(2, '0')}:${String(newEndDate.getMinutes()).padStart(2, '0')}`
+                }));
+            }
+        }
+    }, [initialData]);
 
     useEffect(() => {
         if (!REGION_LOCATIONS[formData.region].includes(formData.location)) {
@@ -254,8 +283,8 @@ export const CreateAuctionForm: React.FC<{
 
     const handlePublish = async () => {
         if (!formData.title || !formData.description) return toast.error(t('enterAllData'));
-        if (imageFiles.length < 3) return toast.error(t('minImagesError'));
-        if (imageFiles.length > 10) return toast.error(t('maxImagesError'));
+        if (existingImages.length + imageFiles.length < 3) return toast.error(t('minImagesError'));
+        if (existingImages.length + imageFiles.length > 10) return toast.error(t('maxImagesError'));
         
         const startingPriceNum = parseInt(formData.startingPrice);
         if (isNaN(startingPriceNum) || startingPriceNum < 1) {
@@ -270,7 +299,7 @@ export const CreateAuctionForm: React.FC<{
         uploadedFilesRef.current = [];
 
         try {
-            let imageUrls: string[] = [];
+            let imageUrls: string[] = [...existingImages];
             
             if (isLoggedIn) {
                 // Sequential upload allows cancellation easily
@@ -454,8 +483,17 @@ export const CreateAuctionForm: React.FC<{
                         </div>
                     </div>
 
-                    {previews.length > 0 && (
+                    {(existingImages.length > 0 || previews.length > 0) && (
                         <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-4 animate-in">
+                            {existingImages.map((src, i) => (
+                                <div key={`ex-${i}`} className="flex flex-col gap-2">
+                                     <div className="relative group aspect-square rounded-2xl overflow-hidden border-2 border-slate-100 shadow-sm transition-transform hover:scale-105 cursor-pointer" onClick={() => setZoomedImage(src.startsWith('http') ? src : undefined)}>
+                                        <SignedImg src={src} alt={`existing-${i}`} className="w-full h-full object-cover" />
+                                        {i === 0 && <div className="absolute top-2 left-2 bg-[#FEBA4F] text-[#0A1128] text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest z-10">{t('mainImage')}</div>}
+                                        <button onClick={(e) => { e.stopPropagation(); setExistingImages(prev => prev.filter((_, idx) => idx !== i)); }} type="button" className="absolute top-2 right-2 bg-red-500 text-white p-1.5 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity hover:scale-110 shadow-lg z-20"><Trash2 size={16} /></button>
+                                     </div>
+                                </div>
+                            ))}
                             {previews.map((src, i) => (
                                 <div 
                                     key={i} 
@@ -467,7 +505,7 @@ export const CreateAuctionForm: React.FC<{
                                 >
                                     <div className="relative group aspect-square rounded-2xl overflow-hidden border-2 border-slate-100 shadow-sm transition-transform hover:scale-105 cursor-pointer" onClick={() => setZoomedImage(src)}>
                                         <img src={src} className="w-full h-full object-cover" />
-                                        {i === 0 && <div className="absolute top-2 left-2 bg-[#FEBA4F] text-[#0A1128] text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest z-10">{t('mainImage')}</div>}
+                                        {existingImages.length === 0 && i === 0 && <div className="absolute top-2 left-2 bg-[#FEBA4F] text-[#0A1128] text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest z-10">{t('mainImage')}</div>}
                                         <div className="absolute inset-x-0 top-0 h-1/2 bg-gradient-to-b from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-start justify-center pt-2">
                                             <div className="bg-white/80 backdrop-blur-sm shadow text-[#0A1128] p-1.5 rounded-lg cursor-grab active:cursor-grabbing hover:bg-white" onClick={e => e.stopPropagation()}>
                                                 <GripHorizontal size={16} />

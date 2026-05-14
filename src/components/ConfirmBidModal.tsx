@@ -127,8 +127,8 @@ export const ConfirmBidModal: React.FC<{
             <div className="flex justify-between items-center text-slate-500 text-sm">
               <span className="flex items-center gap-1">
                 {t('vatLabel')} {taxResult?.vatRate ?? 22}%
-                {taxResult?.viesValidationStatus === 'VALID' && <CheckCircle size={12} className="text-green-500" title="VIES Validated" />}
-                {taxResult?.viesValidationStatus === 'INVALID' && <AlertTriangle size={12} className="text-red-500" title="VIES Invalid" />}
+                {taxResult?.viesValidationStatus === 'VALID' && <CheckCircle size={12} className="text-green-500" />}
+                {taxResult?.viesValidationStatus === 'INVALID' && <AlertTriangle size={12} className="text-red-500" />}
               </span>
               <span>€ {taxResult?.vatAmount.toLocaleString('sl-SI', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
             </div>

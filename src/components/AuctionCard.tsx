@@ -15,8 +15,8 @@ export const AuctionCard: React.FC<{
   isWatched: boolean;
   onWatchToggle: () => void;
   onClick: () => void;
-  onBidSubmit: (item: AuctionItem, amount: number) => Promise<'success' | 'outbid' | 'error' | 'login_required' | 'cancelled'> | void;
-  onSellerClick: (seller: Seller) => void;
+  onBidSubmit?: (item: AuctionItem, amount: number) => Promise<'success' | 'outbid' | 'error' | 'login_required' | 'cancelled'> | void;
+  onSellerClick?: (seller: Seller) => void;
   onTimeUp?: (auctionId: string) => void;
 }> = ({ item, t, language, isVerified, currentUserId, hasBid, isWatched, onWatchToggle, onClick, onBidSubmit, onSellerClick, onTimeUp }) => {
   const [timeLeftStr, setTimeLeftStr] = useState('');
@@ -27,7 +27,7 @@ export const AuctionCard: React.FC<{
   const [bidValue, setBidValue] = useState(minNextBid);
   const [bidStatus, setBidStatus] = useState<'success' | 'outbid' | 'error' | null>(null);
   const [isBidding, setIsBidding] = useState(false);
-  const isWinner = currentUserId && (item.winnerId === currentUserId || item.winner_id === currentUserId);
+  const isWinner = currentUserId && (item.winnerId === currentUserId || (item as any).winner_id === currentUserId);
   const hasEndedFiredRef = useRef(false);
 
   useEffect(() => {
@@ -67,6 +67,7 @@ export const AuctionCard: React.FC<{
 
   const handleBidClick = async (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (!onBidSubmit) return;
     setBidStatus(null);
     setIsBidding(true);
     const result = await onBidSubmit(item, bidValue);
@@ -132,7 +133,7 @@ export const AuctionCard: React.FC<{
       <div className="p-6 flex flex-col flex-1">
         <div className="mb-3 flex justify-between items-center">
             {(seller || item.sellerName) && (
-                <button onClick={(e) => { e.stopPropagation(); if (seller) onSellerClick(seller); }} className="text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-[#FEBA4F] transition-colors flex items-center gap-1.5">
+                <button onClick={(e) => { e.stopPropagation(); if (seller) onSellerClick?.(seller); }} className="text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-[#FEBA4F] transition-colors flex items-center gap-1.5">
                     <Building2 size={12} /> {seller ? (seller.name[language] || seller.name['SLO']) : item.sellerName}
                 </button>
             )}
@@ -150,8 +151,8 @@ export const AuctionCard: React.FC<{
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{t('currentBid')}</p>
               <p className="text-xl font-black text-[#FEBA4F]">€{item.currentBid.toLocaleString('sl-SI')}</p>
-              {isWinner && (item.hiddenMaxBid || item.hidden_max_bid) > item.currentBid && (
-                  <p className="text-[9px] font-black uppercase tracking-widest text-green-400 mt-1">Moja max: €{Number(item.hiddenMaxBid || item.hidden_max_bid).toLocaleString('sl-SI')}</p>
+              {isWinner && (item.hiddenMaxBid || (item as any).hidden_max_bid) > item.currentBid && (
+                  <p className="text-[9px] font-black uppercase tracking-widest text-green-400 mt-1">Moja max: €{Number(item.hiddenMaxBid || (item as any).hidden_max_bid).toLocaleString('sl-SI')}</p>
               )}
             </div>
             <div className="text-right">
@@ -168,8 +169,20 @@ export const AuctionCard: React.FC<{
                 </div>
                 <button onClick={(e) => { e.stopPropagation(); handleAdjustBid('up'); }} className="w-8 h-10 flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 rounded-xl transition-all flex-shrink-0"><Plus size={14}/></button>
              </div>
-             <button onClick={handleBidClick} disabled={isBidding} className={`h-12 flex-1 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-lg flex items-center justify-center gap-2 whitespace-nowrap ${isVerified ? 'bg-[#FEBA4F] text-[#0A1128] hover:bg-white' : 'bg-slate-800 text-slate-500'} ${isBidding ? 'opacity-75 cursor-not-allowed' : ''}`}>
-                {isBidding ? <div className="w-4 h-4 border-2 border-[#0A1128]/30 border-t-[#0A1128] rounded-full animate-spin" /> : (!isVerified ? <Lock size={14} /> : t('placeBid'))}
+             <button 
+                onClick={handleBidClick} 
+                disabled={isBidding || !onBidSubmit} 
+                className={`h-12 flex-1 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-lg flex items-center justify-center gap-2 whitespace-nowrap ${isVerified && onBidSubmit ? 'bg-[#FEBA4F] text-[#0A1128] hover:bg-white' : 'bg-slate-800 text-slate-500'} ${isBidding ? 'opacity-75 cursor-not-allowed' : ''}`}
+             >
+                {isBidding ? (
+                    <div className="w-4 h-4 border-2 border-[#0A1128]/30 border-t-[#0A1128] rounded-full animate-spin" />
+                ) : !onBidSubmit ? (
+                    <Lock size={14} />
+                ) : !isVerified ? (
+                    <Lock size={14} />
+                ) : (
+                    t('placeBid')
+                )}
              </button>
              
              {/* Inline Feedback */}
