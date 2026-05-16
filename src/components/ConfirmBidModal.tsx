@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, CheckCircle, AlertTriangle } from 'lucide-react';
 import { AuctionItem, SubscriptionTier } from '../../types';
 import { calculateCommissionTaxes, TaxResult } from '../lib/taxLogic';
+import { calculateMarginalPlatformFee } from '../lib/utils';
 
 export const ConfirmBidModal: React.FC<{
   isOpen: boolean;
@@ -39,8 +40,7 @@ export const ConfirmBidModal: React.FC<{
     let isMounted = true;
     const computeTaxes = async () => {
       setIsCalculatingTax(true);
-      const feePercentage = currentPlan === SubscriptionTier.PRO ? 5 : currentPlan === SubscriptionTier.BASIC ? 10 : 12;
-      const commissionNet = Number(bidAmount) * (feePercentage / 100);
+      const commissionNet = calculateMarginalPlatformFee(Number(bidAmount), currentPlan);
       
       const countryCode = userData?.country_code || 'SI';
       const isBusiness = !!(userData?.is_business || userData?.companyName);

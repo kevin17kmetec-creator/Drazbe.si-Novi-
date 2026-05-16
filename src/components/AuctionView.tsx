@@ -6,7 +6,7 @@ import {
   MessageSquare
 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
-import { getIncrement } from '../lib/utils';
+import { getIncrement, calculateMarginalPlatformFee } from '../lib/utils';
 
 const TimeBox = ({ value, label }: { value: number, label: string }) => (
   <div className="flex flex-col items-center justify-center bg-white/10 rounded-xl w-14 h-14 md:w-16 md:h-16 border border-white/10">
@@ -146,7 +146,8 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
   const description = item.description?.[language] || item.description?.['SLO'] || t('noDescription');
   const location = item.location?.[language] || item.location?.['SLO'] || t('slovenia');
 
-  const feePercentage = currentPlan === 'FREE' ? 12 : currentPlan === 'BASIC' ? 10 : 5;
+  // We display the dynamically calculated absolute amount or percentage approximation
+  const absoluteFee = calculateMarginalPlatformFee(item.current_price || item.currentPrice || 0, currentPlan);
 
   return (
     <div className="max-w-[1600px] mx-auto px-4 py-4 bg-slate-50/50 min-h-screen">
@@ -409,7 +410,7 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                 )}
                 <div className="pt-4 border-t border-slate-100">
                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{t('feesAndTerms')}:</p>
-                  <p className="font-bold text-[#0A1128] text-sm">{feePercentage} {t('percent')} {t('auctionFee')}</p>
+                  <p className="font-bold text-[#0A1128] text-sm">€{absoluteFee.toFixed(2)} {t('auctionFee')}</p>
                   <p className="font-bold text-[#0A1128] text-sm">22 {t('percent')} {t('vat')}</p>
                 </div>
               </div>

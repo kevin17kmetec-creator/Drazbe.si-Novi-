@@ -39,7 +39,7 @@ import { Toaster, toast } from 'sonner';
 const IS_LIVE = true; 
 
 import { translations } from './src/lib/translations';
-import { getIncrement, formatSeconds } from './src/lib/utils';
+import { getIncrement, formatSeconds, calculateMarginalPlatformFee } from './src/lib/utils';
 
 // --- MAIN APP COMPONENT ---
 
@@ -1479,22 +1479,26 @@ const App: React.FC = () => {
                                 <p className="text-slate-500 font-black uppercase tracking-widest text-lg">{t('noWinnings')}</p>
                             </div>
                         ) : currentUserWinnings.map(wonItem => {
-                            const feePercentage = currentPlan === SubscriptionTier.PRO ? 5 : currentPlan === SubscriptionTier.BASIC ? 10 : 12;
-                            const commissionNet = wonItem.currentBid * (feePercentage / 100);
+                            const commissionNet = calculateMarginalPlatformFee(wonItem.currentBid, currentPlan);
                             const totalAmountToPay = wonItem.currentBid + (commissionNet * 1.22);
                             
                             return (
                             <div key={wonItem.id} className="flex flex-col md:flex-row items-center gap-8 p-6 rounded-[2.5rem] border-2 border-slate-100 hover:border-[#FEBA4F] transition-colors group">
-                                <SignedImg 
-                                    src={wonItem.images[0]} 
-                                    alt="Item" 
-                                    className="w-32 h-32 rounded-3xl object-cover shadow-md group-hover:scale-105 transition-transform cursor-pointer" 
-                                    onClick={() => {
-                                        setSelectedItem(wonItem);
-                                        setActiveView('detail');
-                                        window.scrollTo({ top: 0, behavior: 'instant' });
-                                    }}
-                                />
+                                <div className="w-32 h-32 shrink-0 bg-slate-100 rounded-3xl overflow-hidden shadow-md group-hover:scale-105 transition-transform cursor-pointer"
+                                     onClick={() => {
+                                         setSelectedItem(wonItem);
+                                         setActiveView('detail');
+                                         window.scrollTo({ top: 0, behavior: 'instant' });
+                                     }}
+                                >
+                                    {wonItem.images && wonItem.images.length > 0 && typeof wonItem.images[0] === 'string' && (
+                                        <SignedImg 
+                                            src={wonItem.images[0]?.replace?.(/([\[\]"'])/g, '') || ''} 
+                                            alt="Item" 
+                                            className="w-full h-full object-cover"
+                                        />
+                                    )}
+                                </div>
                                 <div className="flex-1 text-center md:text-left">
                                     <h3 
                                         className="text-2xl font-black uppercase tracking-tighter text-[#0A1128] mb-2 cursor-pointer hover:text-[#FEBA4F] transition-colors"
@@ -1536,7 +1540,7 @@ const App: React.FC = () => {
                                             )}
                                             <button
                                                 onClick={() => { setActiveConversationId(wonItem.id); setActiveView('messages'); window.scrollTo({ top: 0, behavior: 'instant' }); }}
-                                                className="mt-2 bg-white border-2 border-slate-200 text-[#0A1128] px-4 py-2 rounded-xl font-bold text-xs hover:border-[#FEBA4F] transition-all flex items-center justify-center gap-2"
+                                                className="mt-2 bg-[#FEBA4F] text-[#0A1128] px-4 py-2 rounded-xl font-bold text-xs hover:bg-white hover:border hover:border-[#FEBA4F] transition-all flex items-center justify-center gap-2"
                                             >
                                                 <MessageSquare size={14} /> Sporočila
                                             </button>
@@ -1570,7 +1574,7 @@ const App: React.FC = () => {
                                         </button>
                                         <button
                                             onClick={() => { setActiveConversationId(wonItem.id); setActiveView('messages'); window.scrollTo({ top: 0, behavior: 'instant' }); }}
-                                            className="bg-white border-2 border-slate-200 text-[#0A1128] px-8 py-3 rounded-2xl font-black uppercase tracking-widest text-sm hover:border-[#FEBA4F] transition-all flex items-center justify-center gap-2"
+                                            className="bg-[#FEBA4F] text-[#0A1128] px-8 py-3 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#0A1128] hover:text-[#FEBA4F] transition-all flex items-center justify-center gap-2"
                                         >
                                             <MessageSquare size={18} /> Sporočila
                                         </button>
@@ -1609,16 +1613,21 @@ const App: React.FC = () => {
                         ) : currentUserSold.map(soldItem => {
                             return (
                                 <div key={soldItem.id} className="flex flex-col md:flex-row items-center gap-8 p-6 rounded-[2.5rem] border-2 border-slate-100 hover:border-[#FEBA4F] transition-colors group">
-                                    <SignedImg 
-                                        src={soldItem.images[0]} 
-                                        alt="Item" 
-                                        className="w-32 h-32 rounded-3xl object-cover shadow-md cursor-pointer group-hover:scale-105 transition-transform" 
-                                        onClick={() => {
-                                            setSelectedItem(soldItem);
-                                            setActiveView('detail');
-                                            window.scrollTo({ top: 0, behavior: 'instant' });
-                                        }}
-                                    />
+                                    <div className="w-32 h-32 shrink-0 bg-slate-100 rounded-3xl overflow-hidden shadow-md group-hover:scale-105 transition-transform cursor-pointer"
+                                         onClick={() => {
+                                             setSelectedItem(soldItem);
+                                             setActiveView('detail');
+                                             window.scrollTo({ top: 0, behavior: 'instant' });
+                                         }}
+                                    >
+                                        {soldItem.images && soldItem.images.length > 0 && typeof soldItem.images[0] === 'string' && (
+                                            <SignedImg 
+                                                src={soldItem.images[0]?.replace?.(/([\[\]"'])/g, '') || ''} 
+                                                alt="Item" 
+                                                className="w-full h-full object-cover"
+                                            />
+                                        )}
+                                    </div>
                                     <div className="flex-1 text-center md:text-left">
                                         <h3 
                                             className="text-2xl font-black uppercase tracking-tighter text-[#0A1128] mb-2 cursor-pointer hover:text-[#FEBA4F] transition-colors"
@@ -1656,7 +1665,7 @@ const App: React.FC = () => {
                                         </button>
                                         <button
                                             onClick={() => { setActiveConversationId(soldItem.id); setActiveView('messages'); window.scrollTo({ top: 0, behavior: 'instant' }); }}
-                                            className="border-2 border-slate-200 text-[#0A1128] px-8 py-3 rounded-2xl font-black uppercase tracking-widest text-sm hover:border-[#FEBA4F] transition-all flex items-center justify-center gap-2"
+                                            className="bg-[#FEBA4F] text-[#0A1128] px-8 py-3 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#0A1128] hover:text-[#FEBA4F] transition-all flex items-center justify-center gap-2"
                                         >
                                             <MessageSquare size={18} /> Sporočila
                                         </button>

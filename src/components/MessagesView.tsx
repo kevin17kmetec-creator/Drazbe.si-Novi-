@@ -48,26 +48,34 @@ export const MessagesView: React.FC<{
   useEffect(() => {
     // 1. Identify relevant auctions (completed, has winner, user is seller or winner)
     const relevant = auctions.filter(a => {
-        if (a.status !== 'completed' && new Date(a.endTime) > new Date()) return false;
         const wId = a.winnerId || (a as any).winner_id;
+        const sId = a.sellerId || (a as any).seller_id;
+        
+        const isWinner = wId === userId;
+        const isSeller = sId === userId;
+        
+        if (!isWinner && !isSeller) return false;
         if (!wId) return false;
-        return a.sellerId === userId || wId === userId;
+        
+        const hasEnded = a.status === 'completed' || new Date(a.endTime).getTime() <= Date.now();
+        return hasEnded;
     });
 
     const convs = relevant.map(a => {
         const wId = a.winnerId || (a as any).winner_id;
-        const otherUserId = a.sellerId === userId ? wId : a.sellerId;
+        const sId = a.sellerId || (a as any).seller_id;
+        const otherUserId = sId === userId ? wId : sId;
         return { auction: a, otherUserId };
     });
 
     setConversations(convs);
 
     if (convs.length > 0) {
-        const otherIds = [...new Set(convs.map(c => c.otherUserId))];
-        supabase.from('users').select('id, first_name, last_name, email, profile_picture_url').in('id', otherIds).then(({ data }) => {
-            if (data) {
+        const otherIds = [...new Set(convs.map(c => c.otherUserId))].filter(Boolean);
+        if (otherIds.length > 0) {
+            supabase.from('users').select('id, first_name, last_name, email, profile_picture_url').in('id', otherIds).then(({ data }) => {
                 setConversations(convs.map(c => {
-                    const u = data.find(u => u.id === c.otherUserId);
+                    const u = data?.find(u => u.id === c.otherUserId);
                     return {
                         ...c,
                         user: u ? {
@@ -79,13 +87,18 @@ export const MessagesView: React.FC<{
                         } : undefined
                     };
                 }));
-            }
+                setLoadingChats(false);
+                if (!activeChat && convs.length > 0) {
+                    setActiveChat(convs[0].auction.id);
+                }
+            });
+        } else {
+            setConversations(convs);
             setLoadingChats(false);
-            if (!activeChat && convs.length > 0) {
-                setActiveChat(convs[0].auction.id);
-            }
-        });
+            if (!activeChat) setActiveChat(convs[0].auction.id);
+        }
     } else {
+        setConversations(convs);
         setLoadingChats(false);
     }
   }, [auctions, userId]);
@@ -289,7 +302,7 @@ export const MessagesView: React.FC<{
                                         )}
                                         {isOnline && <div className="absolute top-0 right-0 w-3.5 h-3.5 bg-green-500 border-2 border-white rounded-full"></div>}
                                         <div className="absolute -bottom-1 -left-1 w-5 h-5 rounded-full border-2 border-white overflow-hidden shadow-sm">
-                                            <img src={c.auction.images[0]} className="w-full h-full object-cover" />
+                                            <img src={typeof c.auction.images[0] === 'string' ? c.auction.images[0].replace(/([\[\]"'])/g, '') : ''} className="w-full h-full object-cover" />
                                         </div>
                                     </div>
                                     <div className="flex-1 min-w-0">

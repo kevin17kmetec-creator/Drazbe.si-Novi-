@@ -6,6 +6,48 @@ export const getIncrement = (amount: number) => {
   return 20;
 };
 
+export function calculateMarginalPlatformFee(currentPrice: number, subscriptionTier: string | null | undefined): number {
+    let bracket1Rate = 8;
+    let bracket2Rate = 5;
+    let bracket3Rate = 4;
+
+    if (subscriptionTier === 'PRO') {
+        bracket1Rate = 3;
+        bracket2Rate = 2.5;
+        bracket3Rate = 2;
+    } else if (subscriptionTier === 'BASIC') {
+        bracket1Rate = 6.5;
+        bracket2Rate = 4;
+        bracket3Rate = 3.2;
+    }
+
+    let totalFee = 0;
+    let remainingAmount = currentPrice;
+
+    if (remainingAmount > 0) {
+        const amountInBracket = Math.min(remainingAmount, 1000);
+        totalFee += amountInBracket * (bracket1Rate / 100);
+        remainingAmount -= amountInBracket;
+    }
+
+    if (remainingAmount > 0) {
+        const amountInBracket = Math.min(remainingAmount, 4000);
+        totalFee += amountInBracket * (bracket2Rate / 100);
+        remainingAmount -= amountInBracket;
+    }
+
+    if (remainingAmount > 0) {
+        totalFee += remainingAmount * (bracket3Rate / 100);
+    }
+
+    const absoluteMinimumFee = currentPrice * 0.02;
+    if (totalFee < absoluteMinimumFee) {
+        totalFee = absoluteMinimumFee;
+    }
+
+    return totalFee;
+}
+
 export const formatSeconds = (totalSeconds: number) => {
   if (totalSeconds <= 0) return "00:00";
   const h = Math.floor(totalSeconds / 3600);

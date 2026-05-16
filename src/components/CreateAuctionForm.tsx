@@ -62,13 +62,13 @@ export const CreateAuctionForm: React.FC<{
     const maxDateStr = getLocalDateStr(maxDate);
 
     const [formData, setFormData] = useState({ 
-        title: initialData?.title?.SLO || initialData?.title || '', 
+        title: initialData?.title?.SLO || (typeof initialData?.title === 'string' ? initialData.title : ''), 
         category: initialData?.category || Category.Ostalo, 
         region: initialData?.region || Region.Stajerska, 
-        location: initialData?.location?.SLO || initialData?.location || (REGION_LOCATIONS[initialData?.region as Region || Region.Stajerska][0]),
-        condition: initialData?.condition || 'Rabljeno',
-        description: initialData?.description || '', 
-        startingPrice: initialData?.startingPrice?.toString() || '1', 
+        location: initialData?.location?.SLO || (typeof initialData?.location === 'string' ? initialData.location : REGION_LOCATIONS[initialData?.region as Region || Region.Stajerska]?.[0] || ''),
+        condition: initialData?.condition?.SLO || (typeof initialData?.condition === 'string' ? initialData.condition : 'Rabljeno'),
+        description: initialData?.description?.SLO || (typeof initialData?.description === 'string' ? initialData.description : ''), 
+        startingPrice: initialData?.startingPrice?.toString() || initialData?.currentBid?.toString() || '1', 
         minStep: '5',
         endDate: defaultDateStr,
         endTime: defaultTimeStr
@@ -86,17 +86,28 @@ export const CreateAuctionForm: React.FC<{
 
     useEffect(() => {
         if (initialData?.created_at && initialData?.end_time) {
-            const created = new Date(initialData.created_at).getTime();
-            const ended = new Date(initialData.end_time).getTime();
-            const durationMs = ended - created;
-            if (durationMs > 0) {
-                const newEndDate = new Date(Date.now() + durationMs);
-                setFormData(prev => ({
-                    ...prev,
-                    endDate: getLocalDateStr(newEndDate),
-                    endTime: `${String(newEndDate.getHours()).padStart(2, '0')}:${String(newEndDate.getMinutes()).padStart(2, '0')}`
-                }));
-            }
+            const created = new Date(initialData.created_at);
+            const ended = new Date(initialData.end_time);
+            const durationDays = Math.max(1, Math.round((ended.getTime() - created.getTime()) / (1000 * 60 * 60 * 24)));
+            
+            const newEndDate = new Date();
+            newEndDate.setDate(newEndDate.getDate() + durationDays);
+            
+            setFormData(prev => ({
+                ...prev,
+                endDate: getLocalDateStr(newEndDate),
+                endTime: `${String(ended.getHours()).padStart(2, '0')}:${String(ended.getMinutes()).padStart(2, '0')}`
+            }));
+        } else if (initialData?.endTime) {
+            // Fallback for mock data if needed
+            const ended = new Date(initialData.endTime);
+            const newEndDate = new Date();
+            newEndDate.setDate(newEndDate.getDate() + 7);
+            setFormData(prev => ({
+                ...prev,
+                endDate: getLocalDateStr(newEndDate),
+                endTime: `${String(ended.getHours()).padStart(2, '0')}:${String(ended.getMinutes()).padStart(2, '0')}`
+            }));
         }
     }, [initialData]);
 
