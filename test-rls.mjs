@@ -3,8 +3,8 @@ const supabase = createClient('https://ltppzfzfyhbxnzczsdba.supabase.co', 'eyJhb
 
 async function test() {
   const { data, error } = await supabase.rpc('execute_sql', { sql_query: `
-    SELECT policyname, permissive, roles, cmd, qual, with_check FROM pg_policies WHERE tablename = 'messages';
+    SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'messages';
   `});
-  console.log(data);
+  console.log("data:", data, "error:", error);
 }
 test();

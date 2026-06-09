@@ -339,8 +339,6 @@ async function startServer() {
       const totalPlatformFeeGross = platformFee + vatAmount;
       const applicationFeeAmount = Math.min(Math.round(totalPlatformFeeGross * 100), Math.round(amount * 100));
 
-      const { data: seller } = await supabase.from('users').select('stripe_account_id, stripe_onboarding_complete').eq('id', seller_id).single();
-      
       let auctionTitle = "Dražba";
       if (auction?.title) {
          auctionTitle = auction.title['SLO'] || auction.title['EN'] || "Dražba";
@@ -415,9 +413,6 @@ async function startServer() {
 
       // Ensure platform fee does not exceed total amount (failsafe)
       const applicationFeeAmount = Math.min(Math.round(totalPlatformFeeGross * 100), Math.round(amount * 100));
-
-      // Fetch seller
-      const { data: seller } = await supabase.from('users').select('*').eq('id', seller_id).single();
 
       const paymentIntent = await stripe.paymentIntents.create({
         amount: Math.round(amount * 100), // Stripe expects amounts in cents
@@ -559,7 +554,6 @@ async function startServer() {
 
       // Generate Documents asynchronously to not block the request
       const { data: buyer } = await supabase.from('users').select('*').eq('id', buyer_id).single();
-      const { data: seller } = await supabase.from('users').select('*').eq('id', seller_id).single();
       
       if (buyer && seller && transaction) {
           (async () => {
@@ -576,7 +570,7 @@ async function startServer() {
                  documentsToInsert.push({ transaction_id: transaction.id, user_id: buyer_id, type: 'invoice', file_url: publicUrl });
                  attachments.push({ filename: invoiceFileName, content: invoicePdfBuffer });
              } catch(e) { console.error('Invoice error:', e); }
-
+ 
              if (buyer.user_type !== 'business') {
                  try {
                      const certPdfBuffer = await generateCertificatePDF(transaction, buyer, seller);

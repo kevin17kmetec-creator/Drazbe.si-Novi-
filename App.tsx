@@ -1479,6 +1479,7 @@ const App: React.FC = () => {
                                 <p className="text-slate-500 font-black uppercase tracking-widest text-lg">{t('noWinnings')}</p>
                             </div>
                         ) : currentUserWinnings.map(wonItem => {
+                            const feePercentage = currentPlan === SubscriptionTier.PRO ? 5 : currentPlan === SubscriptionTier.BASIC ? 10 : 12;
                             const commissionNet = calculateMarginalPlatformFee(wonItem.currentBid, currentPlan);
                             const totalAmountToPay = wonItem.currentBid + (commissionNet * 1.22);
                             

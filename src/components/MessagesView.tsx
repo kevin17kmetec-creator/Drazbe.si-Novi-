@@ -5,9 +5,8 @@ import { AuctionItem } from '../../types';
 
 interface Message {
   id: string;
-  auction_id: string;
+  conversation_id: string;
   sender_id: string;
-  receiver_id: string;
   content: string;
   created_at: string;
   is_read: boolean;
@@ -32,6 +31,7 @@ export const MessagesView: React.FC<{
   const [conversations, setConversations] = useState<{ auction: AuctionItem; otherUserId: string; user?: OtherUser }[]>([]);
   const [activeChat, setActiveChat] = useState<string | null>(initialAuctionId);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [loadingChats, setLoadingChats] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [newMessage, setNewMessage] = useState('');
@@ -107,49 +107,96 @@ export const MessagesView: React.FC<{
       if (!activeChat || !currentChatConv) return;
       setLoadingMessages(true);
       
-      const fetchMessages = async () => {
-          const { data } = await supabase
-            .from('messages')
-            .select('*')
-            .eq('auction_id', activeChat)
-            .order('created_at', { ascending: true });
-            
-          if (data) {
-              setMessages(data);
-              // Mark unread as read
-              const unread = data.filter(m => m.receiver_id === userId && !m.is_read).map(m => m.id);
-              if (unread.length > 0) {
-                  await supabase.from('messages').update({ is_read: true }).in('id', unread);
+      let poolChannel: any = null;
+      let presenceChannel: any = null;
+
+      const setupChatAndFetch = async () => {
+          try {
+              let { data: convData } = await supabase
+                .from('conversations')
+                .select('id')
+                .eq('auction_id', activeChat)
+                .maybeSingle();
+
+              if (!convData) {
+                  const { data: newConv } = await supabase
+                    .from('conversations')
+                    .insert([{
+                        auction_id: activeChat,
+                        participant_one: userId,
+                        participant_two: currentChatConv.otherUserId
+                    }])
+                    .select('id')
+                    .single();
+
+                  if (newConv) {
+                      convData = newConv;
+                  }
               }
+
+              if (convData) {
+                  setActiveConversationId(convData.id);
+
+                  const { data: msgData } = await supabase
+                    .from('messages')
+                    .select('*')
+                    .eq('conversation_id', convData.id)
+                    .order('created_at', { ascending: true });
+
+                  if (msgData) {
+                      setMessages(msgData);
+                      const unread = msgData.filter(m => m.sender_id !== userId && !m.is_read).map(m => m.id);
+                      if (unread.length > 0) {
+                          await supabase.from('messages').update({ is_read: true }).in('id', unread);
+                      }
+                  }
+
+                  poolChannel = supabase.channel(`messages_${convData.id}`)
+                    .on('postgres_changes', { 
+                        event: 'INSERT', 
+                        schema: 'public', 
+                        table: 'messages', 
+                        filter: `conversation_id=eq.${convData.id}` 
+                    }, payload => {
+                        const newMsg = payload.new as Message;
+                        setMessages(prev => {
+                            if (prev.find(m => m.id === newMsg.id)) return prev;
+                            return [...prev, newMsg];
+                        });
+                        if (newMsg.sender_id !== userId) {
+                            supabase.from('messages').update({ is_read: true }).eq('id', newMsg.id);
+                        }
+                        scrollToBottom();
+                    })
+                    .on('postgres_changes', { 
+                        event: 'UPDATE', 
+                        schema: 'public', 
+                        table: 'messages', 
+                        filter: `conversation_id=eq.${convData.id}` 
+                    }, payload => {
+                        const updated = payload.new as Message;
+                        setMessages(prev => prev.map(m => m.id === updated.id ? updated : m));
+                    })
+                    .on('broadcast', { event: 'typing' }, payload => {
+                        if (payload.payload.userId === currentChatConv.otherUserId) {
+                            setOtherUserTyping(payload.payload.isTyping);
+                        }
+                    })
+                    .subscribe();
+
+                  globalChannelRef.current = poolChannel;
+              }
+          } catch (err) {
+              console.error("Error setting up chat:", err);
+          } finally {
+              setLoadingMessages(false);
+              scrollToBottom();
           }
-          setLoadingMessages(false);
-          scrollToBottom();
       };
-      
-      fetchMessages();
 
-      const channel = supabase.channel(`messages_${activeChat}`)
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `auction_id=eq.${activeChat}` }, payload => {
-            const newMsg = payload.new as Message;
-            setMessages(prev => [...prev, newMsg]);
-            if (newMsg.receiver_id === userId) {
-                supabase.from('messages').update({ is_read: true }).eq('id', newMsg.id);
-            }
-            scrollToBottom();
-        })
-        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages', filter: `auction_id=eq.${activeChat}` }, payload => {
-            const updated = payload.new as Message;
-            setMessages(prev => prev.map(m => m.id === updated.id ? updated : m));
-        })
-        .on('broadcast', { event: 'typing' }, payload => {
-            if (payload.payload.userId === currentChatConv.otherUserId) {
-                setOtherUserTyping(payload.payload.isTyping);
-            }
-        })
-        .subscribe();
+      setupChatAndFetch();
 
-      // Track global online presence
-      const presenceChannel = supabase.channel('global_online', {
+      presenceChannel = supabase.channel('global_online', {
         config: {
           presence: {
             key: userId,
@@ -170,13 +217,16 @@ export const MessagesView: React.FC<{
         }
       });
 
-      globalChannelRef.current = channel;
-
       return () => {
-          supabase.removeChannel(channel);
-          supabase.removeChannel(presenceChannel);
+          if (poolChannel) {
+              supabase.removeChannel(poolChannel);
+          }
+          if (presenceChannel) {
+              supabase.removeChannel(presenceChannel);
+          }
           globalChannelRef.current = null;
           setOtherUserTyping(false);
+          setActiveConversationId(null);
       };
   }, [activeChat, currentChatConv, userId]);
 
@@ -217,15 +267,46 @@ export const MessagesView: React.FC<{
       const msgText = newMessage.trim();
       setNewMessage('');
       setIsSending(true);
+
+      let convId = activeConversationId;
+      if (!convId) {
+          const { data: convData } = await supabase
+            .from('conversations')
+            .select('id')
+            .eq('auction_id', activeChat)
+            .maybeSingle();
+
+          if (convData) {
+              convId = convData.id;
+              setActiveConversationId(convId);
+          } else {
+              const { data: newConv } = await supabase
+                .from('conversations')
+                .insert([{
+                    auction_id: activeChat,
+                    participant_one: userId,
+                    participant_two: currentChatConv.otherUserId
+                }])
+                .select('id')
+                .single();
+              if (newConv) {
+                  convId = newConv.id;
+                  setActiveConversationId(convId);
+              }
+          }
+      }
+
+      if (!convId) {
+          setIsSending(false);
+          return;
+      }
       
-      const { data, error } = await supabase.from('messages').insert([{
-          auction_id: activeChat,
+      const { data } = await supabase.from('messages').insert([{
+          conversation_id: convId,
           sender_id: userId,
-          receiver_id: currentChatConv.otherUserId,
           content: msgText
       }]).select();
       
-      // Realtime subscription handles the update but we can optimistically insert if it doesn't bounce back fast enough
       if (data && data.length > 0 && !messages.find(m => m.id === data[0].id)) {
           setMessages(prev => [...prev, data[0] as Message]);
           scrollToBottom();
@@ -241,19 +322,47 @@ export const MessagesView: React.FC<{
       const fileExt = file.name.split('.').pop();
       const fileName = `${Math.random()}.${fileExt}`;
       const filePath = `chat_images/${userId}/${fileName}`;
-
+ 
       setIsSending(true);
       const { error: uploadError } = await supabase.storage.from('auction-images').upload(filePath, file);
       if (!uploadError) {
           const { data } = supabase.storage.from('auction-images').getPublicUrl(filePath);
           if (data.publicUrl) {
-               await supabase.from('messages').insert([{
-                  auction_id: activeChat,
-                  sender_id: userId,
-                  receiver_id: currentChatConv.otherUserId,
-                  content: `[IMAGE]${data.publicUrl}`
-               }]);
-               scrollToBottom();
+               let convId = activeConversationId;
+               if (!convId) {
+                   const { data: convData } = await supabase
+                     .from('conversations')
+                     .select('id')
+                     .eq('auction_id', activeChat)
+                     .maybeSingle();
+                   if (convData) {
+                       convId = convData.id;
+                       setActiveConversationId(convId);
+                   } else {
+                       const { data: newConv } = await supabase
+                         .from('conversations')
+                         .insert([{
+                             auction_id: activeChat,
+                             participant_one: userId,
+                             participant_two: currentChatConv.otherUserId
+                         }])
+                         .select('id')
+                         .single();
+                       if (newConv) {
+                           convId = newConv.id;
+                           setActiveConversationId(convId);
+                       }
+                   }
+               }
+               
+               if (convId) {
+                    await supabase.from('messages').insert([{
+                       conversation_id: convId,
+                       sender_id: userId,
+                       content: `[IMAGE]${data.publicUrl}`
+                    }]);
+                    scrollToBottom();
+               }
           }
       }
       setIsSending(false);
@@ -387,9 +496,9 @@ export const MessagesView: React.FC<{
                                 <button
                                     onClick={handleSend}
                                     disabled={!newMessage.trim() || isSending}
-                                    className="flex-shrink-0 w-10 h-10 rounded-2xl bg-[#0A1128] text-white flex items-center justify-center hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                    className="flex-shrink-0 w-10 h-10 rounded-full bg-[#0A1128] text-white flex items-center justify-center hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none"
                                 >
-                                    {isSending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} className="ml-1" />}
+                                    {isSending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
                                 </button>
                             </div>
                         </div>
