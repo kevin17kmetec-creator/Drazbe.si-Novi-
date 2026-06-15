@@ -73,25 +73,33 @@ export const MessagesView: React.FC<{
     if (convs.length > 0) {
         const otherIds = [...new Set(convs.map(c => c.otherUserId))].filter(Boolean);
         if (otherIds.length > 0) {
-            supabase.from('users').select('id, first_name, last_name, email, profile_picture_url').in('id', otherIds).then(({ data }) => {
-                setConversations(convs.map(c => {
-                    const u = data?.find(u => u.id === c.otherUserId);
-                    return {
-                        ...c,
-                        user: u ? {
-                            id: u.id,
-                            firstName: u.first_name || '',
-                            lastName: u.last_name || '',
-                            email: u.email || '',
-                            profilePicture: u.profile_picture_url || ''
-                        } : undefined
-                    };
-                }));
-                setLoadingChats(false);
-                if (!activeChat && convs.length > 0) {
-                    setActiveChat(convs[0].auction.id);
+            (async () => {
+                try {
+                    const { data, error } = await supabase.from('users').select('id, first_name, last_name, email, profile_picture_url').in('id', otherIds);
+                    if (error) throw error;
+                    setConversations(convs.map(c => {
+                        const u = data?.find(u => u.id === c.otherUserId);
+                        return {
+                            ...c,
+                            user: u ? {
+                                id: u.id,
+                                firstName: u.first_name || '',
+                                lastName: u.last_name || '',
+                                email: u.email || '',
+                                profilePicture: u.profile_picture_url || ''
+                            } : undefined
+                        };
+                    }));
+                } catch (e) {
+                    console.error("Error fetching users for chat:", e);
+                    setConversations(convs);
+                } finally {
+                    setLoadingChats(false);
+                    if (!activeChat && convs.length > 0) {
+                        setActiveChat(convs[0].auction.id);
+                    }
                 }
-            });
+            })();
         } else {
             setConversations(convs);
             setLoadingChats(false);
@@ -103,14 +111,39 @@ export const MessagesView: React.FC<{
     }
   }, [auctions, userId]);
 
-  useEffect(() => {
-      if (!activeChat || !currentChatConv) return;
-      setLoadingMessages(true);
-      
-      let poolChannel: any = null;
-      let presenceChannel: any = null;
+      // Presence Channel (Global)
+      useEffect(() => {
+          if (!userId) return;
 
-      const setupChatAndFetch = async () => {
+          const presenceChannel = supabase.channel('global_online_messages', {
+              config: { presence: { key: userId } },
+          });
+
+          presenceChannel.on('presence', { event: 'sync' }, () => {
+              const newState = presenceChannel.presenceState();
+              const online = new Set<string>();
+              Object.keys(newState).forEach(key => {
+                 online.add(key);
+              });
+              setOnlineUsers(online);
+          }).subscribe(async (status) => {
+              if (status === 'SUBSCRIBED') {
+                  await presenceChannel.track({ online_at: new Date().toISOString() });
+              }
+          });
+
+          return () => {
+              supabase.removeChannel(presenceChannel);
+          };
+      }, [userId]);
+
+      useEffect(() => {
+          if (!activeChat || !currentChatConv) return;
+          setLoadingMessages(true);
+          
+          let poolChannel: any = null;
+
+          const setupChatAndFetch = async () => {
           try {
               let { data: convData } = await supabase
                 .from('conversations')
@@ -158,14 +191,14 @@ export const MessagesView: React.FC<{
                         schema: 'public', 
                         table: 'messages', 
                         filter: `conversation_id=eq.${convData.id}` 
-                    }, payload => {
+                    }, async payload => {
                         const newMsg = payload.new as Message;
                         setMessages(prev => {
                             if (prev.find(m => m.id === newMsg.id)) return prev;
                             return [...prev, newMsg];
                         });
                         if (newMsg.sender_id !== userId) {
-                            supabase.from('messages').update({ is_read: true }).eq('id', newMsg.id);
+                            await supabase.from('messages').update({ is_read: true }).eq('id', newMsg.id);
                         }
                         scrollToBottom();
                     })
@@ -197,33 +230,9 @@ export const MessagesView: React.FC<{
 
       setupChatAndFetch();
 
-      presenceChannel = supabase.channel('global_online', {
-        config: {
-          presence: {
-            key: userId,
-          },
-        },
-      });
-
-      presenceChannel.on('presence', { event: 'sync' }, () => {
-        const newState = presenceChannel.presenceState();
-        const online = new Set<string>();
-        Object.keys(newState).forEach(key => {
-           online.add(key);
-        });
-        setOnlineUsers(online);
-      }).subscribe(async (status) => {
-        if (status === 'SUBSCRIBED') {
-          await presenceChannel.track({ online_at: new Date().toISOString() });
-        }
-      });
-
       return () => {
           if (poolChannel) {
               supabase.removeChannel(poolChannel);
-          }
-          if (presenceChannel) {
-              supabase.removeChannel(presenceChannel);
           }
           globalChannelRef.current = null;
           setOtherUserTyping(false);
