@@ -72,29 +72,39 @@ export const MessagesView: React.FC<{
     if (convs.length > 0) {
         const otherIds = [...new Set(convs.map(c => c.otherUserId))].filter(Boolean);
         if (otherIds.length > 0) {
-            supabase.from('users').select('id, first_name, last_name, email, profile_picture_url').in('id', otherIds).then(({ data, error }) => {
-                if (!isMounted) return;
-                if (error) {
-                    console.error("Error fetching users for chat:", error);
+            (async () => {
+                try {
+                    const { data, error } = await supabase.from('users').select('id, first_name, last_name, email, profile_picture_url').in('id', otherIds);
+                    if (!isMounted) return;
+                    if (error) {
+                        console.error("Error fetching users for chat:", error);
+                        setConversations(convs);
+                    } else {
+                        setConversations(convs.map(c => {
+                            const u = data?.find(u => u.id === c.otherUserId);
+                            return {
+                                ...c,
+                                user: u ? {
+                                    id: u.id,
+                                    firstName: u.first_name || '',
+                                    lastName: u.last_name || '',
+                                    email: u.email || '',
+                                    profilePicture: u.profile_picture_url || ''
+                                } : undefined
+                            };
+                        }));
+                    }
+                } catch (e) {
+                    if (!isMounted) return;
+                    console.error("Exception fetching chat users:", e);
                     setConversations(convs);
-                } else {
-                    setConversations(convs.map(c => {
-                        const u = data?.find(u => u.id === c.otherUserId);
-                        return {
-                            ...c,
-                            user: u ? {
-                                id: u.id,
-                                firstName: u.first_name || '',
-                                lastName: u.last_name || '',
-                                email: u.email || '',
-                                profilePicture: u.profile_picture_url || ''
-                            } : undefined
-                        };
-                    }));
+                } finally {
+                    if (isMounted) {
+                        setLoadingChats(false);
+                        if (!activeChat && convs.length > 0) setActiveChat(convs[0].auction.id);
+                    }
                 }
-                setLoadingChats(false);
-                if (!activeChat && convs.length > 0) setActiveChat(convs[0].auction.id);
-            });
+            })();
         } else {
             setConversations(convs);
             setLoadingChats(false);
@@ -158,6 +168,10 @@ export const MessagesView: React.FC<{
       const initChat = async (retryCount = 0) => {
           if (!isMounted) return;
           try {
+              if (poolChannel) {
+                  try { await supabase.removeChannel(poolChannel); } catch (e) {}
+              }
+
               let { data: convData } = await supabase
                 .from('conversations')
                 .select('id')
@@ -228,12 +242,12 @@ export const MessagesView: React.FC<{
 
                   poolChannel.subscribe((status: any, err: any) => {
                       if (status === 'SUBSCRIBED') {
-                          console.log("Joined room", convData.id);
+                          console.log("Joined room", convData?.id);
                       }
-                      if (status === 'SYSTEM_ERROR' || status === 'TIMED_OUT') {
+                      if (status === 'SYSTEM_ERROR' || status === 'TIMED_OUT' || status === 'CHANNEL_ERROR') {
                           console.error("Supabase Channel Error", status, err);
-                          if (retryCount < 3) {
-                              const delay = Math.pow(2, retryCount) * 1000;
+                          if (retryCount < 5) {
+                              const delay = Math.min(Math.pow(2, retryCount) * 1000, 10000);
                               reconnectTimeoutId = setTimeout(() => {
                                   if (isMounted) initChat(retryCount + 1);
                               }, delay);
@@ -259,7 +273,12 @@ export const MessagesView: React.FC<{
           isMounted = false;
           if (reconnectTimeoutId) clearTimeout(reconnectTimeoutId);
           if (poolChannel) {
-              supabase.removeChannel(poolChannel);
+              poolChannel.unsubscribe().then(() => {
+                  supabase.removeChannel(poolChannel);
+              }).catch((e: any) => {
+                  console.error("Error unmounting channel", e);
+                  try { supabase.removeChannel(poolChannel); } catch (_) {}
+              });
           }
           globalChannelRef.current = null;
           setActiveConversationId(null);
@@ -342,12 +361,29 @@ export const MessagesView: React.FC<{
           return;
       }
       
+      let insertCompleted = false;
+
       try {
-          const { data, error } = await supabase.from('messages').insert([{
+          // Keep button loading state independent of text input reset
+          setIsSending(true);
+
+          const timeoutPromise = new Promise<{ data: null, error: Error }>((_, reject) => {
+              setTimeout(() => {
+                  if (!insertCompleted) {
+                      reject(new Error("Timeout: Message sending took too long (> 5s)"));
+                  }
+              }, 5000);
+          });
+
+          const supabasePromise = supabase.from('messages').insert([{
               conversation_id: convId,
               sender_id: userId,
               content: finalContent
           }]).select();
+
+          const { data, error } = await Promise.race([supabasePromise, timeoutPromise]) as any;
+
+          insertCompleted = true;
 
           if (error) throw error;
           
@@ -359,6 +395,8 @@ export const MessagesView: React.FC<{
           console.error("Send message error", err);
           // Mark as error
           setMessages(prev => prev.map(m => m.id === optimisticId ? { ...m, status: 'error' as const } : m));
+      } finally {
+          setIsSending(false);
       }
   };
 

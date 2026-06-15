@@ -540,8 +540,8 @@ const App: React.FC = () => {
               // Subscribing to messages dynamically is complex without receiver_id.
               // Let's use a conservative approach: check if the insert corresponds to our convs
               unreadChannel = supabase.channel(`unread_msgs_${userData.id}`)
-                  .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
-                      if (convIds.includes(payload.new.conversation_id)) {
+                  .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: 'is_read=eq.false' }, payload => {
+                      if (payload.new.sender_id !== userData.id && convIds.includes(payload.new.conversation_id)) {
                           fetchUnread();
                       }
                   })
