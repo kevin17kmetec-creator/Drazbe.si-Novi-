@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Send, Image as ImageIcon, Check, CheckCheck, Loader2, User, Search, Play, Phone, MessageSquare } from 'lucide-react';
+import { ArrowLeft, SendHorizontal, Image as ImageIcon, Check, CheckCheck, Loader2, User, Search, Play, Phone, MessageSquare } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import { AuctionItem } from '../../types';
 
@@ -498,7 +498,7 @@ export const MessagesView: React.FC<{
                                     disabled={!newMessage.trim() || isSending}
                                     className="flex-shrink-0 w-10 h-10 rounded-full bg-[#0A1128] text-white flex items-center justify-center hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none"
                                 >
-                                    {isSending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                                    {isSending ? <Loader2 size={16} className="animate-spin" /> : <SendHorizontal size={18} />}
                                 </button>
                             </div>
                         </div>
