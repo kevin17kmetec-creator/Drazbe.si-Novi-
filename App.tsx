@@ -35,6 +35,8 @@ import { AuctionItem, Region, ViewState, Seller, Review, SellerType, Subscriptio
 
 import { Toaster, toast } from 'sonner';
 
+import { ChatProvider } from './src/context/ChatContext';
+
 // --- CONFIGURATION ---
 const IS_LIVE = true; 
 
@@ -98,7 +100,7 @@ const PaymentTimer: React.FC<{ endTime: string | Date }> = ({ endTime }) => {
     );
 };
 
-const App: React.FC = () => {
+const MainApp: React.FC = () => {
   const [language, setLanguage] = useState('SLO');
   const t = useCallback((key: string) => translations[language]?.[key] || key, [language]);
   
@@ -166,7 +168,6 @@ const App: React.FC = () => {
   const [deliveryMethodModal, setDeliveryMethodModal] = useState<{isOpen: boolean, auctionId: string, deliveryMethod: 'pickup'|'post'|null}>({isOpen: false, auctionId: '', deliveryMethod: null});
   const [receiptConfirmModal, setReceiptConfirmModal] = useState<{isOpen: boolean, auctionId: string, sellerId: string}>({isOpen: false, auctionId: '', sellerId: ''});
   const [ratingModal, setRatingModal] = useState<{isOpen: boolean, auctionId: string, sellerId: string, rating: number, comment: string}>({isOpen: false, auctionId: '', sellerId: '', rating: 0, comment: ''});
-  const [unreadMessageCount, setUnreadMessageCount] = useState(0);
     const [userData, setUserData] = useState({ 
         id: '', 
         firstName: '', 
@@ -494,77 +495,6 @@ const App: React.FC = () => {
       selectedItem?.bidCount, 
       selectedItem?.endTime?.getTime?.() 
   ]);
-
-  // Fetch unread messages
-  useEffect(() => {
-      if (!isLoggedIn || !userData.id) {
-          setUnreadMessageCount(0);
-          return;
-      }
-
-      let unreadChannel: any = null;
-
-      const fetchUnread = async () => {
-          try {
-              // We need conversations where user is a participant to get their messages
-              const { data: convs } = await supabase
-                .from('conversations')
-                .select('id')
-                .or(`participant_one.eq.${userData.id},participant_two.eq.${userData.id}`);
-              
-              if (!convs || convs.length === 0) {
-                  setUnreadMessageCount(0);
-                  return;
-              }
-              const convIds = convs.map(c => c.id);
-              
-              const { count, error } = await supabase
-                  .from('messages')
-                  .select('*', { count: 'exact', head: true })
-                  .in('conversation_id', convIds)
-                  .eq('is_read', false)
-                  .neq('sender_id', userData.id);
-                  
-              if (!error && count !== null) {
-                  setUnreadMessageCount(count);
-              }
-
-              // Set up channel ONLY for the user's specific conversations if possible.
-              // To avoid too many subscriptions, we could filter by receiver_id if it existed,
-              // but since we don't have receiver_id on messages, we just subscribe to messages globally
-              // and filter on javascript side or just refetch. But refetching globally on EVERY insert is bad.
-              if (unreadChannel) {
-                  supabase.removeChannel(unreadChannel);
-              }
-
-              // Subscribing to messages dynamically is complex without receiver_id.
-              // Let's use a conservative approach: check if the insert corresponds to our convs
-              unreadChannel = supabase.channel(`unread_msgs_${userData.id}`)
-                  .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: 'is_read=eq.false' }, payload => {
-                      if (payload.new.sender_id !== userData.id && convIds.includes(payload.new.conversation_id)) {
-                          fetchUnread();
-                      }
-                  })
-                  .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages' }, payload => {
-                      if (convIds.includes(payload.new.conversation_id)) {
-                          fetchUnread();
-                      }
-                  })
-                  .subscribe();
-
-          } catch (err) {
-              console.error("Error fetching unread messages", err);
-          }
-      };
-
-      fetchUnread();
-
-      return () => {
-          if (unreadChannel) {
-              supabase.removeChannel(unreadChannel);
-          }
-      };
-  }, [isLoggedIn, userData.id]);
 
   // Auth Sync
   useEffect(() => {
@@ -2001,6 +1931,7 @@ const App: React.FC = () => {
   }, [userData.is_verified, isLoggedIn, isVerified]);
 
   return (
+    <ChatProvider userId={userData.id} auctions={auctions}>
     <div className="min-h-screen bg-[#f3f4f6] font-sans selection:bg-[#FEBA4F] selection:text-[#0A1128] overflow-x-hidden">
         <Toaster 
             position="top-center" 
@@ -2058,7 +1989,6 @@ const App: React.FC = () => {
             auctions={auctions}
             userEmail={userData.email}
             userProfilePicture={userData.profile_picture_url || userData.profilePicture}
-            unreadMessageCount={unreadMessageCount}
         />
         <main>{content}</main>
         {activeView === 'grid' && <Footer t={t} onLegal={setActiveLegal} />}
@@ -2234,9 +2164,10 @@ const App: React.FC = () => {
             </button>
         )}
     </div>
+    </ChatProvider>
   );
 };
 
 // --- ADDITIONAL COMPONENTS ---
 
-export default App;
+export default MainApp;

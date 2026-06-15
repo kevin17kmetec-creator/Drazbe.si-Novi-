@@ -1,0 +1,531 @@
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
+import { supabase } from '../lib/supabaseClient';
+import { AuctionItem } from '../../types';
+
+export interface Message {
+  id: string;
+  conversation_id: string;
+  sender_id: string;
+  content: string;
+  created_at: string;
+  is_read: boolean;
+  status?: 'sending' | 'sent' | 'error';
+}
+
+export interface OtherUser {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  profilePicture: string;
+}
+
+export interface Conversation {
+  id: string;
+  auction: AuctionItem;
+  otherUserId: string;
+  user?: OtherUser;
+}
+
+interface ChatContextType {
+  conversations: Conversation[];
+  activeChat: string | null;
+  setActiveChat: (auctionId: string | null) => void;
+  messages: Message[];
+  activeConversationId: string | null;
+  loadingChats: boolean;
+  loadingMessages: boolean;
+  unreadMessageCount: number;
+  onlineUsers: Set<string>;
+  otherUserTyping: boolean;
+  setTyping: (isTyping: boolean) => void;
+  sendMessage: (content: string, prefix?: string) => Promise<void>;
+  markAsRead: (convId: string) => Promise<void>;
+  uploadImage: (file: File) => Promise<void>;
+  isSending: boolean;
+}
+
+export const ChatContext = createContext<ChatContextType | null>(null);
+
+export const useChat = () => {
+    const ctx = useContext(ChatContext);
+    if (!ctx) throw new Error("useChat must be used within ChatProvider");
+    return ctx;
+};
+
+export const ChatProvider: React.FC<{
+    userId: string;
+    auctions: AuctionItem[];
+    children: React.ReactNode;
+}> = ({ userId, auctions, children }) => {
+    const [conversations, setConversations] = useState<Conversation[]>([]);
+    const [activeChat, setActiveChat] = useState<string | null>(null);
+    const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+    const [messages, setMessages] = useState<Message[]>([]);
+    
+    const [loadingChats, setLoadingChats] = useState(false);
+    const [loadingMessages, setLoadingMessages] = useState(false);
+    const [unreadMessageCount, setUnreadMessageCount] = useState(0);
+    const [isSending, setIsSending] = useState(false);
+    
+    const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
+    const [otherUserTyping, setOtherUserTyping] = useState(false);
+
+    const globalChannelRef = useRef<any>(null);
+    const presenceChannelRef = useRef<any>(null);
+    const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+    const activeConvIdRef = useRef<string | null>(null);
+    activeConvIdRef.current = activeConversationId;
+    const userIdRef = useRef<string>(userId);
+    userIdRef.current = userId;
+    
+    // Extracted references to avoid stale closures
+    const conversationsRef = useRef<Conversation[]>(conversations);
+    conversationsRef.current = conversations;
+
+    const fetchUnread = useCallback(async (convIds: string[]) => {
+        if (!userId || convIds.length === 0) {
+            setUnreadMessageCount(0);
+            return;
+        }
+        try {
+            const { count, error } = await supabase
+                .from('messages')
+                .select('*', { count: 'exact', head: true })
+                .in('conversation_id', convIds)
+                .eq('is_read', false)
+                .neq('sender_id', userId);
+                
+            if (!error && count !== null) {
+                setUnreadMessageCount(count);
+            }
+        } catch (err) {
+            console.error("Error fetching unread messages", err);
+        }
+    }, [userId]);
+
+    // 1. Fetch Conversations
+    useEffect(() => {
+        if (!userId) {
+            setConversations([]);
+            return;
+        }
+
+        let isMounted = true;
+        setLoadingChats(true);
+        
+        const relevant = auctions.filter(a => {
+            const wId = a.winnerId || (a as any).winner_id;
+            const sId = a.sellerId || (a as any).seller_id;
+            if (wId !== userId && sId !== userId) return false;
+            if (!wId) return false;
+            return a.status === 'completed' || new Date(a.endTime).getTime() <= Date.now();
+        });
+
+        const convsBuild = relevant.map(a => {
+            const wId = a.winnerId || (a as any).winner_id;
+            const sId = a.sellerId || (a as any).seller_id;
+            return { id: '', auction: a, otherUserId: sId === userId ? wId : sId } as Conversation;
+        });
+
+        if (convsBuild.length === 0) {
+            setConversations([]);
+            setLoadingChats(false);
+            return;
+        }
+
+        const loadConversationsData = async () => {
+            try {
+                // Fetch user info for other users
+                const otherIds = [...new Set(convsBuild.map(c => c.otherUserId))].filter(Boolean);
+                let usersData: any[] = [];
+                if (otherIds.length > 0) {
+                    const { data } = await supabase.from('users').select('id, first_name, last_name, email, profile_picture_url').in('id', otherIds);
+                    if (data) usersData = data;
+                }
+
+                // Fetch conversation IDs from DB
+                const { data: convDataList } = await supabase
+                    .from('conversations')
+                    .select('id, auction_id, participant_one, participant_two')
+                    .or(`participant_one.eq.${userId},participant_two.eq.${userId}`);
+
+                const convDataMap = new Map();
+                convDataList?.forEach(c => convDataMap.set(c.auction_id, c.id));
+
+                if (!isMounted) return;
+
+                const enriched = convsBuild.map(c => {
+                    const u = usersData.find(u => u.id === c.otherUserId);
+                    const dbId = convDataMap.get(c.auction.id) || '';
+                    return {
+                        ...c,
+                        id: dbId,
+                        user: u ? {
+                            id: u.id,
+                            firstName: u.first_name || '',
+                            lastName: u.last_name || '',
+                            email: u.email || '',
+                            profilePicture: u.profile_picture_url || ''
+                        } : undefined
+                    } as Conversation;
+                });
+
+                setConversations(enriched);
+                
+                // Initial fetch unread
+                fetchUnread(enriched.map(e => e.id).filter(id => id));
+            } catch (e) {
+                console.error("Error loading conversations", e);
+            } finally {
+                if (isMounted) setLoadingChats(false);
+            }
+        };
+
+        loadConversationsData();
+
+        return () => { isMounted = false; };
+    }, [userId, auctions, fetchUnread]);
+
+    const markAsRead = async (convId: string) => {
+        if (!userId || !convId) return;
+        try {
+            await supabase.from('messages')
+              .update({ is_read: true })
+              .eq('conversation_id', convId)
+              .eq('is_read', false)
+              .neq('sender_id', userId);
+        } catch(e) {
+            console.error("Mark read error", e);
+        }
+    };
+
+    // 2. Global Realtime Channel for Messages & Visibility Change Resync
+    useEffect(() => {
+        if (!userId) return;
+
+        let channel: any;
+        let reconnectTimeout: NodeJS.Timeout;
+
+        const setupGlobalChannel = () => {
+            if (channel) {
+                try { supabase.removeChannel(channel); } catch(e) {}
+            }
+
+            channel = supabase.channel(`global_syncer_${userId}`);
+
+            channel.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload: any) => {
+                const newMsg = payload.new as Message;
+                
+                if (newMsg.conversation_id === activeConvIdRef.current) {
+                    setMessages(prev => {
+                        const filtered = prev.filter(m => !(m.status === 'sending' && m.content === newMsg.content && m.sender_id === newMsg.sender_id));
+                        if (filtered.some(m => m.id === newMsg.id)) return prev;
+                        return [...filtered, { ...newMsg, status: 'sent' as const }].sort((a,b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+                    });
+
+                    if (newMsg.sender_id !== userIdRef.current && !newMsg.is_read) {
+                        markAsRead(newMsg.conversation_id);
+                    }
+                } else {
+                    // Update global unread count
+                    const convIds = conversationsRef.current.map(p => p.id).filter(id => id);
+                    if (convIds.includes(newMsg.conversation_id) && newMsg.sender_id !== userIdRef.current) {
+                         fetchUnread(convIds);
+                    }
+                }
+            });
+
+            channel.on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages' }, (payload: any) => {
+                const updated = payload.new as Message;
+                if (updated.conversation_id === activeConvIdRef.current) {
+                    setMessages(prev => prev.map(m => 
+                        (m.id === updated.id || (m.status === 'sending' && m.content === updated.content)) 
+                        ? { ...updated, status: 'sent' as const } 
+                        : m
+                    ));
+                } else {
+                    const convIds = conversationsRef.current.map(p => p.id).filter(id => id);
+                    if (convIds.includes(updated.conversation_id)) {
+                         fetchUnread(convIds);
+                    }
+                }
+            });
+
+            channel.on('broadcast', { event: 'typing' }, (payload: any) => {
+                if (payload.payload.convId === activeConvIdRef.current && payload.payload.userId !== userIdRef.current) {
+                    setOtherUserTyping(payload.payload.isTyping);
+                }
+            });
+
+            channel.subscribe((status: string, err: any) => {
+                if (status === 'SYSTEM_ERROR' || status === 'TIMED_OUT' || status === 'CHANNEL_ERROR' || status === 'CLOSED') {
+                    console.error("Global Channel Issue:", status, err);
+                    reconnectTimeout = setTimeout(() => {
+                        setupGlobalChannel();
+                        resyncAll();
+                    }, 3000);
+                }
+            });
+
+            globalChannelRef.current = channel;
+        };
+
+        const resyncAll = async () => {
+             const convIds = conversationsRef.current.map(p => p.id).filter(id => id);
+             if (convIds.length > 0) fetchUnread(convIds);
+
+             const cId = activeConvIdRef.current;
+             if (cId) {
+                  const { data } = await supabase.from('messages').select('*').eq('conversation_id', cId).order('created_at', { ascending: true });
+                  if (data) {
+                      setMessages(data.map((m: any) => ({ ...m, status: 'sent' as const })));
+                  }
+             }
+        };
+
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible') {
+                resyncAll();
+                if (globalChannelRef.current && globalChannelRef.current.state === 'closed') {
+                    setupGlobalChannel();
+                }
+            }
+        };
+
+        setupGlobalChannel();
+
+        window.addEventListener('visibilitychange', handleVisibilityChange);
+
+        return () => {
+            if (reconnectTimeout) clearTimeout(reconnectTimeout);
+            if (channel) {
+                try { supabase.removeChannel(channel); } catch(_) {}
+            }
+            window.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
+    }, [userId, fetchUnread]);
+
+    // 3. Presence Setup
+    useEffect(() => {
+        if (!userId) return;
+
+        const presenceChannel = supabase.channel('global_online', {
+            config: { presence: { key: userId } }
+        });
+
+        presenceChannel.on('presence', { event: 'sync' }, () => {
+            const newState = presenceChannel.presenceState();
+            const online = new Set<string>();
+            Object.keys(newState).forEach(key => online.add(key));
+            setOnlineUsers(online);
+        }).subscribe(async (status) => {
+            if (status === 'SUBSCRIBED') {
+                try { await presenceChannel.track({ online_at: new Date().toISOString() }); } catch(e){}
+            }
+        });
+
+        presenceChannelRef.current = presenceChannel;
+
+        return () => {
+            try { supabase.removeChannel(presenceChannel); } catch(_) {}
+        };
+    }, [userId]);
+
+    // 4. Focus Chat Loading Logic
+    useEffect(() => {
+        let isMounted = true;
+        
+        const loadMessages = async () => {
+            if (!activeChat || !userId) return;
+            
+            // Allow conversations array to populate fully first during initial load
+            if (conversations.length === 0 && loadingChats) return;
+
+            setLoadingMessages(true);
+            setMessages([]);
+            setOtherUserTyping(false);
+
+            try {
+                const activeConvItem = conversations.find(c => c.auction.id === activeChat);
+                if (!activeConvItem) {
+                    if (isMounted) setLoadingMessages(false);
+                    return;
+                }
+
+                let convId = activeConvItem.id;
+                
+                if (!convId) {
+                    let { data: convData } = await supabase
+                        .from('conversations')
+                        .select('id')
+                        .eq('auction_id', activeChat)
+                        .or(`and(participant_one.eq.${userId},participant_two.eq.${activeConvItem.otherUserId}),and(participant_one.eq.${activeConvItem.otherUserId},participant_two.eq.${userId})`)
+                        .maybeSingle();
+
+                    if (!convData) {
+                        const { data: newConv } = await supabase
+                            .from('conversations')
+                            .insert([{ auction_id: activeChat, participant_one: userId, participant_two: activeConvItem.otherUserId }])
+                            .select('id')
+                            .single();
+                        if (newConv) convData = newConv;
+                    }
+                    if (convData) convId = convData.id;
+                    
+                    if (convId && isMounted) {
+                        setConversations(prev => prev.map(c => c.auction.id === activeChat ? { ...c, id: convId } : c));
+                    }
+                }
+
+                if (convId && isMounted) {
+                    setActiveConversationId(convId);
+                    
+                    const { data: msgData, error } = await supabase
+                        .from('messages')
+                        .select('*')
+                        .eq('conversation_id', convId)
+                        .order('created_at', { ascending: true });
+
+                    if (error) throw error;
+                    
+                    if (msgData && isMounted) {
+                        setMessages(msgData.map((m: any) => ({ ...m, status: 'sent' as const })));
+                        markAsRead(convId);
+                        
+                        const cIds = conversationsRef.current.map(x => x.id).filter(Boolean).filter(id => id !== convId);
+                        cIds.push(convId); 
+                        fetchUnread(cIds);
+                    }
+                }
+            } catch (err) {
+                console.error("Error loading messages:", err);
+            } finally {
+                if (isMounted) setLoadingMessages(false);
+            }
+        };
+
+        if (activeChat) {
+            loadMessages();
+        } else {
+            setActiveConversationId(null);
+            setMessages([]);
+        }
+        
+        return () => { isMounted = false; };
+    }, [activeChat, userId, conversations.length, loadingChats, fetchUnread]);
+
+    const setTyping = (isTyping: boolean) => {
+        if (!globalChannelRef.current || !activeConversationId) return;
+        
+        if (isTyping) {
+            globalChannelRef.current.send({
+                type: 'broadcast',
+                event: 'typing',
+                payload: { userId, convId: activeConversationId, isTyping: true }
+            }).catch(() => {});
+            
+            if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+            typingTimeoutRef.current = setTimeout(() => {
+                globalChannelRef.current?.send({
+                    type: 'broadcast',
+                    event: 'typing',
+                    payload: { userId, convId: activeConversationId, isTyping: false }
+                }).catch(() => {});
+            }, 2000);
+        }
+    };
+
+    const sendMessage = async (content: string, prefix = '') => {
+        if (!userId || !activeConversationId) return;
+        const msgText = (prefix + content).trim();
+        if (!msgText) return;
+
+        const optimisticId = `temp-${Date.now()}`;
+        const newMsg: Message = {
+            id: optimisticId,
+            conversation_id: activeConversationId,
+            sender_id: userId,
+            content: msgText,
+            created_at: new Date().toISOString(),
+            is_read: false,
+            status: 'sending'
+        };
+
+        setMessages(prev => [...prev, newMsg]);
+
+        let insertCompleted = false;
+        try {
+            setIsSending(true);
+
+            const timeoutPromise = new Promise<{ data: null, error: Error }>((_, reject) => {
+                setTimeout(() => {
+                    if (!insertCompleted) reject(new Error("Timeout (>5s)"));
+                }, 5000);
+            });
+
+            const dbPromise = supabase.from('messages').insert([{
+                conversation_id: activeConversationId,
+                sender_id: userId,
+                content: msgText
+            }]).select();
+
+            const { data, error } = await Promise.race([dbPromise, timeoutPromise]) as any;
+            insertCompleted = true;
+
+            if (error) throw error;
+
+            if (data && data.length > 0) {
+                setMessages(prev => prev.map(m => m.id === optimisticId ? { ...(data[0] as Message), status: 'sent' as const } : m));
+            }
+        } catch (e) {
+            console.error("Send failed:", e);
+            setMessages(prev => prev.map(m => m.id === optimisticId ? { ...m, status: 'error' as const } : m));
+        } finally {
+            setIsSending(false);
+        }
+    };
+
+    const uploadImage = async (file: File) => {
+        if (!userId || !activeConversationId) return;
+        
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${Math.random()}.${fileExt}`;
+        const filePath = `chat_images/${userId}/${fileName}`;
+   
+        setIsSending(true);
+        try {
+            const { error } = await supabase.storage.from('auction-images').upload(filePath, file);
+            if (error) throw error;
+            const { data } = supabase.storage.from('auction-images').getPublicUrl(filePath);
+            if (data?.publicUrl) {
+                await sendMessage(data.publicUrl, '[IMAGE]');
+            }
+        } catch (e) {
+            console.error("Upload fail:", e);
+        } finally {
+            setIsSending(false);
+        }
+    };
+
+    const value: ChatContextType = {
+        conversations,
+        activeChat,
+        setActiveChat,
+        messages,
+        activeConversationId,
+        loadingChats,
+        loadingMessages,
+        unreadMessageCount,
+        onlineUsers,
+        otherUserTyping,
+        setTyping,
+        sendMessage,
+        markAsRead,
+        uploadImage,
+        isSending
+    };
+
+    return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
+};
