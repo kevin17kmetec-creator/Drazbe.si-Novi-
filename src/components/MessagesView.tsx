@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ArrowLeft, SendHorizontal, Image as ImageIcon, Check, CheckCheck, Loader2, User, Search, Play, Phone, MessageSquare } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import { AuctionItem } from '../../types';
@@ -10,6 +10,7 @@ interface Message {
   content: string;
   created_at: string;
   is_read: boolean;
+  status?: 'sending' | 'sent' | 'error'; // local status
 }
 
 interface OtherUser {
@@ -39,44 +40,44 @@ export const MessagesView: React.FC<{
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
   const [isTyping, setIsTyping] = useState(false);
   const [otherUserTyping, setOtherUserTyping] = useState(false);
+  
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const globalChannelRef = useRef<any>(null);
-  
-  const currentChatConv = conversations.find(c => c.auction.id === activeChat);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const currentChatConv = conversations.find(c => c.auction.id === activeChat);
 
+  const scrollToBottom = useCallback(() => {
+      setTimeout(() => {
+          messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
+  }, []);
+
+  // 1. Fetch Conversations
   useEffect(() => {
-    // 1. Identify relevant auctions (completed, has winner, user is seller or winner)
+    let isMounted = true;
     const relevant = auctions.filter(a => {
         const wId = a.winnerId || (a as any).winner_id;
         const sId = a.sellerId || (a as any).seller_id;
-        
-        const isWinner = wId === userId;
-        const isSeller = sId === userId;
-        
-        if (!isWinner && !isSeller) return false;
+        if (wId !== userId && sId !== userId) return false;
         if (!wId) return false;
-        
-        const hasEnded = a.status === 'completed' || new Date(a.endTime).getTime() <= Date.now();
-        return hasEnded;
+        return a.status === 'completed' || new Date(a.endTime).getTime() <= Date.now();
     });
 
     const convs = relevant.map(a => {
         const wId = a.winnerId || (a as any).winner_id;
         const sId = a.sellerId || (a as any).seller_id;
-        const otherUserId = sId === userId ? wId : sId;
-        return { auction: a, otherUserId };
+        return { auction: a, otherUserId: sId === userId ? wId : sId };
     });
-
-    setConversations(convs);
 
     if (convs.length > 0) {
         const otherIds = [...new Set(convs.map(c => c.otherUserId))].filter(Boolean);
         if (otherIds.length > 0) {
-            (async () => {
-                try {
-                    const { data, error } = await supabase.from('users').select('id, first_name, last_name, email, profile_picture_url').in('id', otherIds);
-                    if (error) throw error;
+            supabase.from('users').select('id, first_name, last_name, email, profile_picture_url').in('id', otherIds).then(({ data, error }) => {
+                if (!isMounted) return;
+                if (error) {
+                    console.error("Error fetching users for chat:", error);
+                    setConversations(convs);
+                } else {
                     setConversations(convs.map(c => {
                         const u = data?.find(u => u.id === c.otherUserId);
                         return {
@@ -90,16 +91,10 @@ export const MessagesView: React.FC<{
                             } : undefined
                         };
                     }));
-                } catch (e) {
-                    console.error("Error fetching users for chat:", e);
-                    setConversations(convs);
-                } finally {
-                    setLoadingChats(false);
-                    if (!activeChat && convs.length > 0) {
-                        setActiveChat(convs[0].auction.id);
-                    }
                 }
-            })();
+                setLoadingChats(false);
+                if (!activeChat && convs.length > 0) setActiveChat(convs[0].auction.id);
+            });
         } else {
             setConversations(convs);
             setLoadingChats(false);
@@ -109,41 +104,59 @@ export const MessagesView: React.FC<{
         setConversations(convs);
         setLoadingChats(false);
     }
+    return () => { isMounted = false; };
   }, [auctions, userId]);
 
-      // Presence Channel (Global)
-      useEffect(() => {
-          if (!userId) return;
+  // 2. Setup Presence Channel
+  useEffect(() => {
+      if (!userId) return;
+      const presenceChannel = supabase.channel('global_online_messages', {
+          config: { presence: { key: userId } },
+      });
 
-          const presenceChannel = supabase.channel('global_online_messages', {
-              config: { presence: { key: userId } },
-          });
+      presenceChannel.on('presence', { event: 'sync' }, () => {
+          const newState = presenceChannel.presenceState();
+          const online = new Set<string>();
+          Object.keys(newState).forEach(key => online.add(key));
+          setOnlineUsers(online);
+      }).subscribe(async (status) => {
+          if (status === 'SUBSCRIBED') {
+              try { await presenceChannel.track({ online_at: new Date().toISOString() }); }
+              catch(e) { console.error("Presence track error", e); }
+          }
+      });
 
-          presenceChannel.on('presence', { event: 'sync' }, () => {
-              const newState = presenceChannel.presenceState();
-              const online = new Set<string>();
-              Object.keys(newState).forEach(key => {
-                 online.add(key);
-              });
-              setOnlineUsers(online);
-          }).subscribe(async (status) => {
-              if (status === 'SUBSCRIBED') {
-                  await presenceChannel.track({ online_at: new Date().toISOString() });
-              }
-          });
+      return () => {
+          supabase.removeChannel(presenceChannel);
+      };
+  }, [userId]);
 
-          return () => {
-              supabase.removeChannel(presenceChannel);
-          };
-      }, [userId]);
+  // 3. Setup Messages Channel & Fetch Messages
+  useEffect(() => {
+      if (!activeChat || !currentChatConv) return;
+      
+      let isMounted = true;
+      let poolChannel: any = null;
+      let reconnectTimeoutId: NodeJS.Timeout;
 
-      useEffect(() => {
-          if (!activeChat || !currentChatConv) return;
-          setLoadingMessages(true);
-          
-          let poolChannel: any = null;
+      setLoadingMessages(true);
+      setMessages([]);
+      setOtherUserTyping(false);
 
-          const setupChatAndFetch = async () => {
+      const markAsRead = async (convId: string) => {
+          try {
+              await supabase.from('messages')
+                .update({ is_read: true })
+                .eq('conversation_id', convId)
+                .eq('is_read', false)
+                .neq('sender_id', userId);
+          } catch(e) {
+              console.error("Mark read error", e);
+          }
+      };
+
+      const initChat = async (retryCount = 0) => {
+          if (!isMounted) return;
           try {
               let { data: convData } = await supabase
                 .from('conversations')
@@ -155,175 +168,201 @@ export const MessagesView: React.FC<{
               if (!convData) {
                   const { data: newConv } = await supabase
                     .from('conversations')
-                    .insert([{
-                        auction_id: activeChat,
-                        participant_one: userId,
-                        participant_two: currentChatConv.otherUserId
-                    }])
+                    .insert([{ auction_id: activeChat, participant_one: userId, participant_two: currentChatConv.otherUserId }])
                     .select('id')
                     .single();
-
-                  if (newConv) {
-                      convData = newConv;
-                  }
+                  if (newConv) convData = newConv;
               }
 
-              if (convData) {
+              if (convData && isMounted) {
                   setActiveConversationId(convData.id);
-
-                  const { data: msgData } = await supabase
+                  
+                  // Fetch initial messages
+                  const { data: msgData, error: msgError } = await supabase
                     .from('messages')
                     .select('*')
                     .eq('conversation_id', convData.id)
                     .order('created_at', { ascending: true });
+                  
+                  if (msgError) throw msgError;
 
-                  if (msgData) {
-                      setMessages(msgData);
-                      const unread = msgData.filter(m => m.sender_id !== userId && !m.is_read).map(m => m.id);
-                      if (unread.length > 0) {
-                          await supabase.from('messages').update({ is_read: true }).in('id', unread);
-                      }
+                  if (msgData && isMounted) {
+                      setMessages(msgData.map(m => ({ ...m, status: 'sent' as const })));
+                      markAsRead(convData.id);
                   }
 
-                  poolChannel = supabase.channel(`messages_${convData.id}`)
-                    .on('postgres_changes', { 
-                        event: 'INSERT', 
-                        schema: 'public', 
-                        table: 'messages', 
-                        filter: `conversation_id=eq.${convData.id}` 
-                    }, async payload => {
+                  // Subscribe to Realtime Let's build channel
+                  poolChannel = supabase.channel(`messages_${convData.id}`);
+                  
+                  poolChannel
+                    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${convData.id}` }, async payload => {
                         const newMsg = payload.new as Message;
-                        setMessages(prev => {
-                            if (prev.find(m => m.id === newMsg.id)) return prev;
-                            return [...prev, newMsg];
-                        });
-                        if (newMsg.sender_id !== userId) {
-                            await supabase.from('messages').update({ is_read: true }).eq('id', newMsg.id);
+                        if (!isMounted) return;
+
+                        if (newMsg.sender_id !== userId && !newMsg.is_read) {
+                           // Ack read independently
+                           supabase.from('messages').update({ is_read: true }).eq('id', newMsg.id).then();
                         }
+
+                        setMessages(prev => {
+                            // Deduplicate (e.g., Optimistic update or same insert)
+                            // Remove temporary optimistic message if same content/time
+                            const filtered = prev.filter(m => !(m.status === 'sending' && m.content === newMsg.content && m.sender_id === newMsg.sender_id));
+                            if (filtered.find(m => m.id === newMsg.id)) return prev;
+                            const newArr = [...filtered, { ...newMsg, status: 'sent' as const }];
+                            return newArr.sort((a,b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+                        });
                         scrollToBottom();
                     })
-                    .on('postgres_changes', { 
-                        event: 'UPDATE', 
-                        schema: 'public', 
-                        table: 'messages', 
-                        filter: `conversation_id=eq.${convData.id}` 
-                    }, payload => {
+                    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages', filter: `conversation_id=eq.${convData.id}` }, payload => {
                         const updated = payload.new as Message;
-                        setMessages(prev => prev.map(m => m.id === updated.id ? updated : m));
+                        if (!isMounted) return;
+                        setMessages(prev => prev.map(m => (m.id === updated.id || (m.status === 'sending' && m.content === updated.content)) ? { ...updated, status: 'sent' as const } : m));
                     })
                     .on('broadcast', { event: 'typing' }, payload => {
+                        if (!isMounted) return;
                         if (payload.payload.userId === currentChatConv.otherUserId) {
                             setOtherUserTyping(payload.payload.isTyping);
                         }
-                    })
-                    .subscribe();
+                    });
 
-                  globalChannelRef.current = poolChannel;
+                  poolChannel.subscribe((status: any, err: any) => {
+                      if (status === 'SUBSCRIBED') {
+                          console.log("Joined room", convData.id);
+                      }
+                      if (status === 'SYSTEM_ERROR' || status === 'TIMED_OUT') {
+                          console.error("Supabase Channel Error", status, err);
+                          if (retryCount < 3) {
+                              const delay = Math.pow(2, retryCount) * 1000;
+                              reconnectTimeoutId = setTimeout(() => {
+                                  if (isMounted) initChat(retryCount + 1);
+                              }, delay);
+                          }
+                      }
+                  });
+
+                  if (isMounted) {
+                      globalChannelRef.current = poolChannel;
+                      setLoadingMessages(false);
+                      scrollToBottom();
+                  }
               }
           } catch (err) {
               console.error("Error setting up chat:", err);
-          } finally {
-              setLoadingMessages(false);
-              scrollToBottom();
+              if (isMounted) setLoadingMessages(false);
           }
       };
 
-      setupChatAndFetch();
+      initChat();
 
       return () => {
+          isMounted = false;
+          if (reconnectTimeoutId) clearTimeout(reconnectTimeoutId);
           if (poolChannel) {
               supabase.removeChannel(poolChannel);
           }
           globalChannelRef.current = null;
-          setOtherUserTyping(false);
           setActiveConversationId(null);
       };
-  }, [activeChat, currentChatConv, userId]);
+  }, [activeChat, currentChatConv, userId, scrollToBottom]);
 
   const handleTyping = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       setNewMessage(e.target.value);
 
-      if (!isTyping) {
+      if (!isTyping && globalChannelRef.current) {
           setIsTyping(true);
-          globalChannelRef.current?.send({
+          globalChannelRef.current.send({
               type: 'broadcast',
               event: 'typing',
               payload: { userId, isTyping: true }
-          });
+          }).catch((e: any) => console.error(e));
       }
 
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
 
       typingTimeoutRef.current = setTimeout(() => {
           setIsTyping(false);
-          globalChannelRef.current?.send({
-              type: 'broadcast',
-              event: 'typing',
-              payload: { userId, isTyping: false }
-          });
+          if (globalChannelRef.current) {
+              globalChannelRef.current.send({
+                  type: 'broadcast',
+                  event: 'typing',
+                  payload: { userId, isTyping: false }
+              }).catch((e: any) => console.error(e));
+          }
       }, 2000);
   };
 
-
-  const scrollToBottom = () => {
-      setTimeout(() => {
-          messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-      }, 100);
-  };
-
-  const handleSend = async () => {
-      if (!newMessage.trim() || !activeChat || !currentChatConv) return;
+  const attemptSendMessage = async (msgText: string, contentPrefix = '') => {
+      if (!msgText.trim() && !contentPrefix) return;
+      if (!activeChat || !currentChatConv) return;
       
-      const msgText = newMessage.trim();
+      const optimisticId = `temp-${Date.now()}`;
+      const finalContent = contentPrefix + msgText.trim();
+      
+      const newMsg: Message = {
+          id: optimisticId,
+          conversation_id: activeConversationId || 'unknown',
+          sender_id: userId,
+          content: finalContent,
+          created_at: new Date().toISOString(),
+          is_read: false,
+          status: 'sending' as const
+      };
+
+      // Optimistic update
+      setMessages(prev => [...prev, newMsg]);
       setNewMessage('');
-      setIsSending(true);
+      scrollToBottom();
 
       let convId = activeConversationId;
       if (!convId) {
-          const { data: convData } = await supabase
-            .from('conversations')
-            .select('id')
-            .eq('auction_id', activeChat)
-            .or(`and(participant_one.eq.${userId},participant_two.eq.${currentChatConv.otherUserId}),and(participant_one.eq.${currentChatConv.otherUserId},participant_two.eq.${userId})`)
-            .maybeSingle();
-
-          if (convData) {
-              convId = convData.id;
-              setActiveConversationId(convId);
-          } else {
-              const { data: newConv } = await supabase
-                .from('conversations')
-                .insert([{
-                    auction_id: activeChat,
-                    participant_one: userId,
-                    participant_two: currentChatConv.otherUserId
-                }])
-                .select('id')
-                .single();
-              if (newConv) {
-                  convId = newConv.id;
-                  setActiveConversationId(convId);
-              }
+          // Fallback if not initialized yet
+          try {
+            const { data: convData } = await supabase.from('conversations').select('id').eq('auction_id', activeChat)
+              .or(`and(participant_one.eq.${userId},participant_two.eq.${currentChatConv.otherUserId}),and(participant_one.eq.${currentChatConv.otherUserId},participant_two.eq.${userId})`)
+              .maybeSingle();
+            
+            if (convData) convId = convData.id;
+            else {
+                const { data: newConv } = await supabase.from('conversations').insert([{
+                    auction_id: activeChat, participant_one: userId, participant_two: currentChatConv.otherUserId
+                }]).select('id').single();
+                if (newConv) convId = newConv.id;
+            }
+            if (convId) setActiveConversationId(convId);
+          } catch(e) {
+              console.error("Conversation init error", e);
+              setMessages(prev => prev.filter(m => m.id !== optimisticId));
+              return;
           }
       }
 
       if (!convId) {
-          setIsSending(false);
+          setMessages(prev => prev.filter(m => m.id !== optimisticId));
           return;
       }
       
-      const { data } = await supabase.from('messages').insert([{
-          conversation_id: convId,
-          sender_id: userId,
-          content: msgText
-      }]).select();
-      
-      if (data && data.length > 0 && !messages.find(m => m.id === data[0].id)) {
-          setMessages(prev => [...prev, data[0] as Message]);
-          scrollToBottom();
+      try {
+          const { data, error } = await supabase.from('messages').insert([{
+              conversation_id: convId,
+              sender_id: userId,
+              content: finalContent
+          }]).select();
+
+          if (error) throw error;
+          
+          if (data && data.length > 0) {
+              // We successfully saved, real-time will catch it, or we update temp
+              setMessages(prev => prev.map(m => m.id === optimisticId ? { ...(data[0] as Message), status: 'sent' as const } : m));
+          }
+      } catch (err) {
+          console.error("Send message error", err);
+          // Mark as error
+          setMessages(prev => prev.map(m => m.id === optimisticId ? { ...m, status: 'error' as const } : m));
       }
-      setIsSending(false);
   };
+
+  const handleSend = () => attemptSendMessage(newMessage);
 
   const uploadImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
       if (!activeChat || !currentChatConv || !e.target.files || e.target.files.length === 0) return;
@@ -335,49 +374,18 @@ export const MessagesView: React.FC<{
       const filePath = `chat_images/${userId}/${fileName}`;
  
       setIsSending(true);
-      const { error: uploadError } = await supabase.storage.from('auction-images').upload(filePath, file);
-      if (!uploadError) {
+      try {
+          const { error: uploadError } = await supabase.storage.from('auction-images').upload(filePath, file);
+          if (uploadError) throw uploadError;
           const { data } = supabase.storage.from('auction-images').getPublicUrl(filePath);
-          if (data.publicUrl) {
-               let convId = activeConversationId;
-               if (!convId) {
-                   const { data: convData } = await supabase
-                     .from('conversations')
-                     .select('id')
-                     .eq('auction_id', activeChat)
-                     .or(`and(participant_one.eq.${userId},participant_two.eq.${currentChatConv.otherUserId}),and(participant_one.eq.${currentChatConv.otherUserId},participant_two.eq.${userId})`)
-                     .maybeSingle();
-                   if (convData) {
-                       convId = convData.id;
-                       setActiveConversationId(convId);
-                   } else {
-                       const { data: newConv } = await supabase
-                         .from('conversations')
-                         .insert([{
-                             auction_id: activeChat,
-                             participant_one: userId,
-                             participant_two: currentChatConv.otherUserId
-                         }])
-                         .select('id')
-                         .single();
-                       if (newConv) {
-                           convId = newConv.id;
-                           setActiveConversationId(convId);
-                       }
-                   }
-               }
-               
-               if (convId) {
-                    await supabase.from('messages').insert([{
-                       conversation_id: convId,
-                       sender_id: userId,
-                       content: `[IMAGE]${data.publicUrl}`
-                    }]);
-                    scrollToBottom();
-               }
+          if (data?.publicUrl) {
+               await attemptSendMessage(data.publicUrl, '[IMAGE]');
           }
+      } catch (e) {
+          console.error("Image upload failed", e);
+      } finally {
+          setIsSending(false);
       }
-      setIsSending(false);
   };
 
   const renderContent = (content: string) => {
@@ -485,7 +493,15 @@ export const MessagesView: React.FC<{
                                             </div>
                                             {isMe && (
                                                 <div className="flex items-center gap-1 mt-1 text-[10px] font-black text-slate-400">
-                                                    {m.is_read ? <span className="text-green-500 flex items-center gap-1"><CheckCheck size={12}/> Prebrano</span> : <span className="flex items-center gap-1"><Check size={12}/> Poslano</span>}
+                                                    {m.status === 'sending' ? (
+                                                        <span className="flex items-center gap-1 opacity-50"><Loader2 size={12} className="animate-spin"/> Pošiljam...</span>
+                                                    ) : m.status === 'error' ? (
+                                                        <span className="text-red-500 flex items-center gap-1">Napaka</span>
+                                                    ) : m.is_read ? (
+                                                        <span className="text-green-500 flex items-center gap-1"><CheckCheck size={12}/> Prebrano</span>
+                                                    ) : (
+                                                        <span className="flex items-center gap-1"><Check size={12}/> Poslano</span>
+                                                    )}
                                                 </div>
                                             )}
                                         </div>
@@ -499,7 +515,7 @@ export const MessagesView: React.FC<{
                             <div className="flex items-end gap-3 max-w-4xl mx-auto relative bg-slate-50 p-2 rounded-3xl border border-slate-200">
                                 <label className="flex-shrink-0 w-10 h-10 rounded-2xl hover:bg-slate-200 flex items-center justify-center cursor-pointer transition-colors text-slate-400 hover:text-[#0A1128]">
                                     <input type="file" accept="image/*" className="hidden" onChange={uploadImage} disabled={isSending} />
-                                    <ImageIcon size={20} />
+                                    {isSending ? <Loader2 size={20} className="animate-spin"/> : <ImageIcon size={20} />}
                                 </label>
                                 <textarea
                                     value={newMessage}
@@ -511,10 +527,10 @@ export const MessagesView: React.FC<{
                                 />
                                 <button
                                     onClick={handleSend}
-                                    disabled={!newMessage.trim() || isSending}
+                                    disabled={!newMessage.trim()}
                                     className="flex-shrink-0 w-10 h-10 rounded-full bg-[#0A1128] text-white flex items-center justify-center hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none"
                                 >
-                                    {isSending ? <Loader2 size={16} className="animate-spin" /> : <SendHorizontal size={18} />}
+                                    <SendHorizontal size={18} />
                                 </button>
                             </div>
                         </div>
@@ -532,4 +548,3 @@ export const MessagesView: React.FC<{
     </div>
   );
 };
-

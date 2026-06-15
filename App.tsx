@@ -502,6 +502,8 @@ const App: React.FC = () => {
           return;
       }
 
+      let unreadChannel: any = null;
+
       const fetchUnread = async () => {
           try {
               // We need conversations where user is a participant to get their messages
@@ -526,6 +528,30 @@ const App: React.FC = () => {
               if (!error && count !== null) {
                   setUnreadMessageCount(count);
               }
+
+              // Set up channel ONLY for the user's specific conversations if possible.
+              // To avoid too many subscriptions, we could filter by receiver_id if it existed,
+              // but since we don't have receiver_id on messages, we just subscribe to messages globally
+              // and filter on javascript side or just refetch. But refetching globally on EVERY insert is bad.
+              if (unreadChannel) {
+                  supabase.removeChannel(unreadChannel);
+              }
+
+              // Subscribing to messages dynamically is complex without receiver_id.
+              // Let's use a conservative approach: check if the insert corresponds to our convs
+              unreadChannel = supabase.channel(`unread_msgs_${userData.id}`)
+                  .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
+                      if (convIds.includes(payload.new.conversation_id)) {
+                          fetchUnread();
+                      }
+                  })
+                  .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages' }, payload => {
+                      if (convIds.includes(payload.new.conversation_id)) {
+                          fetchUnread();
+                      }
+                  })
+                  .subscribe();
+
           } catch (err) {
               console.error("Error fetching unread messages", err);
           }
@@ -533,17 +559,10 @@ const App: React.FC = () => {
 
       fetchUnread();
 
-      const channel = supabase.channel('global_unread_messages')
-          .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
-              fetchUnread();
-          })
-          .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages' }, payload => {
-              fetchUnread();
-          })
-          .subscribe();
-
       return () => {
-          supabase.removeChannel(channel);
+          if (unreadChannel) {
+              supabase.removeChannel(unreadChannel);
+          }
       };
   }, [isLoggedIn, userData.id]);
 
