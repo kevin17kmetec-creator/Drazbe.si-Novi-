@@ -116,6 +116,7 @@ export const MessagesView: React.FC<{
                 .from('conversations')
                 .select('id')
                 .eq('auction_id', activeChat)
+                .or(`and(participant_one.eq.${userId},participant_two.eq.${currentChatConv.otherUserId}),and(participant_one.eq.${currentChatConv.otherUserId},participant_two.eq.${userId})`)
                 .maybeSingle();
 
               if (!convData) {
@@ -274,6 +275,7 @@ export const MessagesView: React.FC<{
             .from('conversations')
             .select('id')
             .eq('auction_id', activeChat)
+            .or(`and(participant_one.eq.${userId},participant_two.eq.${currentChatConv.otherUserId}),and(participant_one.eq.${currentChatConv.otherUserId},participant_two.eq.${userId})`)
             .maybeSingle();
 
           if (convData) {
@@ -334,6 +336,7 @@ export const MessagesView: React.FC<{
                      .from('conversations')
                      .select('id')
                      .eq('auction_id', activeChat)
+                     .or(`and(participant_one.eq.${userId},participant_two.eq.${currentChatConv.otherUserId}),and(participant_one.eq.${currentChatConv.otherUserId},participant_two.eq.${userId})`)
                      .maybeSingle();
                    if (convData) {
                        convId = convData.id;
@@ -442,7 +445,11 @@ export const MessagesView: React.FC<{
                                 <div>
                                     <h3 className="font-black text-lg text-[#0A1128] flex items-center gap-2">
                                         {currentChatConv.user?.firstName ? `${currentChatConv.user.firstName} ${currentChatConv.user.lastName}` : currentChatConv.user?.email || 'Neznan uporabnik'}
-                                        {onlineUsers.has(currentChatConv.otherUserId) && <span className="text-[10px] bg-green-50 text-green-600 px-2 rounded-full uppercase tracking-widest font-black">Na spletu</span>}
+                                        {onlineUsers.has(currentChatConv.otherUserId) ? (
+                                            <span className="text-[10px] bg-green-50 text-green-600 px-2 rounded-full uppercase tracking-widest font-black">Aktiven</span>
+                                        ) : (
+                                            <span className="text-[10px] bg-slate-100 text-slate-500 px-2 rounded-full uppercase tracking-widest font-black">Odsoten</span>
+                                        )}
                                     </h3>
                                     <p className="text-xs text-slate-400 font-bold">{currentChatConv.auction.title[language as keyof typeof currentChatConv.auction.title] || currentChatConv.auction.title.SLO}</p>
                                 </div>

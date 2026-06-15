@@ -30,7 +30,8 @@ export const Header: React.FC<{
   auctions: AuctionItem[];
   userEmail?: string;
   userProfilePicture?: string;
-}> = ({ onHome, onSearch, onRegionSelect, onCategorySelect, onLastChance, onLogin, onLogout, onSettings, onSubscriptions, onCreateAuction, onMyWinnings, onMyBids, onMySold, onMyUnsold, onWatchlist, onMessages, activeView, selectedRegion, selectedCategory, isLoggedIn, isVerified, language, onLanguageChange, t, auctions, userEmail, userProfilePicture }) => {
+  unreadMessageCount?: number;
+}> = ({ onHome, onSearch, onRegionSelect, onCategorySelect, onLastChance, onLogin, onLogout, onSettings, onSubscriptions, onCreateAuction, onMyWinnings, onMyBids, onMySold, onMyUnsold, onWatchlist, onMessages, activeView, selectedRegion, selectedCategory, isLoggedIn, isVerified, language, onLanguageChange, t, auctions, userEmail, userProfilePicture, unreadMessageCount }) => {
   const [isRegOpen, setIsRegOpen] = useState(false);
   const [isCatOpen, setIsCatOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
@@ -106,8 +107,13 @@ export const Header: React.FC<{
             </div>
             <div className="flex items-center gap-4">
               {isLoggedIn && (
-                  <button onClick={onMessages} className={`bg-white/5 p-3 rounded-xl border border-white/10 transition-all text-white flex items-center justify-center ${activeView === 'messages' ? 'bg-[#FEBA4F] text-[#0A1128] border-transparent' : 'hover:bg-white/10 hover:text-[#FEBA4F]'}`}>
+                  <button onClick={onMessages} className={`relative bg-white/5 p-3 rounded-xl border border-white/10 transition-all text-white flex items-center justify-center ${activeView === 'messages' ? 'bg-[#FEBA4F] text-[#0A1128] border-transparent' : 'hover:bg-white/10 hover:text-[#FEBA4F]'}`}>
                     <MessageSquare size={16} />
+                    {unreadMessageCount !== undefined && unreadMessageCount > 0 && (
+                        <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[9px] font-bold w-4 h-4 flex items-center justify-center rounded-full border-2 border-[#0A1128]">
+                            {unreadMessageCount > 9 ? '9+' : unreadMessageCount}
+                        </span>
+                    )}
                   </button>
               )}
               <div className="relative h-full flex items-center"

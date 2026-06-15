@@ -166,6 +166,7 @@ const App: React.FC = () => {
   const [deliveryMethodModal, setDeliveryMethodModal] = useState<{isOpen: boolean, auctionId: string, deliveryMethod: 'pickup'|'post'|null}>({isOpen: false, auctionId: '', deliveryMethod: null});
   const [receiptConfirmModal, setReceiptConfirmModal] = useState<{isOpen: boolean, auctionId: string, sellerId: string}>({isOpen: false, auctionId: '', sellerId: ''});
   const [ratingModal, setRatingModal] = useState<{isOpen: boolean, auctionId: string, sellerId: string, rating: number, comment: string}>({isOpen: false, auctionId: '', sellerId: '', rating: 0, comment: ''});
+  const [unreadMessageCount, setUnreadMessageCount] = useState(0);
     const [userData, setUserData] = useState({ 
         id: '', 
         firstName: '', 
@@ -493,6 +494,58 @@ const App: React.FC = () => {
       selectedItem?.bidCount, 
       selectedItem?.endTime?.getTime?.() 
   ]);
+
+  // Fetch unread messages
+  useEffect(() => {
+      if (!isLoggedIn || !userData.id) {
+          setUnreadMessageCount(0);
+          return;
+      }
+
+      const fetchUnread = async () => {
+          try {
+              // We need conversations where user is a participant to get their messages
+              const { data: convs } = await supabase
+                .from('conversations')
+                .select('id')
+                .or(`participant_one.eq.${userData.id},participant_two.eq.${userData.id}`);
+              
+              if (!convs || convs.length === 0) {
+                  setUnreadMessageCount(0);
+                  return;
+              }
+              const convIds = convs.map(c => c.id);
+              
+              const { count, error } = await supabase
+                  .from('messages')
+                  .select('*', { count: 'exact', head: true })
+                  .in('conversation_id', convIds)
+                  .eq('is_read', false)
+                  .neq('sender_id', userData.id);
+                  
+              if (!error && count !== null) {
+                  setUnreadMessageCount(count);
+              }
+          } catch (err) {
+              console.error("Error fetching unread messages", err);
+          }
+      };
+
+      fetchUnread();
+
+      const channel = supabase.channel('global_unread_messages')
+          .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
+              fetchUnread();
+          })
+          .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages' }, payload => {
+              fetchUnread();
+          })
+          .subscribe();
+
+      return () => {
+          supabase.removeChannel(channel);
+      };
+  }, [isLoggedIn, userData.id]);
 
   // Auth Sync
   useEffect(() => {
@@ -1986,6 +2039,7 @@ const App: React.FC = () => {
             auctions={auctions}
             userEmail={userData.email}
             userProfilePicture={userData.profile_picture_url || userData.profilePicture}
+            unreadMessageCount={unreadMessageCount}
         />
         <main>{content}</main>
         {activeView === 'grid' && <Footer t={t} onLegal={setActiveLegal} />}
