@@ -36,13 +36,17 @@ interface ChatContextType {
   loadingChats: boolean;
   loadingMessages: boolean;
   unreadMessageCount: number;
+  unreadCounts: Record<string, number>;
   onlineUsers: Set<string>;
   otherUserTyping: boolean;
   setTyping: (isTyping: boolean) => void;
   sendMessage: (content: string, prefix?: string) => Promise<void>;
+  retryMessage: (tempId: string) => Promise<void>;
   markAsRead: (convId: string) => Promise<void>;
   uploadImage: (file: File) => Promise<void>;
   isSending: boolean;
+  isConnecting: boolean;
+  checkAndRecoverHealth: () => void;
 }
 
 export const ChatContext = createContext<ChatContextType | null>(null);
@@ -51,6 +55,35 @@ export const useChat = () => {
     const ctx = useContext(ChatContext);
     if (!ctx) throw new Error("useChat must be used within ChatProvider");
     return ctx;
+};
+
+const getFailedMessages = (convId: string): Message[] => {
+    try {
+        const stored = localStorage.getItem(`failed_msgs_${convId}`);
+        return stored ? JSON.parse(stored) : [];
+    } catch (e) {
+        return [];
+    }
+};
+
+const saveFailedMessages = (convId: string, msgs: Message[]) => {
+    try {
+        localStorage.setItem(`failed_msgs_${convId}`, JSON.stringify(msgs));
+    } catch (e) {
+        console.error("Failed to save failed messages to localStorage:", e);
+    }
+};
+
+const addFailedMessage = (convId: string, msg: Message) => {
+    const current = getFailedMessages(convId);
+    if (!current.some(m => m.id === msg.id)) {
+        saveFailedMessages(convId, [...current, msg]);
+    }
+};
+
+const removeFailedMessage = (convId: string, tempId: string) => {
+    const current = getFailedMessages(convId);
+    saveFailedMessages(convId, current.filter(m => m.id !== tempId));
 };
 
 export const ChatProvider: React.FC<{
@@ -66,14 +99,55 @@ export const ChatProvider: React.FC<{
     const [loadingChats, setLoadingChats] = useState(false);
     const [loadingMessages, setLoadingMessages] = useState(false);
     const [unreadMessageCount, setUnreadMessageCount] = useState(0);
+    const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
     const [isSending, setIsSending] = useState(false);
+    const [isConnecting, setIsConnecting] = useState(false);
     
     const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
     const [otherUserTyping, setOtherUserTyping] = useState(false);
 
+    const [reloadTrigger, setReloadTrigger] = useState(0);
+
     const globalChannelRef = useRef<any>(null);
     const presenceChannelRef = useRef<any>(null);
     const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const forceReconnectRef = useRef<() => void>(() => {});
+
+    const hardResetChatState = useCallback(async () => {
+        console.warn("Drazba.si Watchdog: Triggering Programmatic Hard-Reset of Chat systems.");
+        setIsConnecting(true);
+        if (globalChannelRef.current) {
+            try { supabase.removeChannel(globalChannelRef.current); } catch(e) {}
+            globalChannelRef.current = null;
+        }
+        if (presenceChannelRef.current) {
+            try { supabase.removeChannel(presenceChannelRef.current); } catch(e) {}
+            presenceChannelRef.current = null;
+        }
+        setConversations([]);
+        setMessages([]);
+        setOnlineUsers(new Set());
+        setUnreadCounts({});
+        setUnreadMessageCount(0);
+        setReloadTrigger(prev => prev + 1);
+    }, []);
+
+    const checkAndRecoverHealth = useCallback(() => {
+        const isDead = isConnecting || !globalChannelRef.current || globalChannelRef.current.state !== 'joined';
+        if (isDead) {
+            console.warn("Land/Focus check: Socket unresponsive or dead. Performing programmatic hard-reset.");
+            hardResetChatState();
+        }
+    }, [isConnecting, hardResetChatState]);
+
+    useEffect(() => {
+        const handleFocus = () => {
+            setReloadTrigger(prev => prev + 1);
+            checkAndRecoverHealth();
+        };
+        window.addEventListener('focus', handleFocus);
+        return () => window.removeEventListener('focus', handleFocus);
+    }, [checkAndRecoverHealth]);
 
     const activeConvIdRef = useRef<string | null>(null);
     activeConvIdRef.current = activeConversationId;
@@ -87,18 +161,31 @@ export const ChatProvider: React.FC<{
     const fetchUnread = useCallback(async (convIds: string[]) => {
         if (!userId || convIds.length === 0) {
             setUnreadMessageCount(0);
+            setUnreadCounts({});
             return;
         }
         try {
-            const { count, error } = await supabase
+            const { data, error } = await supabase
                 .from('messages')
-                .select('*', { count: 'exact', head: true })
+                .select('id, conversation_id')
                 .in('conversation_id', convIds)
                 .eq('is_read', false)
                 .neq('sender_id', userId);
                 
-            if (!error && count !== null) {
-                setUnreadMessageCount(count);
+            if (!error && data) {
+                const newCounts: Record<string, number> = {};
+                convIds.forEach(id => {
+                    newCounts[id] = 0;
+                });
+                data.forEach((m: any) => {
+                    if (m.conversation_id) {
+                        newCounts[m.conversation_id] = (newCounts[m.conversation_id] || 0) + 1;
+                    }
+                });
+                setUnreadCounts(newCounts);
+                
+                const total = Object.values(newCounts).reduce((acc, curr) => acc + curr, 0);
+                setUnreadMessageCount(total);
             }
         } catch (err) {
             console.error("Error fetching unread messages", err);
@@ -113,7 +200,7 @@ export const ChatProvider: React.FC<{
         }
 
         let isMounted = true;
-        setLoadingChats(true);
+        if (conversationsRef.current.length === 0) setLoadingChats(true);
         
         const relevant = auctions.filter(a => {
             const wId = a.winnerId || (a as any).winner_id;
@@ -186,11 +273,19 @@ export const ChatProvider: React.FC<{
         loadConversationsData();
 
         return () => { isMounted = false; };
-    }, [userId, auctions, fetchUnread]);
+    }, [userId, auctions, fetchUnread, reloadTrigger]);
 
     const markAsRead = async (convId: string) => {
         if (!userId || !convId) return;
         try {
+            setUnreadCounts(prev => {
+                if (prev[convId] === undefined || prev[convId] === 0) return prev;
+                const newCounts = { ...prev, [convId]: 0 };
+                const total = Object.values(newCounts).reduce((acc, curr) => acc + curr, 0);
+                setUnreadMessageCount(total);
+                return newCounts;
+            });
+
             await supabase.from('messages')
               .update({ is_read: true })
               .eq('conversation_id', convId)
@@ -213,7 +308,15 @@ export const ChatProvider: React.FC<{
                 try { supabase.removeChannel(channel); } catch(e) {}
             }
 
+            setIsConnecting(true);
             channel = supabase.channel(`global_syncer_${userId}`);
+
+            forceReconnectRef.current = () => {
+                if (channel) {
+                    try { channel.unsubscribe(); } catch(e) {}
+                    setTimeout(() => channel.subscribe(), 100);
+                }
+            };
 
             channel.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload: any) => {
                 const newMsg = payload.new as Message;
@@ -260,7 +363,11 @@ export const ChatProvider: React.FC<{
             });
 
             channel.subscribe((status: string, err: any) => {
+                if (status === 'SUBSCRIBED') {
+                    setIsConnecting(false);
+                }
                 if (status === 'SYSTEM_ERROR' || status === 'TIMED_OUT' || status === 'CHANNEL_ERROR' || status === 'CLOSED') {
+                    setIsConnecting(true);
                     console.error("Global Channel Issue:", status, err);
                     reconnectTimeout = setTimeout(() => {
                         setupGlobalChannel();
@@ -288,9 +395,7 @@ export const ChatProvider: React.FC<{
         const handleVisibilityChange = () => {
             if (document.visibilityState === 'visible') {
                 resyncAll();
-                if (globalChannelRef.current && globalChannelRef.current.state === 'closed') {
-                    setupGlobalChannel();
-                }
+                checkAndRecoverHealth();
             }
         };
 
@@ -298,14 +403,21 @@ export const ChatProvider: React.FC<{
 
         window.addEventListener('visibilitychange', handleVisibilityChange);
 
+        const pingInterval = setInterval(() => {
+             if (globalChannelRef.current && globalChannelRef.current.state === 'joined') {
+                  globalChannelRef.current.send({ type: 'broadcast', event: 'ping', payload: {} }).catch(() => {});
+             }
+        }, 25000);
+
         return () => {
             if (reconnectTimeout) clearTimeout(reconnectTimeout);
+            clearInterval(pingInterval);
             if (channel) {
                 try { supabase.removeChannel(channel); } catch(_) {}
             }
             window.removeEventListener('visibilitychange', handleVisibilityChange);
         };
-    }, [userId, fetchUnread]);
+    }, [userId, fetchUnread, checkAndRecoverHealth]);
 
     // 3. Presence Setup
     useEffect(() => {
@@ -391,7 +503,12 @@ export const ChatProvider: React.FC<{
                     if (error) throw error;
                     
                     if (msgData && isMounted) {
-                        setMessages(msgData.map((m: any) => ({ ...m, status: 'sent' as const })));
+                        const failed = getFailedMessages(convId);
+                        const merged = [
+                            ...msgData.map((m: any) => ({ ...m, status: 'sent' as const })),
+                            ...failed
+                        ];
+                        setMessages(merged);
                         markAsRead(convId);
                         
                         const cIds = conversationsRef.current.map(x => x.id).filter(Boolean).filter(id => id !== convId);
@@ -479,9 +596,59 @@ export const ChatProvider: React.FC<{
             if (data && data.length > 0) {
                 setMessages(prev => prev.map(m => m.id === optimisticId ? { ...(data[0] as Message), status: 'sent' as const } : m));
             }
-        } catch (e) {
+        } catch (e: any) {
             console.error("Send failed:", e);
-            setMessages(prev => prev.map(m => m.id === optimisticId ? { ...m, status: 'error' as const } : m));
+            const errorMsg: Message = { ...newMsg, status: 'error' as const };
+            setMessages(prev => prev.map(m => m.id === optimisticId ? errorMsg : m));
+            addFailedMessage(activeConversationId, errorMsg);
+            if (e?.message?.includes("Timeout")) {
+                 forceReconnectRef.current();
+            }
+        } finally {
+            setIsSending(false);
+        }
+    };
+
+    const retryMessage = async (tempId: string) => {
+        if (!userId || !activeConversationId) return;
+
+        const failedList = getFailedMessages(activeConversationId);
+        const targetMsg = failedList.find(m => m.id === tempId);
+        if (!targetMsg) return;
+
+        setMessages(prev => prev.map(m => m.id === tempId ? { ...m, status: 'sending' as const } : m));
+
+        let insertCompleted = false;
+        try {
+            setIsSending(true);
+
+            const timeoutPromise = new Promise<{ data: null, error: Error }>((_, reject) => {
+                setTimeout(() => {
+                    if (!insertCompleted) reject(new Error("Timeout (>5s)"));
+                }, 5000);
+            });
+
+            const dbPromise = supabase.from('messages').insert([{
+                conversation_id: activeConversationId,
+                sender_id: userId,
+                content: targetMsg.content
+            }]).select();
+
+            const { data, error } = await Promise.race([dbPromise, timeoutPromise]) as any;
+            insertCompleted = true;
+
+            if (error) throw error;
+
+            if (data && data.length > 0) {
+                setMessages(prev => prev.map(m => m.id === tempId ? { ...(data[0] as Message), status: 'sent' as const } : m));
+                removeFailedMessage(activeConversationId, tempId);
+            }
+        } catch (e: any) {
+            console.error("Retry failed:", e);
+            setMessages(prev => prev.map(m => m.id === tempId ? { ...m, status: 'error' as const } : m));
+            if (e?.message?.includes("Timeout")) {
+                 forceReconnectRef.current();
+            }
         } finally {
             setIsSending(false);
         }
@@ -518,13 +685,17 @@ export const ChatProvider: React.FC<{
         loadingChats,
         loadingMessages,
         unreadMessageCount,
+        unreadCounts,
         onlineUsers,
         otherUserTyping,
         setTyping,
         sendMessage,
+        retryMessage,
         markAsRead,
         uploadImage,
-        isSending
+        isSending,
+        isConnecting,
+        checkAndRecoverHealth
     };
 
     return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;

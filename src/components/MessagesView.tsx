@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { ArrowLeft, SendHorizontal, Image as ImageIcon, Check, CheckCheck, Loader2, User, MessageSquare } from 'lucide-react';
+import { ArrowLeft, SendHorizontal, Image as ImageIcon, Check, CheckCheck, Loader2, User, MessageSquare, AlertCircle, RefreshCw } from 'lucide-react';
 import { AuctionItem } from '../../types';
 import { useChat } from '../context/ChatContext';
 
@@ -18,12 +18,16 @@ export const MessagesView: React.FC<{
       messages, 
       loadingChats, 
       loadingMessages, 
+      unreadCounts,
       onlineUsers, 
       otherUserTyping, 
       setTyping, 
       sendMessage, 
+      retryMessage,
       uploadImage, 
-      isSending 
+      isSending,
+      isConnecting,
+      checkAndRecoverHealth
   } = useChat();
 
   const [newMessage, setNewMessage] = useState('');
@@ -36,6 +40,13 @@ export const MessagesView: React.FC<{
           messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
       }, 100);
   }, []);
+
+  // Check health on mount to make sure everything is properly synched
+  useEffect(() => {
+      if (checkAndRecoverHealth) {
+          checkAndRecoverHealth();
+      }
+  }, [checkAndRecoverHealth]);
 
   // Set the active chat when navigating from an auction
   useEffect(() => {
@@ -95,8 +106,14 @@ export const MessagesView: React.FC<{
             
             {/* LEFT SIDEBAR (CONVERSATIONS) */}
             <div className="w-1/3 min-w-[280px] max-w-[380px] border-r border-slate-100 flex flex-col bg-slate-50/50">
-                <div className="p-6 border-b border-slate-100">
+                <div className="p-6 border-b border-slate-100 flex items-center justify-between">
                     <h2 className="text-2xl font-black text-[#0A1128] uppercase tracking-tighter">Sporočila</h2>
+                    {isConnecting && (
+                        <div className="flex items-center gap-1.5 text-[10px] uppercase font-black tracking-widest text-[#FEBA4F] bg-[#FEBA4F]/10 px-2.5 py-1 rounded-full">
+                            <Loader2 size={12} className="animate-spin" />
+                            Povezovanje...
+                        </div>
+                    )}
                 </div>
                 <div className="flex-1 overflow-y-auto p-3 space-y-2">
                     {loadingChats ? (
@@ -109,6 +126,7 @@ export const MessagesView: React.FC<{
                             const isActive = activeChat === c.auction.id;
                             const isOnline = onlineUsers.has(c.otherUserId);
                             const title = c.auction.title[language as keyof typeof c.auction.title] || c.auction.title.SLO;
+                            const count = c.id ? (unreadCounts[c.id] || 0) : 0;
                             return (
                                 <div 
                                     key={c.auction.id} 
@@ -127,8 +145,15 @@ export const MessagesView: React.FC<{
                                         </div>
                                     </div>
                                     <div className="flex-1 min-w-0">
-                                        <h4 className="font-black text-sm text-[#0A1128] truncate">{name}</h4>
-                                        <p className="text-xs text-slate-400 font-bold truncate">{isActive && otherUserTyping ? <span className="text-[#FEBA4F]">sogovorec piše...</span> : title}</p>
+                                        <div className="flex items-center justify-between">
+                                            <h4 className="font-black text-sm text-[#0A1128] truncate">{name}</h4>
+                                            {count > 0 && (
+                                                <span className="flex-shrink-0 bg-red-600 text-white text-[10px] font-extrabold w-5 h-5 flex items-center justify-center rounded-full animate-pulse shadow-md ml-2 select-none">
+                                                    {count}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <p className="text-xs text-slate-400 font-bold truncate mt-0.5">{isActive && otherUserTyping ? <span className="text-[#FEBA4F]">sogovorec piše...</span> : title}</p>
                                     </div>
                                 </div>
                             );
@@ -188,7 +213,17 @@ export const MessagesView: React.FC<{
                                                     {m.status === 'sending' ? (
                                                         <span className="flex items-center gap-1 opacity-50"><Loader2 size={12} className="animate-spin"/> Pošiljam...</span>
                                                     ) : m.status === 'error' ? (
-                                                        <span className="text-red-500 flex items-center gap-1">Napaka</span>
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-red-500 flex items-center gap-1 font-extrabold uppercase tracking-wider">
+                                                                <AlertCircle size={12} /> Napaka pri pošiljanju
+                                                            </span>
+                                                            <button 
+                                                                onClick={() => retryMessage(m.id)}
+                                                                className="flex items-center gap-1 bg-red-100/80 hover:bg-red-200/90 text-red-600 font-black px-2 py-1 rounded-lg border border-red-200 transition-all cursor-pointer text-[9px] uppercase tracking-wider shadow-sm"
+                                                            >
+                                                                <RefreshCw size={10} /> Pošlji ponovno
+                                                            </button>
+                                                        </div>
                                                     ) : m.is_read ? (
                                                         <span className="text-green-500 flex items-center gap-1"><CheckCheck size={12}/> Prebrano</span>
                                                     ) : (

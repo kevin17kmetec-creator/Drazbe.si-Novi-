@@ -112,7 +112,7 @@ export const Header: React.FC<{
                   <button onClick={onMessages} className={`relative bg-white/5 p-3 rounded-xl border border-white/10 transition-all text-white flex items-center justify-center ${activeView === 'messages' ? 'bg-[#FEBA4F] text-[#0A1128] border-transparent' : 'hover:bg-white/10 hover:text-[#FEBA4F]'}`}>
                     <MessageSquare size={16} />
                     {unreadMessageCount !== undefined && unreadMessageCount > 0 && (
-                        <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[9px] font-bold w-4 h-4 flex items-center justify-center rounded-full border-2 border-[#0A1128]">
+                        <span className="absolute -top-2.5 -right-2.5 bg-red-600 text-white text-[11px] font-extrabold w-6 h-6 flex items-center justify-center rounded-full border-2 border-[#0A1128] animate-pulse shadow-lg select-none">
                             {unreadMessageCount > 9 ? '9+' : unreadMessageCount}
                         </span>
                     )}
