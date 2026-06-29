@@ -124,6 +124,8 @@ export const ChatProvider: React.FC<{
   const presenceChannelRef = useRef<any>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const forceReconnectRef = useRef<() => void>(() => {});
+  const reconnectAttemptsRef = useRef(0);
+  const isReconnectingRef = useRef(false);
 
   const hardResetChatState = useCallback(async () => {
     console.warn(
@@ -151,6 +153,7 @@ export const ChatProvider: React.FC<{
   }, []);
 
   const checkAndRecoverHealth = useCallback(() => {
+    if (isReconnectingRef.current) return;
     const isDead =
       isConnecting ||
       !globalChannelRef.current ||
@@ -353,6 +356,18 @@ export const ChatProvider: React.FC<{
     let reconnectTimeout: NodeJS.Timeout;
 
     const setupGlobalChannel = async () => {
+      if (isReconnectingRef.current) return;
+
+      if (reconnectAttemptsRef.current >= 5) {
+        console.warn(
+          "Max reconnect attempts reached. Stopping automated reconnection.",
+        );
+        setIsConnecting(false);
+        return;
+      }
+
+      isReconnectingRef.current = true;
+
       if (channel) {
         try {
           await channel.unsubscribe();
@@ -463,6 +478,7 @@ export const ChatProvider: React.FC<{
           channel.subscribe((status: string, err: any) => {
             if (status === "SUBSCRIBED") {
               setIsConnecting(false);
+              reconnectAttemptsRef.current = 0;
             }
             if (
               status === "SYSTEM_ERROR" ||
@@ -472,20 +488,33 @@ export const ChatProvider: React.FC<{
             ) {
               setIsConnecting(true);
               console.error("Global Channel Issue:", status, err);
+
+              reconnectAttemptsRef.current += 1;
+              const delay = Math.min(
+                1000 * Math.pow(2, reconnectAttemptsRef.current),
+                10000,
+              );
+
+              if (reconnectTimeout) clearTimeout(reconnectTimeout);
               reconnectTimeout = setTimeout(() => {
                 setupGlobalChannel();
                 resyncAll();
-              }, 3000);
+              }, delay);
             }
           });
         } else {
           setIsConnecting(channel.state !== "joined");
+          if (channel.state === "joined") {
+            reconnectAttemptsRef.current = 0;
+          }
         }
 
         globalChannelRef.current = channel;
       } catch (err) {
         console.error("Error setting up channel listeners:", err);
         setIsConnecting(true);
+      } finally {
+        isReconnectingRef.current = false;
       }
     };
 
