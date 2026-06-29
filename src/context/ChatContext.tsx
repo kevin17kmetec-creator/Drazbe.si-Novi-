@@ -114,6 +114,12 @@ export const ChatProvider: React.FC<{
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const [isSending, setIsSending] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+  const isConnectingRef = useRef(false);
+
+  const setConnectionState = useCallback((state: boolean) => {
+    isConnectingRef.current = state;
+    setIsConnecting(state);
+  }, []);
 
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
   const [otherUserTyping, setOtherUserTyping] = useState(false);
@@ -131,7 +137,7 @@ export const ChatProvider: React.FC<{
     console.warn(
       "Drazba.si Watchdog: Triggering Programmatic Hard-Reset of Chat systems.",
     );
-    setIsConnecting(true);
+    setConnectionState(true);
     if (globalChannelRef.current) {
       try {
         supabase.removeChannel(globalChannelRef.current);
@@ -153,9 +159,9 @@ export const ChatProvider: React.FC<{
   }, []);
 
   const checkAndRecoverHealth = useCallback(() => {
-    if (isReconnectingRef.current) return;
+    if (isReconnectingRef.current || reconnectAttemptsRef.current >= 5) return;
     const isDead =
-      isConnecting ||
+      isConnectingRef.current ||
       !globalChannelRef.current ||
       globalChannelRef.current.state !== "joined";
     if (isDead) {
@@ -164,7 +170,7 @@ export const ChatProvider: React.FC<{
       );
       hardResetChatState();
     }
-  }, [isConnecting, hardResetChatState]);
+  }, [hardResetChatState]);
 
   useEffect(() => {
     const handleFocus = () => {
@@ -348,205 +354,195 @@ export const ChatProvider: React.FC<{
     }
   };
 
+  const globalReconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const resyncAll = useCallback(async () => {
+    const convIds = conversationsRef.current
+      .map((p) => p.id)
+      .filter((id) => id);
+    if (convIds.length > 0) fetchUnread(convIds);
+
+    const cId = activeConvIdRef.current;
+    if (cId) {
+      const { data } = await supabase
+        .from("messages")
+        .select("*")
+        .eq("conversation_id", cId)
+        .order("created_at", { ascending: true });
+      if (data) {
+        setMessages(data.map((m: any) => ({ ...m, status: "sent" as const })));
+      }
+    }
+  }, [fetchUnread]);
+
+  const setupGlobalChannel = useCallback(async () => {
+    if (!userIdRef.current) return;
+    if (isReconnectingRef.current) return;
+
+    if (reconnectAttemptsRef.current >= 5) {
+      console.warn(
+        "Max reconnect attempts reached. Stopping automated reconnection.",
+      );
+      setConnectionState(false);
+      return;
+    }
+
+    isReconnectingRef.current = true;
+
+    if (globalChannelRef.current) {
+      try {
+        await globalChannelRef.current.unsubscribe();
+        supabase.removeChannel(globalChannelRef.current);
+      } catch (e) {}
+      globalChannelRef.current = null;
+    }
+
+    setConnectionState(true);
+
+    try {
+      const nonce = Math.random().toString(36).substring(7);
+      const channel = supabase.channel(
+        `global_syncer_${userIdRef.current}_${nonce}`,
+      );
+
+      forceReconnectRef.current = () => {
+        setupGlobalChannel();
+      };
+
+      channel.on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "messages" },
+        (payload: any) => {
+          const newMsg = payload.new as Message;
+
+          if (newMsg.conversation_id === activeConvIdRef.current) {
+            setMessages((prev) => {
+              const filtered = prev.filter(
+                (m) =>
+                  !(
+                    m.status === "sending" &&
+                    m.content === newMsg.content &&
+                    m.sender_id === newMsg.sender_id
+                  ),
+              );
+              if (filtered.some((m) => m.id === newMsg.id)) return prev;
+              return [...filtered, { ...newMsg, status: "sent" as const }].sort(
+                (a, b) =>
+                  new Date(a.created_at).getTime() -
+                  new Date(b.created_at).getTime(),
+              );
+            });
+
+            if (newMsg.sender_id !== userIdRef.current && !newMsg.is_read) {
+              markAsRead(newMsg.conversation_id);
+            }
+          } else {
+            // Update global unread count
+            const convIds = conversationsRef.current
+              .map((p) => p.id)
+              .filter((id) => id);
+            if (
+              convIds.includes(newMsg.conversation_id) &&
+              newMsg.sender_id !== userIdRef.current
+            ) {
+              fetchUnread(convIds);
+            }
+          }
+        },
+      );
+
+      channel.on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "messages" },
+        (payload: any) => {
+          const updated = payload.new as Message;
+          if (updated.conversation_id === activeConvIdRef.current) {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === updated.id ||
+                (m.status === "sending" && m.content === updated.content)
+                  ? { ...updated, status: "sent" as const }
+                  : m,
+              ),
+            );
+          } else {
+            const convIds = conversationsRef.current
+              .map((p) => p.id)
+              .filter((id) => id);
+            if (convIds.includes(updated.conversation_id)) {
+              fetchUnread(convIds);
+            }
+          }
+        },
+      );
+
+      channel.on("broadcast", { event: "typing" }, (payload: any) => {
+        if (
+          payload.payload.convId === activeConvIdRef.current &&
+          payload.payload.userId !== userIdRef.current
+        ) {
+          setOtherUserTyping(payload.payload.isTyping);
+        }
+      });
+
+      if (channel.state !== "joined" && channel.state !== "joining") {
+        channel.subscribe((status: string, err: any) => {
+          if (status === "SUBSCRIBED") {
+            setConnectionState(false);
+            reconnectAttemptsRef.current = 0;
+          }
+          if (
+            status === "SYSTEM_ERROR" ||
+            status === "TIMED_OUT" ||
+            status === "CHANNEL_ERROR" ||
+            status === "CLOSED"
+          ) {
+            setConnectionState(true);
+            console.error("Global Channel Issue:", status, err);
+
+            reconnectAttemptsRef.current += 1;
+            const delay = Math.min(
+              1000 * Math.pow(2, reconnectAttemptsRef.current),
+              10000,
+            );
+
+            if (globalReconnectTimeoutRef.current)
+              clearTimeout(globalReconnectTimeoutRef.current);
+            globalReconnectTimeoutRef.current = setTimeout(() => {
+              setupGlobalChannel();
+              resyncAll();
+            }, delay);
+          }
+        });
+      } else {
+        setConnectionState(channel.state !== "joined");
+        if (channel.state === "joined") {
+          reconnectAttemptsRef.current = 0;
+        }
+      }
+
+      globalChannelRef.current = channel;
+    } catch (err) {
+      console.error("Error setting up channel listeners:", err);
+      setConnectionState(true);
+    } finally {
+      isReconnectingRef.current = false;
+    }
+  }, [resyncAll, setConnectionState, fetchUnread]);
+
   // 2. Global Realtime Channel for Messages & Visibility Change Resync
   useEffect(() => {
     if (!userId) return;
 
-    let channel: any;
-    let reconnectTimeout: NodeJS.Timeout;
-
-    const setupGlobalChannel = async () => {
-      if (isReconnectingRef.current) return;
-
-      if (reconnectAttemptsRef.current >= 5) {
-        console.warn(
-          "Max reconnect attempts reached. Stopping automated reconnection.",
-        );
-        setIsConnecting(false);
-        return;
-      }
-
-      isReconnectingRef.current = true;
-
-      if (channel) {
-        try {
-          await channel.unsubscribe();
-          supabase.removeChannel(channel);
-        } catch (e) {}
-        channel = null;
-      }
-      if (globalChannelRef.current) {
-        try {
-          await globalChannelRef.current.unsubscribe();
-          supabase.removeChannel(globalChannelRef.current);
-        } catch (e) {}
-        globalChannelRef.current = null;
-      }
-
-      setIsConnecting(true);
-
-      try {
-        // Ensure we get a perfectly clean instance by appending a unique nonce if needed,
-        // but explicit removeChannel should work. We use a nonce to be 100% safe from the cache crash.
-        const nonce = Math.random().toString(36).substring(7);
-        channel = supabase.channel(`global_syncer_${userId}_${nonce}`);
-
-        forceReconnectRef.current = () => {
-          setupGlobalChannel();
-        };
-
-        channel.on(
-          "postgres_changes",
-          { event: "INSERT", schema: "public", table: "messages" },
-          (payload: any) => {
-            const newMsg = payload.new as Message;
-
-            if (newMsg.conversation_id === activeConvIdRef.current) {
-              setMessages((prev) => {
-                const filtered = prev.filter(
-                  (m) =>
-                    !(
-                      m.status === "sending" &&
-                      m.content === newMsg.content &&
-                      m.sender_id === newMsg.sender_id
-                    ),
-                );
-                if (filtered.some((m) => m.id === newMsg.id)) return prev;
-                return [
-                  ...filtered,
-                  { ...newMsg, status: "sent" as const },
-                ].sort(
-                  (a, b) =>
-                    new Date(a.created_at).getTime() -
-                    new Date(b.created_at).getTime(),
-                );
-              });
-
-              if (newMsg.sender_id !== userIdRef.current && !newMsg.is_read) {
-                markAsRead(newMsg.conversation_id);
-              }
-            } else {
-              // Update global unread count
-              const convIds = conversationsRef.current
-                .map((p) => p.id)
-                .filter((id) => id);
-              if (
-                convIds.includes(newMsg.conversation_id) &&
-                newMsg.sender_id !== userIdRef.current
-              ) {
-                fetchUnread(convIds);
-              }
-            }
-          },
-        );
-
-        channel.on(
-          "postgres_changes",
-          { event: "UPDATE", schema: "public", table: "messages" },
-          (payload: any) => {
-            const updated = payload.new as Message;
-            if (updated.conversation_id === activeConvIdRef.current) {
-              setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === updated.id ||
-                  (m.status === "sending" && m.content === updated.content)
-                    ? { ...updated, status: "sent" as const }
-                    : m,
-                ),
-              );
-            } else {
-              const convIds = conversationsRef.current
-                .map((p) => p.id)
-                .filter((id) => id);
-              if (convIds.includes(updated.conversation_id)) {
-                fetchUnread(convIds);
-              }
-            }
-          },
-        );
-
-        channel.on("broadcast", { event: "typing" }, (payload: any) => {
-          if (
-            payload.payload.convId === activeConvIdRef.current &&
-            payload.payload.userId !== userIdRef.current
-          ) {
-            setOtherUserTyping(payload.payload.isTyping);
-          }
-        });
-
-        if (channel.state !== "joined" && channel.state !== "joining") {
-          channel.subscribe((status: string, err: any) => {
-            if (status === "SUBSCRIBED") {
-              setIsConnecting(false);
-              reconnectAttemptsRef.current = 0;
-            }
-            if (
-              status === "SYSTEM_ERROR" ||
-              status === "TIMED_OUT" ||
-              status === "CHANNEL_ERROR" ||
-              status === "CLOSED"
-            ) {
-              setIsConnecting(true);
-              console.error("Global Channel Issue:", status, err);
-
-              reconnectAttemptsRef.current += 1;
-              const delay = Math.min(
-                1000 * Math.pow(2, reconnectAttemptsRef.current),
-                10000,
-              );
-
-              if (reconnectTimeout) clearTimeout(reconnectTimeout);
-              reconnectTimeout = setTimeout(() => {
-                setupGlobalChannel();
-                resyncAll();
-              }, delay);
-            }
-          });
-        } else {
-          setIsConnecting(channel.state !== "joined");
-          if (channel.state === "joined") {
-            reconnectAttemptsRef.current = 0;
-          }
-        }
-
-        globalChannelRef.current = channel;
-      } catch (err) {
-        console.error("Error setting up channel listeners:", err);
-        setIsConnecting(true);
-      } finally {
-        isReconnectingRef.current = false;
-      }
-    };
-
-    const resyncAll = async () => {
-      const convIds = conversationsRef.current
-        .map((p) => p.id)
-        .filter((id) => id);
-      if (convIds.length > 0) fetchUnread(convIds);
-
-      const cId = activeConvIdRef.current;
-      if (cId) {
-        const { data } = await supabase
-          .from("messages")
-          .select("*")
-          .eq("conversation_id", cId)
-          .order("created_at", { ascending: true });
-        if (data) {
-          setMessages(
-            data.map((m: any) => ({ ...m, status: "sent" as const })),
-          );
-        }
-      }
-    };
+    setupGlobalChannel();
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
+        if (reconnectAttemptsRef.current >= 5) return;
         resyncAll();
         checkAndRecoverHealth();
       }
     };
-
-    setupGlobalChannel();
 
     window.addEventListener("visibilitychange", handleVisibilityChange);
 
@@ -562,16 +558,17 @@ export const ChatProvider: React.FC<{
     }, 25000);
 
     return () => {
-      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+      if (globalReconnectTimeoutRef.current)
+        clearTimeout(globalReconnectTimeoutRef.current);
       clearInterval(pingInterval);
-      if (channel) {
+      if (globalChannelRef.current) {
         try {
-          supabase.removeChannel(channel);
+          supabase.removeChannel(globalChannelRef.current);
         } catch (_) {}
       }
       window.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [userId, fetchUnread, checkAndRecoverHealth]);
+  }, [userId, setupGlobalChannel, resyncAll, checkAndRecoverHealth]);
 
   // 3. Presence Setup
   useEffect(() => {
