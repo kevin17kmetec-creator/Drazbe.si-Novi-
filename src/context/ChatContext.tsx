@@ -137,26 +137,38 @@ export const ChatProvider: React.FC<{
     console.warn(
       "Drazba.si Watchdog: Triggering Programmatic Hard-Reset of Chat systems.",
     );
+    
+    // ATOMIC HYDRATION SEQUENCE: Clear all locks
+    reconnectAttemptsRef.current = 0;
+    isReconnectingRef.current = false;
+    
     setConnectionState(true);
+    
     if (globalChannelRef.current) {
       try {
+        globalChannelRef.current.unsubscribe();
         supabase.removeChannel(globalChannelRef.current);
       } catch (e) {}
       globalChannelRef.current = null;
     }
+    
     if (presenceChannelRef.current) {
       try {
+        presenceChannelRef.current.unsubscribe();
         supabase.removeChannel(presenceChannelRef.current);
       } catch (e) {}
       presenceChannelRef.current = null;
     }
+    
     setConversations([]);
     setMessages([]);
     setOnlineUsers(new Set());
     setUnreadCounts({});
     setUnreadMessageCount(0);
+    
+    // Trigger fresh hydration reload
     setReloadTrigger((prev) => prev + 1);
-  }, []);
+  }, [setConnectionState]);
 
   const checkAndRecoverHealth = useCallback(() => {
     if (isReconnectingRef.current || reconnectAttemptsRef.current >= 5) return;
@@ -174,12 +186,31 @@ export const ChatProvider: React.FC<{
 
   useEffect(() => {
     const handleFocus = () => {
-      setReloadTrigger((prev) => prev + 1);
-      checkAndRecoverHealth();
+      // FORCE A CLEAN STATE FLUSH ON TAB RETURN
+      console.warn("Window focus returned. Forcing clean state flush.");
+      reconnectAttemptsRef.current = 0;
+      isReconnectingRef.current = false;
+      hardResetChatState();
     };
     window.addEventListener("focus", handleFocus);
     return () => window.removeEventListener("focus", handleFocus);
-  }, [checkAndRecoverHealth]);
+  }, [hardResetChatState]);
+
+  // TIMEOUT GUARDRAIL FOR LOADING SPINNERS
+  useEffect(() => {
+    let timeout: NodeJS.Timeout;
+    if (loadingChats || loadingMessages || isConnecting) {
+      timeout = setTimeout(() => {
+        console.warn("Watchdog: Loading state exceeded 4s, forcing spinners off to prevent deadlock.");
+        if (loadingChats) setLoadingChats(false);
+        if (loadingMessages) setLoadingMessages(false);
+        if (isConnecting) setConnectionState(false);
+      }, 4000);
+    }
+    return () => {
+      if (timeout) clearTimeout(timeout);
+    };
+  }, [loadingChats, loadingMessages, isConnecting, setConnectionState]);
 
   const activeConvIdRef = useRef<string | null>(null);
   activeConvIdRef.current = activeConversationId;
@@ -538,9 +569,10 @@ export const ChatProvider: React.FC<{
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        if (reconnectAttemptsRef.current >= 5) return;
-        resyncAll();
-        checkAndRecoverHealth();
+        console.warn("Visibility returned. Forcing clean state flush.");
+        reconnectAttemptsRef.current = 0;
+        isReconnectingRef.current = false;
+        hardResetChatState();
       }
     };
 
@@ -568,7 +600,7 @@ export const ChatProvider: React.FC<{
       }
       window.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [userId, setupGlobalChannel, resyncAll, checkAndRecoverHealth]);
+  }, [userId, setupGlobalChannel, hardResetChatState]);
 
   // 3. Presence Setup
   useEffect(() => {
