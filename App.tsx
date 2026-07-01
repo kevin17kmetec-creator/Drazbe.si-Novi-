@@ -220,10 +220,98 @@ const MainApp: React.FC = () => {
   const [auctions, setAuctions] = useState<AuctionItem[]>(
     EXTENDED_MOCK_AUCTIONS,
   );
-  const [activeView, setActiveView] = useState<ViewState>("grid");
+  const [activeView, setActiveView] = useState<ViewState>(() => {
+    if (typeof window === "undefined") return "grid";
+    const path = window.location.pathname;
+
+    // First check local storage for path restoration ONLY if we are exactly on the root without query params
+    let checkPath = path;
+    if (checkPath === "/" && !window.location.search) {
+      const savedRoute = localStorage.getItem("last_active_route");
+      if (savedRoute && savedRoute !== "/") {
+        try {
+          const url = new URL(savedRoute, window.location.origin);
+          checkPath = url.pathname;
+          // We will let the effect handle history replacement
+        } catch (e) {}
+      }
+    }
+
+    if (checkPath.startsWith("/sporocila") || checkPath.startsWith("/messages"))
+      return "messages";
+    if (checkPath.startsWith("/drazba")) return "detail";
+    if (checkPath.startsWith("/drazbe")) return "grid";
+    if (checkPath.startsWith("/prodajalec") || checkPath.startsWith("/seller"))
+      return "sellerProfile";
+    if (
+      checkPath.startsWith("/nastavitve") ||
+      checkPath.startsWith("/settings")
+    )
+      return "settings";
+    if (
+      checkPath.startsWith("/narocnine") ||
+      checkPath.startsWith("/subscriptions")
+    )
+      return "subscriptions";
+    if (checkPath.startsWith("/prijava") || checkPath.startsWith("/login"))
+      return "login";
+    if (
+      checkPath.startsWith("/ustvari-drazbo") ||
+      checkPath.startsWith("/create-auction")
+    )
+      return "createAuction";
+    if (
+      checkPath.startsWith("/moje-zmage") ||
+      checkPath.startsWith("/my-winnings")
+    )
+      return "myWinnings";
+    if (
+      checkPath.startsWith("/moje-ponudbe") ||
+      checkPath.startsWith("/my-bids")
+    )
+      return "myBids";
+    if (checkPath.startsWith("/prodano") || checkPath.startsWith("/my-sold"))
+      return "mySold";
+    if (
+      checkPath.startsWith("/neprodano") ||
+      checkPath.startsWith("/my-unsold")
+    )
+      return "myUnsold";
+    if (
+      checkPath.startsWith("/seznam-zelja") ||
+      checkPath.startsWith("/watchlist")
+    )
+      return "watchlist";
+    if (
+      checkPath.startsWith("/zadnja-priloznost") ||
+      checkPath.startsWith("/last-chance")
+    )
+      return "lastChance";
+    return "grid";
+  });
+
   const [activeConversationId, setActiveConversationId] = useState<
     string | null
-  >(null);
+  >(() => {
+    if (typeof window === "undefined") return null;
+    let url = new URL(window.location.href);
+    if (url.pathname === "/" && !url.search) {
+      const savedRoute = localStorage.getItem("last_active_route");
+      if (savedRoute && savedRoute !== "/") {
+        try {
+          url = new URL(savedRoute, window.location.origin);
+        } catch (e) {}
+      }
+    }
+
+    if (
+      url.pathname.startsWith("/sporocila") ||
+      url.pathname.startsWith("/messages")
+    ) {
+      return new URLSearchParams(url.search).get("id") || null;
+    }
+    return null;
+  });
   const [republishData, setRepublishData] = useState<any>(null);
   const [bidAuctionIds, setBidAuctionIds] = useState<string[]>([]);
   const [hasAcceptedTerms, setHasAcceptedTerms] = useState(false);
@@ -254,9 +342,12 @@ const MainApp: React.FC = () => {
   );
   const [watchedIds, setWatchedIds] = useState<string[]>([]);
   const [isPollingStopped, setIsPollingStopped] = useState(false);
+  const [isHydrating, setIsHydrating] = useState(true);
 
   // URL and Path Preservation Hook
   useEffect(() => {
+    if (isHydrating) return;
+
     let targetPath = "/";
     let targetSearch = "";
 
@@ -350,7 +441,11 @@ const MainApp: React.FC = () => {
       } else if (path.startsWith("/drazba") && id) {
         let found = EXTENDED_MOCK_AUCTIONS.find((a) => a.id === id);
         if (!found) {
-          const { data } = await supabase.from('auctions').select('*').eq('id', id).single();
+          const { data } = await supabase
+            .from("auctions")
+            .select("*")
+            .eq("id", id)
+            .single();
           if (data) {
             found = {
               ...data,
@@ -380,7 +475,11 @@ const MainApp: React.FC = () => {
         if (id) {
           let found = MOCK_SELLERS.find((s) => s.id === id);
           if (!found) {
-            const { data } = await supabase.from("users").select("*").eq("id", id).single();
+            const { data } = await supabase
+              .from("users")
+              .select("*")
+              .eq("id", id)
+              .single();
             if (data) found = data;
           }
           if (found) {
@@ -390,29 +489,56 @@ const MainApp: React.FC = () => {
             setActiveView("grid");
           }
         }
-      } else if (path.startsWith("/nastavitve") || path.startsWith("/settings")) {
+      } else if (
+        path.startsWith("/nastavitve") ||
+        path.startsWith("/settings")
+      ) {
         setActiveView("settings");
-      } else if (path.startsWith("/narocnine") || path.startsWith("/subscriptions")) {
+      } else if (
+        path.startsWith("/narocnine") ||
+        path.startsWith("/subscriptions")
+      ) {
         setActiveView("subscriptions");
       } else if (path.startsWith("/prijava") || path.startsWith("/login")) {
         setActiveView("login");
-      } else if (path.startsWith("/ustvari-drazbo") || path.startsWith("/create-auction")) {
+      } else if (
+        path.startsWith("/ustvari-drazbo") ||
+        path.startsWith("/create-auction")
+      ) {
         setActiveView("createAuction");
-      } else if (path.startsWith("/moje-zmage") || path.startsWith("/my-winnings")) {
+      } else if (
+        path.startsWith("/moje-zmage") ||
+        path.startsWith("/my-winnings")
+      ) {
         setActiveView("myWinnings");
-      } else if (path.startsWith("/moje-ponudbe") || path.startsWith("/my-bids")) {
+      } else if (
+        path.startsWith("/moje-ponudbe") ||
+        path.startsWith("/my-bids")
+      ) {
         setActiveView("myBids");
       } else if (path.startsWith("/prodano") || path.startsWith("/my-sold")) {
         setActiveView("mySold");
-      } else if (path.startsWith("/neprodano") || path.startsWith("/my-unsold")) {
+      } else if (
+        path.startsWith("/neprodano") ||
+        path.startsWith("/my-unsold")
+      ) {
         setActiveView("myUnsold");
-      } else if (path.startsWith("/seznam-zelja") || path.startsWith("/watchlist")) {
+      } else if (
+        path.startsWith("/seznam-zelja") ||
+        path.startsWith("/watchlist")
+      ) {
         setActiveView("watchlist");
-      } else if (path.startsWith("/zadnja-priloznost") || path.startsWith("/last-chance")) {
+      } else if (
+        path.startsWith("/zadnja-priloznost") ||
+        path.startsWith("/last-chance")
+      ) {
         setActiveView("lastChance");
       } else {
         setActiveView("grid");
       }
+
+      // Delay slightly to ensure state propagation before unlocking the URL preserver
+      setTimeout(() => setIsHydrating(false), 50);
     };
 
     hydrateState();
@@ -1857,7 +1983,7 @@ const MainApp: React.FC = () => {
       }
       break;
     case "detail":
-      if (selectedItem)
+      if (selectedItem) {
         content = (
           <AuctionView
             item={selectedItem}
@@ -1911,7 +2037,7 @@ const MainApp: React.FC = () => {
             }}
           />
         );
-      else setActiveView("grid");
+      }
       break;
     case "verification":
       content = (
@@ -2151,8 +2277,6 @@ const MainApp: React.FC = () => {
             auctions={auctions}
           />
         );
-      } else {
-        setActiveView("grid");
       }
       break;
     case "winnings":
@@ -2874,6 +2998,14 @@ const MainApp: React.FC = () => {
       setIsVerified(userDataVerified);
     }
   }, [userData.is_verified, isLoggedIn, isVerified]);
+
+  if (isHydrating) {
+    return (
+      <div className="min-h-screen bg-[#f3f4f6] flex items-center justify-center">
+        <div className="w-12 h-12 border-4 border-[#0A1128] border-t-[#FEBA4F] rounded-full animate-spin"></div>
+      </div>
+    );
+  }
 
   return (
     <ChatProvider userId={userData.id} auctions={auctions}>

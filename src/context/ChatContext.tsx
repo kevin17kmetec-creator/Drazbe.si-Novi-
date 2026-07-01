@@ -186,22 +186,36 @@ export const ChatProvider: React.FC<{
   }, [hardResetChatState]);
 
   useEffect(() => {
-    const handleFocus = () => {
-      // FORCE A CLEAN STATE FLUSH ON TAB RETURN
-      console.warn("Window focus returned. Forcing clean state flush.");
+    const handleFocus = async () => {
+      const isHealthy =
+        globalChannelRef.current && globalChannelRef.current.state === "joined";
+      if (isHealthy) return;
+
+      console.warn(
+        "Window focus returned and socket is unhealthy. Attempting silent session refresh.",
+      );
       reconnectAttemptsRef.current = 0;
       isReconnectingRef.current = false;
 
       if (tabReturnWatchdogRef.current)
         clearTimeout(tabReturnWatchdogRef.current);
+
       tabReturnWatchdogRef.current = setTimeout(() => {
         console.warn(
-          "Watchdog: Connection stalled after tab return, forcing window reload to renew auth session.",
+          "Watchdog: Silent recovery timed out after 4s, forcing window reload to renew auth session.",
         );
         window.location.reload();
-      }, 3000);
+      }, 4000);
 
-      hardResetChatState();
+      try {
+        const { error } = await supabase.auth.refreshSession();
+        if (error) throw error;
+        setupGlobalChannel();
+        resyncAll();
+      } catch (err) {
+        console.error("Watchdog: Silent refresh failed, forcing reload:", err);
+        window.location.reload();
+      }
     };
     window.addEventListener("focus", handleFocus);
     return () => window.removeEventListener("focus", handleFocus);
@@ -519,6 +533,9 @@ export const ChatProvider: React.FC<{
             if (tabReturnWatchdogRef.current) {
               clearTimeout(tabReturnWatchdogRef.current);
               tabReturnWatchdogRef.current = null;
+              console.log(
+                "Watchdog: Successful silent reconnection completed.",
+              );
             }
           }
           if (
@@ -578,22 +595,41 @@ export const ChatProvider: React.FC<{
 
     setupGlobalChannel();
 
-    const handleVisibilityChange = () => {
+    const handleVisibilityChange = async () => {
       if (document.visibilityState === "visible") {
-        console.warn("Visibility returned. Forcing clean state flush.");
+        const isHealthy =
+          globalChannelRef.current &&
+          globalChannelRef.current.state === "joined";
+        if (isHealthy) return;
+
+        console.warn(
+          "Visibility returned and socket is unhealthy. Attempting silent session refresh.",
+        );
         reconnectAttemptsRef.current = 0;
         isReconnectingRef.current = false;
 
         if (tabReturnWatchdogRef.current)
           clearTimeout(tabReturnWatchdogRef.current);
+
         tabReturnWatchdogRef.current = setTimeout(() => {
           console.warn(
-            "Watchdog: Connection stalled after tab return, forcing window reload to renew auth session.",
+            "Watchdog: Silent recovery timed out after 4s, forcing window reload to renew auth session.",
           );
           window.location.reload();
-        }, 3000);
+        }, 4000);
 
-        hardResetChatState();
+        try {
+          const { error } = await supabase.auth.refreshSession();
+          if (error) throw error;
+          setupGlobalChannel();
+          resyncAll();
+        } catch (err) {
+          console.error(
+            "Watchdog: Silent refresh failed, forcing reload:",
+            err,
+          );
+          window.location.reload();
+        }
       }
     };
 
