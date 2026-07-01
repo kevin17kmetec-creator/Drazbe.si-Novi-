@@ -36,8 +36,28 @@ const COUNTRIES = [
   { code: 'US', name: 'Združene države / USA' },
 ].sort((a, b) => a.name.localeCompare(b.name));
 
-export const SettingsView: React.FC<{ t: any; language: string; user: any; onSave: (data: any) => Promise<void>; onVerify: () => void; onStripeVerified: () => void }> = ({ t, language, user, onSave, onVerify, onStripeVerified }) => {
-  const [activeTab, setActiveTab] = useState<'profile' | 'personal' | 'stripe'>('profile');
+export const SettingsView: React.FC<{ 
+  t: any; 
+  language: string; 
+  user: any; 
+  onSave: (data: any) => Promise<void>; 
+  onVerify: () => void; 
+  onStripeVerified: () => void;
+  activeTab?: 'profile' | 'personal' | 'stripe';
+  setActiveTab?: (tab: 'profile' | 'personal' | 'stripe') => void;
+}> = ({ 
+  t, 
+  language, 
+  user, 
+  onSave, 
+  onVerify, 
+  onStripeVerified,
+  activeTab: propActiveTab,
+  setActiveTab: propSetActiveTab
+}) => {
+  const [localActiveTab, setLocalActiveTab] = useState<'profile' | 'personal' | 'stripe'>('profile');
+  const activeTab = propActiveTab !== undefined ? propActiveTab : localActiveTab;
+  const setActiveTab = propSetActiveTab !== undefined ? propSetActiveTab : setLocalActiveTab;
   const [isSaving, setIsSaving] = useState(false);
   const [stripeStatusChecked, setStripeStatusChecked] = useState(false);
 

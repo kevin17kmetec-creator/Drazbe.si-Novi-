@@ -211,7 +211,8 @@ export const ChatProvider: React.FC<{
         const { error } = await supabase.auth.refreshSession();
         if (error) throw error;
         setupGlobalChannel();
-        resyncAll();
+        await resyncAll();
+        setReloadTrigger((prev) => prev + 1);
       } catch (err) {
         console.error("Watchdog: Silent refresh failed, forcing reload:", err);
         window.location.reload();
@@ -633,7 +634,8 @@ export const ChatProvider: React.FC<{
           const { error } = await supabase.auth.refreshSession();
           if (error) throw error;
           setupGlobalChannel();
-          resyncAll();
+          await resyncAll();
+          setReloadTrigger((prev) => prev + 1);
         } catch (err) {
           console.error(
             "Watchdog: Silent refresh failed, forcing reload:",
@@ -844,7 +846,7 @@ export const ChatProvider: React.FC<{
     return () => {
       isMounted = false;
     };
-  }, [activeChat, userId, conversations.length, loadingChats, fetchUnread]);
+  }, [activeChat, userId, conversations.length, loadingChats, fetchUnread, reloadTrigger]);
 
   const setTyping = (isTyping: boolean) => {
     if (!globalChannelRef.current || !activeConversationId) return;

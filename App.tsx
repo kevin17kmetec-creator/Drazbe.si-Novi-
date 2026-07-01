@@ -210,6 +210,87 @@ const PaymentTimer: React.FC<{ endTime: string | Date }> = ({ endTime }) => {
   );
 };
 
+// -------------------------------------------------------------
+// MULTILINGUAL SLUG MAPPINGS FOR CATEGORIES, REGIONS, & SETTINGS
+// -------------------------------------------------------------
+const CATEGORY_URL_MAP: Record<Category, Record<string, string>> = {
+  [Category.Oblacila]: { SLO: "oblacila", EN: "clothing", DE: "kleidung" },
+  [Category.Racunalniki]: { SLO: "racunalniki", EN: "computers", DE: "computer" },
+  [Category.ProstiCasInSport]: { SLO: "prosti-cas-in-sport", EN: "leisure-and-sport", DE: "freizeit-und-sport" },
+  [Category.DomInVrt]: { SLO: "dom-in-vrt", EN: "home-and-garden", DE: "haus-und-garten" },
+  [Category.Avtomobilizem]: { SLO: "avtomobilizem", EN: "automotive", DE: "automobil" },
+  [Category.Nepremicnine]: { SLO: "nepremicnine", EN: "real-estate", DE: "immobilien" },
+  [Category.LepotaInZdravje]: { SLO: "lepota-in-zdravje", EN: "health-and-beauty", DE: "gesundheit-und-schonheit" },
+  [Category.OtroškaOprema]: { SLO: "otroska-oprema", EN: "kids-equipment", DE: "kinderausstattung" },
+  [Category.Kmetijstvo]: { SLO: "kmetijstvo", EN: "agriculture", DE: "landwirtschaft" },
+  [Category.Umetnine]: { SLO: "umetnine", EN: "art", DE: "kunst" },
+  [Category.Glasbila]: { SLO: "glasbila", EN: "musical-instruments", DE: "musikinstrumente" },
+  [Category.Zbirateljstvo]: { SLO: "zbirateljstvo", EN: "collecting", DE: "sammeln" },
+  [Category.Ostalo]: { SLO: "ostalo", EN: "other", DE: "sonstiges" }
+};
+
+const REGION_URL_MAP: Record<Region, Record<string, string>> = {
+  [Region.Prekmurje]: { SLO: "prekmurje", EN: "prekmurje", DE: "uebermurgebiet" },
+  [Region.Stajerska]: { SLO: "stajerska", EN: "styria", DE: "steiermark" },
+  [Region.Koroska]: { SLO: "koroska", EN: "carinthia", DE: "kaernten" },
+  [Region.Gorenjska]: { SLO: "gorenjska", EN: "gorenjska", DE: "oberkrain" },
+  [Region.Primorska]: { SLO: "primorska", EN: "primorska", DE: "kuestenland" },
+  [Region.Notranjska]: { SLO: "notranjska", EN: "inner-carniola", DE: "innerkrain" },
+  [Region.Dolenjska]: { SLO: "dolenjska", EN: "lower-carniola", DE: "unterkrain" },
+  [Region.Osrednjeslovenska]: { SLO: "osrednjeslovenska", EN: "central-slovenia", DE: "zentralslowenische" }
+};
+
+const QUERY_PARAM_MAP = {
+  category: { SLO: "kategorija", EN: "category", DE: "kategorie" },
+  region: { SLO: "regija", EN: "region", DE: "region" },
+  tab: { SLO: "zavihek", EN: "tab", DE: "tab" }
+};
+
+const SETTINGS_TAB_MAP: Record<'profile' | 'personal' | 'stripe', Record<string, string>> = {
+  profile: { SLO: "profil", EN: "profile", DE: "profil" },
+  personal: { SLO: "osebno", EN: "personal", DE: "persoenlich" },
+  stripe: { SLO: "placila", EN: "billing", DE: "zahlungen" }
+};
+
+function slugToCategory(slug: string): Category | null {
+  if (!slug) return null;
+  const decoded = decodeURIComponent(slug).toLowerCase().trim();
+  for (const [cat, langMap] of Object.entries(CATEGORY_URL_MAP)) {
+    for (const val of Object.values(langMap)) {
+      if (val.toLowerCase() === decoded) {
+        return cat as Category;
+      }
+    }
+  }
+  return null;
+}
+
+function slugToRegion(slug: string): Region | null {
+  if (!slug) return null;
+  const decoded = decodeURIComponent(slug).toLowerCase().trim();
+  for (const [reg, langMap] of Object.entries(REGION_URL_MAP)) {
+    for (const val of Object.values(langMap)) {
+      if (val.toLowerCase() === decoded) {
+        return reg as Region;
+      }
+    }
+  }
+  return null;
+}
+
+function slugToSettingsTab(slug: string): 'profile' | 'personal' | 'stripe' {
+  if (!slug) return "profile";
+  const decoded = decodeURIComponent(slug).toLowerCase().trim();
+  for (const [tab, langMap] of Object.entries(SETTINGS_TAB_MAP)) {
+    for (const val of Object.values(langMap)) {
+      if (val.toLowerCase() === decoded) {
+        return tab as 'profile' | 'personal' | 'stripe';
+      }
+    }
+  }
+  return "profile";
+}
+
 const MainApp: React.FC = () => {
   const [language, setLanguage] = useState(() => {
     if (typeof window === "undefined") return "SLO";
@@ -291,7 +372,7 @@ const MainApp: React.FC = () => {
       checkPath.startsWith("/my-winnings") ||
       checkPath.startsWith("/meine-gewinne")
     )
-      return "myWinnings";
+      return "winnings";
     if (
       checkPath.startsWith("/moje-ponudbe") ||
       checkPath.startsWith("/my-bids") ||
@@ -380,6 +461,7 @@ const MainApp: React.FC = () => {
   const [watchedIds, setWatchedIds] = useState<string[]>([]);
   const [isPollingStopped, setIsPollingStopped] = useState(false);
   const [isHydrating, setIsHydrating] = useState(true);
+  const [settingsTab, setSettingsTab] = useState<'profile' | 'personal' | 'stripe'>('profile');
 
   // URL and Path Preservation Hook
   useEffect(() => {
@@ -397,7 +479,7 @@ const MainApp: React.FC = () => {
       subscriptions: { SLO: "/narocnine", EN: "/subscriptions", DE: "/abonnements" },
       login: { SLO: "/prijava", EN: "/login", DE: "/anmelden" },
       createAuction: { SLO: "/ustvari-drazbo", EN: "/create-auction", DE: "/auktion-erstellen" },
-      myWinnings: { SLO: "/moje-zmage", EN: "/my-winnings", DE: "/meine-gewinne" },
+      winnings: { SLO: "/moje-zmage", EN: "/my-winnings", DE: "/meine-gewinne" },
       myBids: { SLO: "/moje-ponudbe", EN: "/my-bids", DE: "/meine-gebote" },
       mySold: { SLO: "/prodano", EN: "/my-sold", DE: "/verkauft" },
       myUnsold: { SLO: "/neprodano", EN: "/my-unsold", DE: "/unverkauft" },
@@ -410,9 +492,41 @@ const MainApp: React.FC = () => {
       targetPath = localizedPaths[activeView][language] || localizedPaths[activeView]["SLO"];
     }
 
-    if (activeView === "messages" && activeConversationId) targetSearch = `?id=${activeConversationId}`;
-    if (activeView === "detail" && selectedItem?.id) targetSearch = `?id=${selectedItem.id}`;
-    if (activeView === "sellerProfile" && selectedSeller?.id) targetSearch = `?id=${selectedSeller.id}`;
+    const params = new URLSearchParams();
+
+    if (activeView === "messages" && activeConversationId) {
+      params.set("id", activeConversationId);
+    } else if (activeView === "detail" && selectedItem?.id) {
+      params.set("id", selectedItem.id);
+    } else if (activeView === "sellerProfile" && selectedSeller?.id) {
+      params.set("id", selectedSeller.id);
+    } else if (activeView === "grid") {
+      if (selectedCategory) {
+        const catKey = QUERY_PARAM_MAP.category[language as 'SLO' | 'EN' | 'DE'] || QUERY_PARAM_MAP.category.SLO;
+        const catValue = CATEGORY_URL_MAP[selectedCategory]?.[language as 'SLO' | 'EN' | 'DE'] || CATEGORY_URL_MAP[selectedCategory]?.SLO;
+        if (catValue) {
+          params.set(catKey, catValue);
+        }
+      }
+      if (selectedRegion) {
+        const regKey = QUERY_PARAM_MAP.region[language as 'SLO' | 'EN' | 'DE'] || QUERY_PARAM_MAP.region.SLO;
+        const regValue = REGION_URL_MAP[selectedRegion]?.[language as 'SLO' | 'EN' | 'DE'] || REGION_URL_MAP[selectedRegion]?.SLO;
+        if (regValue) {
+          params.set(regKey, regValue);
+        }
+      }
+    } else if (activeView === "settings") {
+      const tabKey = QUERY_PARAM_MAP.tab[language as 'SLO' | 'EN' | 'DE'] || QUERY_PARAM_MAP.tab.SLO;
+      const tabValue = SETTINGS_TAB_MAP[settingsTab]?.[language as 'SLO' | 'EN' | 'DE'] || SETTINGS_TAB_MAP[settingsTab]?.SLO;
+      if (tabValue) {
+        params.set(tabKey, tabValue);
+      }
+    }
+
+    const searchString = params.toString();
+    if (searchString) {
+      targetSearch = `?${searchString}`;
+    }
     
     // Add language prefix if needed
     if (language === "EN") targetPath = "/en" + targetPath;
@@ -427,7 +541,7 @@ const MainApp: React.FC = () => {
 
     // Always persist to local storage for the watchdog
     localStorage.setItem("last_active_route", newUrl);
-  }, [activeView, activeConversationId, selectedItem?.id, selectedSeller?.id, language]);
+  }, [activeView, activeConversationId, selectedItem?.id, selectedSeller?.id, language, selectedCategory, selectedRegion, settingsTab]);
 
   // Initial Hydration from URL or LocalStorage
   useEffect(() => {
@@ -462,6 +576,30 @@ const MainApp: React.FC = () => {
     const id = searchParams.get("id");
 
     const hydrateState = async () => {
+      // Decode and map category, region, settings tab first so state is fully prepared
+      let categoryToSet: Category | null = null;
+      let regionToSet: Region | null = null;
+      let tabToSet: 'profile' | 'personal' | 'stripe' = 'profile';
+
+      for (const [key, value] of searchParams.entries()) {
+        const lowerKey = key.toLowerCase();
+        if (lowerKey === "kategorija" || lowerKey === "category" || lowerKey === "kategorie") {
+          const decodedCat = slugToCategory(value);
+          if (decodedCat) categoryToSet = decodedCat;
+        }
+        if (lowerKey === "regija" || lowerKey === "region") {
+          const decodedReg = slugToRegion(value);
+          if (decodedReg) regionToSet = decodedReg;
+        }
+        if (lowerKey === "zavihek" || lowerKey === "tab") {
+          tabToSet = slugToSettingsTab(value);
+        }
+      }
+
+      if (categoryToSet) setSelectedCategory(categoryToSet);
+      if (regionToSet) setSelectedRegion(regionToSet);
+      setSettingsTab(tabToSet);
+
       if (path.startsWith("/sporocila") || path.startsWith("/messages") || path.startsWith("/nachrichten")) {
         if (id) setActiveConversationId(id);
         setActiveView("messages");
@@ -545,7 +683,7 @@ const MainApp: React.FC = () => {
         path.startsWith("/my-winnings") ||
         path.startsWith("/meine-gewinne")
       ) {
-        setActiveView("myWinnings");
+        setActiveView("winnings");
       } else if (
         path.startsWith("/moje-ponudbe") ||
         path.startsWith("/my-bids") ||
@@ -2208,6 +2346,8 @@ const MainApp: React.FC = () => {
           onSave={handleSaveSettings}
           onVerify={() => setActiveView("verification")}
           onStripeVerified={handleStripeVerified}
+          activeTab={settingsTab}
+          setActiveTab={setSettingsTab}
         />
       );
       break;
