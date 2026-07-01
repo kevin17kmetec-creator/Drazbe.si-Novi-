@@ -132,18 +132,19 @@ export const ChatProvider: React.FC<{
   const forceReconnectRef = useRef<() => void>(() => {});
   const reconnectAttemptsRef = useRef(0);
   const isReconnectingRef = useRef(false);
+  const tabReturnWatchdogRef = useRef<NodeJS.Timeout | null>(null);
 
   const hardResetChatState = useCallback(async () => {
     console.warn(
       "Drazba.si Watchdog: Triggering Programmatic Hard-Reset of Chat systems.",
     );
-    
+
     // ATOMIC HYDRATION SEQUENCE: Clear all locks
     reconnectAttemptsRef.current = 0;
     isReconnectingRef.current = false;
-    
+
     setConnectionState(true);
-    
+
     if (globalChannelRef.current) {
       try {
         globalChannelRef.current.unsubscribe();
@@ -151,7 +152,7 @@ export const ChatProvider: React.FC<{
       } catch (e) {}
       globalChannelRef.current = null;
     }
-    
+
     if (presenceChannelRef.current) {
       try {
         presenceChannelRef.current.unsubscribe();
@@ -159,13 +160,13 @@ export const ChatProvider: React.FC<{
       } catch (e) {}
       presenceChannelRef.current = null;
     }
-    
+
     setConversations([]);
     setMessages([]);
     setOnlineUsers(new Set());
     setUnreadCounts({});
     setUnreadMessageCount(0);
-    
+
     // Trigger fresh hydration reload
     setReloadTrigger((prev) => prev + 1);
   }, [setConnectionState]);
@@ -190,27 +191,21 @@ export const ChatProvider: React.FC<{
       console.warn("Window focus returned. Forcing clean state flush.");
       reconnectAttemptsRef.current = 0;
       isReconnectingRef.current = false;
+
+      if (tabReturnWatchdogRef.current)
+        clearTimeout(tabReturnWatchdogRef.current);
+      tabReturnWatchdogRef.current = setTimeout(() => {
+        console.warn(
+          "Watchdog: Connection stalled after tab return, forcing window reload to renew auth session.",
+        );
+        window.location.reload();
+      }, 3000);
+
       hardResetChatState();
     };
     window.addEventListener("focus", handleFocus);
     return () => window.removeEventListener("focus", handleFocus);
   }, [hardResetChatState]);
-
-  // TIMEOUT GUARDRAIL FOR LOADING SPINNERS
-  useEffect(() => {
-    let timeout: NodeJS.Timeout;
-    if (loadingChats || loadingMessages || isConnecting) {
-      timeout = setTimeout(() => {
-        console.warn("Watchdog: Loading state exceeded 4s, forcing spinners off to prevent deadlock.");
-        if (loadingChats) setLoadingChats(false);
-        if (loadingMessages) setLoadingMessages(false);
-        if (isConnecting) setConnectionState(false);
-      }, 4000);
-    }
-    return () => {
-      if (timeout) clearTimeout(timeout);
-    };
-  }, [loadingChats, loadingMessages, isConnecting, setConnectionState]);
 
   const activeConvIdRef = useRef<string | null>(null);
   activeConvIdRef.current = activeConversationId;
@@ -521,6 +516,10 @@ export const ChatProvider: React.FC<{
           if (status === "SUBSCRIBED") {
             setConnectionState(false);
             reconnectAttemptsRef.current = 0;
+            if (tabReturnWatchdogRef.current) {
+              clearTimeout(tabReturnWatchdogRef.current);
+              tabReturnWatchdogRef.current = null;
+            }
           }
           if (
             status === "SYSTEM_ERROR" ||
@@ -530,6 +529,14 @@ export const ChatProvider: React.FC<{
           ) {
             setConnectionState(true);
             console.error("Global Channel Issue:", status, err);
+
+            if (tabReturnWatchdogRef.current) {
+              console.warn(
+                "Watchdog: Immediate failure after tab return, forcing window reload to renew auth session.",
+              );
+              window.location.reload();
+              return;
+            }
 
             reconnectAttemptsRef.current += 1;
             const delay = Math.min(
@@ -549,6 +556,10 @@ export const ChatProvider: React.FC<{
         setConnectionState(channel.state !== "joined");
         if (channel.state === "joined") {
           reconnectAttemptsRef.current = 0;
+          if (tabReturnWatchdogRef.current) {
+            clearTimeout(tabReturnWatchdogRef.current);
+            tabReturnWatchdogRef.current = null;
+          }
         }
       }
 
@@ -572,6 +583,16 @@ export const ChatProvider: React.FC<{
         console.warn("Visibility returned. Forcing clean state flush.");
         reconnectAttemptsRef.current = 0;
         isReconnectingRef.current = false;
+
+        if (tabReturnWatchdogRef.current)
+          clearTimeout(tabReturnWatchdogRef.current);
+        tabReturnWatchdogRef.current = setTimeout(() => {
+          console.warn(
+            "Watchdog: Connection stalled after tab return, forcing window reload to renew auth session.",
+          );
+          window.location.reload();
+        }, 3000);
+
         hardResetChatState();
       }
     };
