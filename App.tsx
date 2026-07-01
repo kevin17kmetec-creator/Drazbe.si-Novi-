@@ -211,7 +211,20 @@ const PaymentTimer: React.FC<{ endTime: string | Date }> = ({ endTime }) => {
 };
 
 const MainApp: React.FC = () => {
-  const [language, setLanguage] = useState("SLO");
+  const [language, setLanguage] = useState(() => {
+    if (typeof window === "undefined") return "SLO";
+    const path = window.location.pathname;
+    if (path.startsWith("/de/") || path === "/de") return "DE";
+    if (path.startsWith("/en/") || path === "/en") return "EN";
+    if (path.startsWith("/sl/") || path === "/sl") return "SLO";
+    
+    const savedRoute = localStorage.getItem("last_active_route");
+    if (savedRoute) {
+       if (savedRoute.startsWith("/de/") || savedRoute === "/de") return "DE";
+       if (savedRoute.startsWith("/en/") || savedRoute === "/en") return "EN";
+    }
+    return "SLO";
+  });
   const t = useCallback(
     (key: string) => translations[language]?.[key] || key,
     [language],
@@ -222,71 +235,95 @@ const MainApp: React.FC = () => {
   );
   const [activeView, setActiveView] = useState<ViewState>(() => {
     if (typeof window === "undefined") return "grid";
-    const path = window.location.pathname;
+    let path = window.location.pathname;
 
-    // First check local storage for path restoration ONLY if we are exactly on the root without query params
+    let langPrefix = "";
+    if (path.startsWith("/de/") || path === "/de") langPrefix = "/de";
+    else if (path.startsWith("/en/") || path === "/en") langPrefix = "/en";
+    else if (path.startsWith("/sl/") || path === "/sl") langPrefix = "/sl";
+
     let checkPath = path;
-    if (checkPath === "/" && !window.location.search) {
+    if ((checkPath === "/" || checkPath === "/de" || checkPath === "/en" || checkPath === "/sl" || checkPath === "/de/" || checkPath === "/en/" || checkPath === "/sl/") && !window.location.search) {
       const savedRoute = localStorage.getItem("last_active_route");
-      if (savedRoute && savedRoute !== "/") {
+      if (savedRoute && savedRoute !== "/" && !savedRoute.match(/^\/(en|de|sl)\/?$/)) {
         try {
           const url = new URL(savedRoute, window.location.origin);
           checkPath = url.pathname;
-          // We will let the effect handle history replacement
+          if (checkPath.startsWith("/de/") || checkPath === "/de") langPrefix = "/de";
+          else if (checkPath.startsWith("/en/") || checkPath === "/en") langPrefix = "/en";
+          else if (checkPath.startsWith("/sl/") || checkPath === "/sl") langPrefix = "/sl";
         } catch (e) {}
       }
     }
 
-    if (checkPath.startsWith("/sporocila") || checkPath.startsWith("/messages"))
+    if (langPrefix && checkPath.startsWith(langPrefix)) {
+      checkPath = checkPath.slice(langPrefix.length) || "/";
+    }
+
+    if (checkPath.startsWith("/sporocila") || checkPath.startsWith("/messages") || checkPath.startsWith("/nachrichten"))
       return "messages";
-    if (checkPath.startsWith("/drazba")) return "detail";
-    if (checkPath.startsWith("/drazbe")) return "grid";
-    if (checkPath.startsWith("/prodajalec") || checkPath.startsWith("/seller"))
+    if (checkPath.startsWith("/drazba") || checkPath.startsWith("/auction") || checkPath.startsWith("/auktion")) return "detail";
+    if (checkPath.startsWith("/drazbe") || checkPath.startsWith("/auctions") || checkPath.startsWith("/auktionen")) return "grid";
+    if (checkPath.startsWith("/prodajalec") || checkPath.startsWith("/seller") || checkPath.startsWith("/verkaufer"))
       return "sellerProfile";
     if (
       checkPath.startsWith("/nastavitve") ||
-      checkPath.startsWith("/settings")
+      checkPath.startsWith("/settings") ||
+      checkPath.startsWith("/einstellungen")
     )
       return "settings";
     if (
       checkPath.startsWith("/narocnine") ||
-      checkPath.startsWith("/subscriptions")
+      checkPath.startsWith("/subscriptions") ||
+      checkPath.startsWith("/abonnements")
     )
       return "subscriptions";
-    if (checkPath.startsWith("/prijava") || checkPath.startsWith("/login"))
+    if (checkPath.startsWith("/prijava") || checkPath.startsWith("/login") || checkPath.startsWith("/anmelden"))
       return "login";
     if (
       checkPath.startsWith("/ustvari-drazbo") ||
-      checkPath.startsWith("/create-auction")
+      checkPath.startsWith("/create-auction") ||
+      checkPath.startsWith("/auktion-erstellen")
     )
       return "createAuction";
     if (
       checkPath.startsWith("/moje-zmage") ||
-      checkPath.startsWith("/my-winnings")
+      checkPath.startsWith("/my-winnings") ||
+      checkPath.startsWith("/meine-gewinne")
     )
       return "myWinnings";
     if (
       checkPath.startsWith("/moje-ponudbe") ||
-      checkPath.startsWith("/my-bids")
+      checkPath.startsWith("/my-bids") ||
+      checkPath.startsWith("/meine-gebote")
     )
       return "myBids";
-    if (checkPath.startsWith("/prodano") || checkPath.startsWith("/my-sold"))
+    if (checkPath.startsWith("/prodano") || checkPath.startsWith("/my-sold") || checkPath.startsWith("/verkauft"))
       return "mySold";
     if (
       checkPath.startsWith("/neprodano") ||
-      checkPath.startsWith("/my-unsold")
+      checkPath.startsWith("/my-unsold") ||
+      checkPath.startsWith("/unverkauft")
     )
       return "myUnsold";
     if (
       checkPath.startsWith("/seznam-zelja") ||
-      checkPath.startsWith("/watchlist")
+      checkPath.startsWith("/watchlist") ||
+      checkPath.startsWith("/beobachtungsliste")
     )
       return "watchlist";
     if (
       checkPath.startsWith("/zadnja-priloznost") ||
-      checkPath.startsWith("/last-chance")
+      checkPath.startsWith("/last-chance") ||
+      checkPath.startsWith("/letzte-chance")
     )
       return "lastChance";
+    if (
+      checkPath.startsWith("/verifikacija") ||
+      checkPath.startsWith("/verification") ||
+      checkPath.startsWith("/verifizierung")
+    )
+      return "verification";
     return "grid";
   });
 
@@ -351,56 +388,35 @@ const MainApp: React.FC = () => {
     let targetPath = "/";
     let targetSearch = "";
 
-    switch (activeView) {
-      case "messages":
-        targetPath = "/sporocila";
-        if (activeConversationId) targetSearch = `?id=${activeConversationId}`;
-        break;
-      case "detail":
-        targetPath = "/drazba";
-        if (selectedItem?.id) targetSearch = `?id=${selectedItem.id}`;
-        break;
-      case "grid":
-        targetPath = "/drazbe";
-        break;
-      case "sellerProfile":
-        targetPath = "/prodajalec";
-        if (selectedSeller?.id) targetSearch = `?id=${selectedSeller.id}`;
-        break;
-      case "settings":
-        targetPath = "/nastavitve";
-        break;
-      case "subscriptions":
-        targetPath = "/narocnine";
-        break;
-      case "login":
-        targetPath = "/prijava";
-        break;
-      case "createAuction":
-        targetPath = "/ustvari-drazbo";
-        break;
-      case "myWinnings":
-        targetPath = "/moje-zmage";
-        break;
-      case "myBids":
-        targetPath = "/moje-ponudbe";
-        break;
-      case "mySold":
-        targetPath = "/prodano";
-        break;
-      case "myUnsold":
-        targetPath = "/neprodano";
-        break;
-      case "watchlist":
-        targetPath = "/seznam-zelja";
-        break;
-      case "lastChance":
-        targetPath = "/zadnja-priloznost";
-        break;
-      default:
-        targetPath = "/";
-        break;
+    const localizedPaths: Record<string, Record<string, string>> = {
+      messages: { SLO: "/sporocila", EN: "/messages", DE: "/nachrichten" },
+      detail: { SLO: "/drazba", EN: "/auction", DE: "/auktion" },
+      grid: { SLO: "/drazbe", EN: "/auctions", DE: "/auktionen" },
+      sellerProfile: { SLO: "/prodajalec", EN: "/seller", DE: "/verkaufer" },
+      settings: { SLO: "/nastavitve", EN: "/settings", DE: "/einstellungen" },
+      subscriptions: { SLO: "/narocnine", EN: "/subscriptions", DE: "/abonnements" },
+      login: { SLO: "/prijava", EN: "/login", DE: "/anmelden" },
+      createAuction: { SLO: "/ustvari-drazbo", EN: "/create-auction", DE: "/auktion-erstellen" },
+      myWinnings: { SLO: "/moje-zmage", EN: "/my-winnings", DE: "/meine-gewinne" },
+      myBids: { SLO: "/moje-ponudbe", EN: "/my-bids", DE: "/meine-gebote" },
+      mySold: { SLO: "/prodano", EN: "/my-sold", DE: "/verkauft" },
+      myUnsold: { SLO: "/neprodano", EN: "/my-unsold", DE: "/unverkauft" },
+      watchlist: { SLO: "/seznam-zelja", EN: "/watchlist", DE: "/beobachtungsliste" },
+      lastChance: { SLO: "/zadnja-priloznost", EN: "/last-chance", DE: "/letzte-chance" },
+      verification: { SLO: "/verifikacija", EN: "/verification", DE: "/verifizierung" }
+    };
+
+    if (localizedPaths[activeView]) {
+      targetPath = localizedPaths[activeView][language] || localizedPaths[activeView]["SLO"];
     }
+
+    if (activeView === "messages" && activeConversationId) targetSearch = `?id=${activeConversationId}`;
+    if (activeView === "detail" && selectedItem?.id) targetSearch = `?id=${selectedItem.id}`;
+    if (activeView === "sellerProfile" && selectedSeller?.id) targetSearch = `?id=${selectedSeller.id}`;
+    
+    // Add language prefix if needed
+    if (language === "EN") targetPath = "/en" + targetPath;
+    else if (language === "DE") targetPath = "/de" + targetPath;
 
     const currentUrl = window.location.pathname + window.location.search;
     const newUrl = targetPath + targetSearch;
@@ -410,68 +426,83 @@ const MainApp: React.FC = () => {
     }
 
     // Always persist to local storage for the watchdog
-    if (newUrl === "/") {
-      localStorage.setItem("last_active_route", newUrl);
-    } else {
-      localStorage.setItem("last_active_route", newUrl);
-    }
-  }, [activeView, activeConversationId, selectedItem?.id, selectedSeller?.id]);
+    localStorage.setItem("last_active_route", newUrl);
+  }, [activeView, activeConversationId, selectedItem?.id, selectedSeller?.id, language]);
 
   // Initial Hydration from URL or LocalStorage
   useEffect(() => {
     let pathToRestore = window.location.pathname + window.location.search;
+    let currentPath = window.location.pathname;
 
-    if (window.location.pathname === "/" || window.location.pathname === "") {
+    if (
+      currentPath === "/" || currentPath === "" ||
+      currentPath === "/de" || currentPath === "/de/" ||
+      currentPath === "/en" || currentPath === "/en/" ||
+      currentPath === "/sl" || currentPath === "/sl/"
+    ) {
       const savedRoute = localStorage.getItem("last_active_route");
-      if (savedRoute && savedRoute !== "/" && savedRoute !== pathToRestore) {
+      if (savedRoute && savedRoute !== "/" && savedRoute !== pathToRestore && !savedRoute.match(/^\/(en|de|sl)\/?$/)) {
         window.history.replaceState(null, "", savedRoute);
         pathToRestore = savedRoute;
       }
     }
 
     const url = new URL(pathToRestore, window.location.origin);
-    const path = url.pathname;
+    let path = url.pathname;
+    
+    // Strip language prefix
+    if (path.startsWith("/de/")) path = path.slice(3);
+    else if (path === "/de") path = "/";
+    else if (path.startsWith("/en/")) path = path.slice(3);
+    else if (path === "/en") path = "/";
+    else if (path.startsWith("/sl/")) path = path.slice(3);
+    else if (path === "/sl") path = "/";
+
     const searchParams = new URLSearchParams(url.search);
     const id = searchParams.get("id");
 
     const hydrateState = async () => {
-      if (path.startsWith("/sporocila") || path.startsWith("/messages")) {
+      if (path.startsWith("/sporocila") || path.startsWith("/messages") || path.startsWith("/nachrichten")) {
         if (id) setActiveConversationId(id);
         setActiveView("messages");
-      } else if (path.startsWith("/drazba") && id) {
-        let found = EXTENDED_MOCK_AUCTIONS.find((a) => a.id === id);
-        if (!found) {
-          const { data } = await supabase
-            .from("auctions")
-            .select("*")
-            .eq("id", id)
-            .single();
-          if (data) {
-            found = {
-              ...data,
-              endTime: new Date(data.end_time || data.endTime),
-              currentBid: data.current_price || data.currentBid,
-              hiddenMaxBid: data.hidden_max_bid || data.hiddenMaxBid,
-              bidCount: data.bid_count || data.bidCount,
-              winnerId: data.winner_id || data.winnerId,
-              winner_id: data.winner_id || data.winnerId,
-              payment_status: data.payment_status || "unpaid",
-              paid_at: data.paid_at,
-              sellerName: data.sellerName || "Neznan Prodajalec",
-              delivery_method: data.delivery_method,
-              buyer_received: data.buyer_received,
-            };
+      } else if (path.startsWith("/drazba") || path.startsWith("/auction") || path.startsWith("/auktion")) {
+        if (id) {
+          let found = EXTENDED_MOCK_AUCTIONS.find((a) => a.id === id);
+          if (!found) {
+            const { data } = await supabase
+              .from("auctions")
+              .select("*")
+              .eq("id", id)
+              .single();
+            if (data) {
+              found = {
+                ...data,
+                endTime: new Date(data.end_time || data.endTime),
+                currentBid: data.current_price || data.currentBid,
+                hiddenMaxBid: data.hidden_max_bid || data.hiddenMaxBid,
+                bidCount: data.bid_count || data.bidCount,
+                winnerId: data.winner_id || data.winnerId,
+                winner_id: data.winner_id || data.winnerId,
+                payment_status: data.payment_status || "unpaid",
+                paid_at: data.paid_at,
+                sellerName: data.sellerName || "Neznan Prodajalec",
+                delivery_method: data.delivery_method,
+                buyer_received: data.buyer_received,
+              };
+            }
           }
-        }
-        if (found) {
-          setSelectedItem(found);
-          setActiveView("detail");
+          if (found) {
+            setSelectedItem(found);
+            setActiveView("detail");
+          } else {
+            setActiveView("grid");
+          }
         } else {
           setActiveView("grid");
         }
-      } else if (path.startsWith("/drazbe")) {
+      } else if (path.startsWith("/drazbe") || path.startsWith("/auctions") || path.startsWith("/auktionen")) {
         setActiveView("grid");
-      } else if (path.startsWith("/prodajalec") || path.startsWith("/seller")) {
+      } else if (path.startsWith("/prodajalec") || path.startsWith("/seller") || path.startsWith("/verkaufer")) {
         if (id) {
           let found = MOCK_SELLERS.find((s) => s.id === id);
           if (!found) {
@@ -491,48 +522,62 @@ const MainApp: React.FC = () => {
         }
       } else if (
         path.startsWith("/nastavitve") ||
-        path.startsWith("/settings")
+        path.startsWith("/settings") ||
+        path.startsWith("/einstellungen")
       ) {
         setActiveView("settings");
       } else if (
         path.startsWith("/narocnine") ||
-        path.startsWith("/subscriptions")
+        path.startsWith("/subscriptions") ||
+        path.startsWith("/abonnements")
       ) {
         setActiveView("subscriptions");
-      } else if (path.startsWith("/prijava") || path.startsWith("/login")) {
+      } else if (path.startsWith("/prijava") || path.startsWith("/login") || path.startsWith("/anmelden")) {
         setActiveView("login");
       } else if (
         path.startsWith("/ustvari-drazbo") ||
-        path.startsWith("/create-auction")
+        path.startsWith("/create-auction") ||
+        path.startsWith("/auktion-erstellen")
       ) {
         setActiveView("createAuction");
       } else if (
         path.startsWith("/moje-zmage") ||
-        path.startsWith("/my-winnings")
+        path.startsWith("/my-winnings") ||
+        path.startsWith("/meine-gewinne")
       ) {
         setActiveView("myWinnings");
       } else if (
         path.startsWith("/moje-ponudbe") ||
-        path.startsWith("/my-bids")
+        path.startsWith("/my-bids") ||
+        path.startsWith("/meine-gebote")
       ) {
         setActiveView("myBids");
-      } else if (path.startsWith("/prodano") || path.startsWith("/my-sold")) {
+      } else if (path.startsWith("/prodano") || path.startsWith("/my-sold") || path.startsWith("/verkauft")) {
         setActiveView("mySold");
       } else if (
         path.startsWith("/neprodano") ||
-        path.startsWith("/my-unsold")
+        path.startsWith("/my-unsold") ||
+        path.startsWith("/unverkauft")
       ) {
         setActiveView("myUnsold");
       } else if (
         path.startsWith("/seznam-zelja") ||
-        path.startsWith("/watchlist")
+        path.startsWith("/watchlist") ||
+        path.startsWith("/beobachtungsliste")
       ) {
         setActiveView("watchlist");
       } else if (
         path.startsWith("/zadnja-priloznost") ||
-        path.startsWith("/last-chance")
+        path.startsWith("/last-chance") ||
+        path.startsWith("/letzte-chance")
       ) {
         setActiveView("lastChance");
+      } else if (
+        path.startsWith("/verifikacija") ||
+        path.startsWith("/verification") ||
+        path.startsWith("/verifizierung")
+      ) {
+        setActiveView("verification");
       } else {
         setActiveView("grid");
       }
