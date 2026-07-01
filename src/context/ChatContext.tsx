@@ -404,13 +404,24 @@ export const ChatProvider: React.FC<{
 
     const cId = activeConvIdRef.current;
     if (cId) {
-      const { data } = await supabase
-        .from("messages")
-        .select("*")
-        .eq("conversation_id", cId)
-        .order("created_at", { ascending: true });
-      if (data) {
-        setMessages(data.map((m: any) => ({ ...m, status: "sent" as const })));
+      try {
+        const { data } = await supabase
+          .from("messages")
+          .select("*")
+          .eq("conversation_id", cId)
+          .order("created_at", { ascending: true });
+        if (data) {
+          const failed = getFailedMessages(cId);
+          const merged = [
+            ...data.map((m: any) => ({ ...m, status: "sent" as const })),
+            ...failed,
+          ];
+          setMessages(merged);
+        }
+      } catch (err) {
+        console.error("Error resyncing messages:", err);
+      } finally {
+        setLoadingMessages(false);
       }
     }
   }, [fetchUnread]);
