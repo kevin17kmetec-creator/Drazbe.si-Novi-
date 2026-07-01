@@ -299,10 +299,13 @@ const MainApp: React.FC = () => {
     if (path.startsWith("/en/") || path === "/en") return "EN";
     if (path.startsWith("/sl/") || path === "/sl") return "SLO";
     
-    const savedRoute = localStorage.getItem("last_active_route");
-    if (savedRoute) {
-       if (savedRoute.startsWith("/de/") || savedRoute === "/de") return "DE";
-       if (savedRoute.startsWith("/en/") || savedRoute === "/en") return "EN";
+    const isSessionActive = sessionStorage.getItem("session_tab_active");
+    if (isSessionActive) {
+      const savedRoute = localStorage.getItem("last_active_route");
+      if (savedRoute) {
+         if (savedRoute.startsWith("/de/") || savedRoute === "/de") return "DE";
+         if (savedRoute.startsWith("/en/") || savedRoute === "/en") return "EN";
+      }
     }
     return "SLO";
   });
@@ -316,6 +319,10 @@ const MainApp: React.FC = () => {
   );
   const [activeView, setActiveView] = useState<ViewState>(() => {
     if (typeof window === "undefined") return "grid";
+    const isSessionActive = sessionStorage.getItem("session_tab_active");
+    if (!isSessionActive) {
+      return "grid";
+    }
     let path = window.location.pathname;
 
     let langPrefix = "";
@@ -412,6 +419,10 @@ const MainApp: React.FC = () => {
     string | null
   >(() => {
     if (typeof window === "undefined") return null;
+    const isSessionActive = sessionStorage.getItem("session_tab_active");
+    if (!isSessionActive) {
+      return null;
+    }
     let url = new URL(window.location.href);
     if (url.pathname === "/" && !url.search) {
       const savedRoute = localStorage.getItem("last_active_route");
@@ -545,6 +556,28 @@ const MainApp: React.FC = () => {
 
   // Initial Hydration from URL or LocalStorage
   useEffect(() => {
+    const isSessionActive = sessionStorage.getItem("session_tab_active");
+    if (!isSessionActive) {
+      sessionStorage.setItem("session_tab_active", "true");
+      setActiveView("grid");
+      setSelectedCategory(null);
+      setSelectedRegion(null);
+      setSearchQuery("");
+      setSelectedItem(null);
+      setSelectedSeller(null);
+      setActiveConversationId(null);
+
+      // Determine clean root URL path based on current language
+      let cleanPath = "/";
+      if (language === "EN") cleanPath = "/en/";
+      else if (language === "DE") cleanPath = "/de/";
+
+      window.history.replaceState(null, "", cleanPath);
+      localStorage.setItem("last_active_route", cleanPath);
+      setTimeout(() => setIsHydrating(false), 50);
+      return;
+    }
+
     let pathToRestore = window.location.pathname + window.location.search;
     let currentPath = window.location.pathname;
 

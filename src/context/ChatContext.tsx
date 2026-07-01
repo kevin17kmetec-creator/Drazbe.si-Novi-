@@ -208,8 +208,11 @@ export const ChatProvider: React.FC<{
       }, 4000);
 
       try {
-        const { error } = await supabase.auth.refreshSession();
+        const { error, data } = await supabase.auth.refreshSession();
         if (error) throw error;
+        if (data?.session?.access_token) {
+          supabase.realtime.setAuth(data.session.access_token);
+        }
         setupGlobalChannel();
         await resyncAll();
         setReloadTrigger((prev) => prev + 1);
@@ -631,8 +634,11 @@ export const ChatProvider: React.FC<{
         }, 4000);
 
         try {
-          const { error } = await supabase.auth.refreshSession();
+          const { error, data } = await supabase.auth.refreshSession();
           if (error) throw error;
+          if (data?.session?.access_token) {
+            supabase.realtime.setAuth(data.session.access_token);
+          }
           setupGlobalChannel();
           await resyncAll();
           setReloadTrigger((prev) => prev + 1);
@@ -841,6 +847,7 @@ export const ChatProvider: React.FC<{
     } else {
       setActiveConversationId(null);
       setMessages([]);
+      setLoadingMessages(false);
     }
 
     return () => {
