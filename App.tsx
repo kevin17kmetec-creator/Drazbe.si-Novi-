@@ -262,46 +262,49 @@ const MainApp: React.FC = () => {
 
     switch (activeView) {
       case "messages":
-        targetPath = "/messages";
+        targetPath = "/sporocila";
         if (activeConversationId) targetSearch = `?id=${activeConversationId}`;
         break;
       case "detail":
-        targetPath = "/auction";
+        targetPath = "/drazba";
         if (selectedItem?.id) targetSearch = `?id=${selectedItem.id}`;
         break;
+      case "grid":
+        targetPath = "/drazbe";
+        break;
       case "sellerProfile":
-        targetPath = "/seller";
+        targetPath = "/prodajalec";
         if (selectedSeller?.id) targetSearch = `?id=${selectedSeller.id}`;
         break;
       case "settings":
-        targetPath = "/settings";
+        targetPath = "/nastavitve";
         break;
       case "subscriptions":
-        targetPath = "/subscriptions";
+        targetPath = "/narocnine";
         break;
       case "login":
-        targetPath = "/login";
+        targetPath = "/prijava";
         break;
       case "createAuction":
-        targetPath = "/create-auction";
+        targetPath = "/ustvari-drazbo";
         break;
       case "myWinnings":
-        targetPath = "/my-winnings";
+        targetPath = "/moje-zmage";
         break;
       case "myBids":
-        targetPath = "/my-bids";
+        targetPath = "/moje-ponudbe";
         break;
       case "mySold":
-        targetPath = "/my-sold";
+        targetPath = "/prodano";
         break;
       case "myUnsold":
-        targetPath = "/my-unsold";
+        targetPath = "/neprodano";
         break;
       case "watchlist":
-        targetPath = "/watchlist";
+        targetPath = "/seznam-zelja";
         break;
       case "lastChance":
-        targetPath = "/last-chance";
+        targetPath = "/zadnja-priloznost";
         break;
       default:
         targetPath = "/";
@@ -316,7 +319,11 @@ const MainApp: React.FC = () => {
     }
 
     // Always persist to local storage for the watchdog
-    localStorage.setItem("last_active_route", newUrl);
+    if (newUrl === "/") {
+      localStorage.setItem("last_active_route", newUrl);
+    } else {
+      localStorage.setItem("last_active_route", newUrl);
+    }
   }, [activeView, activeConversationId, selectedItem?.id, selectedSeller?.id]);
 
   // Initial Hydration from URL or LocalStorage
@@ -336,76 +343,79 @@ const MainApp: React.FC = () => {
     const searchParams = new URLSearchParams(url.search);
     const id = searchParams.get("id");
 
-    if (path.startsWith("/messages")) {
-      setActiveView("messages");
-      if (id) setActiveConversationId(id);
-    } else if (path.startsWith("/auction") && id) {
-      // We set view to detail, but selectedItem needs to be populated once auctions load
-      setActiveView("detail");
-      // We will handle selecting the item in a separate effect when auctions load
-      sessionStorage.setItem("pending_auction_id", id);
-    } else if (path.startsWith("/seller") && id) {
-      setActiveView("sellerProfile");
-      sessionStorage.setItem("pending_seller_id", id);
-    } else if (path.startsWith("/settings")) {
-      setActiveView("settings");
-    } else if (path.startsWith("/subscriptions")) {
-      setActiveView("subscriptions");
-    } else if (path.startsWith("/login")) {
-      setActiveView("login");
-    } else if (path.startsWith("/create-auction")) {
-      setActiveView("createAuction");
-    } else if (path.startsWith("/my-winnings")) {
-      setActiveView("myWinnings");
-    } else if (path.startsWith("/my-bids")) {
-      setActiveView("myBids");
-    } else if (path.startsWith("/my-sold")) {
-      setActiveView("mySold");
-    } else if (path.startsWith("/my-unsold")) {
-      setActiveView("myUnsold");
-    } else if (path.startsWith("/watchlist")) {
-      setActiveView("watchlist");
-    } else if (path.startsWith("/last-chance")) {
-      setActiveView("lastChance");
-    }
-  }, []);
-
-  // Hydrate pending selected item when auctions change
-  useEffect(() => {
-    const pendingId = sessionStorage.getItem("pending_auction_id");
-    if (pendingId && auctions.length > 0) {
-      const found = auctions.find((a) => a.id === pendingId);
-      if (found) {
-        setSelectedItem(found);
-        sessionStorage.removeItem("pending_auction_id");
-      }
-    }
-  }, [auctions]);
-
-  // Hydrate pending seller
-  useEffect(() => {
-    const pendingSellerId = sessionStorage.getItem("pending_seller_id");
-    if (pendingSellerId) {
-      // Try mock sellers first
-      const s = MOCK_SELLERS.find((s) => s.id === pendingSellerId);
-      if (s) {
-        setSelectedSeller(s);
-        sessionStorage.removeItem("pending_seller_id");
+    const hydrateState = async () => {
+      if (path.startsWith("/sporocila") || path.startsWith("/messages")) {
+        if (id) setActiveConversationId(id);
+        setActiveView("messages");
+      } else if (path.startsWith("/drazba") && id) {
+        let found = EXTENDED_MOCK_AUCTIONS.find((a) => a.id === id);
+        if (!found) {
+          const { data } = await supabase.from('auctions').select('*').eq('id', id).single();
+          if (data) {
+            found = {
+              ...data,
+              endTime: new Date(data.end_time || data.endTime),
+              currentBid: data.current_price || data.currentBid,
+              hiddenMaxBid: data.hidden_max_bid || data.hiddenMaxBid,
+              bidCount: data.bid_count || data.bidCount,
+              winnerId: data.winner_id || data.winnerId,
+              winner_id: data.winner_id || data.winnerId,
+              payment_status: data.payment_status || "unpaid",
+              paid_at: data.paid_at,
+              sellerName: data.sellerName || "Neznan Prodajalec",
+              delivery_method: data.delivery_method,
+              buyer_received: data.buyer_received,
+            };
+          }
+        }
+        if (found) {
+          setSelectedItem(found);
+          setActiveView("detail");
+        } else {
+          setActiveView("grid");
+        }
+      } else if (path.startsWith("/drazbe")) {
+        setActiveView("grid");
+      } else if (path.startsWith("/prodajalec") || path.startsWith("/seller")) {
+        if (id) {
+          let found = MOCK_SELLERS.find((s) => s.id === id);
+          if (!found) {
+            const { data } = await supabase.from("users").select("*").eq("id", id).single();
+            if (data) found = data;
+          }
+          if (found) {
+            setSelectedSeller(found);
+            setActiveView("sellerProfile");
+          } else {
+            setActiveView("grid");
+          }
+        }
+      } else if (path.startsWith("/nastavitve") || path.startsWith("/settings")) {
+        setActiveView("settings");
+      } else if (path.startsWith("/narocnine") || path.startsWith("/subscriptions")) {
+        setActiveView("subscriptions");
+      } else if (path.startsWith("/prijava") || path.startsWith("/login")) {
+        setActiveView("login");
+      } else if (path.startsWith("/ustvari-drazbo") || path.startsWith("/create-auction")) {
+        setActiveView("createAuction");
+      } else if (path.startsWith("/moje-zmage") || path.startsWith("/my-winnings")) {
+        setActiveView("myWinnings");
+      } else if (path.startsWith("/moje-ponudbe") || path.startsWith("/my-bids")) {
+        setActiveView("myBids");
+      } else if (path.startsWith("/prodano") || path.startsWith("/my-sold")) {
+        setActiveView("mySold");
+      } else if (path.startsWith("/neprodano") || path.startsWith("/my-unsold")) {
+        setActiveView("myUnsold");
+      } else if (path.startsWith("/seznam-zelja") || path.startsWith("/watchlist")) {
+        setActiveView("watchlist");
+      } else if (path.startsWith("/zadnja-priloznost") || path.startsWith("/last-chance")) {
+        setActiveView("lastChance");
       } else {
-        // Need to fetch from Supabase
-        supabase
-          .from("users")
-          .select("*")
-          .eq("id", pendingSellerId)
-          .single()
-          .then(({ data }) => {
-            if (data) {
-              setSelectedSeller(data);
-              sessionStorage.removeItem("pending_seller_id");
-            }
-          });
+        setActiveView("grid");
       }
-    }
+    };
+
+    hydrateState();
   }, []);
 
   // Redirect to home if logged in and on login page
