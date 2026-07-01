@@ -1,265 +1,583 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { MOCK_SELLERS, EXTENDED_MOCK_AUCTIONS } from './data';
-import AuctionView from './src/components/AuctionView';
-import SellerView from './src/components/SellerView';
-import { SubscriptionsView } from './src/components/SubscriptionsView';
-import { VerificationView } from './src/components/VerificationView';
-import { CreateAuctionForm } from './src/components/CreateAuctionForm';
-import { AuthView } from './src/components/AuthView';
-import { LegalModal } from './src/components/LegalModal';
-import { VerificationBanner } from './src/components/VerificationBanner';
-import { StaticTimer } from './src/components/StaticTimer';
-import { AuctionCard } from './src/components/AuctionCard';
-import { HeroCarousel } from './src/components/HeroCarousel';
-import { Header } from './src/components/Header';
-import { Footer } from './src/components/Footer';
-import { CheckoutModal } from './src/components/CheckoutModal';
-import { SettingsView } from './src/components/SettingsView';
-import { ConfirmBidModal } from './src/components/ConfirmBidModal';
-import { MessagesView } from './src/components/MessagesView';
-import { 
-  Search, User, Globe, ChevronLeft, ChevronRight, Clock, MapPin, TrendingUp, Gavel,
-  ArrowLeft, ChevronDown, ShieldCheck, Building2, Eye,
-  Plus, Minus, Lock, CheckCircle2, Mail, Phone, CreditCard as CardIcon, PlusCircle, 
-  Settings, LogOut, Star, Camera, Landmark, FileCheck, AlertCircle, X, Calendar, 
-  UserCheck, MessageSquare, History, Briefcase, Upload, Image as ImageIcon, ArrowUp,
-  Trophy, AlertTriangle, Info, Table, Truck, Zap, Download, CreditCard, AlertOctagon,
-  Trash2, Filter, LayoutGrid, List, Scale, FileText, HelpCircle, Languages, FileUp
-} from 'lucide-react';
+import React, {
+  useState,
+  useEffect,
+  useMemo,
+  useCallback,
+  useRef,
+} from "react";
+import { MOCK_SELLERS, EXTENDED_MOCK_AUCTIONS } from "./data";
+import AuctionView from "./src/components/AuctionView";
+import SellerView from "./src/components/SellerView";
+import { SubscriptionsView } from "./src/components/SubscriptionsView";
+import { VerificationView } from "./src/components/VerificationView";
+import { CreateAuctionForm } from "./src/components/CreateAuctionForm";
+import { AuthView } from "./src/components/AuthView";
+import { LegalModal } from "./src/components/LegalModal";
+import { VerificationBanner } from "./src/components/VerificationBanner";
+import { StaticTimer } from "./src/components/StaticTimer";
+import { AuctionCard } from "./src/components/AuctionCard";
+import { HeroCarousel } from "./src/components/HeroCarousel";
+import { Header } from "./src/components/Header";
+import { Footer } from "./src/components/Footer";
+import { CheckoutModal } from "./src/components/CheckoutModal";
+import { SettingsView } from "./src/components/SettingsView";
+import { ConfirmBidModal } from "./src/components/ConfirmBidModal";
+import { MessagesView } from "./src/components/MessagesView";
+import {
+  Search,
+  User,
+  Globe,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  MapPin,
+  TrendingUp,
+  Gavel,
+  ArrowLeft,
+  ChevronDown,
+  ShieldCheck,
+  Building2,
+  Eye,
+  Plus,
+  Minus,
+  Lock,
+  CheckCircle2,
+  Mail,
+  Phone,
+  CreditCard as CardIcon,
+  PlusCircle,
+  Settings,
+  LogOut,
+  Star,
+  Camera,
+  Landmark,
+  FileCheck,
+  AlertCircle,
+  X,
+  Calendar,
+  UserCheck,
+  MessageSquare,
+  History,
+  Briefcase,
+  Upload,
+  Image as ImageIcon,
+  ArrowUp,
+  Trophy,
+  AlertTriangle,
+  Info,
+  Table,
+  Truck,
+  Zap,
+  Download,
+  CreditCard,
+  AlertOctagon,
+  Trash2,
+  Filter,
+  LayoutGrid,
+  List,
+  Scale,
+  FileText,
+  HelpCircle,
+  Languages,
+  FileUp,
+} from "lucide-react";
 
-import imageCompression from 'browser-image-compression';
+import imageCompression from "browser-image-compression";
 
-import { supabase } from './src/lib/supabaseClient';
+import { supabase } from "./src/lib/supabaseClient";
 
-import { AuctionItem, Region, ViewState, Seller, Review, SellerType, SubscriptionTier, PaymentCard, WonItem, Category } from './types.ts';
+import {
+  AuctionItem,
+  Region,
+  ViewState,
+  Seller,
+  Review,
+  SellerType,
+  SubscriptionTier,
+  PaymentCard,
+  WonItem,
+  Category,
+} from "./types.ts";
 
-import { Toaster, toast } from 'sonner';
+import { Toaster, toast } from "sonner";
 
-import { ChatProvider } from './src/context/ChatContext';
+import { ChatProvider } from "./src/context/ChatContext";
 
 // --- CONFIGURATION ---
-const IS_LIVE = true; 
+const IS_LIVE = true;
 
-import { translations } from './src/lib/translations';
-import { getIncrement, formatSeconds, calculateMarginalPlatformFee } from './src/lib/utils';
+import { translations } from "./src/lib/translations";
+import {
+  getIncrement,
+  formatSeconds,
+  calculateMarginalPlatformFee,
+} from "./src/lib/utils";
 
 // --- MAIN APP COMPONENT ---
 
 // SignedImg component for fetching Supabase signed URLs
-const SignedImg = ({ src, alt, className, onClick }: { src: string, alt: string, className?: string, onClick?: () => void }) => {
-    const [signedUrl, setSignedUrl] = useState<string>('');
-    useEffect(() => {
-        if (!src) return;
-        if (src.startsWith('http')) { setSignedUrl(src); return; }
-        supabase.storage.from('auction-images').createSignedUrl(src, 3600).then(({data}) => {
-            if (data?.signedUrl) setSignedUrl(data.signedUrl);
-        });
-    }, [src]);
-    return <img src={signedUrl || src} alt={alt} loading="lazy" className={className} onClick={onClick} referrerPolicy="no-referrer" />;
+const SignedImg = ({
+  src,
+  alt,
+  className,
+  onClick,
+}: {
+  src: string;
+  alt: string;
+  className?: string;
+  onClick?: () => void;
+}) => {
+  const [signedUrl, setSignedUrl] = useState<string>("");
+  useEffect(() => {
+    if (!src) return;
+    if (src.startsWith("http")) {
+      setSignedUrl(src);
+      return;
+    }
+    supabase.storage
+      .from("auction-images")
+      .createSignedUrl(src, 3600)
+      .then(({ data }) => {
+        if (data?.signedUrl) setSignedUrl(data.signedUrl);
+      });
+  }, [src]);
+  return (
+    <img
+      src={signedUrl || src}
+      alt={alt}
+      loading="lazy"
+      className={className}
+      onClick={onClick}
+      referrerPolicy="no-referrer"
+    />
+  );
 };
 
-import { Timer } from 'lucide-react';
+import { Timer } from "lucide-react";
 
 const PaymentTimer: React.FC<{ endTime: string | Date }> = ({ endTime }) => {
-    const [timeLeft, setTimeLeft] = useState<{ hours: number, minutes: number, seconds: number } | null>(null);
+  const [timeLeft, setTimeLeft] = useState<{
+    hours: number;
+    minutes: number;
+    seconds: number;
+  } | null>(null);
 
-    useEffect(() => {
-        const deadline = new Date(endTime).getTime() + 24 * 60 * 60 * 1000;
-        
-        const updateTimer = () => {
-            const now = new Date().getTime();
-            const difference = deadline - now;
-            
-            if (difference <= 0) {
-                setTimeLeft({ hours: 0, minutes: 0, seconds: 0 });
-                return;
-            }
-            
-            setTimeLeft({
-                hours: Math.floor((difference / (1000 * 60 * 60)) % 24),
-                minutes: Math.floor((difference / 1000 / 60) % 60),
-                seconds: Math.floor((difference / 1000) % 60)
-            });
-        };
-        
-        updateTimer();
-        const interval = setInterval(updateTimer, 1000);
-        return () => clearInterval(interval);
-    }, [endTime]);
+  useEffect(() => {
+    const deadline = new Date(endTime).getTime() + 24 * 60 * 60 * 1000;
 
-    if (!timeLeft) return null;
-    
-    if (timeLeft.hours === 0 && timeLeft.minutes === 0 && timeLeft.seconds === 0) {
-        return <span className="text-red-500 font-bold flex items-center gap-1.5"><Timer size={14} /> Čas za plačilo je potekel</span>;
-    }
+    const updateTimer = () => {
+      const now = new Date().getTime();
+      const difference = deadline - now;
 
+      if (difference <= 0) {
+        setTimeLeft({ hours: 0, minutes: 0, seconds: 0 });
+        return;
+      }
+
+      setTimeLeft({
+        hours: Math.floor((difference / (1000 * 60 * 60)) % 24),
+        minutes: Math.floor((difference / 1000 / 60) % 60),
+        seconds: Math.floor((difference / 1000) % 60),
+      });
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+    return () => clearInterval(interval);
+  }, [endTime]);
+
+  if (!timeLeft) return null;
+
+  if (
+    timeLeft.hours === 0 &&
+    timeLeft.minutes === 0 &&
+    timeLeft.seconds === 0
+  ) {
     return (
-        <span className="text-amber-500 font-bold flex items-center gap-1.5 bg-amber-50 px-3 py-1.5 rounded-xl border border-amber-100">
-            <Timer size={16} /> Čas za plačilo: {String(timeLeft.hours).padStart(2, '0')}:{String(timeLeft.minutes).padStart(2, '0')}:{String(timeLeft.seconds).padStart(2, '0')}
-        </span>
+      <span className="text-red-500 font-bold flex items-center gap-1.5">
+        <Timer size={14} /> Čas za plačilo je potekel
+      </span>
     );
+  }
+
+  return (
+    <span className="text-amber-500 font-bold flex items-center gap-1.5 bg-amber-50 px-3 py-1.5 rounded-xl border border-amber-100">
+      <Timer size={16} /> Čas za plačilo:{" "}
+      {String(timeLeft.hours).padStart(2, "0")}:
+      {String(timeLeft.minutes).padStart(2, "0")}:
+      {String(timeLeft.seconds).padStart(2, "0")}
+    </span>
+  );
 };
 
 const MainApp: React.FC = () => {
-  const [language, setLanguage] = useState('SLO');
-  const t = useCallback((key: string) => translations[language]?.[key] || key, [language]);
-  
-  const [auctions, setAuctions] = useState<AuctionItem[]>(EXTENDED_MOCK_AUCTIONS);
-  const [activeView, setActiveView] = useState<ViewState>('grid');
-  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [language, setLanguage] = useState("SLO");
+  const t = useCallback(
+    (key: string) => translations[language]?.[key] || key,
+    [language],
+  );
+
+  const [auctions, setAuctions] = useState<AuctionItem[]>(
+    EXTENDED_MOCK_AUCTIONS,
+  );
+  const [activeView, setActiveView] = useState<ViewState>("grid");
+  const [activeConversationId, setActiveConversationId] = useState<
+    string | null
+  >(null);
   const [republishData, setRepublishData] = useState<any>(null);
   const [bidAuctionIds, setBidAuctionIds] = useState<string[]>([]);
   const [hasAcceptedTerms, setHasAcceptedTerms] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
   const [showConfirmBidModal, setShowConfirmBidModal] = useState(false);
-  const bidResolverRef = useRef<((value: 'success' | 'outbid' | 'error' | 'login_required' | 'cancelled') => void) | null>(null);
-  const [pendingBid, setPendingBid] = useState<{item: AuctionItem, amount: number} | null>(null);
+  const bidResolverRef = useRef<
+    | ((
+        value: "success" | "outbid" | "error" | "login_required" | "cancelled",
+      ) => void)
+    | null
+  >(null);
+  const [pendingBid, setPendingBid] = useState<{
+    item: AuctionItem;
+    amount: number;
+  } | null>(null);
   const [selectedRegion, setSelectedRegion] = useState<Region | null>(null);
-  const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<Category | null>(
+    null,
+  );
+  const [selectedItem, setSelectedItem] = useState<AuctionItem | null>(null);
+  const [selectedSeller, setSelectedSeller] = useState<Seller | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isVerified, setIsVerified] = useState(false);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
-  const [userType, setUserType] = useState<'individual' | 'business' | null>(null);
+  const [userType, setUserType] = useState<"individual" | "business" | null>(
+    null,
+  );
   const [watchedIds, setWatchedIds] = useState<string[]>([]);
   const [isPollingStopped, setIsPollingStopped] = useState(false);
 
+  // URL and Path Preservation Hook
+  useEffect(() => {
+    let targetPath = "/";
+    let targetSearch = "";
+
+    switch (activeView) {
+      case "messages":
+        targetPath = "/messages";
+        if (activeConversationId) targetSearch = `?id=${activeConversationId}`;
+        break;
+      case "detail":
+        targetPath = "/auction";
+        if (selectedItem?.id) targetSearch = `?id=${selectedItem.id}`;
+        break;
+      case "sellerProfile":
+        targetPath = "/seller";
+        if (selectedSeller?.id) targetSearch = `?id=${selectedSeller.id}`;
+        break;
+      case "settings":
+        targetPath = "/settings";
+        break;
+      case "subscriptions":
+        targetPath = "/subscriptions";
+        break;
+      case "login":
+        targetPath = "/login";
+        break;
+      case "createAuction":
+        targetPath = "/create-auction";
+        break;
+      case "myWinnings":
+        targetPath = "/my-winnings";
+        break;
+      case "myBids":
+        targetPath = "/my-bids";
+        break;
+      case "mySold":
+        targetPath = "/my-sold";
+        break;
+      case "myUnsold":
+        targetPath = "/my-unsold";
+        break;
+      case "watchlist":
+        targetPath = "/watchlist";
+        break;
+      case "lastChance":
+        targetPath = "/last-chance";
+        break;
+      default:
+        targetPath = "/";
+        break;
+    }
+
+    const currentUrl = window.location.pathname + window.location.search;
+    const newUrl = targetPath + targetSearch;
+
+    if (currentUrl !== newUrl) {
+      window.history.pushState(null, "", newUrl);
+    }
+
+    // Always persist to local storage for the watchdog
+    localStorage.setItem("last_active_route", newUrl);
+  }, [activeView, activeConversationId, selectedItem?.id, selectedSeller?.id]);
+
+  // Initial Hydration from URL or LocalStorage
+  useEffect(() => {
+    let pathToRestore = window.location.pathname + window.location.search;
+
+    if (window.location.pathname === "/" || window.location.pathname === "") {
+      const savedRoute = localStorage.getItem("last_active_route");
+      if (savedRoute && savedRoute !== "/" && savedRoute !== pathToRestore) {
+        window.history.replaceState(null, "", savedRoute);
+        pathToRestore = savedRoute;
+      }
+    }
+
+    const url = new URL(pathToRestore, window.location.origin);
+    const path = url.pathname;
+    const searchParams = new URLSearchParams(url.search);
+    const id = searchParams.get("id");
+
+    if (path.startsWith("/messages")) {
+      setActiveView("messages");
+      if (id) setActiveConversationId(id);
+    } else if (path.startsWith("/auction") && id) {
+      // We set view to detail, but selectedItem needs to be populated once auctions load
+      setActiveView("detail");
+      // We will handle selecting the item in a separate effect when auctions load
+      sessionStorage.setItem("pending_auction_id", id);
+    } else if (path.startsWith("/seller") && id) {
+      setActiveView("sellerProfile");
+      sessionStorage.setItem("pending_seller_id", id);
+    } else if (path.startsWith("/settings")) {
+      setActiveView("settings");
+    } else if (path.startsWith("/subscriptions")) {
+      setActiveView("subscriptions");
+    } else if (path.startsWith("/login")) {
+      setActiveView("login");
+    } else if (path.startsWith("/create-auction")) {
+      setActiveView("createAuction");
+    } else if (path.startsWith("/my-winnings")) {
+      setActiveView("myWinnings");
+    } else if (path.startsWith("/my-bids")) {
+      setActiveView("myBids");
+    } else if (path.startsWith("/my-sold")) {
+      setActiveView("mySold");
+    } else if (path.startsWith("/my-unsold")) {
+      setActiveView("myUnsold");
+    } else if (path.startsWith("/watchlist")) {
+      setActiveView("watchlist");
+    } else if (path.startsWith("/last-chance")) {
+      setActiveView("lastChance");
+    }
+  }, []);
+
+  // Hydrate pending selected item when auctions change
+  useEffect(() => {
+    const pendingId = sessionStorage.getItem("pending_auction_id");
+    if (pendingId && auctions.length > 0) {
+      const found = auctions.find((a) => a.id === pendingId);
+      if (found) {
+        setSelectedItem(found);
+        sessionStorage.removeItem("pending_auction_id");
+      }
+    }
+  }, [auctions]);
+
+  // Hydrate pending seller
+  useEffect(() => {
+    const pendingSellerId = sessionStorage.getItem("pending_seller_id");
+    if (pendingSellerId) {
+      // Try mock sellers first
+      const s = MOCK_SELLERS.find((s) => s.id === pendingSellerId);
+      if (s) {
+        setSelectedSeller(s);
+        sessionStorage.removeItem("pending_seller_id");
+      } else {
+        // Need to fetch from Supabase
+        supabase
+          .from("users")
+          .select("*")
+          .eq("id", pendingSellerId)
+          .single()
+          .then(({ data }) => {
+            if (data) {
+              setSelectedSeller(data);
+              sessionStorage.removeItem("pending_seller_id");
+            }
+          });
+      }
+    }
+  }, []);
+
   // Redirect to home if logged in and on login page
   useEffect(() => {
-    if (isLoggedIn && activeView === 'login') {
-      setActiveView('grid');
+    if (isLoggedIn && activeView === "login") {
+      setActiveView("grid");
       setSelectedRegion(null);
       setSelectedCategory(null);
-      setSearchQuery('');
-      window.scrollTo({ top: 0, behavior: 'instant' });
+      setSearchQuery("");
+      window.scrollTo({ top: 0, behavior: "instant" });
     }
   }, [isLoggedIn, activeView]);
 
   const toggleWatch = async (id: string) => {
-    const newWatchedIds = watchedIds.includes(id) 
-      ? watchedIds.filter(i => i !== id) 
+    const newWatchedIds = watchedIds.includes(id)
+      ? watchedIds.filter((i) => i !== id)
       : [...watchedIds, id];
-    
+
     setWatchedIds(newWatchedIds);
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       if (session?.user) {
-        await supabase.from('users').upsert({
+        await supabase.from("users").upsert({
           id: session.user.id,
           email: session.user.email,
-          watched_auctions: newWatchedIds
+          watched_auctions: newWatchedIds,
         });
       }
     } catch (err) {
       console.error("Error updating watched auctions:", err);
     }
   };
-  const [activeLegal, setActiveLegal] = useState<'terms' | 'privacy' | 'how' | null>(null);
-  const [currentPlan, setCurrentPlan] = useState<SubscriptionTier>(SubscriptionTier.FREE);
+  const [activeLegal, setActiveLegal] = useState<
+    "terms" | "privacy" | "how" | null
+  >(null);
+  const [currentPlan, setCurrentPlan] = useState<SubscriptionTier>(
+    SubscriptionTier.FREE,
+  );
   const [isSubscriptionCanceled, setIsSubscriptionCanceled] = useState(false);
   const nextBillingDate = useMemo(() => {
-     const date = new Date();
-     date.setMonth(date.getMonth() + 1);
-     return date;
+    const date = new Date();
+    date.setMonth(date.getMonth() + 1);
+    return date;
   }, []);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
-  const [checkoutData, setCheckoutData] = useState<{ amount: number; title: string; onSuccess: () => void; metadata?: any } | null>(null);
-  const [deliveryMethodModal, setDeliveryMethodModal] = useState<{isOpen: boolean, auctionId: string, deliveryMethod: 'pickup'|'post'|null}>({isOpen: false, auctionId: '', deliveryMethod: null});
-  const [receiptConfirmModal, setReceiptConfirmModal] = useState<{isOpen: boolean, auctionId: string, sellerId: string}>({isOpen: false, auctionId: '', sellerId: ''});
-  const [ratingModal, setRatingModal] = useState<{isOpen: boolean, auctionId: string, sellerId: string, rating: number, comment: string}>({isOpen: false, auctionId: '', sellerId: '', rating: 0, comment: ''});
-    const [userData, setUserData] = useState({ 
-        id: '', 
-        firstName: '', 
-        lastName: '', 
-        username: '',
-        email: '', 
-        profilePicture: '', 
-        is_verified: false,
-        stripe_onboarding_complete: false,
-        profile_picture_url: '',
-        first_name: '',
-        last_name: '' 
-    });
+  const [checkoutData, setCheckoutData] = useState<{
+    amount: number;
+    title: string;
+    onSuccess: () => void;
+    metadata?: any;
+  } | null>(null);
+  const [deliveryMethodModal, setDeliveryMethodModal] = useState<{
+    isOpen: boolean;
+    auctionId: string;
+    deliveryMethod: "pickup" | "post" | null;
+  }>({ isOpen: false, auctionId: "", deliveryMethod: null });
+  const [receiptConfirmModal, setReceiptConfirmModal] = useState<{
+    isOpen: boolean;
+    auctionId: string;
+    sellerId: string;
+  }>({ isOpen: false, auctionId: "", sellerId: "" });
+  const [ratingModal, setRatingModal] = useState<{
+    isOpen: boolean;
+    auctionId: string;
+    sellerId: string;
+    rating: number;
+    comment: string;
+  }>({ isOpen: false, auctionId: "", sellerId: "", rating: 0, comment: "" });
+  const [userData, setUserData] = useState({
+    id: "",
+    firstName: "",
+    lastName: "",
+    username: "",
+    email: "",
+    profilePicture: "",
+    is_verified: false,
+    stripe_onboarding_complete: false,
+    profile_picture_url: "",
+    first_name: "",
+    last_name: "",
+  });
 
   const lastSessionCheckRef = useRef(0);
   const isCheckingSessionRef = useRef(false);
 
   useEffect(() => {
     const handleVis = async () => {
-      if (document.visibilityState === 'visible') {
+      if (document.visibilityState === "visible") {
         const now = Date.now();
         fetchAuctions(); // Instantly refresh bids
         if (now - lastSessionCheckRef.current < 60000) return; // Only check once per minute on focus
-        
+
         if (isCheckingSessionRef.current) return;
         isCheckingSessionRef.current = true;
-        
+
         try {
           // Use getSession with a timeout race to prevent infinite hanging
           const sessionPromise = supabase.auth.getSession();
-          const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Session fetch timeout')), 5000)
+          const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("Session fetch timeout")), 5000),
           );
-          
-          const { data: { session }, error } = await Promise.race([sessionPromise, timeoutPromise]) as any;
-          
+
+          const {
+            data: { session },
+            error,
+          } = (await Promise.race([sessionPromise, timeoutPromise])) as any;
+
           lastSessionCheckRef.current = Date.now();
 
-          if (error && (error.name === 'AbortError' || error.message?.includes('timeout'))) {
-             console.warn("Session check aborted or timed out on visibility change.");
-             return;
+          if (
+            error &&
+            (error.name === "AbortError" || error.message?.includes("timeout"))
+          ) {
+            console.warn(
+              "Session check aborted or timed out on visibility change.",
+            );
+            return;
           }
-          
+
           if (session?.user) {
             if (!isLoggedIn) {
-                // Recover session if it was lost
-                setIsLoggedIn(true);
+              // Recover session if it was lost
+              setIsLoggedIn(true);
             }
           } else if (!session && isLoggedIn) {
             console.log("No session found on focus, logging out...");
             setIsLoggedIn(false);
             setIsVerified(false);
-            setUserData({ 
-                id: '', 
-                firstName: '', 
-                lastName: '', 
-                username: '',
-                email: '', 
-                profilePicture: '', 
-                is_verified: false,
-                stripe_onboarding_complete: false,
-                profile_picture_url: '',
-                first_name: '',
-                last_name: '' 
+            setUserData({
+              id: "",
+              firstName: "",
+              lastName: "",
+              username: "",
+              email: "",
+              profilePicture: "",
+              is_verified: false,
+              stripe_onboarding_complete: false,
+              profile_picture_url: "",
+              first_name: "",
+              last_name: "",
             });
           }
         } catch (err: any) {
-          if (err.name !== 'AbortError' && !err.message?.includes('timeout')) {
-             console.error("Session check error on visibility change:", err);
+          if (err.name !== "AbortError" && !err.message?.includes("timeout")) {
+            console.error("Session check error on visibility change:", err);
           }
         } finally {
-            isCheckingSessionRef.current = false;
+          isCheckingSessionRef.current = false;
         }
       }
     };
-    document.addEventListener('visibilitychange', handleVis);
-    window.addEventListener('focus', handleVis);
+    document.addEventListener("visibilitychange", handleVis);
+    window.addEventListener("focus", handleVis);
     return () => {
-        document.removeEventListener('visibilitychange', handleVis);
-        window.removeEventListener('focus', handleVis);
+      document.removeEventListener("visibilitychange", handleVis);
+      window.removeEventListener("focus", handleVis);
     };
   }, [userData.id, isLoggedIn]);
 
-  const [selectedItem, setSelectedItem] = useState<AuctionItem | null>(null);
-  const [selectedSeller, setSelectedSeller] = useState<Seller | null>(null);
-
   const currentUserWinnings = useMemo(() => {
-      if (!userData?.id) return [];
-      return auctions.filter(a => 
-          ((a as any).winner_id === userData.id || a.winnerId === userData.id) && 
-          (a.status === 'completed' || a.endTime.getTime() <= Date.now())
-      ).sort((a, b) => b.endTime.getTime() - a.endTime.getTime());
+    if (!userData?.id) return [];
+    return auctions
+      .filter(
+        (a) =>
+          ((a as any).winner_id === userData.id ||
+            a.winnerId === userData.id) &&
+          (a.status === "completed" || a.endTime.getTime() <= Date.now()),
+      )
+      .sort((a, b) => b.endTime.getTime() - a.endTime.getTime());
   }, [auctions, userData?.id]);
 
   // Pagination & Scroll
@@ -275,8 +593,8 @@ const MainApp: React.FC = () => {
       else setCols(1);
     };
     updateCols();
-    window.addEventListener('resize', updateCols);
-    return () => window.removeEventListener('resize', updateCols);
+    window.addEventListener("resize", updateCols);
+    return () => window.removeEventListener("resize", updateCols);
   }, []);
 
   const itemsPerPage = Math.ceil(baseItemsPerPage / cols) * cols;
@@ -287,126 +605,152 @@ const MainApp: React.FC = () => {
   const auctionsSectionRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    let title = 'Drazba.si | Prva slovenska digitalna dražba';
-    let metaDesc = 'Najbolj zanesljiva platforma za spletne dražbe v Sloveniji. Pregledno, varno in enostavno.';
-    
-    switch(activeView) {
-      case 'detail':
+    let title = "Drazba.si | Prva slovenska digitalna dražba";
+    let metaDesc =
+      "Najbolj zanesljiva platforma za spletne dražbe v Sloveniji. Pregledno, varno in enostavno.";
+
+    switch (activeView) {
+      case "detail":
         if (selectedItem) {
-          const itemTitle = selectedItem.title[language as keyof typeof selectedItem.title] || selectedItem.title['SLO'];
+          const itemTitle =
+            selectedItem.title[language as keyof typeof selectedItem.title] ||
+            selectedItem.title["SLO"];
           title = `${itemTitle} | Drazba.si`;
         }
         metaDesc = `Licitirajte za stroje, vozila ali nepremičnine. Oddajte svojo ponudbo zdaj.`;
         break;
-      case 'sellerProfile':
-        if (selectedSeller) title = `Profil prodajalca: ${selectedSeller.name} | Drazba.si`;
+      case "sellerProfile":
+        if (selectedSeller)
+          title = `Profil prodajalca: ${selectedSeller.name} | Drazba.si`;
         metaDesc = `Oglejte si vse aktivne dražbe prodajalca na Drazba.si.`;
         break;
-      case 'lastChance':
-        title = 'Zadnja priložnost | Predmeti, ki se iztekajo | Drazba.si';
-        metaDesc = 'Zgrabite še zadnjo priložnost za licitacijo. Dražbe se iztekajo.';
+      case "lastChance":
+        title = "Zadnja priložnost | Predmeti, ki se iztekajo | Drazba.si";
+        metaDesc =
+          "Zgrabite še zadnjo priložnost za licitacijo. Dražbe se iztekajo.";
         break;
-      case 'createAuction':
-        title = 'Objavi novo dražbo | Drazba.si';
+      case "createAuction":
+        title = "Objavi novo dražbo | Drazba.si";
         break;
-      case 'login':
-        title = 'Prijava in registracija | Drazba.si';
+      case "login":
+        title = "Prijava in registracija | Drazba.si";
         break;
     }
 
     document.title = title;
-    
+
     let meta = document.querySelector('meta[name="description"]');
     if (!meta) {
-      meta = document.createElement('meta');
-      meta.setAttribute('name', 'description');
+      meta = document.createElement("meta");
+      meta.setAttribute("name", "description");
       document.head.appendChild(meta);
     }
-    meta.setAttribute('content', metaDesc);
+    meta.setAttribute("content", metaDesc);
   }, [activeView, selectedItem, selectedSeller, language]);
 
   const consecutiveErrorsRef = useRef(0);
   const fetchAuctions = useCallback(async () => {
     try {
       // Adding a timeout check just in case, though Supabase has one
-      const { data, error } = await supabase.from('auctions').select('*');
+      const { data, error } = await supabase.from("auctions").select("*");
       if (error) {
-          consecutiveErrorsRef.current++;
-          
-          if (consecutiveErrorsRef.current >= 5) {
-              console.error(`Error fetching auctions: ${error.message} (Code: ${error.code}). Stopping polling.`);
-              setIsPollingStopped(true);
-          }
-          return;
+        consecutiveErrorsRef.current++;
+
+        if (consecutiveErrorsRef.current >= 5) {
+          console.error(
+            `Error fetching auctions: ${error.message} (Code: ${error.code}). Stopping polling.`,
+          );
+          setIsPollingStopped(true);
+        }
+        return;
       }
-      
+
       consecutiveErrorsRef.current = 0;
       if (isPollingStopped) setIsPollingStopped(false);
 
       // Fetch users to map seller names
-      const { data: usersData, error: usersError } = await supabase.from('users').select('id, username, company_name, user_type, first_name, last_name');
+      const { data: usersData, error: usersError } = await supabase
+        .from("users")
+        .select("id, username, company_name, user_type, first_name, last_name");
       if (usersError) {
-          console.error("Error fetching users for map:", usersError.message);
+        console.error("Error fetching users for map:", usersError.message);
       }
-      const usersMap = new Map((usersData || []).map(u => [u.id, u]));
-      
-      const supabaseData: AuctionItem[] = data.map(d => {
-          const seller = usersMap.get(d.seller_id);
-          let sellerName = 'Neznan prodajalec';
-          if (seller) {
-              if (seller.user_type === 'business' && seller.company_name) {
-                  sellerName = seller.company_name;
-              } else if (seller.username) {
-                  sellerName = seller.username;
-              } else if (seller.first_name && seller.last_name) {
-                  sellerName = `${seller.first_name} ${seller.last_name}`;
-              }
-          }
+      const usersMap = new Map((usersData || []).map((u) => [u.id, u]));
 
-          return {
-              ...d,
-              endTime: new Date(d.end_time || d.endTime),
-              currentBid: d.current_price || d.currentBid,
-              hiddenMaxBid: d.hidden_max_bid || d.hiddenMaxBid,
-              bidCount: d.bid_count || d.bidCount,
-              winnerId: d.winner_id || d.winnerId,
-              winner_id: d.winner_id || d.winnerId,
-              payment_status: d.payment_status || 'unpaid',
-              paid_at: d.paid_at,
-              sellerName: d.sellerName || sellerName,
-              delivery_method: d.delivery_method,
-              buyer_received: d.buyer_received
-          };
+      const supabaseData: AuctionItem[] = data.map((d) => {
+        const seller = usersMap.get(d.seller_id);
+        let sellerName = "Neznan prodajalec";
+        if (seller) {
+          if (seller.user_type === "business" && seller.company_name) {
+            sellerName = seller.company_name;
+          } else if (seller.username) {
+            sellerName = seller.username;
+          } else if (seller.first_name && seller.last_name) {
+            sellerName = `${seller.first_name} ${seller.last_name}`;
+          }
+        }
+
+        return {
+          ...d,
+          endTime: new Date(d.end_time || d.endTime),
+          currentBid: d.current_price || d.currentBid,
+          hiddenMaxBid: d.hidden_max_bid || d.hiddenMaxBid,
+          bidCount: d.bid_count || d.bidCount,
+          winnerId: d.winner_id || d.winnerId,
+          winner_id: d.winner_id || d.winnerId,
+          payment_status: d.payment_status || "unpaid",
+          paid_at: d.paid_at,
+          sellerName: d.sellerName || sellerName,
+          delivery_method: d.delivery_method,
+          buyer_received: d.buyer_received,
+        };
       });
 
-      setAuctions(prev => {
-          const newData = IS_LIVE ? supabaseData : (() => {
+      setAuctions((prev) => {
+        const newData = IS_LIVE
+          ? supabaseData
+          : (() => {
               const merged = [...EXTENDED_MOCK_AUCTIONS];
-              supabaseData.forEach(fd => {
-                  const idx = merged.findIndex(m => m.id === fd.id);
-                  if (idx > -1) merged[idx] = fd;
-                  else merged.unshift(fd);
+              supabaseData.forEach((fd) => {
+                const idx = merged.findIndex((m) => m.id === fd.id);
+                if (idx > -1) merged[idx] = fd;
+                else merged.unshift(fd);
               });
               return merged;
-          })();
+            })();
 
-          if (prev.length === newData.length && prev.every((p, i) => p.id === newData[i].id && p.status === newData[i].status && p.currentBid === newData[i].currentBid && p.bidCount === newData[i].bidCount && p.payment_status === newData[i].payment_status)) {
-              return prev;
-          }
-          return newData;
+        if (
+          prev.length === newData.length &&
+          prev.every(
+            (p, i) =>
+              p.id === newData[i].id &&
+              p.status === newData[i].status &&
+              p.currentBid === newData[i].currentBid &&
+              p.bidCount === newData[i].bidCount &&
+              p.payment_status === newData[i].payment_status,
+          )
+        ) {
+          return prev;
+        }
+        return newData;
       });
-
     } catch (err: any) {
       consecutiveErrorsRef.current++;
       const errorMessage = err?.message || String(err);
-      
+
       if (consecutiveErrorsRef.current >= 5) {
-          console.error(`Fetch exception: ${errorMessage}. Source: ${err?.stack || 'Unknown'}. Stopping polling.`);
-          setIsPollingStopped(true);
+        console.error(
+          `Fetch exception: ${errorMessage}. Source: ${err?.stack || "Unknown"}. Stopping polling.`,
+        );
+        setIsPollingStopped(true);
       }
-      
+
       if (!IS_LIVE) {
-        setAuctions(prev => prev.length === EXTENDED_MOCK_AUCTIONS.length ? prev : [...EXTENDED_MOCK_AUCTIONS]);
+        setAuctions((prev) =>
+          prev.length === EXTENDED_MOCK_AUCTIONS.length
+            ? prev
+            : [...EXTENDED_MOCK_AUCTIONS],
+        );
       }
     }
   }, []);
@@ -414,7 +758,7 @@ const MainApp: React.FC = () => {
   // Effect to reset page and scroll to top on ANY view/category change
   useEffect(() => {
     setCurrentPage(1);
-    window.scrollTo({ top: 0, behavior: 'instant' });
+    window.scrollTo({ top: 0, behavior: "instant" });
   }, [activeView, selectedRegion, selectedCategory, searchQuery]);
 
   // Firestore Sync & Polling with Backoff
@@ -424,140 +768,172 @@ const MainApp: React.FC = () => {
     let isMounted = true;
 
     const poll = async () => {
-        if (!isMounted || consecutiveErrorsRef.current >= 5) return;
-        
-        const start = Date.now();
-        await fetchAuctions();
-        
-        if (!isMounted || consecutiveErrorsRef.current >= 5) return;
+      if (!isMounted || consecutiveErrorsRef.current >= 5) return;
 
-        // If we had errors, increase delay (backoff), otherwise reset to 3s
-        if (consecutiveErrorsRef.current > 0) {
-            currentDelay = Math.min(currentDelay * 1.5, 30000); // Max 30s
-        } else {
-            currentDelay = 3000;
-        }
+      const start = Date.now();
+      await fetchAuctions();
 
-        const elapsed = Date.now() - start;
-        const nextDelay = Math.max(currentDelay - elapsed, 100);
-        timeoutId = setTimeout(poll, nextDelay);
+      if (!isMounted || consecutiveErrorsRef.current >= 5) return;
+
+      // If we had errors, increase delay (backoff), otherwise reset to 3s
+      if (consecutiveErrorsRef.current > 0) {
+        currentDelay = Math.min(currentDelay * 1.5, 30000); // Max 30s
+      } else {
+        currentDelay = 3000;
+      }
+
+      const elapsed = Date.now() - start;
+      const nextDelay = Math.max(currentDelay - elapsed, 100);
+      timeoutId = setTimeout(poll, nextDelay);
     };
 
     poll();
 
     // Real-time subscription with WebSocket check
     let channel: ReturnType<typeof supabase.channel> | null = null;
-    if (typeof window !== 'undefined' && window.WebSocket) {
+    if (typeof window !== "undefined" && window.WebSocket) {
       try {
-        channel = supabase.channel('public:auctions')
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'auctions' }, () => {
-             if (consecutiveErrorsRef.current < 5) fetchAuctions();
-          })
+        channel = supabase
+          .channel("public:auctions")
+          .on(
+            "postgres_changes",
+            { event: "*", schema: "public", table: "auctions" },
+            () => {
+              if (consecutiveErrorsRef.current < 5) fetchAuctions();
+            },
+          )
           .subscribe((status) => {
-            if (status === 'CHANNEL_ERROR') {
-              console.warn("Supabase Realtime channel error. Live updates might be unavailable.");
+            if (status === "CHANNEL_ERROR") {
+              console.warn(
+                "Supabase Realtime channel error. Live updates might be unavailable.",
+              );
             }
           });
       } catch (err) {
         console.warn("Supabase Realtime subscription failed:", err);
       }
     }
-    
+
     return () => {
-        isMounted = false;
-        if (timeoutId) clearTimeout(timeoutId);
-        if (channel) supabase.removeChannel(channel).catch(() => {});
-    }
+      isMounted = false;
+      if (timeoutId) clearTimeout(timeoutId);
+      if (channel) supabase.removeChannel(channel).catch(() => {});
+    };
   }, [fetchAuctions]);
 
   // Sync selectedItem if it was updated in the background
   useEffect(() => {
-      if (selectedItem) {
-          const updated = auctions.find(a => a.id === selectedItem.id);
-          if (updated && (
-              updated.currentBid !== selectedItem.currentBid || 
-              (updated as any).winner_id !== (selectedItem as any).winner_id ||
-              updated.winnerId !== selectedItem.winnerId ||
-              updated.status !== selectedItem.status ||
-              updated.endTime.getTime() !== selectedItem.endTime.getTime() ||
-              updated.bidCount !== selectedItem.bidCount
-          )) {
-              setSelectedItem(updated);
-          }
+    if (selectedItem) {
+      const updated = auctions.find((a) => a.id === selectedItem.id);
+      if (
+        updated &&
+        (updated.currentBid !== selectedItem.currentBid ||
+          (updated as any).winner_id !== (selectedItem as any).winner_id ||
+          updated.winnerId !== selectedItem.winnerId ||
+          updated.status !== selectedItem.status ||
+          updated.endTime.getTime() !== selectedItem.endTime.getTime() ||
+          updated.bidCount !== selectedItem.bidCount)
+      ) {
+        setSelectedItem(updated);
       }
+    }
   }, [
-      auctions, 
-      selectedItem?.id, 
-      selectedItem?.currentBid, 
-      (selectedItem as any)?.winner_id, 
-      selectedItem?.winnerId,
-      selectedItem?.status, 
-      selectedItem?.bidCount, 
-      selectedItem?.endTime?.getTime?.() 
+    auctions,
+    selectedItem?.id,
+    selectedItem?.currentBid,
+    (selectedItem as any)?.winner_id,
+    selectedItem?.winnerId,
+    selectedItem?.status,
+    selectedItem?.bidCount,
+    selectedItem?.endTime?.getTime?.(),
   ]);
 
   // Auth Sync
   useEffect(() => {
     // Only use onAuthStateChange, which inherently fires an INITIAL_SESSION event
-    // on setup. Avoid calling getSession() manually here to prevent race conditions 
+    // on setup. Avoid calling getSession() manually here to prevent race conditions
     // and duplicate loads.
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (session?.user) {
         setIsLoggedIn(true);
-        setUserData(prev => {
-            const newEmail = session.user.email || '';
-            if (prev.email === newEmail && prev.id === session.user.id) return prev;
-            return { ...prev, id: session.user.id, email: newEmail };
+        setUserData((prev) => {
+          const newEmail = session.user.email || "";
+          if (prev.email === newEmail && prev.id === session.user.id)
+            return prev;
+          return { ...prev, id: session.user.id, email: newEmail };
         });
-        
-        if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
-            try {
-              let { data } = await supabase.from('users').select('*').eq('id', session.user.id).single();
-              
-              if (!data) {
-                  const { data: newUser, error: insertError } = await supabase.from('users').insert({ 
-                      id: session.user.id, 
-                      email: session.user.email, 
-                      is_verified: false, 
-                      unpaid_strikes: 0, 
-                      subscription: 'FREE' 
-                  }).select().single();
-                  
-                  if (!insertError && newUser) {
-                      data = newUser;
-                  } else {
-                      const { data: existingUser } = await supabase.from('users').select('*').eq('id', session.user.id).single();
-                      if (existingUser) data = existingUser;
-                  }
-              }
 
-              if (data) {
-                console.log("Auth State Change - User data:", data);
-                const verified = !!(data.is_verified || data.isVerified || data.isverified);
-                setIsVerified(verified);
-                setUserType(data.user_type || data.userType || 'individual');
-                setUserData(prev => ({ ...prev, ...data, id: session.user.id, is_verified: verified }));
-                if (data.watched_auctions) {
-                  setWatchedIds(data.watched_auctions);
-                }
-                if (data.has_accepted_terms) {
-                  setHasAcceptedTerms(true);
-                }
-                if (data.bid_auction_ids) {
-                  setBidAuctionIds(data.bid_auction_ids);
-                }
-                if (data.subscription) {
-                  setCurrentPlan(data.subscription);
-                }
+        if (event === "SIGNED_IN" || event === "INITIAL_SESSION") {
+          try {
+            let { data } = await supabase
+              .from("users")
+              .select("*")
+              .eq("id", session.user.id)
+              .single();
+
+            if (!data) {
+              const { data: newUser, error: insertError } = await supabase
+                .from("users")
+                .insert({
+                  id: session.user.id,
+                  email: session.user.email,
+                  is_verified: false,
+                  unpaid_strikes: 0,
+                  subscription: "FREE",
+                })
+                .select()
+                .single();
+
+              if (!insertError && newUser) {
+                data = newUser;
+              } else {
+                const { data: existingUser } = await supabase
+                  .from("users")
+                  .select("*")
+                  .eq("id", session.user.id)
+                  .single();
+                if (existingUser) data = existingUser;
               }
-            } catch (err) {
-              console.error("Error fetching user data on auth change:", err);
-            } finally {
-              setIsAuthLoading(false);
             }
-            fetchAuctions();
-        } else if (event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+
+            if (data) {
+              console.log("Auth State Change - User data:", data);
+              const verified = !!(
+                data.is_verified ||
+                data.isVerified ||
+                data.isverified
+              );
+              setIsVerified(verified);
+              setUserType(data.user_type || data.userType || "individual");
+              setUserData((prev) => ({
+                ...prev,
+                ...data,
+                id: session.user.id,
+                is_verified: verified,
+              }));
+              if (data.watched_auctions) {
+                setWatchedIds(data.watched_auctions);
+              }
+              if (data.has_accepted_terms) {
+                setHasAcceptedTerms(true);
+              }
+              if (data.bid_auction_ids) {
+                setBidAuctionIds(data.bid_auction_ids);
+              }
+              if (data.subscription) {
+                setCurrentPlan(data.subscription);
+              }
+            }
+          } catch (err) {
+            console.error("Error fetching user data on auth change:", err);
+          } finally {
             setIsAuthLoading(false);
+          }
+          fetchAuctions();
+        } else if (event === "TOKEN_REFRESHED" || event === "USER_UPDATED") {
+          setIsAuthLoading(false);
         }
       } else {
         setIsLoggedIn(false);
@@ -573,363 +949,475 @@ const MainApp: React.FC = () => {
 
   useEffect(() => {
     const handleScroll = () => setShowBackToTop(window.scrollY > 300);
-    window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  const handleBidSubmit = async (item: AuctionItem, amount: number): Promise<'success' | 'outbid' | 'error' | 'login_required' | 'cancelled'> => {
-    if (!isLoggedIn) { setActiveView('login'); return 'login_required'; }
-    if (!isVerified) { 
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-        return 'error'; 
+  const handleBidSubmit = async (
+    item: AuctionItem,
+    amount: number,
+  ): Promise<
+    "success" | "outbid" | "error" | "login_required" | "cancelled"
+  > => {
+    if (!isLoggedIn) {
+      setActiveView("login");
+      return "login_required";
     }
-    
+    if (!isVerified) {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return "error";
+    }
+
     return new Promise((resolve) => {
-        setPendingBid({ item, amount });
-        bidResolverRef.current = resolve;
-        
-        if (!hasAcceptedTerms) {
-            setShowTermsModal(true);
-        } else {
-            setShowConfirmBidModal(true);
-        }
+      setPendingBid({ item, amount });
+      bidResolverRef.current = resolve;
+
+      if (!hasAcceptedTerms) {
+        setShowTermsModal(true);
+      } else {
+        setShowConfirmBidModal(true);
+      }
     });
   };
 
-  const executeBid = async (item: AuctionItem, amount: number): Promise<'success' | 'outbid' | 'error'> => {
+  const executeBid = async (
+    item: AuctionItem,
+    amount: number,
+  ): Promise<"success" | "outbid" | "error"> => {
     // Prevent bidding if auction has ended
-    if (item.status === 'completed' || item.status === 'cancelled' || new Date(item.endTime).getTime() <= Date.now()) {
-        console.warn("Cannot bid: Auction has already ended.");
-        return 'error';
+    if (
+      item.status === "completed" ||
+      item.status === "cancelled" ||
+      new Date(item.endTime).getTime() <= Date.now()
+    ) {
+      console.warn("Cannot bid: Auction has already ended.");
+      return "error";
     }
 
     // Proxy Bidding Logic
-    if (IS_LIVE || item.id.includes('-') || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.id)) {
-        try {
-            // 1. Fetch latest auction state
-            const { data: auction, error: fetchError } = await supabase
-                .from('auctions')
-                .select('*')
-                .eq('id', item.id)
-                .single();
+    if (
+      IS_LIVE ||
+      item.id.includes("-") ||
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        item.id,
+      )
+    ) {
+      try {
+        // 1. Fetch latest auction state
+        const { data: auction, error: fetchError } = await supabase
+          .from("auctions")
+          .select("*")
+          .eq("id", item.id)
+          .single();
 
-            if (fetchError || !auction) {
-                console.error("Fetch Error:", fetchError);
-                return 'error';
-            }
-
-            const currentPrice = auction.current_price || 0;
-            const currentWinnerId = (auction as any).winner_id || auction.winnerId;
-            const currentMaxBid = auction.hidden_max_bid || 0;
-            const increment = getIncrement(currentPrice);
-
-            let newPrice = currentPrice;
-            let newWinnerId = currentWinnerId;
-            let newMaxBid = currentMaxBid;
-            let outbiddenImmediately = false;
-
-            if (!currentWinnerId) {
-                // First bid
-                newPrice = currentPrice; 
-                newWinnerId = userData.id;
-                newMaxBid = amount;
-            } else if (userData.id === currentWinnerId) {
-                // Same user increasing their own max bid
-                if (amount <= currentMaxBid) {
-                    return 'error';
-                }
-                newMaxBid = amount;
-            } else {
-                // New bidder
-                if (amount > currentMaxBid) {
-                    // New bidder takes the lead
-                    newPrice = Math.max(currentPrice + increment, currentMaxBid + increment);
-                    if (newPrice > amount) newPrice = amount;
-                    newWinnerId = userData.id;
-                    newMaxBid = amount;
-                } else {
-                    // New bidder is lower or equal to current max
-                    newPrice = Math.min(amount + increment, currentMaxBid);
-                    newWinnerId = currentWinnerId;
-                    newMaxBid = currentMaxBid;
-                    outbiddenImmediately = true;
-                }
-            }
-
-            // 2. Update auction
-            const newBid = {
-                id: crypto.randomUUID(),
-                bidderId: userData.id,
-                bidderName: userData.username || userData.firstName || userData.first_name || 'Uporabnik',
-                amount: amount,
-                timestamp: new Date().toISOString()
-            };
-            const updatedHistory = [...(auction.bidding_history || []), newBid];
-
-            // Anti-sniping logic
-            let newEndTime = auction.end_time;
-            const nowTime = Date.now();
-            const auctionEndTime = new Date(auction.end_time).getTime();
-            if (auctionEndTime - nowTime < 60000 && auctionEndTime > nowTime) {
-                newEndTime = new Date(nowTime + 60000).toISOString();
-            }
-
-            const { error: updateError, data: updatedDbData } = await supabase
-                .from('auctions')
-                .update({
-                    current_price: newPrice,
-                    winner_id: newWinnerId,
-                    hidden_max_bid: newMaxBid,
-                    bid_count: (auction.bid_count || 0) + 1,
-                    bidding_history: updatedHistory,
-                    end_time: newEndTime
-                })
-                .eq('id', item.id)
-                .select()
-                .single();
-
-            if (updateError || !updatedDbData) {
-                console.error("Update Error or RLS block:", updateError);
-                return 'error';
-            }
-
-            const updatedItem = {
-                ...item, 
-                currentBid: newPrice,
-                current_price: newPrice, 
-                bidCount: (item.bidCount || 0) + 1,
-                bid_count: ((item as any).bid_count || 0) + 1,
-                winnerId: newWinnerId, 
-                winner_id: newWinnerId,
-                hiddenMaxBid: newMaxBid,
-                hidden_max_bid: newMaxBid,
-                biddingHistory: updatedHistory,
-                bidding_history: updatedHistory,
-                endTime: new Date(newEndTime),
-                end_time: newEndTime
-            };
-
-            // Proactively update local state to avoid red border flash
-            setAuctions(prev => prev.map(a => a.id === item.id ? { ...a, ...updatedItem } : a));
-            if (selectedItem?.id === item.id) {
-                setSelectedItem(prev => prev ? { ...prev, ...updatedItem } : null);
-            }
-            const newBidIds = Array.from(new Set([...bidAuctionIds, item.id]));
-            setBidAuctionIds(newBidIds);
-            
-            // Fire and forget updating user's locally tracked bids
-            supabase.auth.getSession().then(({ data: { session } }) => {
-              if (session?.user) {
-                supabase.from('users').update({
-                  bid_auction_ids: newBidIds
-                }).eq('id', session.user.id).then(({error}) => {
-                  if (error) console.error("Error updating bid_auction_ids:", error);
-                });
-              }
-            }).catch(err => console.error("Session error during bid:", err));
-
-            return outbiddenImmediately ? 'outbid' : 'success';
-        } catch (error: any) { 
-            console.error(error); 
-            return 'error';
+        if (fetchError || !auction) {
+          console.error("Fetch Error:", fetchError);
+          return "error";
         }
-    } else {
-        // Handle mock auctions locally
-        setAuctions(prev => prev.map(a => a.id === item.id ? {...a, currentBid: amount, bidCount: a.bidCount + 1, winnerId: userData.id, winner_id: userData.id} : a));
+
+        const currentPrice = auction.current_price || 0;
+        const currentWinnerId = (auction as any).winner_id || auction.winnerId;
+        const currentMaxBid = auction.hidden_max_bid || 0;
+        const increment = getIncrement(currentPrice);
+
+        let newPrice = currentPrice;
+        let newWinnerId = currentWinnerId;
+        let newMaxBid = currentMaxBid;
+        let outbiddenImmediately = false;
+
+        if (!currentWinnerId) {
+          // First bid
+          newPrice = currentPrice;
+          newWinnerId = userData.id;
+          newMaxBid = amount;
+        } else if (userData.id === currentWinnerId) {
+          // Same user increasing their own max bid
+          if (amount <= currentMaxBid) {
+            return "error";
+          }
+          newMaxBid = amount;
+        } else {
+          // New bidder
+          if (amount > currentMaxBid) {
+            // New bidder takes the lead
+            newPrice = Math.max(
+              currentPrice + increment,
+              currentMaxBid + increment,
+            );
+            if (newPrice > amount) newPrice = amount;
+            newWinnerId = userData.id;
+            newMaxBid = amount;
+          } else {
+            // New bidder is lower or equal to current max
+            newPrice = Math.min(amount + increment, currentMaxBid);
+            newWinnerId = currentWinnerId;
+            newMaxBid = currentMaxBid;
+            outbiddenImmediately = true;
+          }
+        }
+
+        // 2. Update auction
+        const newBid = {
+          id: crypto.randomUUID(),
+          bidderId: userData.id,
+          bidderName:
+            userData.username ||
+            userData.firstName ||
+            userData.first_name ||
+            "Uporabnik",
+          amount: amount,
+          timestamp: new Date().toISOString(),
+        };
+        const updatedHistory = [...(auction.bidding_history || []), newBid];
+
+        // Anti-sniping logic
+        let newEndTime = auction.end_time;
+        const nowTime = Date.now();
+        const auctionEndTime = new Date(auction.end_time).getTime();
+        if (auctionEndTime - nowTime < 60000 && auctionEndTime > nowTime) {
+          newEndTime = new Date(nowTime + 60000).toISOString();
+        }
+
+        const { error: updateError, data: updatedDbData } = await supabase
+          .from("auctions")
+          .update({
+            current_price: newPrice,
+            winner_id: newWinnerId,
+            hidden_max_bid: newMaxBid,
+            bid_count: (auction.bid_count || 0) + 1,
+            bidding_history: updatedHistory,
+            end_time: newEndTime,
+          })
+          .eq("id", item.id)
+          .select()
+          .single();
+
+        if (updateError || !updatedDbData) {
+          console.error("Update Error or RLS block:", updateError);
+          return "error";
+        }
+
+        const updatedItem = {
+          ...item,
+          currentBid: newPrice,
+          current_price: newPrice,
+          bidCount: (item.bidCount || 0) + 1,
+          bid_count: ((item as any).bid_count || 0) + 1,
+          winnerId: newWinnerId,
+          winner_id: newWinnerId,
+          hiddenMaxBid: newMaxBid,
+          hidden_max_bid: newMaxBid,
+          biddingHistory: updatedHistory,
+          bidding_history: updatedHistory,
+          endTime: new Date(newEndTime),
+          end_time: newEndTime,
+        };
+
+        // Proactively update local state to avoid red border flash
+        setAuctions((prev) =>
+          prev.map((a) => (a.id === item.id ? { ...a, ...updatedItem } : a)),
+        );
+        if (selectedItem?.id === item.id) {
+          setSelectedItem((prev) =>
+            prev ? { ...prev, ...updatedItem } : null,
+          );
+        }
         const newBidIds = Array.from(new Set([...bidAuctionIds, item.id]));
         setBidAuctionIds(newBidIds);
-        
-        // Fire and forget updating user's locally tracked bids
-        supabase.auth.getSession().then(({ data: { session } }) => {
-          if (session?.user) {
-            supabase.from('users').update({
-              bid_auction_ids: newBidIds
-            }).eq('id', session.user.id).then(({error}) => {
-              if (error) console.error("Error updating bid_auction_ids:", error);
-            });
-          }
-        }).catch(err => console.error("Session error during bid:", err));
 
-        return 'success';
+        // Fire and forget updating user's locally tracked bids
+        supabase.auth
+          .getSession()
+          .then(({ data: { session } }) => {
+            if (session?.user) {
+              supabase
+                .from("users")
+                .update({
+                  bid_auction_ids: newBidIds,
+                })
+                .eq("id", session.user.id)
+                .then(({ error }) => {
+                  if (error)
+                    console.error("Error updating bid_auction_ids:", error);
+                });
+            }
+          })
+          .catch((err) => console.error("Session error during bid:", err));
+
+        return outbiddenImmediately ? "outbid" : "success";
+      } catch (error: any) {
+        console.error(error);
+        return "error";
+      }
+    } else {
+      // Handle mock auctions locally
+      setAuctions((prev) =>
+        prev.map((a) =>
+          a.id === item.id
+            ? {
+                ...a,
+                currentBid: amount,
+                bidCount: a.bidCount + 1,
+                winnerId: userData.id,
+                winner_id: userData.id,
+              }
+            : a,
+        ),
+      );
+      const newBidIds = Array.from(new Set([...bidAuctionIds, item.id]));
+      setBidAuctionIds(newBidIds);
+
+      // Fire and forget updating user's locally tracked bids
+      supabase.auth
+        .getSession()
+        .then(({ data: { session } }) => {
+          if (session?.user) {
+            supabase
+              .from("users")
+              .update({
+                bid_auction_ids: newBidIds,
+              })
+              .eq("id", session.user.id)
+              .then(({ error }) => {
+                if (error)
+                  console.error("Error updating bid_auction_ids:", error);
+              });
+          }
+        })
+        .catch((err) => console.error("Session error during bid:", err));
+
+      return "success";
     }
   };
 
   const handleDeliveryMethodSubmit = async () => {
-      const { auctionId, deliveryMethod } = deliveryMethodModal;
-      if (!auctionId || !deliveryMethod) return;
-      const { error } = await supabase.from('auctions').update({ delivery_method: deliveryMethod }).eq('id', auctionId);
-      if (!error) {
-          toast.success('Uspešno ste izbrali način predaje.');
-          setDeliveryMethodModal({ isOpen: false, auctionId: '', deliveryMethod: null });
-          fetchAuctions();
-      } else {
-          toast.error('Prišlo je do napake.');
-      }
+    const { auctionId, deliveryMethod } = deliveryMethodModal;
+    if (!auctionId || !deliveryMethod) return;
+    const { error } = await supabase
+      .from("auctions")
+      .update({ delivery_method: deliveryMethod })
+      .eq("id", auctionId);
+    if (!error) {
+      toast.success("Uspešno ste izbrali način predaje.");
+      setDeliveryMethodModal({
+        isOpen: false,
+        auctionId: "",
+        deliveryMethod: null,
+      });
+      fetchAuctions();
+    } else {
+      toast.error("Prišlo je do napake.");
+    }
   };
 
   const handleReceiptConfirmSubmit = async () => {
-      const { auctionId, sellerId } = receiptConfirmModal;
-      if (!auctionId) return;
-      const { error } = await supabase.from('auctions').update({ buyer_received: true }).eq('id', auctionId);
-      if (!error) {
-          toast.success('Uspešno ste potrdili prejem predmeta.');
-          setReceiptConfirmModal({ isOpen: false, auctionId: '', sellerId: '' });
-          fetchAuctions();
-          // Open rating modal
-          setRatingModal({ isOpen: true, auctionId, sellerId, rating: 5, comment: '' });
-      } else {
-          toast.error('Prišlo je do napake.');
-      }
+    const { auctionId, sellerId } = receiptConfirmModal;
+    if (!auctionId) return;
+    const { error } = await supabase
+      .from("auctions")
+      .update({ buyer_received: true })
+      .eq("id", auctionId);
+    if (!error) {
+      toast.success("Uspešno ste potrdili prejem predmeta.");
+      setReceiptConfirmModal({ isOpen: false, auctionId: "", sellerId: "" });
+      fetchAuctions();
+      // Open rating modal
+      setRatingModal({
+        isOpen: true,
+        auctionId,
+        sellerId,
+        rating: 5,
+        comment: "",
+      });
+    } else {
+      toast.error("Prišlo je do napake.");
+    }
   };
 
   const handleRatingSubmit = async () => {
-      const { auctionId, sellerId, rating, comment } = ratingModal;
-      if (!auctionId || !sellerId || !rating) return;
-      const { error } = await supabase.from('reviews').insert({
-          auction_id: auctionId,
-          reviewer_id: userData.id,
-          reviewee_id: sellerId,
-          rating,
-          comment
-      });
-      if (!error || (error.message && error.message.includes('find the table'))) {
-          // If no error or the "table doesn't exist" error, assume success from frontend perspective but normally we need the table. 
-          // The prompt says we provide SQL, so we let it succeed or complain.
-          if (error && error.message.includes('find the table')) {
-             console.warn("Reviews table missing, provide SQL to user.");
-          }
-          toast.success('Uspešno ste oddali oceno.');
-          setRatingModal({ isOpen: false, auctionId: '', sellerId: '', rating: 0, comment: '' });
-      } else {
-          toast.error('Prišlo je do napake pri shranjevanju ocene.');
-          console.error(error);
+    const { auctionId, sellerId, rating, comment } = ratingModal;
+    if (!auctionId || !sellerId || !rating) return;
+    const { error } = await supabase.from("reviews").insert({
+      auction_id: auctionId,
+      reviewer_id: userData.id,
+      reviewee_id: sellerId,
+      rating,
+      comment,
+    });
+    if (!error || (error.message && error.message.includes("find the table"))) {
+      // If no error or the "table doesn't exist" error, assume success from frontend perspective but normally we need the table.
+      // The prompt says we provide SQL, so we let it succeed or complain.
+      if (error && error.message.includes("find the table")) {
+        console.warn("Reviews table missing, provide SQL to user.");
       }
+      toast.success("Uspešno ste oddali oceno.");
+      setRatingModal({
+        isOpen: false,
+        auctionId: "",
+        sellerId: "",
+        rating: 0,
+        comment: "",
+      });
+    } else {
+      toast.error("Prišlo je do napake pri shranjevanju ocene.");
+      console.error(error);
+    }
   };
 
   const [dontShowTermsAgain, setDontShowTermsAgain] = useState(false);
 
   const handleAcceptTerms = async () => {
-      setShowTermsModal(false);
-      
-      if (dontShowTermsAgain) {
-          setHasAcceptedTerms(true);
-          try {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (session?.user) {
-              await supabase.from('users').upsert({
-                id: session.user.id,
-                email: session.user.email,
-                has_accepted_terms: true
-              });
-            }
-          } catch (err) {
-            console.error("Error saving terms acceptance:", err);
-          }
+    setShowTermsModal(false);
+
+    if (dontShowTermsAgain) {
+      setHasAcceptedTerms(true);
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (session?.user) {
+          await supabase.from("users").upsert({
+            id: session.user.id,
+            email: session.user.email,
+            has_accepted_terms: true,
+          });
+        }
+      } catch (err) {
+        console.error("Error saving terms acceptance:", err);
       }
-      
-      if (pendingBid) {
-          setShowConfirmBidModal(true);
-      } else if (bidResolverRef.current) {
-          bidResolverRef.current('cancelled');
-          bidResolverRef.current = null;
-      }
+    }
+
+    if (pendingBid) {
+      setShowConfirmBidModal(true);
+    } else if (bidResolverRef.current) {
+      bidResolverRef.current("cancelled");
+      bidResolverRef.current = null;
+    }
   };
 
   const handleCancelTerms = () => {
-      setShowTermsModal(false);
-      if (bidResolverRef.current) bidResolverRef.current('cancelled');
-      bidResolverRef.current = null;
-      setPendingBid(null);
+    setShowTermsModal(false);
+    if (bidResolverRef.current) bidResolverRef.current("cancelled");
+    bidResolverRef.current = null;
+    setPendingBid(null);
   };
 
   const handleConfirmBid = async (amount: number) => {
-      if (!pendingBid || !bidResolverRef.current) return;
-      
-      const result = await executeBid(pendingBid.item, amount);
-      setShowConfirmBidModal(false);
-      if (bidResolverRef.current) {
-          bidResolverRef.current(result);
-          bidResolverRef.current = null;
-      }
-      setPendingBid(null);
+    if (!pendingBid || !bidResolverRef.current) return;
+
+    const result = await executeBid(pendingBid.item, amount);
+    setShowConfirmBidModal(false);
+    if (bidResolverRef.current) {
+      bidResolverRef.current(result);
+      bidResolverRef.current = null;
+    }
+    setPendingBid(null);
   };
 
   const handleCancelConfirmBid = () => {
-      setShowConfirmBidModal(false);
-      if (bidResolverRef.current) bidResolverRef.current('cancelled');
-      bidResolverRef.current = null;
-      setPendingBid(null);
+    setShowConfirmBidModal(false);
+    if (bidResolverRef.current) bidResolverRef.current("cancelled");
+    bidResolverRef.current = null;
+    setPendingBid(null);
   };
 
   const handlePublish = async (itemData: any) => {
-      try {
-          if (!isLoggedIn || !userData?.id) {
-              toast.error(t('loginRequired'));
-              setActiveView('login');
-              return;
-          }
-
-          // Remove [EN] and [DE] prefix hardcoding as this looks like test data and is unnecessary
-          const simulatedTitle = {
-              SLO: itemData.title.SLO,
-              EN: itemData.title.SLO,
-              DE: itemData.title.SLO
-          };
-          const simulatedDescription = {
-              SLO: itemData.description,
-              EN: itemData.description,
-              DE: itemData.description
-          };
-
-              // Construct dynamic condition payload based on Slovene selection
-              const getConditionTranslations = (cond: string) => {
-                  switch(cond) {
-                      case 'Novo': return { SLO: 'Novo', EN: 'New', DE: 'Neu' };
-                      case 'Kot novo': return { SLO: 'Kot novo', EN: 'Like New', DE: 'Wie Neu' };
-                      case 'Rabljeno': return { SLO: 'Rabljeno', EN: 'Used', DE: 'Gebraucht' };
-                      case 'Potrebno obnove': return { SLO: 'Potrebno obnove', EN: 'Needs Restoration', DE: 'Restaurierungsbedürftig' };
-                      case 'Za dele': return { SLO: 'Za dele', EN: 'For Parts', DE: 'Für Ersatzteile' };
-                      default: return { SLO: cond, EN: cond, DE: cond };
-                  }
-              };
-
-          const insertPromise = supabase.from('auctions').insert({
-              title: simulatedTitle,
-              description: simulatedDescription,
-              current_price: parseInt(itemData.startingPrice),
-              bid_count: 0,
-              item_count: 1,
-              end_time: itemData.endTime || new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString(),
-              location: itemData.location || { SLO: 'Neznano', EN: 'Unknown', DE: 'Unbekannt' },
-              region: itemData.region || Region.Osrednjeslovenska,
-              category: itemData.category || Category.Ostalo,
-              condition: getConditionTranslations(itemData.condition || 'Rabljeno'),
-              specifications: {},
-              bidding_history: [],
-              seller_id: userData.id,
-              status: 'active',
-              images: itemData.images
-          });
-
-          const timeoutPromise = new Promise<{data: any, error: any}>(resolve => 
-              setTimeout(() => resolve({ data: null, error: { message: "Povezava s strežnikom je potekla (Timeout 30s)." } }), 30000)
-          );
-
-          const { error } = await Promise.race([insertPromise, timeoutPromise]) as any;
-
-          if (error) {
-              console.error("Publish Error:", error);
-              toast.error(t('publishError'));
-              return;
-          }
-
-          setActiveView('grid');
-          toast.success(t('auctionPublished'));
-          fetchAuctions(); // Refresh the list from DB
-      } catch (error: any) { 
-          console.error("HandlePublish Exception:", error); 
-          toast.error(t('publishError'));
+    try {
+      if (!isLoggedIn || !userData?.id) {
+        toast.error(t("loginRequired"));
+        setActiveView("login");
+        return;
       }
+
+      // Remove [EN] and [DE] prefix hardcoding as this looks like test data and is unnecessary
+      const simulatedTitle = {
+        SLO: itemData.title.SLO,
+        EN: itemData.title.SLO,
+        DE: itemData.title.SLO,
+      };
+      const simulatedDescription = {
+        SLO: itemData.description,
+        EN: itemData.description,
+        DE: itemData.description,
+      };
+
+      // Construct dynamic condition payload based on Slovene selection
+      const getConditionTranslations = (cond: string) => {
+        switch (cond) {
+          case "Novo":
+            return { SLO: "Novo", EN: "New", DE: "Neu" };
+          case "Kot novo":
+            return { SLO: "Kot novo", EN: "Like New", DE: "Wie Neu" };
+          case "Rabljeno":
+            return { SLO: "Rabljeno", EN: "Used", DE: "Gebraucht" };
+          case "Potrebno obnove":
+            return {
+              SLO: "Potrebno obnove",
+              EN: "Needs Restoration",
+              DE: "Restaurierungsbedürftig",
+            };
+          case "Za dele":
+            return { SLO: "Za dele", EN: "For Parts", DE: "Für Ersatzteile" };
+          default:
+            return { SLO: cond, EN: cond, DE: cond };
+        }
+      };
+
+      const insertPromise = supabase.from("auctions").insert({
+        title: simulatedTitle,
+        description: simulatedDescription,
+        current_price: parseInt(itemData.startingPrice),
+        bid_count: 0,
+        item_count: 1,
+        end_time:
+          itemData.endTime ||
+          new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString(),
+        location: itemData.location || {
+          SLO: "Neznano",
+          EN: "Unknown",
+          DE: "Unbekannt",
+        },
+        region: itemData.region || Region.Osrednjeslovenska,
+        category: itemData.category || Category.Ostalo,
+        condition: getConditionTranslations(itemData.condition || "Rabljeno"),
+        specifications: {},
+        bidding_history: [],
+        seller_id: userData.id,
+        status: "active",
+        images: itemData.images,
+      });
+
+      const timeoutPromise = new Promise<{ data: any; error: any }>((resolve) =>
+        setTimeout(
+          () =>
+            resolve({
+              data: null,
+              error: {
+                message: "Povezava s strežnikom je potekla (Timeout 30s).",
+              },
+            }),
+          30000,
+        ),
+      );
+
+      const { error } = (await Promise.race([
+        insertPromise,
+        timeoutPromise,
+      ])) as any;
+
+      if (error) {
+        console.error("Publish Error:", error);
+        toast.error(t("publishError"));
+        return;
+      }
+
+      setActiveView("grid");
+      toast.success(t("auctionPublished"));
+      fetchAuctions(); // Refresh the list from DB
+    } catch (error: any) {
+      console.error("HandlePublish Exception:", error);
+      toast.error(t("publishError"));
+    }
   };
 
   const handleLogout = useCallback(async () => {
@@ -937,14 +1425,19 @@ const MainApp: React.FC = () => {
     setIsLoggedIn(false);
     setIsVerified(false);
     setUserType(null);
-    setUserData({ firstName: '', lastName: '', email: '', profilePicture: '' } as any);
+    setUserData({
+      firstName: "",
+      lastName: "",
+      email: "",
+      profilePicture: "",
+    } as any);
     setHasAcceptedTerms(false);
     setBidAuctionIds([]);
-    setActiveView('grid');
-    
+    setActiveView("grid");
+
     try {
       await supabase.auth.signOut();
-      toast.success(t('loggedOut'));
+      toast.success(t("loggedOut"));
     } catch (err) {
       console.error("Error signing out:", err);
     }
@@ -952,34 +1445,52 @@ const MainApp: React.FC = () => {
 
   const handleStripeVerified = useCallback(async () => {
     if (!userData.id) return;
-    const { data } = await supabase.from('users').select('*').eq('id', userData.id).single();
+    const { data } = await supabase
+      .from("users")
+      .select("*")
+      .eq("id", userData.id)
+      .single();
     if (data) {
-        setUserData(prev => ({ ...prev, stripe_onboarding_complete: data.stripe_onboarding_complete, stripe_account_id: data.stripe_account_id }));
-        toast.success('Plačila so uspešno nastavljena! Sedaj lahko objavljate dražbe.');
+      setUserData((prev) => ({
+        ...prev,
+        stripe_onboarding_complete: data.stripe_onboarding_complete,
+        stripe_account_id: data.stripe_account_id,
+      }));
+      toast.success(
+        "Plačila so uspešno nastavljena! Sedaj lahko objavljate dražbe.",
+      );
     } else {
-        setUserData(prev => ({ ...prev, stripe_onboarding_complete: true }));
-        toast.success('Plačila so uspešno nastavljena! Sedaj lahko objavljate dražbe.');
+      setUserData((prev) => ({ ...prev, stripe_onboarding_complete: true }));
+      toast.success(
+        "Plačila so uspešno nastavljena! Sedaj lahko objavljate dražbe.",
+      );
     }
   }, [userData.id]);
 
   const handleSubscribe = async (tier: SubscriptionTier) => {
-    const prices = { [SubscriptionTier.FREE]: 0, [SubscriptionTier.BASIC]: 20, [SubscriptionTier.PRO]: 50 };
-    const planNames = {
-        [SubscriptionTier.BASIC]: t('basicTier'),
-        [SubscriptionTier.PRO]: t('proTier'),
-        [SubscriptionTier.FREE]: t('freeTier')
+    const prices = {
+      [SubscriptionTier.FREE]: 0,
+      [SubscriptionTier.BASIC]: 20,
+      [SubscriptionTier.PRO]: 50,
     };
-    
+    const planNames = {
+      [SubscriptionTier.BASIC]: t("basicTier"),
+      [SubscriptionTier.PRO]: t("proTier"),
+      [SubscriptionTier.FREE]: t("freeTier"),
+    };
+
     const saveSubscription = async (newTier: SubscriptionTier) => {
       setCurrentPlan(newTier);
       setIsSubscriptionCanceled(false);
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
         if (session?.user) {
-          await supabase.from('users').upsert({
+          await supabase.from("users").upsert({
             id: session.user.id,
             email: session.user.email,
-            subscription: newTier
+            subscription: newTier,
           });
         }
       } catch (err) {
@@ -989,930 +1500,1354 @@ const MainApp: React.FC = () => {
 
     if (tier === SubscriptionTier.FREE) {
       await saveSubscription(tier);
-      toast.success(t('paymentSuccess'));
+      toast.success(t("paymentSuccess"));
       return;
     }
     setCheckoutData({
       amount: prices[tier],
-      title: `${t('subscription')} - ${planNames[tier]}`,
+      title: `${t("subscription")} - ${planNames[tier]}`,
       onSuccess: async () => {
         setIsCheckoutOpen(false);
         await saveSubscription(tier);
-        toast.success(t('paymentSuccess'));
-      }
+        toast.success(t("paymentSuccess"));
+      },
     });
     setIsCheckoutOpen(true);
   };
 
-  const handleSaveSettings = useCallback(async (data: any) => {
-    console.log("handleSaveSettings called with data:", data);
-    if (!userData?.id) {
+  const handleSaveSettings = useCallback(
+    async (data: any) => {
+      console.log("handleSaveSettings called with data:", data);
+      if (!userData?.id) {
         console.log("No user ID found in state");
         toast.error("Uporabnik ni prijavljen.");
         return;
-    }
+      }
 
-    try {
+      try {
         // Update password if provided
         if (data.newPassword && data.oldPassword) {
-            const { error: passError } = await supabase.auth.updateUser({ password: data.newPassword });
-            if (passError) {
-                toast.error(`Napaka pri spremembi gesla: ${passError.message}`);
-                return;
-            }
+          const { error: passError } = await supabase.auth.updateUser({
+            password: data.newPassword,
+          });
+          if (passError) {
+            toast.error(`Napaka pri spremembi gesla: ${passError.message}`);
+            return;
+          }
         }
 
         // Update user profile data
         const updateData: any = {
-            username: data.username,
-            first_name: data.firstName,
-            last_name: data.lastName,
-            street: data.street,
-            city: data.city,
-            postal_code: data.postalCode,
-            company_name: data.companyName,
-            tax_number: data.taxNumber,
-            tax_id: data.taxNumber, // Save to both for compatibility
-            company_street: data.companyStreet,
-            company_city: data.companyCity,
-            company_postal_code: data.companyPostalCode,
-            representative: data.representative,
-            country_code: data.countryCode,
-            auto_invoice_generation: data.autoInvoiceGeneration
+          username: data.username,
+          first_name: data.firstName,
+          last_name: data.lastName,
+          street: data.street,
+          city: data.city,
+          postal_code: data.postalCode,
+          company_name: data.companyName,
+          tax_number: data.taxNumber,
+          tax_id: data.taxNumber, // Save to both for compatibility
+          company_street: data.companyStreet,
+          company_city: data.companyCity,
+          company_postal_code: data.companyPostalCode,
+          representative: data.representative,
+          country_code: data.countryCode,
+          auto_invoice_generation: data.autoInvoiceGeneration,
         };
 
-        if (data.profilePicture && data.profilePicture.startsWith('data:image')) {
-            try {
-                console.log("Processing profile picture...");
-                
-                // Manual base64 to Blob conversion to avoid CSP fetch issues
-                const base64Parts = data.profilePicture.split(',');
-                const mimeType = base64Parts[0].match(/:(.*?);/)?.[1] || 'image/jpeg';
-                const base64Data = base64Parts[1];
-                const byteCharacters = atob(base64Data);
-                const byteNumbers = new Array(byteCharacters.length);
-                for (let i = 0; i < byteCharacters.length; i++) {
-                    byteNumbers[i] = byteCharacters.charCodeAt(i);
-                }
-                const byteArray = new Uint8Array(byteNumbers);
-                const blob = new Blob([byteArray], { type: mimeType });
-                const file = new File([blob], "profile.jpg", { type: mimeType });
+        if (
+          data.profilePicture &&
+          data.profilePicture.startsWith("data:image")
+        ) {
+          try {
+            console.log("Processing profile picture...");
 
-                // Compress image
-                const options = {
-                    maxSizeMB: 0.2,
-                    maxWidthOrHeight: 800,
-                    useWebWorker: true
-                };
-                
-                const compressedFile = await imageCompression(file, options);
-                console.log("Image compressed successfully");
+            // Manual base64 to Blob conversion to avoid CSP fetch issues
+            const base64Parts = data.profilePicture.split(",");
+            const mimeType =
+              base64Parts[0].match(/:(.*?);/)?.[1] || "image/jpeg";
+            const base64Data = base64Parts[1];
+            const byteCharacters = atob(base64Data);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+              byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            const blob = new Blob([byteArray], { type: mimeType });
+            const file = new File([blob], "profile.jpg", { type: mimeType });
 
-                const fileName = `${userData.id}-${Date.now()}.jpg`;
+            // Compress image
+            const options = {
+              maxSizeMB: 0.2,
+              maxWidthOrHeight: 800,
+              useWebWorker: true,
+            };
 
-                const { data: uploadData, error: uploadError } = await supabase.storage.from('auction-images').upload(`profiles/${fileName}`, compressedFile, {
-                    contentType: 'image/jpeg',
-                    upsert: true
+            const compressedFile = await imageCompression(file, options);
+            console.log("Image compressed successfully");
+
+            const fileName = `${userData.id}-${Date.now()}.jpg`;
+
+            const { data: uploadData, error: uploadError } =
+              await supabase.storage
+                .from("auction-images")
+                .upload(`profiles/${fileName}`, compressedFile, {
+                  contentType: "image/jpeg",
+                  upsert: true,
                 });
 
-                if (uploadError) {
-                    console.error("Error uploading profile picture:", uploadError);
-                    toast.error(t('imageUploadError'));
-                } else if (uploadData) {
-                    const { data: publicUrlData } = supabase.storage.from('auction-images').getPublicUrl(`profiles/${fileName}`);
-                    updateData.profile_picture_url = publicUrlData.publicUrl;
-                    console.log("Profile picture uploaded:", publicUrlData.publicUrl);
-                }
-            } catch (imgErr) {
-                console.error("Error processing profile picture:", imgErr);
+            if (uploadError) {
+              console.error("Error uploading profile picture:", uploadError);
+              toast.error(t("imageUploadError"));
+            } else if (uploadData) {
+              const { data: publicUrlData } = supabase.storage
+                .from("auction-images")
+                .getPublicUrl(`profiles/${fileName}`);
+              updateData.profile_picture_url = publicUrlData.publicUrl;
+              console.log("Profile picture uploaded:", publicUrlData.publicUrl);
             }
+          } catch (imgErr) {
+            console.error("Error processing profile picture:", imgErr);
+          }
         } else if (!data.profilePicture) {
-            updateData.profile_picture_url = null;
+          updateData.profile_picture_url = null;
         }
 
         console.log("Updating database with:", updateData);
-        const { data: updatedUser, error } = await supabase.from('users').update({ 
+        const { data: updatedUser, error } = await supabase
+          .from("users")
+          .update({
             email: userData.email,
-            ...updateData 
-        }).eq('id', userData.id).select().single();
+            ...updateData,
+          })
+          .eq("id", userData.id)
+          .select()
+          .single();
 
         if (error) {
-            console.error("Database update error:", error);
-            if (error.code === '23505' && error.message.includes('username')) {
-                toast.error('To uporabniško ime je že zasedeno. Prosimo, izberite drugega.');
-            } else {
-                toast.error(`Napaka pri shranjevanju: ${error.message}`);
-            }
-            return;
+          console.error("Database update error:", error);
+          if (error.code === "23505" && error.message.includes("username")) {
+            toast.error(
+              "To uporabniško ime je že zasedeno. Prosimo, izberite drugega.",
+            );
+          } else {
+            toast.error(`Napaka pri shranjevanju: ${error.message}`);
+          }
+          return;
         }
 
         if (updatedUser) {
-            console.log("User updated successfully:", updatedUser);
-            setUserData(prev => ({ ...prev, ...updatedUser }));
+          console.log("User updated successfully:", updatedUser);
+          setUserData((prev) => ({ ...prev, ...updatedUser }));
         }
 
-        toast.success(t('saveChanges') + ' - ' + t('success'));
-    } catch (err) {
+        toast.success(t("saveChanges") + " - " + t("success"));
+      } catch (err) {
         console.error("Error saving settings:", err);
         toast.error("Prišlo je do napake pri shranjevanju.");
-    }
-  }, [userData?.id, userData?.email, t]);
+      }
+    },
+    [userData?.id, userData?.email, t],
+  );
 
   const getFilteredAuctions = useMemo(() => {
-      let filtered = [...auctions];
-      const now = new Date();
-      
-      if (activeView === 'lastChance') {
-          filtered = filtered
-            .filter(i => i.status === 'active' && new Date(i.endTime) > now)
-            .sort((a, b) => a.endTime.getTime() - b.endTime.getTime())
-            .slice(0, 200);
-      } else {
-          filtered = filtered.filter(item => {
-              if (item.status === 'completed' || new Date(item.endTime) <= now) return false;
-              if (selectedRegion && item.region !== selectedRegion) return false;
-              if (selectedCategory && item.category !== selectedCategory) return false;
-              if (searchQuery) {
-                  const q = searchQuery.toLowerCase();
-                  const titleMatch = (item.title[language] || item.title['SLO']).toLowerCase().includes(q);
-                  const locationMatch = (item.location[language] || item.location['SLO']).toLowerCase().includes(q);
-                  return titleMatch || locationMatch;
-              }
-              return true;
-          });
-      }
-      return filtered;
-  }, [auctions, activeView, selectedRegion, selectedCategory, searchQuery, language]);
+    let filtered = [...auctions];
+    const now = new Date();
+
+    if (activeView === "lastChance") {
+      filtered = filtered
+        .filter((i) => i.status === "active" && new Date(i.endTime) > now)
+        .sort((a, b) => a.endTime.getTime() - b.endTime.getTime())
+        .slice(0, 200);
+    } else {
+      filtered = filtered.filter((item) => {
+        if (item.status === "completed" || new Date(item.endTime) <= now)
+          return false;
+        if (selectedRegion && item.region !== selectedRegion) return false;
+        if (selectedCategory && item.category !== selectedCategory)
+          return false;
+        if (searchQuery) {
+          const q = searchQuery.toLowerCase();
+          const titleMatch = (item.title[language] || item.title["SLO"])
+            .toLowerCase()
+            .includes(q);
+          const locationMatch = (
+            item.location[language] || item.location["SLO"]
+          )
+            .toLowerCase()
+            .includes(q);
+          return titleMatch || locationMatch;
+        }
+        return true;
+      });
+    }
+    return filtered;
+  }, [
+    auctions,
+    activeView,
+    selectedRegion,
+    selectedCategory,
+    searchQuery,
+    language,
+  ]);
 
   const totalPages = Math.ceil(getFilteredAuctions.length / itemsPerPage);
   const indexOfLastItem = currentPage * itemsPerPage;
   const indexOfFirstItem = indexOfLastItem - itemsPerPage;
-  const currentAuctions = getFilteredAuctions.slice(indexOfFirstItem, indexOfLastItem);
+  const currentAuctions = getFilteredAuctions.slice(
+    indexOfFirstItem,
+    indexOfLastItem,
+  );
 
   const handlePageChange = (page: number) => {
     setCurrentPage(page);
-    const isHomePage = activeView === 'grid' && !selectedCategory && !searchQuery;
-    
+    const isHomePage =
+      activeView === "grid" && !selectedCategory && !searchQuery;
+
     if (isHomePage && auctionsSectionRef.current) {
-        auctionsSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      auctionsSectionRef.current.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
     } else {
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+      window.scrollTo({ top: 0, behavior: "smooth" });
     }
   };
 
   const paginationNumbers = useMemo(() => {
-      if (totalPages <= 7) return Array.from({length: totalPages}, (_, i) => i + 1);
-      if (currentPage <= 4) return [1, 2, 3, 4, 5, '...', totalPages];
-      if (currentPage >= totalPages - 3) return [1, '...', totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages];
-      return [1, '...', currentPage - 1, currentPage, currentPage + 1, '...', totalPages];
+    if (totalPages <= 7)
+      return Array.from({ length: totalPages }, (_, i) => i + 1);
+    if (currentPage <= 4) return [1, 2, 3, 4, 5, "...", totalPages];
+    if (currentPage >= totalPages - 3)
+      return [
+        1,
+        "...",
+        totalPages - 4,
+        totalPages - 3,
+        totalPages - 2,
+        totalPages - 1,
+        totalPages,
+      ];
+    return [
+      1,
+      "...",
+      currentPage - 1,
+      currentPage,
+      currentPage + 1,
+      "...",
+      totalPages,
+    ];
   }, [currentPage, totalPages]);
 
   let content;
   switch (activeView) {
-    case 'login': 
-        content = (
-            <AuthView 
-                t={t} 
-                onLoginSuccess={() => {
-                    setIsLoggedIn(true);
-                    setSelectedRegion(null);
-                    setSelectedCategory(null);
-                    setSearchQuery('');
-                    setActiveView('grid');
-                    window.scrollTo({ top: 0, behavior: 'instant' });
-                    
-                    // If it's a demo login (no session), we need to set a fake user ID
-                    supabase.auth.getSession().then(({ data: { session } }) => {
-                        if (!session) {
-                            setIsAuthLoading(false);
-                            setUserData(prev => ({
-                                ...prev,
-                                id: 'demo-user-id',
-                                firstName: 'Demo',
-                                lastName: 'Uporabnik',
-                                email: 'demo@example.com',
-                            }));
-                        }
-                    });
-                }} 
-                setIsVerified={setIsVerified} 
-                setAppLoggedIn={(val) => setIsLoggedIn(val)}
-            />
-        ); 
-        break;
-    case 'createAuction': 
+    case "login":
+      content = (
+        <AuthView
+          t={t}
+          onLoginSuccess={() => {
+            setIsLoggedIn(true);
+            setSelectedRegion(null);
+            setSelectedCategory(null);
+            setSearchQuery("");
+            setActiveView("grid");
+            window.scrollTo({ top: 0, behavior: "instant" });
+
+            // If it's a demo login (no session), we need to set a fake user ID
+            supabase.auth.getSession().then(({ data: { session } }) => {
+              if (!session) {
+                setIsAuthLoading(false);
+                setUserData((prev) => ({
+                  ...prev,
+                  id: "demo-user-id",
+                  firstName: "Demo",
+                  lastName: "Uporabnik",
+                  email: "demo@example.com",
+                }));
+              }
+            });
+          }}
+          setIsVerified={setIsVerified}
+          setAppLoggedIn={(val) => setIsLoggedIn(val)}
+        />
+      );
+      break;
+    case "createAuction":
       if (!isLoggedIn) {
-          content = (
-            <AuthView 
-                onLoginSuccess={() => setActiveView('createAuction')} 
-                t={t} 
-                setIsVerified={setIsVerified}
-                setAppLoggedIn={(val) => setIsLoggedIn(val)}
-            />
-          );
+        content = (
+          <AuthView
+            onLoginSuccess={() => setActiveView("createAuction")}
+            t={t}
+            setIsVerified={setIsVerified}
+            setAppLoggedIn={(val) => setIsLoggedIn(val)}
+          />
+        );
       } else if (!userData.stripe_onboarding_complete && IS_LIVE) {
-          content = (
-              <div className="max-w-3xl mx-auto py-32 px-6 flex flex-col items-center text-center animate-in">
-                  <div className="bg-red-50 text-red-500 w-24 h-24 rounded-full flex items-center justify-center mb-8 border-4 border-red-100">
-                     <AlertCircle size={48} />
-                  </div>
-                  <h2 className="text-4xl font-black uppercase tracking-tighter text-[#0A1128] mb-6">Plačila niso nastavljena</h2>
-                  <p className="text-lg font-bold text-slate-500 mb-10 max-w-xl">
-                      Za objavo dražbe morate najprej overiti svoj bančni račun preko sistema Stripe za prejemanje nakazil (Destination charges).
-                  </p>
-                  <button onClick={() => { setActiveView('settings'); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-colors shadow-xl">
-                      Pojdi v nastavitve
-                  </button>
-              </div>
-          );
+        content = (
+          <div className="max-w-3xl mx-auto py-32 px-6 flex flex-col items-center text-center animate-in">
+            <div className="bg-red-50 text-red-500 w-24 h-24 rounded-full flex items-center justify-center mb-8 border-4 border-red-100">
+              <AlertCircle size={48} />
+            </div>
+            <h2 className="text-4xl font-black uppercase tracking-tighter text-[#0A1128] mb-6">
+              Plačila niso nastavljena
+            </h2>
+            <p className="text-lg font-bold text-slate-500 mb-10 max-w-xl">
+              Za objavo dražbe morate najprej overiti svoj bančni račun preko
+              sistema Stripe za prejemanje nakazil (Destination charges).
+            </p>
+            <button
+              onClick={() => {
+                setActiveView("settings");
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+              className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-colors shadow-xl"
+            >
+              Pojdi v nastavitve
+            </button>
+          </div>
+        );
       } else if (!userData.stripe_onboarding_complete) {
-          // Allow testing if not IS_LIVE, but still show a warning or just block. The prompt says "ne more objaviti". So let's block even in mock if possible, or assume backend is ready? Let's just block strictly.
-          content = (
-              <div className="max-w-3xl mx-auto py-32 px-6 flex flex-col items-center text-center animate-in">
-                  <div className="bg-red-50 text-red-500 w-24 h-24 rounded-full flex items-center justify-center mb-8 border-4 border-red-100">
-                     <AlertCircle size={48} />
-                  </div>
-                  <h2 className="text-4xl font-black uppercase tracking-tighter text-[#0A1128] mb-6">Plačila niso nastavljena</h2>
-                  <p className="text-lg font-bold text-slate-500 mb-10 max-w-xl">
-                      Za objavo dražbe morate najprej overiti svoj bančni račun preko sistema Stripe za prejemanje nakazil.
-                  </p>
-                  <button onClick={() => { setActiveView('settings'); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-colors shadow-xl">
-                      Pojdi v nastavitve
-                  </button>
-              </div>
-          );
+        // Allow testing if not IS_LIVE, but still show a warning or just block. The prompt says "ne more objaviti". So let's block even in mock if possible, or assume backend is ready? Let's just block strictly.
+        content = (
+          <div className="max-w-3xl mx-auto py-32 px-6 flex flex-col items-center text-center animate-in">
+            <div className="bg-red-50 text-red-500 w-24 h-24 rounded-full flex items-center justify-center mb-8 border-4 border-red-100">
+              <AlertCircle size={48} />
+            </div>
+            <h2 className="text-4xl font-black uppercase tracking-tighter text-[#0A1128] mb-6">
+              Plačila niso nastavljena
+            </h2>
+            <p className="text-lg font-bold text-slate-500 mb-10 max-w-xl">
+              Za objavo dražbe morate najprej overiti svoj bančni račun preko
+              sistema Stripe za prejemanje nakazil.
+            </p>
+            <button
+              onClick={() => {
+                setActiveView("settings");
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+              className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-colors shadow-xl"
+            >
+              Pojdi v nastavitve
+            </button>
+          </div>
+        );
       } else {
-          content = <CreateAuctionForm 
-              onBack={() => { setActiveView('grid'); setRepublishData(null); }} 
-              t={t} 
-              onPublish={handlePublish} 
-              isLoggedIn={isLoggedIn}
-              initialData={republishData}
-          />; 
+        content = (
+          <CreateAuctionForm
+            onBack={() => {
+              setActiveView("grid");
+              setRepublishData(null);
+            }}
+            t={t}
+            onPublish={handlePublish}
+            isLoggedIn={isLoggedIn}
+            initialData={republishData}
+          />
+        );
       }
       break;
-    case 'detail':
-      if (selectedItem) content = (
-        <AuctionView 
-          item={selectedItem} 
-          t={t} 
-          language={language} 
-          isVerified={isVerified} 
-          isWatched={watchedIds.includes(selectedItem.id)}
-          onWatchToggle={() => toggleWatch(selectedItem.id)}
-          currentPlan={currentPlan} 
-          currentUserId={userData.id}
-          onBack={() => { setActiveView('grid'); setSelectedItem(null); }} 
-          onBidSubmit={handleBidSubmit} 
-          onCheckout={(item) => { 
-            setCheckoutData({ 
-              amount: item.currentBid || item.current_price, 
-              title: item.title?.[language] || item.title?.['SLO'] || t('auctionFallback'), 
-              onSuccess: async () => { 
-                setIsCheckoutOpen(false); 
-                await supabase.from('auctions').update({ payment_status: 'paid', paid_at: new Date().toISOString() }).eq('id', item.id);
-                toast.success(t('paymentSuccess')); 
-                fetchAuctions();
-              },
-              metadata: {
-                auction_id: item.id,
-                buyer_id: userData.id,
-                seller_id: item.sellerId || item.seller_id,
-                fee_percentage: 10
+    case "detail":
+      if (selectedItem)
+        content = (
+          <AuctionView
+            item={selectedItem}
+            t={t}
+            language={language}
+            isVerified={isVerified}
+            isWatched={watchedIds.includes(selectedItem.id)}
+            onWatchToggle={() => toggleWatch(selectedItem.id)}
+            currentPlan={currentPlan}
+            currentUserId={userData.id}
+            onBack={() => {
+              setActiveView("grid");
+              setSelectedItem(null);
+            }}
+            onBidSubmit={handleBidSubmit}
+            onCheckout={(item) => {
+              setCheckoutData({
+                amount: item.currentBid || item.current_price,
+                title:
+                  item.title?.[language] ||
+                  item.title?.["SLO"] ||
+                  t("auctionFallback"),
+                onSuccess: async () => {
+                  setIsCheckoutOpen(false);
+                  await supabase
+                    .from("auctions")
+                    .update({
+                      payment_status: "paid",
+                      paid_at: new Date().toISOString(),
+                    })
+                    .eq("id", item.id);
+                  toast.success(t("paymentSuccess"));
+                  fetchAuctions();
+                },
+                metadata: {
+                  auction_id: item.id,
+                  buyer_id: userData.id,
+                  seller_id: item.sellerId || item.seller_id,
+                  fee_percentage: 10,
+                },
+              });
+              setIsCheckoutOpen(true);
+            }}
+            onSellerClick={(sellerId) => {
+              const s = MOCK_SELLERS.find((s) => s.id === sellerId);
+              if (s) setSelectedSeller(s);
+              else if (typeof sellerId !== "string")
+                setSelectedSeller(sellerId);
+              setActiveView("sellerProfile");
+              window.scrollTo({ top: 0, behavior: "instant" });
+            }}
+          />
+        );
+      else setActiveView("grid");
+      break;
+    case "verification":
+      content = (
+        <VerificationView
+          onBack={() => setActiveView("grid")}
+          t={t}
+          isVerified={isVerified}
+          userType={userType}
+          initialData={userData}
+          onVerify={async (type, data) => {
+            console.log(
+              "Starting verification process for type:",
+              type,
+              "with data:",
+              data,
+            );
+            try {
+              let userId = userData.id;
+
+              if (!userId) {
+                console.log("No userId in state, fetching session...");
+                const {
+                  data: { session },
+                } = await supabase.auth.getSession();
+                userId = session?.user?.id || "";
+                console.log("Session fetched:", userId);
+              } else {
+                console.log("Using userId from state:", userId);
               }
-            }); 
-            setIsCheckoutOpen(true); 
-          }} 
-          onSellerClick={(sellerId) => {
-            const s = MOCK_SELLERS.find(s => s.id === sellerId);
-            if (s) setSelectedSeller(s);
-            else if (typeof sellerId !== 'string') setSelectedSeller(sellerId);
-            setActiveView('sellerProfile');
-            window.scrollTo({ top: 0, behavior: 'instant' });
+
+              if (!userId) {
+                throw new Error("Uporabnik ni prijavljen.");
+              }
+
+              // Prepare data to override ALL relevant fields
+              const updateData: any = {
+                id: userId,
+                email: data.email,
+                is_verified: true,
+                user_type: type,
+                first_name: data.firstName || null,
+                last_name: data.lastName || null,
+                street: data.street || null,
+                city: data.city || null,
+                postal_code: data.postalCode || null,
+                tax_number: data.taxNumber || null,
+                company_name: data.companyName || null,
+                company_street: data.companyStreet || null,
+                company_city: data.companyCity || null,
+                company_postal_code: data.companyPostalCode || null,
+                representative: data.representative || null,
+              };
+
+              console.log("Updating verification data:", updateData);
+
+              const updatePromise = supabase
+                .from("users")
+                .update(updateData)
+                .eq("id", userId)
+                .select()
+                .single();
+
+              const timeoutPromise = new Promise<{ data: any; error: any }>(
+                (resolve) =>
+                  setTimeout(
+                    () =>
+                      resolve({
+                        data: null,
+                        error: {
+                          message:
+                            "Povezava s strežnikom je potekla. Prosimo, osvežite stran in poskusite znova.",
+                        },
+                      }),
+                    8000,
+                  ),
+              );
+
+              const { data: updatedUser, error } = (await Promise.race([
+                updatePromise,
+                timeoutPromise,
+              ])) as any;
+
+              if (error) {
+                console.error("Supabase update error:", error);
+                throw new Error(`Napaka pri shranjevanju: ${error.message}`);
+              }
+
+              console.log(
+                "Verification data saved successfully. Updating state...",
+              );
+              setIsVerified(true);
+              setUserType(type);
+
+              if (updatedUser) {
+                console.log("Updated user data fetched:", updatedUser);
+                setUserData((prev) => ({
+                  ...prev,
+                  ...updatedUser,
+                  id: userId,
+                  is_verified: true,
+                }));
+              }
+
+              toast.success("Verifikacija uspešna!");
+              return true;
+            } catch (err: any) {
+              console.error("Detailed verification error:", err);
+              toast.error(
+                err.message || "Prišlo je do napake pri verifikaciji.",
+              );
+              throw err;
+            }
           }}
         />
       );
-      else setActiveView('grid');
       break;
-    case 'verification':
-        content = (
-            <VerificationView 
-                onBack={() => setActiveView('grid')} 
-                t={t} 
-                isVerified={isVerified} 
-                userType={userType}
-                initialData={userData}
-                onVerify={async (type, data) => {
-                    console.log("Starting verification process for type:", type, "with data:", data);
-                    try {
-                        let userId = userData.id;
-                        
-                        if (!userId) {
-                            console.log("No userId in state, fetching session...");
-                            const { data: { session } } = await supabase.auth.getSession();
-                            userId = session?.user?.id || '';
-                            console.log("Session fetched:", userId);
-                        } else {
-                            console.log("Using userId from state:", userId);
-                        }
-                        
-                        if (!userId) {
-                            throw new Error("Uporabnik ni prijavljen.");
-                        }
-
-                        // Prepare data to override ALL relevant fields
-                        const updateData: any = {
-                            id: userId,
-                            email: data.email,
-                            is_verified: true,
-                            user_type: type,
-                            first_name: data.firstName || null,
-                            last_name: data.lastName || null,
-                            street: data.street || null,
-                            city: data.city || null,
-                            postal_code: data.postalCode || null,
-                            tax_number: data.taxNumber || null,
-                            company_name: data.companyName || null,
-                            company_street: data.companyStreet || null,
-                            company_city: data.companyCity || null,
-                            company_postal_code: data.companyPostalCode || null,
-                            representative: data.representative || null
-                        };
-
-                        console.log("Updating verification data:", updateData);
-                        
-                        const updatePromise = supabase
-                            .from('users')
-                            .update(updateData)
-                            .eq('id', userId)
-                            .select()
-                            .single();
-                            
-                        const timeoutPromise = new Promise<{data: any, error: any}>(resolve => 
-                            setTimeout(() => resolve({ data: null, error: { message: "Povezava s strežnikom je potekla. Prosimo, osvežite stran in poskusite znova." } }), 8000)
-                        );
-                        
-                        const { data: updatedUser, error } = await Promise.race([updatePromise, timeoutPromise]) as any;
-                        
-                        if (error) {
-                            console.error("Supabase update error:", error);
-                            throw new Error(`Napaka pri shranjevanju: ${error.message}`);
-                        }
-
-                        console.log("Verification data saved successfully. Updating state...");
-                        setIsVerified(true);
-                        setUserType(type);
-                            
-                        if (updatedUser) {
-                            console.log("Updated user data fetched:", updatedUser);
-                            setUserData(prev => ({ ...prev, ...updatedUser, id: userId, is_verified: true }));
-                        }
-
-                        toast.success("Verifikacija uspešna!");
-                        return true;
-                    } catch (err: any) {
-                        console.error("Detailed verification error:", err);
-                        toast.error(err.message || "Prišlo je do napake pri verifikaciji.");
-                        throw err;
-                    }
-                }}
-            />
-        );
-        break;
-    case 'settings':
-        content = <SettingsView t={t} language={language} user={userData} onSave={handleSaveSettings} onVerify={() => setActiveView('verification')} onStripeVerified={handleStripeVerified}/>;
-        break;
-    case 'subscriptions':
-        content = <SubscriptionsView 
-            t={t} 
-            currentPlan={currentPlan} 
-            onSubscribe={handleSubscribe} 
-            isVerified={isVerified}
-            isCanceled={isSubscriptionCanceled}
-            nextBillingDate={nextBillingDate}
-            onCancelSubscription={() => {
-                setIsSubscriptionCanceled(true);
-                toast.success("Avtomatska bremenitev je preklicana. Naročnina vam ostane veljavna do konca obračunskega obdobja.");
-            }}
-        />;
-        break;
-    case 'myBids':
-        content = (
-            <div className="max-w-[1600px] mx-auto py-16 px-6 animate-in">
-                <button onClick={() => setActiveView('grid')} className="flex items-center gap-2 text-slate-400 mb-10 font-black uppercase text-[10px] tracking-widest hover:text-[#0A1128] transition-colors"><ArrowLeft size={16}/> {t('back')}</button>
-                <div className="bg-white rounded-[4rem] p-12 shadow-2xl border border-slate-100 min-h-[500px]">
-                    <div className="flex items-center gap-6 mb-12">
-                        <div className="bg-[#FEBA4F] p-4 rounded-3xl shadow-lg shadow-[#FEBA4F]/20">
-                            <Gavel size={40} className="text-[#0A1128]" />
-                        </div>
-                        <div>
-                            <h2 className="text-4xl font-black uppercase tracking-tighter text-[#0A1128]">{t('myBids')}</h2>
-                            <p className="text-slate-400 font-bold mt-2">{t('myBidsDesc')}</p>
-                        </div>
-                    </div>
-                    
-                    <div className="grid gap-8 justify-center" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 320px))' }}>
-                        {auctions.filter(a => bidAuctionIds.includes(a.id)).filter(a => a.status === 'active' && new Date(a.endTime) > new Date()).map(item => (
-                            <AuctionCard 
-                                key={item.id} 
-                                item={item} 
-                                t={t} 
-                                language={language} 
-                                isVerified={isVerified} 
-                                currentUserId={userData.id}
-                                hasBid={true}
-                                isWatched={watchedIds.includes(item.id)}
-                                onWatchToggle={() => toggleWatch(item.id)}
-                                onClick={() => { setSelectedItem(item); setActiveView('detail'); }} 
-                                onBidSubmit={handleBidSubmit} 
-                                onSellerClick={(seller) => { setSelectedSeller(seller); setActiveView('sellerProfile'); }} 
-                            />
-                        ))}
-                        {auctions.filter(a => bidAuctionIds.includes(a.id)).filter(a => a.status === 'active' && new Date(a.endTime) > new Date()).length === 0 && (
-                            <div className="col-span-full py-20 text-center bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200">
-                                <Gavel size={48} className="mx-auto mb-4 text-slate-300" />
-                                <p className="text-slate-500 font-black uppercase tracking-widest text-xs">{t('noBids')}</p>
-                            </div>
-                        )}
-                    </div>
-                </div>
+    case "settings":
+      content = (
+        <SettingsView
+          t={t}
+          language={language}
+          user={userData}
+          onSave={handleSaveSettings}
+          onVerify={() => setActiveView("verification")}
+          onStripeVerified={handleStripeVerified}
+        />
+      );
+      break;
+    case "subscriptions":
+      content = (
+        <SubscriptionsView
+          t={t}
+          currentPlan={currentPlan}
+          onSubscribe={handleSubscribe}
+          isVerified={isVerified}
+          isCanceled={isSubscriptionCanceled}
+          nextBillingDate={nextBillingDate}
+          onCancelSubscription={() => {
+            setIsSubscriptionCanceled(true);
+            toast.success(
+              "Avtomatska bremenitev je preklicana. Naročnina vam ostane veljavna do konca obračunskega obdobja.",
+            );
+          }}
+        />
+      );
+      break;
+    case "myBids":
+      content = (
+        <div className="max-w-[1600px] mx-auto py-16 px-6 animate-in">
+          <button
+            onClick={() => setActiveView("grid")}
+            className="flex items-center gap-2 text-slate-400 mb-10 font-black uppercase text-[10px] tracking-widest hover:text-[#0A1128] transition-colors"
+          >
+            <ArrowLeft size={16} /> {t("back")}
+          </button>
+          <div className="bg-white rounded-[4rem] p-12 shadow-2xl border border-slate-100 min-h-[500px]">
+            <div className="flex items-center gap-6 mb-12">
+              <div className="bg-[#FEBA4F] p-4 rounded-3xl shadow-lg shadow-[#FEBA4F]/20">
+                <Gavel size={40} className="text-[#0A1128]" />
+              </div>
+              <div>
+                <h2 className="text-4xl font-black uppercase tracking-tighter text-[#0A1128]">
+                  {t("myBids")}
+                </h2>
+                <p className="text-slate-400 font-bold mt-2">
+                  {t("myBidsDesc")}
+                </p>
+              </div>
             </div>
-        );
-        break;
-    case 'sellerProfile':
-        if (selectedSeller) {
-            content = (
-                <SellerView 
-                    seller={selectedSeller} 
-                    onBack={() => setActiveView('grid')} 
-                    onAuctionClick={(item) => {
-                        setSelectedItem(item);
-                        setActiveView('detail');
-                    }}
+
+            <div
+              className="grid gap-8 justify-center"
+              style={{
+                gridTemplateColumns: "repeat(auto-fit, minmax(320px, 320px))",
+              }}
+            >
+              {auctions
+                .filter((a) => bidAuctionIds.includes(a.id))
+                .filter(
+                  (a) =>
+                    a.status === "active" && new Date(a.endTime) > new Date(),
+                )
+                .map((item) => (
+                  <AuctionCard
+                    key={item.id}
+                    item={item}
                     t={t}
                     language={language}
-                    isLoggedIn={isLoggedIn}
-                    currentUserWinnings={currentUserWinnings}
-                    auctions={auctions}
-                />
-            );
-        } else {
-            setActiveView('grid');
-        }
-        break;
-    case 'winnings':
-        content = (
-            <div className="max-w-[1600px] mx-auto py-16 px-6 animate-in">
-                <button onClick={() => setActiveView('grid')} className="flex items-center gap-2 text-slate-400 mb-10 font-black uppercase text-[10px] tracking-widest hover:text-[#0A1128] transition-colors"><ArrowLeft size={16}/> Nazaj</button>
-                <div className="bg-white rounded-[4rem] p-12 shadow-2xl border border-slate-100 min-h-[500px]">
-                    <div className="flex items-center gap-6 mb-12">
-                        <div className="bg-[#FEBA4F] p-4 rounded-3xl shadow-lg shadow-[#FEBA4F]/20">
-                            <Trophy size={40} className="text-[#0A1128]" />
-                        </div>
-                        <div>
-                            <h2 className="text-4xl font-black uppercase tracking-tighter text-[#0A1128]">{t('myWinnings')}</h2>
-                            <p className="text-slate-400 font-bold mt-2">Pregled in plačilo dobljenih dražb</p>
-                        </div>
-                    </div>
-                    
-                    <div className="space-y-6">
-                        {currentUserWinnings.length === 0 ? (
-                            <div className="py-12 text-center">
-                                <p className="text-slate-500 font-black uppercase tracking-widest text-lg">{t('noWinnings')}</p>
-                            </div>
-                        ) : currentUserWinnings.map(wonItem => {
-                            const feePercentage = currentPlan === SubscriptionTier.PRO ? 5 : currentPlan === SubscriptionTier.BASIC ? 10 : 12;
-                            const commissionNet = calculateMarginalPlatformFee(wonItem.currentBid, currentPlan);
-                            const totalAmountToPay = wonItem.currentBid + (commissionNet * 1.22);
-                            
-                            return (
-                            <div key={wonItem.id} className="flex flex-col md:flex-row items-center gap-8 p-6 rounded-[2.5rem] border-2 border-slate-100 hover:border-[#FEBA4F] transition-colors group">
-                                <div className="w-32 h-32 shrink-0 bg-slate-100 rounded-3xl overflow-hidden shadow-md group-hover:scale-105 transition-transform cursor-pointer"
-                                     onClick={() => {
-                                         setSelectedItem(wonItem);
-                                         setActiveView('detail');
-                                         window.scrollTo({ top: 0, behavior: 'instant' });
-                                     }}
-                                >
-                                    {wonItem.images && wonItem.images.length > 0 && typeof wonItem.images[0] === 'string' && (
-                                        <SignedImg 
-                                            src={wonItem.images[0]?.replace?.(/([\[\]"'])/g, '') || ''} 
-                                            alt="Item" 
-                                            className="w-full h-full object-cover"
-                                        />
-                                    )}
-                                </div>
-                                <div className="flex-1 text-center md:text-left">
-                                    <h3 
-                                        className="text-2xl font-black uppercase tracking-tighter text-[#0A1128] mb-2 cursor-pointer hover:text-[#FEBA4F] transition-colors"
-                                        onClick={() => {
-                                            setSelectedItem(wonItem);
-                                            setActiveView('detail');
-                                            window.scrollTo({ top: 0, behavior: 'instant' });
-                                        }}
-                                    >
-                                        {wonItem.title[language as keyof typeof wonItem.title] || wonItem.title.SLO}
-                                    </h3>
-                                    <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 text-sm font-bold text-slate-400 mt-2">
-                                        <span className="flex items-center gap-1.5 bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200"><Gavel size={16}/> Končni znesek (vklj. s provizijo in DDV): <span className="text-[#0A1128] font-black">€{totalAmountToPay.toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></span>
-                                        {wonItem.payment_status !== 'paid' && <PaymentTimer endTime={wonItem.endTime} />}
-                                    </div>
-                                </div>
-                                <div className="flex flex-col gap-3 w-full md:w-auto">
-                                    {wonItem.payment_status === 'paid' ? (
-                                        <div className="flex flex-col items-center md:items-end gap-2">
-                                            <div className="bg-green-50 text-green-600 px-6 py-3 rounded-2xl font-black uppercase tracking-widest text-sm flex items-center gap-2 border-2 border-green-100">
-                                                <CheckCircle2 size={18} /> Plačano
-                                            </div>
-                                            {wonItem.paid_at && (
-                                                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
-                                                    Plačano dne: {new Date(wonItem.paid_at).toLocaleDateString('sl-SI')}
-                                                </span>
-                                            )}
-                                            {wonItem.buyer_received ? (
-                                                <div className="mt-2 text-green-500 font-bold text-xs uppercase flex items-center gap-1">
-                                                    <CheckCircle2 size={14} /> Predmet prejet
-                                                </div>
-                                            ) : (
-                                                <button 
-                                                    onClick={() => setReceiptConfirmModal({ isOpen: true, auctionId: wonItem.id, sellerId: wonItem.sellerId })}
-                                                    className="mt-2 bg-white border-2 border-slate-200 text-[#0A1128] px-4 py-2 rounded-xl font-bold text-xs hover:border-[#FEBA4F] transition-all"
-                                                >
-                                                    Potrdi prejem
-                                                </button>
-                                            )}
-                                            <button
-                                                onClick={() => { setActiveConversationId(wonItem.id); setActiveView('messages'); window.scrollTo({ top: 0, behavior: 'instant' }); }}
-                                                className="mt-2 bg-[#FEBA4F] text-[#0A1128] px-4 py-2 rounded-xl font-bold text-xs hover:bg-white hover:border hover:border-[#FEBA4F] transition-all flex items-center justify-center gap-2"
-                                            >
-                                                <MessageSquare size={14} /> Sporočila
-                                            </button>
-                                        </div>
-                                    ) : (
-                                        <div className="flex flex-col gap-2 w-full">
-                                            <button 
-                                                onClick={async () => {
-                                                    setCheckoutData({
-                                                    amount: parseFloat(totalAmountToPay.toFixed(2)),
-                                                    title: `${t('paymentFor')}: ${wonItem.title[language as keyof typeof wonItem.title] || wonItem.title.SLO}`,
-                                                    onSuccess: async () => {
-                                                        setIsCheckoutOpen(false);
-                                                        await supabase.from('auctions').update({ payment_status: 'paid', paid_at: new Date().toISOString() }).eq('id', wonItem.id);
-                                                        toast.success(t('paymentSuccessEmail'));
-                                                        // Refresh to show paid status
-                                                        setTimeout(() => fetchAuctions(), 1500);
-                                                    },
-                                                    metadata: {
-                                                        auction_id: wonItem.id,
-                                                        buyer_id: userData.id,
-                                                        seller_id: wonItem.sellerId,
-                                                        fee_percentage: feePercentage
-                                                    }
-                                                });
-                                                setIsCheckoutOpen(true);
-                                            }}
-                                            className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl flex items-center justify-center gap-2"
-                                        >
-                                            <CardIcon size={18} /> Plačaj zdaj
-                                        </button>
-                                        <button
-                                            onClick={() => { setActiveConversationId(wonItem.id); setActiveView('messages'); window.scrollTo({ top: 0, behavior: 'instant' }); }}
-                                            className="bg-[#FEBA4F] text-[#0A1128] px-8 py-3 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#0A1128] hover:text-[#FEBA4F] transition-all flex items-center justify-center gap-2"
-                                        >
-                                            <MessageSquare size={18} /> Sporočila
-                                        </button>
-                                    </div>
-                                    )}
-                                </div>
-                            </div>
-                            );
-                        })}
-                    </div>
+                    isVerified={isVerified}
+                    currentUserId={userData.id}
+                    hasBid={true}
+                    isWatched={watchedIds.includes(item.id)}
+                    onWatchToggle={() => toggleWatch(item.id)}
+                    onClick={() => {
+                      setSelectedItem(item);
+                      setActiveView("detail");
+                    }}
+                    onBidSubmit={handleBidSubmit}
+                    onSellerClick={(seller) => {
+                      setSelectedSeller(seller);
+                      setActiveView("sellerProfile");
+                    }}
+                  />
+                ))}
+              {auctions
+                .filter((a) => bidAuctionIds.includes(a.id))
+                .filter(
+                  (a) =>
+                    a.status === "active" && new Date(a.endTime) > new Date(),
+                ).length === 0 && (
+                <div className="col-span-full py-20 text-center bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200">
+                  <Gavel size={48} className="mx-auto mb-4 text-slate-300" />
+                  <p className="text-slate-500 font-black uppercase tracking-widest text-xs">
+                    {t("noBids")}
+                  </p>
                 </div>
+              )}
             </div>
-        );
-        break;
-    case 'mySold':
-        const currentUserSold = auctions.filter(a => ((a.sellerId === userData.id || (a as any).seller_id === userData.id) && (a.status === 'completed' || new Date(a.endTime) <= new Date()) && !!(a.winnerId || (a as any).winner_id)));
+          </div>
+        </div>
+      );
+      break;
+    case "sellerProfile":
+      if (selectedSeller) {
         content = (
-            <div className="max-w-[1600px] mx-auto py-16 px-6 animate-in">
-                <button onClick={() => setActiveView('grid')} className="flex items-center gap-2 text-slate-400 mb-10 font-black uppercase text-[10px] tracking-widest hover:text-[#0A1128] transition-colors"><ArrowLeft size={16}/> Nazaj</button>
-                <div className="bg-white rounded-[4rem] p-12 shadow-2xl border border-slate-100 min-h-[500px]">
-                    <div className="flex items-center gap-6 mb-12">
-                        <div className="bg-[#FEBA4F] p-4 rounded-3xl shadow-lg shadow-[#FEBA4F]/20">
-                            <CreditCard size={40} className="text-[#0A1128]" />
-                        </div>
-                        <div>
-                            <h2 className="text-4xl font-black uppercase tracking-tighter text-[#0A1128]">Prodane dražbe</h2>
-                            <p className="text-slate-400 font-bold mt-2">Pregled vaših zaključenih in prodanih dražb</p>
-                        </div>
-                    </div>
-                    
-                    <div className="space-y-6">
-                        {currentUserSold.length === 0 ? (
-                            <div className="py-12 text-center">
-                                <p className="text-slate-500 font-black uppercase tracking-widest text-lg">Nimate prodanih dražb</p>
-                            </div>
-                        ) : currentUserSold.map(soldItem => {
-                            return (
-                                <div key={soldItem.id} className="flex flex-col md:flex-row items-center gap-8 p-6 rounded-[2.5rem] border-2 border-slate-100 hover:border-[#FEBA4F] transition-colors group">
-                                    <div className="w-32 h-32 shrink-0 bg-slate-100 rounded-3xl overflow-hidden shadow-md group-hover:scale-105 transition-transform cursor-pointer"
-                                         onClick={() => {
-                                             setSelectedItem(soldItem);
-                                             setActiveView('detail');
-                                             window.scrollTo({ top: 0, behavior: 'instant' });
-                                         }}
-                                    >
-                                        {soldItem.images && soldItem.images.length > 0 && typeof soldItem.images[0] === 'string' && (
-                                            <SignedImg 
-                                                src={soldItem.images[0]?.replace?.(/([\[\]"'])/g, '') || ''} 
-                                                alt="Item" 
-                                                className="w-full h-full object-cover"
-                                            />
-                                        )}
-                                    </div>
-                                    <div className="flex-1 text-center md:text-left">
-                                        <h3 
-                                            className="text-2xl font-black uppercase tracking-tighter text-[#0A1128] mb-2 cursor-pointer hover:text-[#FEBA4F] transition-colors"
-                                            onClick={() => {
-                                                setSelectedItem(soldItem);
-                                                setActiveView('detail');
-                                                window.scrollTo({ top: 0, behavior: 'instant' });
-                                            }}
-                                        >
-                                            {soldItem.title[language as keyof typeof soldItem.title] || soldItem.title.SLO}
-                                        </h3>
-                                        <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 text-sm font-bold text-slate-400">
-                                            <span className="flex items-center gap-1.5"><Gavel size={16}/> Prodajna cena: <span className="text-[#0A1128] font-black">€{soldItem.currentBid.toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></span>
-                                            {soldItem.payment_status === 'paid' ? (
-                                                <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
-                                                    <CheckCircle2 size={12} /> Plačano
-                                                </span>
-                                            ) : (
-                                                <span className="bg-red-100 text-red-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
-                                                    <Clock size={12} /> Čaka na plačilo
-                                                </span>
-                                            )}
-                                        </div>
-                                    </div>
-                                    <div className="flex flex-col gap-3 w-full md:w-auto">
-                                        <button 
-                                            onClick={() => {
-                                                setSelectedItem(soldItem);
-                                                setActiveView('detail');
-                                                window.scrollTo({ top: 0, behavior: 'instant' });
-                                            }}
-                                            className="bg-slate-100 text-[#0A1128] px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] transition-all shadow-xl flex items-center justify-center gap-2"
-                                        >
-                                            Odpri dražbo
-                                        </button>
-                                        <button
-                                            onClick={() => { setActiveConversationId(soldItem.id); setActiveView('messages'); window.scrollTo({ top: 0, behavior: 'instant' }); }}
-                                            className="bg-[#FEBA4F] text-[#0A1128] px-8 py-3 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#0A1128] hover:text-[#FEBA4F] transition-all flex items-center justify-center gap-2"
-                                        >
-                                            <MessageSquare size={18} /> Sporočila
-                                        </button>
+          <SellerView
+            seller={selectedSeller}
+            onBack={() => setActiveView("grid")}
+            onAuctionClick={(item) => {
+              setSelectedItem(item);
+              setActiveView("detail");
+            }}
+            t={t}
+            language={language}
+            isLoggedIn={isLoggedIn}
+            currentUserWinnings={currentUserWinnings}
+            auctions={auctions}
+          />
+        );
+      } else {
+        setActiveView("grid");
+      }
+      break;
+    case "winnings":
+      content = (
+        <div className="max-w-[1600px] mx-auto py-16 px-6 animate-in">
+          <button
+            onClick={() => setActiveView("grid")}
+            className="flex items-center gap-2 text-slate-400 mb-10 font-black uppercase text-[10px] tracking-widest hover:text-[#0A1128] transition-colors"
+          >
+            <ArrowLeft size={16} /> Nazaj
+          </button>
+          <div className="bg-white rounded-[4rem] p-12 shadow-2xl border border-slate-100 min-h-[500px]">
+            <div className="flex items-center gap-6 mb-12">
+              <div className="bg-[#FEBA4F] p-4 rounded-3xl shadow-lg shadow-[#FEBA4F]/20">
+                <Trophy size={40} className="text-[#0A1128]" />
+              </div>
+              <div>
+                <h2 className="text-4xl font-black uppercase tracking-tighter text-[#0A1128]">
+                  {t("myWinnings")}
+                </h2>
+                <p className="text-slate-400 font-bold mt-2">
+                  Pregled in plačilo dobljenih dražb
+                </p>
+              </div>
+            </div>
 
-                                        
-                                        <div className="flex flex-col items-center gap-2 mt-2">
-                                            {soldItem.delivery_method ? (
-                                                <div className="text-xs font-bold text-slate-500 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-100 flex items-center gap-1.5">
-                                                    {soldItem.delivery_method === 'pickup' ? <MapPin size={14} /> : <Truck size={14} />} 
-                                                    {soldItem.delivery_method === 'pickup' ? 'Osebni prevzem' : 'Pošiljanje po pošti'}
-                                                </div>
-                                            ) : (
-                                                <button 
-                                                    onClick={() => setDeliveryMethodModal({ isOpen: true, auctionId: soldItem.id, deliveryMethod: null })}
-                                                    className="text-xs font-bold text-[#0A1128] border-2 border-slate-200 px-4 py-2 rounded-xl hover:border-[#FEBA4F] hover:text-[#FEBA4F] transition-colors whitespace-nowrap"
-                                                >
-                                                    Izberi način predaje
-                                                </button>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
+            <div className="space-y-6">
+              {currentUserWinnings.length === 0 ? (
+                <div className="py-12 text-center">
+                  <p className="text-slate-500 font-black uppercase tracking-widest text-lg">
+                    {t("noWinnings")}
+                  </p>
                 </div>
-            </div>
-        );
-        break;
-    case 'myUnsold':
-        // Filter: seller is current user, auction has ended, NO winner AND it ended less than 30 days ago
-        const thirtyDaysAgo = new Date();
-        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-        const currentUserUnsold = auctions.filter(a => (
-            (a.sellerId === userData.id || (a as any).seller_id === userData.id) && 
-            (a.status === 'completed' || new Date(a.endTime) <= new Date()) && 
-            !(a.winnerId || (a as any).winner_id) &&
-            new Date(a.endTime) > thirtyDaysAgo
-        ));
-        content = (
-            <div className="max-w-[1600px] mx-auto py-16 px-6 animate-in">
-                <button onClick={() => setActiveView('grid')} className="flex items-center gap-2 text-slate-400 mb-10 font-black uppercase text-[10px] tracking-widest hover:text-[#0A1128] transition-colors"><ArrowLeft size={16}/> Nazaj</button>
-                <div className="bg-white rounded-[4rem] p-12 shadow-2xl border border-slate-100 min-h-[500px]">
-                    <div className="flex items-center gap-6 mb-12">
-                        <div className="bg-slate-100 p-4 rounded-3xl shadow-lg">
-                            <MessageSquare size={40} className="text-slate-400" />
-                        </div>
-                        <div>
-                            <h2 className="text-4xl font-black uppercase tracking-tighter text-[#0A1128]">Neprodane dražbe</h2>
-                            <p className="text-slate-400 font-bold mt-2">Dražbe, na katere ni bilo ponudb. Po 30 dneh bodo samodejno izbrisane.</p>
-                        </div>
-                    </div>
-                    
-                    <div className="space-y-6">
-                        {currentUserUnsold.length === 0 ? (
-                            <div className="py-12 text-center">
-                                <p className="text-slate-500 font-black uppercase tracking-widest text-lg">Nimate neprodanih dražb</p>
-                            </div>
-                        ) : currentUserUnsold.map(soldItem => {
-                            return (
-                                <div key={soldItem.id} className="flex flex-col md:flex-row items-center gap-8 p-6 rounded-[2.5rem] border-2 border-slate-100 hover:border-slate-300 transition-colors group">
-                                    <SignedImg 
-                                        src={soldItem.images[0]} 
-                                        alt="Item" 
-                                        className="w-32 h-32 rounded-3xl object-cover shadow-md cursor-pointer group-hover:scale-105 transition-transform" 
-                                        onClick={() => {
-                                            setSelectedItem(soldItem);
-                                            setActiveView('detail');
-                                            window.scrollTo({ top: 0, behavior: 'instant' });
-                                        }}
-                                    />
-                                    <div className="flex-1 text-center md:text-left">
-                                        <h3 
-                                            className="text-2xl font-black uppercase tracking-tighter text-slate-500 mb-2 cursor-pointer hover:text-[#0A1128] transition-colors"
-                                            onClick={() => {
-                                                setSelectedItem(soldItem);
-                                                setActiveView('detail');
-                                                window.scrollTo({ top: 0, behavior: 'instant' });
-                                            }}
-                                        >
-                                            {soldItem.title[language as keyof typeof soldItem.title] || soldItem.title.SLO}
-                                        </h3>
-                                        <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 text-sm font-bold text-slate-400">
-                                            <span className="flex items-center gap-1.5"><Calendar size={16}/> Končano: {new Date(soldItem.endTime).toLocaleDateString('sl-SI')}</span>
-                                        </div>
-                                    </div>
-                                    <div className="flex flex-col gap-3 w-full md:w-auto">
-                                        <button 
-                                            onClick={() => {
-                                                setRepublishData(soldItem);
-                                                setActiveView('createAuction');
-                                                window.scrollTo({ top: 0, behavior: 'instant' });
-                                            }}
-                                            className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl flex items-center justify-center gap-2"
-                                        >
-                                            <Upload size={16} /> Ponovno objavi
-                                        </button>
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                </div>
-            </div>
-        );
-        break;
-    case 'messages':
-        content = (
-            <MessagesView 
-                userId={userData.id}
-                t={t}
-                language={language}
-                initialAuctionId={activeConversationId}
-                auctions={auctions}
-                onBack={() => { setActiveView('grid'); setActiveConversationId(null); }}
-            />
-        );
-        break;
-    case 'watchlist':
-        content = (
-            <div className="max-w-[1600px] mx-auto py-16 px-6 animate-in">
-                <button onClick={() => setActiveView('grid')} className="flex items-center gap-2 text-slate-400 mb-10 font-black uppercase text-[10px] tracking-widest hover:text-[#0A1128] transition-colors"><ArrowLeft size={16}/> Nazaj</button>
-                <div className="bg-white rounded-[4rem] p-12 shadow-2xl border border-slate-100 min-h-[500px]">
-                    <div className="flex items-center gap-6 mb-12">
-                        <div className="bg-[#FEBA4F] p-4 rounded-3xl shadow-lg shadow-[#FEBA4F]/20">
-                            <Eye size={40} className="text-[#0A1128]" />
-                        </div>
-                        <div>
-                            <h2 className="text-4xl font-black uppercase tracking-tighter text-[#0A1128]">Opazovane dražbe</h2>
-                            <p className="text-slate-400 font-bold mt-2">Dražbe, ki jih spremljate</p>
-                        </div>
-                    </div>
-                    
-                    <div className="grid gap-8 justify-center" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 320px))' }}>
-                        {auctions.filter(a => watchedIds.includes(a.id)).filter(a => a.status === 'active' && new Date(a.endTime) > new Date()).map(item => (
-                            <AuctionCard 
-                                key={item.id} 
-                                item={item} 
-                                t={t} 
-                                language={language} 
-                                isVerified={isVerified} 
-                                currentUserId={userData.id}
-                                hasBid={bidAuctionIds.includes(item.id)}
-                                isWatched={true}
-                                onWatchToggle={() => toggleWatch(item.id)}
-                                onClick={() => { setSelectedItem(item); setActiveView('detail'); }} 
-                                onBidSubmit={handleBidSubmit} 
-                                onSellerClick={(seller) => { setSelectedSeller(seller); setActiveView('sellerProfile'); }} 
+              ) : (
+                currentUserWinnings.map((wonItem) => {
+                  const feePercentage =
+                    currentPlan === SubscriptionTier.PRO
+                      ? 5
+                      : currentPlan === SubscriptionTier.BASIC
+                        ? 10
+                        : 12;
+                  const commissionNet = calculateMarginalPlatformFee(
+                    wonItem.currentBid,
+                    currentPlan,
+                  );
+                  const totalAmountToPay =
+                    wonItem.currentBid + commissionNet * 1.22;
+
+                  return (
+                    <div
+                      key={wonItem.id}
+                      className="flex flex-col md:flex-row items-center gap-8 p-6 rounded-[2.5rem] border-2 border-slate-100 hover:border-[#FEBA4F] transition-colors group"
+                    >
+                      <div
+                        className="w-32 h-32 shrink-0 bg-slate-100 rounded-3xl overflow-hidden shadow-md group-hover:scale-105 transition-transform cursor-pointer"
+                        onClick={() => {
+                          setSelectedItem(wonItem);
+                          setActiveView("detail");
+                          window.scrollTo({ top: 0, behavior: "instant" });
+                        }}
+                      >
+                        {wonItem.images &&
+                          wonItem.images.length > 0 &&
+                          typeof wonItem.images[0] === "string" && (
+                            <SignedImg
+                              src={
+                                wonItem.images[0]?.replace?.(
+                                  /([\[\]"'])/g,
+                                  "",
+                                ) || ""
+                              }
+                              alt="Item"
+                              className="w-full h-full object-cover"
                             />
-                        ))}
-                        {auctions.filter(a => watchedIds.includes(a.id)).filter(a => a.status === 'active' && new Date(a.endTime) > new Date()).length === 0 && (
-                            <div className="col-span-full py-20 text-center bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200">
-                                <Eye size={48} className="mx-auto mb-4 text-slate-300" />
-                                <p className="text-slate-500 font-black uppercase tracking-widest text-xs">Nimate opazovanih dražb</p>
+                          )}
+                      </div>
+                      <div className="flex-1 text-center md:text-left">
+                        <h3
+                          className="text-2xl font-black uppercase tracking-tighter text-[#0A1128] mb-2 cursor-pointer hover:text-[#FEBA4F] transition-colors"
+                          onClick={() => {
+                            setSelectedItem(wonItem);
+                            setActiveView("detail");
+                            window.scrollTo({ top: 0, behavior: "instant" });
+                          }}
+                        >
+                          {wonItem.title[
+                            language as keyof typeof wonItem.title
+                          ] || wonItem.title.SLO}
+                        </h3>
+                        <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 text-sm font-bold text-slate-400 mt-2">
+                          <span className="flex items-center gap-1.5 bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200">
+                            <Gavel size={16} /> Končni znesek (vklj. s provizijo
+                            in DDV):{" "}
+                            <span className="text-[#0A1128] font-black">
+                              €
+                              {totalAmountToPay.toLocaleString("sl-SI", {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}
+                            </span>
+                          </span>
+                          {wonItem.payment_status !== "paid" && (
+                            <PaymentTimer endTime={wonItem.endTime} />
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-3 w-full md:w-auto">
+                        {wonItem.payment_status === "paid" ? (
+                          <div className="flex flex-col items-center md:items-end gap-2">
+                            <div className="bg-green-50 text-green-600 px-6 py-3 rounded-2xl font-black uppercase tracking-widest text-sm flex items-center gap-2 border-2 border-green-100">
+                              <CheckCircle2 size={18} /> Plačano
                             </div>
+                            {wonItem.paid_at && (
+                              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
+                                Plačano dne:{" "}
+                                {new Date(wonItem.paid_at).toLocaleDateString(
+                                  "sl-SI",
+                                )}
+                              </span>
+                            )}
+                            {wonItem.buyer_received ? (
+                              <div className="mt-2 text-green-500 font-bold text-xs uppercase flex items-center gap-1">
+                                <CheckCircle2 size={14} /> Predmet prejet
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() =>
+                                  setReceiptConfirmModal({
+                                    isOpen: true,
+                                    auctionId: wonItem.id,
+                                    sellerId: wonItem.sellerId,
+                                  })
+                                }
+                                className="mt-2 bg-white border-2 border-slate-200 text-[#0A1128] px-4 py-2 rounded-xl font-bold text-xs hover:border-[#FEBA4F] transition-all"
+                              >
+                                Potrdi prejem
+                              </button>
+                            )}
+                            <button
+                              onClick={() => {
+                                setActiveConversationId(wonItem.id);
+                                setActiveView("messages");
+                                window.scrollTo({
+                                  top: 0,
+                                  behavior: "instant",
+                                });
+                              }}
+                              className="mt-2 bg-[#FEBA4F] text-[#0A1128] px-4 py-2 rounded-xl font-bold text-xs hover:bg-white hover:border hover:border-[#FEBA4F] transition-all flex items-center justify-center gap-2"
+                            >
+                              <MessageSquare size={14} /> Sporočila
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col gap-2 w-full">
+                            <button
+                              onClick={async () => {
+                                setCheckoutData({
+                                  amount: parseFloat(
+                                    totalAmountToPay.toFixed(2),
+                                  ),
+                                  title: `${t("paymentFor")}: ${wonItem.title[language as keyof typeof wonItem.title] || wonItem.title.SLO}`,
+                                  onSuccess: async () => {
+                                    setIsCheckoutOpen(false);
+                                    await supabase
+                                      .from("auctions")
+                                      .update({
+                                        payment_status: "paid",
+                                        paid_at: new Date().toISOString(),
+                                      })
+                                      .eq("id", wonItem.id);
+                                    toast.success(t("paymentSuccessEmail"));
+                                    // Refresh to show paid status
+                                    setTimeout(() => fetchAuctions(), 1500);
+                                  },
+                                  metadata: {
+                                    auction_id: wonItem.id,
+                                    buyer_id: userData.id,
+                                    seller_id: wonItem.sellerId,
+                                    fee_percentage: feePercentage,
+                                  },
+                                });
+                                setIsCheckoutOpen(true);
+                              }}
+                              className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl flex items-center justify-center gap-2"
+                            >
+                              <CardIcon size={18} /> Plačaj zdaj
+                            </button>
+                            <button
+                              onClick={() => {
+                                setActiveConversationId(wonItem.id);
+                                setActiveView("messages");
+                                window.scrollTo({
+                                  top: 0,
+                                  behavior: "instant",
+                                });
+                              }}
+                              className="bg-[#FEBA4F] text-[#0A1128] px-8 py-3 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#0A1128] hover:text-[#FEBA4F] transition-all flex items-center justify-center gap-2"
+                            >
+                              <MessageSquare size={18} /> Sporočila
+                            </button>
+                          </div>
                         )}
+                      </div>
                     </div>
-                </div>
+                  );
+                })
+              )}
             </div>
-        );
-        break;
+          </div>
+        </div>
+      );
+      break;
+    case "mySold":
+      const currentUserSold = auctions.filter(
+        (a) =>
+          (a.sellerId === userData.id ||
+            (a as any).seller_id === userData.id) &&
+          (a.status === "completed" || new Date(a.endTime) <= new Date()) &&
+          !!(a.winnerId || (a as any).winner_id),
+      );
+      content = (
+        <div className="max-w-[1600px] mx-auto py-16 px-6 animate-in">
+          <button
+            onClick={() => setActiveView("grid")}
+            className="flex items-center gap-2 text-slate-400 mb-10 font-black uppercase text-[10px] tracking-widest hover:text-[#0A1128] transition-colors"
+          >
+            <ArrowLeft size={16} /> Nazaj
+          </button>
+          <div className="bg-white rounded-[4rem] p-12 shadow-2xl border border-slate-100 min-h-[500px]">
+            <div className="flex items-center gap-6 mb-12">
+              <div className="bg-[#FEBA4F] p-4 rounded-3xl shadow-lg shadow-[#FEBA4F]/20">
+                <CreditCard size={40} className="text-[#0A1128]" />
+              </div>
+              <div>
+                <h2 className="text-4xl font-black uppercase tracking-tighter text-[#0A1128]">
+                  Prodane dražbe
+                </h2>
+                <p className="text-slate-400 font-bold mt-2">
+                  Pregled vaših zaključenih in prodanih dražb
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-6">
+              {currentUserSold.length === 0 ? (
+                <div className="py-12 text-center">
+                  <p className="text-slate-500 font-black uppercase tracking-widest text-lg">
+                    Nimate prodanih dražb
+                  </p>
+                </div>
+              ) : (
+                currentUserSold.map((soldItem) => {
+                  return (
+                    <div
+                      key={soldItem.id}
+                      className="flex flex-col md:flex-row items-center gap-8 p-6 rounded-[2.5rem] border-2 border-slate-100 hover:border-[#FEBA4F] transition-colors group"
+                    >
+                      <div
+                        className="w-32 h-32 shrink-0 bg-slate-100 rounded-3xl overflow-hidden shadow-md group-hover:scale-105 transition-transform cursor-pointer"
+                        onClick={() => {
+                          setSelectedItem(soldItem);
+                          setActiveView("detail");
+                          window.scrollTo({ top: 0, behavior: "instant" });
+                        }}
+                      >
+                        {soldItem.images &&
+                          soldItem.images.length > 0 &&
+                          typeof soldItem.images[0] === "string" && (
+                            <SignedImg
+                              src={
+                                soldItem.images[0]?.replace?.(
+                                  /([\[\]"'])/g,
+                                  "",
+                                ) || ""
+                              }
+                              alt="Item"
+                              className="w-full h-full object-cover"
+                            />
+                          )}
+                      </div>
+                      <div className="flex-1 text-center md:text-left">
+                        <h3
+                          className="text-2xl font-black uppercase tracking-tighter text-[#0A1128] mb-2 cursor-pointer hover:text-[#FEBA4F] transition-colors"
+                          onClick={() => {
+                            setSelectedItem(soldItem);
+                            setActiveView("detail");
+                            window.scrollTo({ top: 0, behavior: "instant" });
+                          }}
+                        >
+                          {soldItem.title[
+                            language as keyof typeof soldItem.title
+                          ] || soldItem.title.SLO}
+                        </h3>
+                        <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 text-sm font-bold text-slate-400">
+                          <span className="flex items-center gap-1.5">
+                            <Gavel size={16} /> Prodajna cena:{" "}
+                            <span className="text-[#0A1128] font-black">
+                              €
+                              {soldItem.currentBid.toLocaleString("sl-SI", {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}
+                            </span>
+                          </span>
+                          {soldItem.payment_status === "paid" ? (
+                            <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
+                              <CheckCircle2 size={12} /> Plačano
+                            </span>
+                          ) : (
+                            <span className="bg-red-100 text-red-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
+                              <Clock size={12} /> Čaka na plačilo
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-3 w-full md:w-auto">
+                        <button
+                          onClick={() => {
+                            setSelectedItem(soldItem);
+                            setActiveView("detail");
+                            window.scrollTo({ top: 0, behavior: "instant" });
+                          }}
+                          className="bg-slate-100 text-[#0A1128] px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] transition-all shadow-xl flex items-center justify-center gap-2"
+                        >
+                          Odpri dražbo
+                        </button>
+                        <button
+                          onClick={() => {
+                            setActiveConversationId(soldItem.id);
+                            setActiveView("messages");
+                            window.scrollTo({ top: 0, behavior: "instant" });
+                          }}
+                          className="bg-[#FEBA4F] text-[#0A1128] px-8 py-3 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#0A1128] hover:text-[#FEBA4F] transition-all flex items-center justify-center gap-2"
+                        >
+                          <MessageSquare size={18} /> Sporočila
+                        </button>
+
+                        <div className="flex flex-col items-center gap-2 mt-2">
+                          {soldItem.delivery_method ? (
+                            <div className="text-xs font-bold text-slate-500 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-100 flex items-center gap-1.5">
+                              {soldItem.delivery_method === "pickup" ? (
+                                <MapPin size={14} />
+                              ) : (
+                                <Truck size={14} />
+                              )}
+                              {soldItem.delivery_method === "pickup"
+                                ? "Osebni prevzem"
+                                : "Pošiljanje po pošti"}
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() =>
+                                setDeliveryMethodModal({
+                                  isOpen: true,
+                                  auctionId: soldItem.id,
+                                  deliveryMethod: null,
+                                })
+                              }
+                              className="text-xs font-bold text-[#0A1128] border-2 border-slate-200 px-4 py-2 rounded-xl hover:border-[#FEBA4F] hover:text-[#FEBA4F] transition-colors whitespace-nowrap"
+                            >
+                              Izberi način predaje
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      );
+      break;
+    case "myUnsold":
+      // Filter: seller is current user, auction has ended, NO winner AND it ended less than 30 days ago
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      const currentUserUnsold = auctions.filter(
+        (a) =>
+          (a.sellerId === userData.id ||
+            (a as any).seller_id === userData.id) &&
+          (a.status === "completed" || new Date(a.endTime) <= new Date()) &&
+          !(a.winnerId || (a as any).winner_id) &&
+          new Date(a.endTime) > thirtyDaysAgo,
+      );
+      content = (
+        <div className="max-w-[1600px] mx-auto py-16 px-6 animate-in">
+          <button
+            onClick={() => setActiveView("grid")}
+            className="flex items-center gap-2 text-slate-400 mb-10 font-black uppercase text-[10px] tracking-widest hover:text-[#0A1128] transition-colors"
+          >
+            <ArrowLeft size={16} /> Nazaj
+          </button>
+          <div className="bg-white rounded-[4rem] p-12 shadow-2xl border border-slate-100 min-h-[500px]">
+            <div className="flex items-center gap-6 mb-12">
+              <div className="bg-slate-100 p-4 rounded-3xl shadow-lg">
+                <MessageSquare size={40} className="text-slate-400" />
+              </div>
+              <div>
+                <h2 className="text-4xl font-black uppercase tracking-tighter text-[#0A1128]">
+                  Neprodane dražbe
+                </h2>
+                <p className="text-slate-400 font-bold mt-2">
+                  Dražbe, na katere ni bilo ponudb. Po 30 dneh bodo samodejno
+                  izbrisane.
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-6">
+              {currentUserUnsold.length === 0 ? (
+                <div className="py-12 text-center">
+                  <p className="text-slate-500 font-black uppercase tracking-widest text-lg">
+                    Nimate neprodanih dražb
+                  </p>
+                </div>
+              ) : (
+                currentUserUnsold.map((soldItem) => {
+                  return (
+                    <div
+                      key={soldItem.id}
+                      className="flex flex-col md:flex-row items-center gap-8 p-6 rounded-[2.5rem] border-2 border-slate-100 hover:border-slate-300 transition-colors group"
+                    >
+                      <SignedImg
+                        src={soldItem.images[0]}
+                        alt="Item"
+                        className="w-32 h-32 rounded-3xl object-cover shadow-md cursor-pointer group-hover:scale-105 transition-transform"
+                        onClick={() => {
+                          setSelectedItem(soldItem);
+                          setActiveView("detail");
+                          window.scrollTo({ top: 0, behavior: "instant" });
+                        }}
+                      />
+                      <div className="flex-1 text-center md:text-left">
+                        <h3
+                          className="text-2xl font-black uppercase tracking-tighter text-slate-500 mb-2 cursor-pointer hover:text-[#0A1128] transition-colors"
+                          onClick={() => {
+                            setSelectedItem(soldItem);
+                            setActiveView("detail");
+                            window.scrollTo({ top: 0, behavior: "instant" });
+                          }}
+                        >
+                          {soldItem.title[
+                            language as keyof typeof soldItem.title
+                          ] || soldItem.title.SLO}
+                        </h3>
+                        <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 text-sm font-bold text-slate-400">
+                          <span className="flex items-center gap-1.5">
+                            <Calendar size={16} /> Končano:{" "}
+                            {new Date(soldItem.endTime).toLocaleDateString(
+                              "sl-SI",
+                            )}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-3 w-full md:w-auto">
+                        <button
+                          onClick={() => {
+                            setRepublishData(soldItem);
+                            setActiveView("createAuction");
+                            window.scrollTo({ top: 0, behavior: "instant" });
+                          }}
+                          className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl flex items-center justify-center gap-2"
+                        >
+                          <Upload size={16} /> Ponovno objavi
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      );
+      break;
+    case "messages":
+      content = (
+        <MessagesView
+          userId={userData.id}
+          t={t}
+          language={language}
+          initialAuctionId={activeConversationId}
+          auctions={auctions}
+          onBack={() => {
+            setActiveView("grid");
+            setActiveConversationId(null);
+          }}
+        />
+      );
+      break;
+    case "watchlist":
+      content = (
+        <div className="max-w-[1600px] mx-auto py-16 px-6 animate-in">
+          <button
+            onClick={() => setActiveView("grid")}
+            className="flex items-center gap-2 text-slate-400 mb-10 font-black uppercase text-[10px] tracking-widest hover:text-[#0A1128] transition-colors"
+          >
+            <ArrowLeft size={16} /> Nazaj
+          </button>
+          <div className="bg-white rounded-[4rem] p-12 shadow-2xl border border-slate-100 min-h-[500px]">
+            <div className="flex items-center gap-6 mb-12">
+              <div className="bg-[#FEBA4F] p-4 rounded-3xl shadow-lg shadow-[#FEBA4F]/20">
+                <Eye size={40} className="text-[#0A1128]" />
+              </div>
+              <div>
+                <h2 className="text-4xl font-black uppercase tracking-tighter text-[#0A1128]">
+                  Opazovane dražbe
+                </h2>
+                <p className="text-slate-400 font-bold mt-2">
+                  Dražbe, ki jih spremljate
+                </p>
+              </div>
+            </div>
+
+            <div
+              className="grid gap-8 justify-center"
+              style={{
+                gridTemplateColumns: "repeat(auto-fit, minmax(320px, 320px))",
+              }}
+            >
+              {auctions
+                .filter((a) => watchedIds.includes(a.id))
+                .filter(
+                  (a) =>
+                    a.status === "active" && new Date(a.endTime) > new Date(),
+                )
+                .map((item) => (
+                  <AuctionCard
+                    key={item.id}
+                    item={item}
+                    t={t}
+                    language={language}
+                    isVerified={isVerified}
+                    currentUserId={userData.id}
+                    hasBid={bidAuctionIds.includes(item.id)}
+                    isWatched={true}
+                    onWatchToggle={() => toggleWatch(item.id)}
+                    onClick={() => {
+                      setSelectedItem(item);
+                      setActiveView("detail");
+                    }}
+                    onBidSubmit={handleBidSubmit}
+                    onSellerClick={(seller) => {
+                      setSelectedSeller(seller);
+                      setActiveView("sellerProfile");
+                    }}
+                  />
+                ))}
+              {auctions
+                .filter((a) => watchedIds.includes(a.id))
+                .filter(
+                  (a) =>
+                    a.status === "active" && new Date(a.endTime) > new Date(),
+                ).length === 0 && (
+                <div className="col-span-full py-20 text-center bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200">
+                  <Eye size={48} className="mx-auto mb-4 text-slate-300" />
+                  <p className="text-slate-500 font-black uppercase tracking-widest text-xs">
+                    Nimate opazovanih dražb
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+      break;
     default:
       content = (
         <div className="animate-in">
-          {activeView === 'grid' && !selectedCategory && !searchQuery && !selectedRegion && (
-              <HeroCarousel 
-                  items={auctions} 
-                  onSelectItem={(item) => { 
-                      window.scrollTo({ top: 0, behavior: 'instant' }); 
-                      setSelectedItem(item); 
-                      setActiveView('detail'); 
-                  }} 
-                  t={t} 
-                  language={language} 
+          {activeView === "grid" &&
+            !selectedCategory &&
+            !searchQuery &&
+            !selectedRegion && (
+              <HeroCarousel
+                items={auctions}
+                onSelectItem={(item) => {
+                  window.scrollTo({ top: 0, behavior: "instant" });
+                  setSelectedItem(item);
+                  setActiveView("detail");
+                }}
+                t={t}
+                language={language}
               />
-          )}
+            )}
           <div className="max-w-[1600px] mx-auto px-6 py-12">
-            <div ref={auctionsSectionRef} className="flex flex-col md:flex-row md:items-center justify-between gap-8 mb-12 scroll-mt-32">
-                <div className="flex items-center gap-4">
-                    <div className="bg-[#FEBA4F] w-2.5 h-10 rounded-full shadow-lg"></div>
-                    <h2 className="text-3xl font-black text-[#0A1128] uppercase tracking-tighter italic">
-                        {activeView === 'lastChance' ? t('lastChanceTitle') : (selectedRegion ? `${t('regions')}: ${selectedRegion}` : (selectedCategory ? `${t('category')}: ${selectedCategory}` : (searchQuery ? `Rezultati: "${searchQuery}"` : t('activeAuctions'))))}
-                    </h2>
-                </div>
-                <div className="flex items-center gap-4">
-                    <span className="text-[10px] font-black uppercase text-slate-400">{t('itemsPerPage')}</span>
-                    <select 
-                        className="bg-white border-2 border-slate-100 rounded-xl px-4 py-2.5 text-xs font-black shadow-sm outline-none focus:border-[#FEBA4F] transition-colors cursor-pointer" 
-                        value={baseItemsPerPage} 
-                        onChange={e => {
-                            setBaseItemsPerPage(parseInt(e.target.value));
-                            setCurrentPage(1);
-                        }}
-                    >
-                        <option value="12">Prikaži ~12</option>
-                        <option value="24">Prikaži ~24</option>
-                        <option value="48">Prikaži ~48</option>
-                        <option value="96">Prikaži ~96</option>
-                    </select>
-                </div>
+            <div
+              ref={auctionsSectionRef}
+              className="flex flex-col md:flex-row md:items-center justify-between gap-8 mb-12 scroll-mt-32"
+            >
+              <div className="flex items-center gap-4">
+                <div className="bg-[#FEBA4F] w-2.5 h-10 rounded-full shadow-lg"></div>
+                <h2 className="text-3xl font-black text-[#0A1128] uppercase tracking-tighter italic">
+                  {activeView === "lastChance"
+                    ? t("lastChanceTitle")
+                    : selectedRegion
+                      ? `${t("regions")}: ${selectedRegion}`
+                      : selectedCategory
+                        ? `${t("category")}: ${selectedCategory}`
+                        : searchQuery
+                          ? `Rezultati: "${searchQuery}"`
+                          : t("activeAuctions")}
+                </h2>
+              </div>
+              <div className="flex items-center gap-4">
+                <span className="text-[10px] font-black uppercase text-slate-400">
+                  {t("itemsPerPage")}
+                </span>
+                <select
+                  className="bg-white border-2 border-slate-100 rounded-xl px-4 py-2.5 text-xs font-black shadow-sm outline-none focus:border-[#FEBA4F] transition-colors cursor-pointer"
+                  value={baseItemsPerPage}
+                  onChange={(e) => {
+                    setBaseItemsPerPage(parseInt(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                >
+                  <option value="12">Prikaži ~12</option>
+                  <option value="24">Prikaži ~24</option>
+                  <option value="48">Prikaži ~48</option>
+                  <option value="96">Prikaži ~96</option>
+                </select>
+              </div>
             </div>
-            <div className="grid gap-8 justify-center" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 320px))' }}>
-                {currentAuctions.map(item => (
-                    <AuctionCard 
-                        key={item.id} 
-                        item={item} 
-                        t={t} 
-                        language={language} 
-                        isVerified={isVerified} 
-                        currentUserId={userData.id}
-                        hasBid={bidAuctionIds.includes(item.id)}
-                        isWatched={watchedIds.includes(item.id)}
-                        onWatchToggle={() => toggleWatch(item.id)}
-                        onClick={() => { 
-                            window.scrollTo({ top: 0, behavior: 'instant' });
-                            setSelectedItem(item); 
-                            setActiveView('detail'); 
-                        }} 
-                        onBidSubmit={handleBidSubmit} 
-                        onSellerClick={(seller) => { 
-                            setSelectedSeller(seller); 
-                            setActiveView('sellerProfile'); 
-                            window.scrollTo({ top: 0, behavior: 'instant' });
-                        }} 
-                        onTimeUp={(auctionId) => {
-                            // Force a re-render so activeAuctions filter recalculates and removes this item
-                            setAuctions(prev => [...prev]);
-                        }}
-                    />
-                ))}
+            <div
+              className="grid gap-8 justify-center"
+              style={{
+                gridTemplateColumns: "repeat(auto-fit, minmax(320px, 320px))",
+              }}
+            >
+              {currentAuctions.map((item) => (
+                <AuctionCard
+                  key={item.id}
+                  item={item}
+                  t={t}
+                  language={language}
+                  isVerified={isVerified}
+                  currentUserId={userData.id}
+                  hasBid={bidAuctionIds.includes(item.id)}
+                  isWatched={watchedIds.includes(item.id)}
+                  onWatchToggle={() => toggleWatch(item.id)}
+                  onClick={() => {
+                    window.scrollTo({ top: 0, behavior: "instant" });
+                    setSelectedItem(item);
+                    setActiveView("detail");
+                  }}
+                  onBidSubmit={handleBidSubmit}
+                  onSellerClick={(seller) => {
+                    setSelectedSeller(seller);
+                    setActiveView("sellerProfile");
+                    window.scrollTo({ top: 0, behavior: "instant" });
+                  }}
+                  onTimeUp={(auctionId) => {
+                    // Force a re-render so activeAuctions filter recalculates and removes this item
+                    setAuctions((prev) => [...prev]);
+                  }}
+                />
+              ))}
             </div>
             {totalPages > 1 && (
-                <div className="mt-20 flex flex-col md:flex-row items-center justify-between gap-8 border-t-2 border-slate-100 pt-12">
-                    <div className="flex flex-col gap-2">
-                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{t('showing')} {indexOfFirstItem + 1} - {Math.min(indexOfLastItem, getFilteredAuctions.length)} {t('of')} {getFilteredAuctions.length} {t('auctions')}</p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                        <button onClick={() => handlePageChange(currentPage - 1)} disabled={currentPage === 1} className={`p-4 rounded-2xl border-2 transition-all ${currentPage === 1 ? 'border-slate-50 text-slate-200' : 'border-slate-100 text-[#0A1128] hover:border-[#FEBA4F]'}`}><ChevronLeft size={20}/></button>
-                        <div className="flex items-center gap-2">
-                            {paginationNumbers.map((p, idx) => typeof p === 'string' ? <span key={idx} className="px-3 text-slate-400 font-bold">...</span> : <button key={idx} onClick={() => handlePageChange(p as number)} className={`w-12 h-12 rounded-2xl font-black text-sm transition-all shadow-sm ${currentPage === p ? 'bg-[#0A1128] text-white scale-110' : 'bg-white border-2 border-slate-50 text-slate-400 hover:border-slate-200'}`}>{p}</button>)}
-                        </div>
-                        <button onClick={() => handlePageChange(currentPage + 1)} disabled={currentPage === totalPages} className={`p-4 rounded-2xl border-2 transition-all ${currentPage === totalPages ? 'border-slate-50 text-slate-200' : 'border-slate-100 text-[#0A1128] hover:border-[#FEBA4F]'}`}><ChevronRight size={20}/></button>
-                    </div>
+              <div className="mt-20 flex flex-col md:flex-row items-center justify-between gap-8 border-t-2 border-slate-100 pt-12">
+                <div className="flex flex-col gap-2">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                    {t("showing")} {indexOfFirstItem + 1} -{" "}
+                    {Math.min(indexOfLastItem, getFilteredAuctions.length)}{" "}
+                    {t("of")} {getFilteredAuctions.length} {t("auctions")}
+                  </p>
                 </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => handlePageChange(currentPage - 1)}
+                    disabled={currentPage === 1}
+                    className={`p-4 rounded-2xl border-2 transition-all ${currentPage === 1 ? "border-slate-50 text-slate-200" : "border-slate-100 text-[#0A1128] hover:border-[#FEBA4F]"}`}
+                  >
+                    <ChevronLeft size={20} />
+                  </button>
+                  <div className="flex items-center gap-2">
+                    {paginationNumbers.map((p, idx) =>
+                      typeof p === "string" ? (
+                        <span
+                          key={idx}
+                          className="px-3 text-slate-400 font-bold"
+                        >
+                          ...
+                        </span>
+                      ) : (
+                        <button
+                          key={idx}
+                          onClick={() => handlePageChange(p as number)}
+                          className={`w-12 h-12 rounded-2xl font-black text-sm transition-all shadow-sm ${currentPage === p ? "bg-[#0A1128] text-white scale-110" : "bg-white border-2 border-slate-50 text-slate-400 hover:border-slate-200"}`}
+                        >
+                          {p}
+                        </button>
+                      ),
+                    )}
+                  </div>
+                  <button
+                    onClick={() => handlePageChange(currentPage + 1)}
+                    disabled={currentPage === totalPages}
+                    className={`p-4 rounded-2xl border-2 transition-all ${currentPage === totalPages ? "border-slate-50 text-slate-200" : "border-slate-100 text-[#0A1128] hover:border-[#FEBA4F]"}`}
+                  >
+                    <ChevronRight size={20} />
+                  </button>
+                </div>
+              </div>
             )}
           </div>
         </div>
@@ -1932,238 +2867,407 @@ const MainApp: React.FC = () => {
 
   return (
     <ChatProvider userId={userData.id} auctions={auctions}>
-    <div className="min-h-screen bg-[#f3f4f6] font-sans selection:bg-[#FEBA4F] selection:text-[#0A1128] overflow-x-hidden">
-        <Toaster 
-            position="top-center" 
-            duration={4000}
-            richColors
-            toastOptions={{
-                style: {
-                    background: '#0A1128',
-                    color: '#ffffff',
-                    border: '1px solid #FEBA4F',
-                    borderRadius: '1rem',
-                    padding: '16px 20px',
-                    fontSize: '14px',
-                    fontWeight: 'bold',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.05em'
-                },
-                className: 'shadow-2xl'
-            }} 
+      <div className="min-h-screen bg-[#f3f4f6] font-sans selection:bg-[#FEBA4F] selection:text-[#0A1128] overflow-x-hidden">
+        <Toaster
+          position="top-center"
+          duration={4000}
+          richColors
+          toastOptions={{
+            style: {
+              background: "#0A1128",
+              color: "#ffffff",
+              border: "1px solid #FEBA4F",
+              borderRadius: "1rem",
+              padding: "16px 20px",
+              fontSize: "14px",
+              fontWeight: "bold",
+              textTransform: "uppercase",
+              letterSpacing: "0.05em",
+            },
+            className: "shadow-2xl",
+          }}
         />
-        <VerificationBanner isVisible={isBannerActive} onAction={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('verification'); }} t={t} />
+        <VerificationBanner
+          isVisible={isBannerActive}
+          onAction={() => {
+            window.scrollTo({ top: 0, behavior: "smooth" });
+            setActiveView("verification");
+          }}
+          t={t}
+        />
         {isPollingStopped && (
-            <div className="bg-red-500 text-white text-center py-2 px-4 shadow-md font-bold text-sm sticky top-0 z-[6000] flex justify-center items-center gap-4 animate-in slide-in-from-top fade-in duration-300">
-                <span>Povezava s strežnikom je prekinjena.</span>
-                <button onClick={() => window.location.reload()} className="bg-white text-red-500 hover:bg-red-50 px-3 py-1 rounded-full text-xs uppercase tracking-wider transition-colors focus:ring-2 focus:ring-white focus:outline-none">
-                    Osveži stran
-                </button>
-            </div>
+          <div className="bg-red-500 text-white text-center py-2 px-4 shadow-md font-bold text-sm sticky top-0 z-[6000] flex justify-center items-center gap-4 animate-in slide-in-from-top fade-in duration-300">
+            <span>Povezava s strežnikom je prekinjena.</span>
+            <button
+              onClick={() => window.location.reload()}
+              className="bg-white text-red-500 hover:bg-red-50 px-3 py-1 rounded-full text-xs uppercase tracking-wider transition-colors focus:ring-2 focus:ring-white focus:outline-none"
+            >
+              Osveži stran
+            </button>
+          </div>
         )}
-        <Header 
-            onHome={() => { setActiveView('grid'); setSelectedRegion(null); setSelectedCategory(null); setSearchQuery(''); }} 
-            onSearch={setSearchQuery} 
-            onRegionSelect={(reg) => { setSelectedRegion(reg); setActiveView('grid'); }}
-            onCategorySelect={(cat) => { setSelectedCategory(cat); setActiveView('grid'); }} 
-            onLastChance={() => { setActiveView('lastChance'); setSelectedRegion(null); setSelectedCategory(null); }} 
-            onLogin={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('login'); }} 
-            onLogout={handleLogout} 
-            onSettings={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('settings'); }} 
-            onSubscriptions={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('subscriptions'); }}
-            onCreateAuction={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('createAuction'); }} 
-            onMyWinnings={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('winnings'); }} 
-            onMyBids={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('myBids'); }}
-            onMySold={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('mySold'); }}
-            onMyUnsold={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('myUnsold'); }}
-            onWatchlist={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('watchlist'); }}
-            onMessages={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setActiveView('messages'); }}
-            activeView={activeView} 
-            selectedRegion={selectedRegion}
-            selectedCategory={selectedCategory} 
-            isLoggedIn={isLoggedIn} 
-            isVerified={isVerified} 
-            language={language} 
-            onLanguageChange={setLanguage} 
-            t={t} 
-            auctions={auctions}
-            userEmail={userData.email}
-            userProfilePicture={userData.profile_picture_url || userData.profilePicture}
+        <Header
+          onHome={() => {
+            setActiveView("grid");
+            setSelectedRegion(null);
+            setSelectedCategory(null);
+            setSearchQuery("");
+          }}
+          onSearch={setSearchQuery}
+          onRegionSelect={(reg) => {
+            setSelectedRegion(reg);
+            setActiveView("grid");
+          }}
+          onCategorySelect={(cat) => {
+            setSelectedCategory(cat);
+            setActiveView("grid");
+          }}
+          onLastChance={() => {
+            setActiveView("lastChance");
+            setSelectedRegion(null);
+            setSelectedCategory(null);
+          }}
+          onLogin={() => {
+            window.scrollTo({ top: 0, behavior: "smooth" });
+            setActiveView("login");
+          }}
+          onLogout={handleLogout}
+          onSettings={() => {
+            window.scrollTo({ top: 0, behavior: "smooth" });
+            setActiveView("settings");
+          }}
+          onSubscriptions={() => {
+            window.scrollTo({ top: 0, behavior: "smooth" });
+            setActiveView("subscriptions");
+          }}
+          onCreateAuction={() => {
+            window.scrollTo({ top: 0, behavior: "smooth" });
+            setActiveView("createAuction");
+          }}
+          onMyWinnings={() => {
+            window.scrollTo({ top: 0, behavior: "smooth" });
+            setActiveView("winnings");
+          }}
+          onMyBids={() => {
+            window.scrollTo({ top: 0, behavior: "smooth" });
+            setActiveView("myBids");
+          }}
+          onMySold={() => {
+            window.scrollTo({ top: 0, behavior: "smooth" });
+            setActiveView("mySold");
+          }}
+          onMyUnsold={() => {
+            window.scrollTo({ top: 0, behavior: "smooth" });
+            setActiveView("myUnsold");
+          }}
+          onWatchlist={() => {
+            window.scrollTo({ top: 0, behavior: "smooth" });
+            setActiveView("watchlist");
+          }}
+          onMessages={() => {
+            window.scrollTo({ top: 0, behavior: "smooth" });
+            setActiveView("messages");
+          }}
+          activeView={activeView}
+          selectedRegion={selectedRegion}
+          selectedCategory={selectedCategory}
+          isLoggedIn={isLoggedIn}
+          isVerified={isVerified}
+          language={language}
+          onLanguageChange={setLanguage}
+          t={t}
+          auctions={auctions}
+          userEmail={userData.email}
+          userProfilePicture={
+            userData.profile_picture_url || userData.profilePicture
+          }
         />
         <main>{content}</main>
-        {activeView === 'grid' && <Footer t={t} onLegal={setActiveLegal} />}
+        {activeView === "grid" && <Footer t={t} onLegal={setActiveLegal} />}
         {showTermsModal && (
-            <div className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-6 animate-in">
-                <div className="bg-white w-full max-w-xl rounded-[3rem] p-10 lg:p-14 shadow-2xl relative">
-                    <button onClick={handleCancelTerms} className="absolute top-8 right-8 text-slate-400 hover:text-[#0A1128] transition-colors"><X size={24}/></button>
-                    <div className="bg-[#FEBA4F] w-20 h-20 rounded-3xl flex items-center justify-center mb-8 shadow-lg shadow-[#FEBA4F]/20">
-                        <ShieldCheck size={40} className="text-[#0A1128]" />
-                    </div>
-                    <h2 className="text-3xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">Splošni pogoji poslovanja</h2>
-                    <p className="text-slate-500 font-bold leading-relaxed mb-6">
-                        Z oddajo ponudbe potrjujete, da se strinjate s splošnimi pogoji poslovanja platforme Drazba.si. 
-                        Vaša ponudba je pravno zavezujoča. V primeru, da zmagate na dražbi, ste dolžni predmet prevzeti in plačati v skladu s pogoji prodajalca.
-                    </p>
-                    <label className="flex items-center gap-3 mb-10 cursor-pointer group">
-                        <div className={`w-6 h-6 rounded-md border-2 flex items-center justify-center transition-all ${dontShowTermsAgain ? 'bg-[#FEBA4F] border-[#FEBA4F]' : 'border-slate-300 group-hover:border-[#FEBA4F]'}`}>
-                            {dontShowTermsAgain && <CheckCircle2 size={16} className="text-[#0A1128]" />}
-                        </div>
-                        <span className="text-sm font-bold text-slate-600 select-none">Ne prikaži več tega obvestila</span>
-                        <input 
-                            type="checkbox" 
-                            className="hidden" 
-                            checked={dontShowTermsAgain} 
-                            onChange={(e) => setDontShowTermsAgain(e.target.checked)} 
-                        />
-                    </label>
-                    <button 
-                        onClick={handleAcceptTerms}
-                        className="w-full bg-[#0A1128] text-white py-6 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl"
-                    >
-                        Strinjam se in potrjujem ponudbo
-                    </button>
+          <div className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-6 animate-in">
+            <div className="bg-white w-full max-w-xl rounded-[3rem] p-10 lg:p-14 shadow-2xl relative">
+              <button
+                onClick={handleCancelTerms}
+                className="absolute top-8 right-8 text-slate-400 hover:text-[#0A1128] transition-colors"
+              >
+                <X size={24} />
+              </button>
+              <div className="bg-[#FEBA4F] w-20 h-20 rounded-3xl flex items-center justify-center mb-8 shadow-lg shadow-[#FEBA4F]/20">
+                <ShieldCheck size={40} className="text-[#0A1128]" />
+              </div>
+              <h2 className="text-3xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">
+                Splošni pogoji poslovanja
+              </h2>
+              <p className="text-slate-500 font-bold leading-relaxed mb-6">
+                Z oddajo ponudbe potrjujete, da se strinjate s splošnimi pogoji
+                poslovanja platforme Drazba.si. Vaša ponudba je pravno
+                zavezujoča. V primeru, da zmagate na dražbi, ste dolžni predmet
+                prevzeti in plačati v skladu s pogoji prodajalca.
+              </p>
+              <label className="flex items-center gap-3 mb-10 cursor-pointer group">
+                <div
+                  className={`w-6 h-6 rounded-md border-2 flex items-center justify-center transition-all ${dontShowTermsAgain ? "bg-[#FEBA4F] border-[#FEBA4F]" : "border-slate-300 group-hover:border-[#FEBA4F]"}`}
+                >
+                  {dontShowTermsAgain && (
+                    <CheckCircle2 size={16} className="text-[#0A1128]" />
+                  )}
                 </div>
+                <span className="text-sm font-bold text-slate-600 select-none">
+                  Ne prikaži več tega obvestila
+                </span>
+                <input
+                  type="checkbox"
+                  className="hidden"
+                  checked={dontShowTermsAgain}
+                  onChange={(e) => setDontShowTermsAgain(e.target.checked)}
+                />
+              </label>
+              <button
+                onClick={handleAcceptTerms}
+                className="w-full bg-[#0A1128] text-white py-6 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl"
+              >
+                Strinjam se in potrjujem ponudbo
+              </button>
             </div>
+          </div>
         )}
         {pendingBid && (
-            <ConfirmBidModal 
-                isOpen={showConfirmBidModal}
-                onClose={handleCancelConfirmBid}
-                item={pendingBid.item}
-                initialBidAmount={pendingBid.amount}
-                currentPlan={currentPlan}
-                t={t}
-                onConfirm={handleConfirmBid}
-                userData={userData}
-            />
+          <ConfirmBidModal
+            isOpen={showConfirmBidModal}
+            onClose={handleCancelConfirmBid}
+            item={pendingBid.item}
+            initialBidAmount={pendingBid.amount}
+            currentPlan={currentPlan}
+            t={t}
+            onConfirm={handleConfirmBid}
+            userData={userData}
+          />
         )}
-        {activeLegal && <LegalModal type={activeLegal} onClose={() => setActiveLegal(null)} t={t} />}
+        {activeLegal && (
+          <LegalModal
+            type={activeLegal}
+            onClose={() => setActiveLegal(null)}
+            t={t}
+          />
+        )}
 
         {/* Modals for delivery and rating */}
         {deliveryMethodModal.isOpen && (
-            <div className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-6 animate-in">
-                <div className="bg-white w-full max-w-lg rounded-[3rem] p-10 shadow-2xl relative">
-                    <button onClick={() => setDeliveryMethodModal({ isOpen: false, auctionId: '', deliveryMethod: null })} className="absolute top-8 right-8 text-slate-400 hover:text-[#0A1128] transition-colors"><X size={24}/></button>
-                    <h2 className="text-2xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">Način predaje</h2>
-                    <p className="text-slate-500 font-bold mb-8">Izberite, na kakšen način boste predmet predali kupcu.</p>
-                    <div className="grid grid-cols-2 gap-4 mb-8">
-                        <button 
-                            onClick={() => setDeliveryMethodModal(prev => ({ ...prev, deliveryMethod: 'pickup' }))}
-                            className={`p-6 rounded-2xl border-4 transition-all flex flex-col items-center gap-3 ${deliveryMethodModal.deliveryMethod === 'pickup' ? 'border-[#FEBA4F] bg-[#FEBA4F]/10' : 'border-slate-100 hover:border-slate-200 bg-white'}`}
-                        >
-                            <MapPin size={32} className={deliveryMethodModal.deliveryMethod === 'pickup' ? 'text-[#FEBA4F]' : 'text-slate-400'} />
-                            <span className="font-bold text-sm text-[#0A1128]">Osebni prevzem</span>
-                        </button>
-                        <button 
-                            onClick={() => setDeliveryMethodModal(prev => ({ ...prev, deliveryMethod: 'post' }))}
-                            className={`p-6 rounded-2xl border-4 transition-all flex flex-col items-center gap-3 ${deliveryMethodModal.deliveryMethod === 'post' ? 'border-[#FEBA4F] bg-[#FEBA4F]/10' : 'border-slate-100 hover:border-slate-200 bg-white'}`}
-                        >
-                            <Truck size={32} className={deliveryMethodModal.deliveryMethod === 'post' ? 'text-[#FEBA4F]' : 'text-slate-400'} />
-                            <span className="font-bold text-sm text-[#0A1128]">Pošiljanje po pošti</span>
-                        </button>
-                    </div>
-                    <button 
-                        onClick={handleDeliveryMethodSubmit}
-                        disabled={!deliveryMethodModal.deliveryMethod}
-                        className="w-full bg-[#0A1128] text-white py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                        Potrdi izbiro
-                    </button>
-                </div>
+          <div className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-6 animate-in">
+            <div className="bg-white w-full max-w-lg rounded-[3rem] p-10 shadow-2xl relative">
+              <button
+                onClick={() =>
+                  setDeliveryMethodModal({
+                    isOpen: false,
+                    auctionId: "",
+                    deliveryMethod: null,
+                  })
+                }
+                className="absolute top-8 right-8 text-slate-400 hover:text-[#0A1128] transition-colors"
+              >
+                <X size={24} />
+              </button>
+              <h2 className="text-2xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">
+                Način predaje
+              </h2>
+              <p className="text-slate-500 font-bold mb-8">
+                Izberite, na kakšen način boste predmet predali kupcu.
+              </p>
+              <div className="grid grid-cols-2 gap-4 mb-8">
+                <button
+                  onClick={() =>
+                    setDeliveryMethodModal((prev) => ({
+                      ...prev,
+                      deliveryMethod: "pickup",
+                    }))
+                  }
+                  className={`p-6 rounded-2xl border-4 transition-all flex flex-col items-center gap-3 ${deliveryMethodModal.deliveryMethod === "pickup" ? "border-[#FEBA4F] bg-[#FEBA4F]/10" : "border-slate-100 hover:border-slate-200 bg-white"}`}
+                >
+                  <MapPin
+                    size={32}
+                    className={
+                      deliveryMethodModal.deliveryMethod === "pickup"
+                        ? "text-[#FEBA4F]"
+                        : "text-slate-400"
+                    }
+                  />
+                  <span className="font-bold text-sm text-[#0A1128]">
+                    Osebni prevzem
+                  </span>
+                </button>
+                <button
+                  onClick={() =>
+                    setDeliveryMethodModal((prev) => ({
+                      ...prev,
+                      deliveryMethod: "post",
+                    }))
+                  }
+                  className={`p-6 rounded-2xl border-4 transition-all flex flex-col items-center gap-3 ${deliveryMethodModal.deliveryMethod === "post" ? "border-[#FEBA4F] bg-[#FEBA4F]/10" : "border-slate-100 hover:border-slate-200 bg-white"}`}
+                >
+                  <Truck
+                    size={32}
+                    className={
+                      deliveryMethodModal.deliveryMethod === "post"
+                        ? "text-[#FEBA4F]"
+                        : "text-slate-400"
+                    }
+                  />
+                  <span className="font-bold text-sm text-[#0A1128]">
+                    Pošiljanje po pošti
+                  </span>
+                </button>
+              </div>
+              <button
+                onClick={handleDeliveryMethodSubmit}
+                disabled={!deliveryMethodModal.deliveryMethod}
+                className="w-full bg-[#0A1128] text-white py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Potrdi izbiro
+              </button>
             </div>
+          </div>
         )}
 
         {receiptConfirmModal.isOpen && (
-            <div className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-6 animate-in">
-                <div className="bg-white w-full max-w-md rounded-[3rem] p-10 shadow-2xl relative text-center">
-                    <button onClick={() => setReceiptConfirmModal({ isOpen: false, auctionId: '', sellerId: '' })} className="absolute top-8 right-8 text-slate-400 hover:text-[#0A1128] transition-colors"><X size={24}/></button>
-                    <div className="bg-green-100 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6">
-                        <CheckCircle2 size={40} className="text-green-600" />
-                    </div>
-                    <h2 className="text-2xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">Potrditev prejema</h2>
-                    <p className="text-slate-500 font-bold mb-8">S potrditvijo izjavljate, da ste predmet uspešno prevzeli. Dejanja ni mogoče razveljaviti.</p>
-                    <div className="flex flex-col gap-3">
-                        <button 
-                            onClick={handleReceiptConfirmSubmit}
-                            className="w-full bg-[#0A1128] text-white py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all"
-                        >
-                            Dokončno potrdi prejem
-                        </button>
-                        <button 
-                            onClick={() => setReceiptConfirmModal({ isOpen: false, auctionId: '', sellerId: '' })}
-                            className="w-full bg-slate-100 text-slate-600 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-slate-200 transition-all"
-                        >
-                            Prekliči
-                        </button>
-                    </div>
-                </div>
+          <div className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-6 animate-in">
+            <div className="bg-white w-full max-w-md rounded-[3rem] p-10 shadow-2xl relative text-center">
+              <button
+                onClick={() =>
+                  setReceiptConfirmModal({
+                    isOpen: false,
+                    auctionId: "",
+                    sellerId: "",
+                  })
+                }
+                className="absolute top-8 right-8 text-slate-400 hover:text-[#0A1128] transition-colors"
+              >
+                <X size={24} />
+              </button>
+              <div className="bg-green-100 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6">
+                <CheckCircle2 size={40} className="text-green-600" />
+              </div>
+              <h2 className="text-2xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">
+                Potrditev prejema
+              </h2>
+              <p className="text-slate-500 font-bold mb-8">
+                S potrditvijo izjavljate, da ste predmet uspešno prevzeli.
+                Dejanja ni mogoče razveljaviti.
+              </p>
+              <div className="flex flex-col gap-3">
+                <button
+                  onClick={handleReceiptConfirmSubmit}
+                  className="w-full bg-[#0A1128] text-white py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all"
+                >
+                  Dokončno potrdi prejem
+                </button>
+                <button
+                  onClick={() =>
+                    setReceiptConfirmModal({
+                      isOpen: false,
+                      auctionId: "",
+                      sellerId: "",
+                    })
+                  }
+                  className="w-full bg-slate-100 text-slate-600 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-slate-200 transition-all"
+                >
+                  Prekliči
+                </button>
+              </div>
             </div>
+          </div>
         )}
 
         {ratingModal.isOpen && (
-            <div className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-6 animate-in">
-                <div className="bg-white w-full max-w-lg rounded-[3rem] p-10 shadow-2xl relative">
-                    <button onClick={() => setRatingModal({ isOpen: false, auctionId: '', sellerId: '', rating: 0, comment: '' })} className="absolute top-8 right-8 text-slate-400 hover:text-[#0A1128] transition-colors"><X size={24}/></button>
-                    <h2 className="text-2xl font-black text-[#0A1128] uppercase tracking-tighter mb-4 text-center">Oceni prodajalca</h2>
-                    <p className="text-slate-500 font-bold mb-8 text-center">Vaša ocena pomaga graditi zaupanje v skupnosti.</p>
-                    
-                    <div className="flex items-center justify-center gap-2 mb-8">
-                        {[1, 2, 3, 4, 5].map((star) => (
-                            <button 
-                                key={star}
-                                onClick={() => setRatingModal(prev => ({ ...prev, rating: star }))}
-                                className="group transition-transform hover:scale-110"
-                            >
-                                <Star 
-                                    size={40} 
-                                    className={`${star <= ratingModal.rating ? 'text-[#FEBA4F] fill-[#FEBA4F]' : 'text-slate-200'} group-hover:text-[#FEBA4F] transition-colors`} 
-                                />
-                            </button>
-                        ))}
-                    </div>
+          <div className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-6 animate-in">
+            <div className="bg-white w-full max-w-lg rounded-[3rem] p-10 shadow-2xl relative">
+              <button
+                onClick={() =>
+                  setRatingModal({
+                    isOpen: false,
+                    auctionId: "",
+                    sellerId: "",
+                    rating: 0,
+                    comment: "",
+                  })
+                }
+                className="absolute top-8 right-8 text-slate-400 hover:text-[#0A1128] transition-colors"
+              >
+                <X size={24} />
+              </button>
+              <h2 className="text-2xl font-black text-[#0A1128] uppercase tracking-tighter mb-4 text-center">
+                Oceni prodajalca
+              </h2>
+              <p className="text-slate-500 font-bold mb-8 text-center">
+                Vaša ocena pomaga graditi zaupanje v skupnosti.
+              </p>
 
-                    <div className="mb-8">
-                        <label className="block text-sm font-black text-[#0A1128] uppercase tracking-widest mb-3">Komentar (izbirno)</label>
-                        <textarea 
-                            value={ratingModal.comment}
-                            onChange={(e) => setRatingModal(prev => ({ ...prev, comment: e.target.value }))}
-                            className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold text-sm focus:outline-none focus:border-[#FEBA4F] transition-colors h-32 resize-none"
-                            placeholder="Vpišite vašo izkušnjo s prodajalcem..."
-                        />
-                    </div>
+              <div className="flex items-center justify-center gap-2 mb-8">
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <button
+                    key={star}
+                    onClick={() =>
+                      setRatingModal((prev) => ({ ...prev, rating: star }))
+                    }
+                    className="group transition-transform hover:scale-110"
+                  >
+                    <Star
+                      size={40}
+                      className={`${star <= ratingModal.rating ? "text-[#FEBA4F] fill-[#FEBA4F]" : "text-slate-200"} group-hover:text-[#FEBA4F] transition-colors`}
+                    />
+                  </button>
+                ))}
+              </div>
 
-                    <button 
-                        onClick={handleRatingSubmit}
-                        disabled={ratingModal.rating === 0}
-                        className="w-full bg-[#0A1128] text-white py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                        Oddaj oceno
-                    </button>
-                </div>
+              <div className="mb-8">
+                <label className="block text-sm font-black text-[#0A1128] uppercase tracking-widest mb-3">
+                  Komentar (izbirno)
+                </label>
+                <textarea
+                  value={ratingModal.comment}
+                  onChange={(e) =>
+                    setRatingModal((prev) => ({
+                      ...prev,
+                      comment: e.target.value,
+                    }))
+                  }
+                  className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold text-sm focus:outline-none focus:border-[#FEBA4F] transition-colors h-32 resize-none"
+                  placeholder="Vpišite vašo izkušnjo s prodajalcem..."
+                />
+              </div>
+
+              <button
+                onClick={handleRatingSubmit}
+                disabled={ratingModal.rating === 0}
+                className="w-full bg-[#0A1128] text-white py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Oddaj oceno
+              </button>
             </div>
+          </div>
         )}
 
         {isCheckoutOpen && checkoutData && (
-            <CheckoutModal 
-                isOpen={isCheckoutOpen}
-                t={t} 
-                language={language}
-                amount={checkoutData.amount} 
-                title={checkoutData.title} 
-                onClose={() => setIsCheckoutOpen(false)} 
-                onSuccess={checkoutData.onSuccess} 
-                metadata={checkoutData.metadata}
-            />
+          <CheckoutModal
+            isOpen={isCheckoutOpen}
+            t={t}
+            language={language}
+            amount={checkoutData.amount}
+            title={checkoutData.title}
+            onClose={() => setIsCheckoutOpen(false)}
+            onSuccess={checkoutData.onSuccess}
+            metadata={checkoutData.metadata}
+          />
         )}
         {showBackToTop && (
-            <button 
-                onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} 
-                className="fixed bottom-12 right-12 bg-[#FEBA4F] text-[#0A1128] p-4 rounded-full shadow-2xl hover:scale-110 transition-transform z-50 border-2 border-[#0A1128]"
-            >
-                <ArrowUp size={24} strokeWidth={3} />
-            </button>
+          <button
+            onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+            className="fixed bottom-12 right-12 bg-[#FEBA4F] text-[#0A1128] p-4 rounded-full shadow-2xl hover:scale-110 transition-transform z-50 border-2 border-[#0A1128]"
+          >
+            <ArrowUp size={24} strokeWidth={3} />
+          </button>
         )}
-    </div>
+      </div>
     </ChatProvider>
   );
 };
