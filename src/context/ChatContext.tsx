@@ -430,9 +430,9 @@ export const ChatProvider: React.FC<{
     }
   }, [fetchUnread]);
 
-  const setupGlobalChannel = useCallback(async () => {
+  const setupGlobalChannel = useCallback(async (force = false) => {
     if (!userIdRef.current) return;
-    if (isReconnectingRef.current) return;
+    if (isReconnectingRef.current && !force) return;
 
     if (reconnectAttemptsRef.current >= 5) {
       console.warn(
@@ -446,8 +446,10 @@ export const ChatProvider: React.FC<{
 
     if (globalChannelRef.current) {
       try {
+        globalChannelRef.current.off("postgres_changes");
+        globalChannelRef.current.off("broadcast");
         await globalChannelRef.current.unsubscribe();
-        supabase.removeChannel(globalChannelRef.current);
+        await supabase.removeChannel(globalChannelRef.current);
       } catch (e) {}
       globalChannelRef.current = null;
     }
@@ -791,7 +793,7 @@ export const ChatProvider: React.FC<{
           isConnectingRef.current
         ) {
           console.log("ChatContext: Socket disconnected or recovering. Forcing resubscription.");
-          setupGlobalChannel();
+          setupGlobalChannel(true);
         }
 
         if (!isMounted) return;
@@ -843,11 +845,20 @@ export const ChatProvider: React.FC<{
         if (convId && isMounted) {
           setActiveConversationId(convId);
 
-          const { data: msgData, error } = await supabase
+          const fetchPromise = supabase
             .from("messages")
             .select("*")
             .eq("conversation_id", convId)
             .order("created_at", { ascending: true });
+
+          const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("Timeout_Fetching_Messages")), 5000)
+          );
+
+          const { data: msgData, error } = (await Promise.race([
+            fetchPromise,
+            timeoutPromise,
+          ])) as any;
 
           if (error) throw error;
 
@@ -868,8 +879,12 @@ export const ChatProvider: React.FC<{
             fetchUnread(cIds);
           }
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error("Error loading messages:", err);
+        if (err.message === "Timeout_Fetching_Messages") {
+            console.warn("Message fetch timed out. Forcing channel recreation.");
+            setupGlobalChannel(true);
+        }
       } finally {
         if (isMounted) setLoadingMessages(false);
       }

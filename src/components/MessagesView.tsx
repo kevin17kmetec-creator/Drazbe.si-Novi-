@@ -3,6 +3,18 @@ import { ArrowLeft, SendHorizontal, Image as ImageIcon, Check, CheckCheck, Loade
 import { AuctionItem } from '../../types';
 import { useChat } from '../context/ChatContext';
 
+const AvatarImage: React.FC<{ src: string; className: string; fallbackSize?: number }> = ({ src, className, fallbackSize = 20 }) => {
+    const [error, setError] = useState(false);
+    if (error || !src) {
+        return (
+            <div className={`${className} bg-slate-200 flex items-center justify-center text-slate-400`}>
+                <User size={fallbackSize} />
+            </div>
+        );
+    }
+    return <img src={src} className={className} onError={() => setError(true)} alt="Avatar" />;
+};
+
 export const MessagesView: React.FC<{
   userId: string;
   t: (k: string) => string;
@@ -134,11 +146,7 @@ export const MessagesView: React.FC<{
                                     className={`flex items-center gap-4 p-3 rounded-2xl cursor-pointer transition-all ${isActive ? 'bg-white shadow-md border-2 border-[#FEBA4F]' : 'border-2 border-transparent hover:bg-slate-100'}`}
                                 >
                                     <div className="relative">
-                                        {c.user?.profilePicture ? (
-                                            <img src={c.user.profilePicture} className="w-12 h-12 rounded-full object-cover shadow-sm bg-slate-200" />
-                                        ) : (
-                                            <div className="w-12 h-12 rounded-full bg-slate-200 flex items-center justify-center text-slate-400"><User size={20} /></div>
-                                        )}
+                                        <AvatarImage src={c.user?.profilePicture || ''} className="w-12 h-12 rounded-full object-cover shadow-sm" fallbackSize={20} />
                                         {isOnline && <div className="absolute top-0 right-0 w-3.5 h-3.5 bg-green-500 border-2 border-white rounded-full"></div>}
                                         <div className="absolute -bottom-1 -left-1 w-5 h-5 rounded-full border-2 border-white overflow-hidden shadow-sm">
                                             <img src={typeof c.auction.images[0] === 'string' ? c.auction.images[0].replace(/([\[\]"'])/g, '') : ''} className="w-full h-full object-cover" />
@@ -169,11 +177,7 @@ export const MessagesView: React.FC<{
                         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between shadow-sm z-10 sticky top-0 bg-white/80 backdrop-blur-md">
                             <div className="flex items-center gap-4">
                                 <div className="relative">
-                                    {currentChatConv.user?.profilePicture ? (
-                                        <img src={currentChatConv.user.profilePicture} className="w-10 h-10 rounded-full object-cover shadow-sm" />
-                                    ) : (
-                                        <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400"><User size={20} /></div>
-                                    )}
+                                    <AvatarImage src={currentChatConv.user?.profilePicture || ''} className="w-10 h-10 rounded-full object-cover shadow-sm" fallbackSize={20} />
                                     {onlineUsers.has(currentChatConv.otherUserId) && <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 border-2 border-white rounded-full"></div>}
                                 </div>
                                 <div>
