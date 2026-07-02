@@ -455,15 +455,15 @@ export const ChatProvider: React.FC<{
 
     isReconnectingRef.current = true;
 
-    if (globalChannelRef.current) {
-      try {
+    try {
+      if (globalChannelRef.current) {
         globalChannelRef.current.off("postgres_changes");
         globalChannelRef.current.off("broadcast");
         await globalChannelRef.current.unsubscribe();
-        await supabase.removeChannel(globalChannelRef.current);
-      } catch (e) {}
-      globalChannelRef.current = null;
-    }
+      }
+      await supabase.removeAllChannels();
+    } catch (e) {}
+    globalChannelRef.current = null;
 
     setConnectionState(true);
 
@@ -714,13 +714,14 @@ export const ChatProvider: React.FC<{
       if (conversations.length === 0 && loadingChats) return;
 
       if (safetyTimerRef.current) clearTimeout(safetyTimerRef.current);
-      // Hard safety net: Force spinner off after 6 seconds
+      // Hard safety net: Force spinner off after 4 seconds
       safetyTimerRef.current = setTimeout(() => {
         if (isMountedRef.current) {
-          console.warn("Safety Timer: Forced setLoadingMessages(false) after 6s timeout.");
+          console.warn("Safety Timer: Forced setLoadingMessages(false) after 4s timeout. Triggering soft refresh.");
           setLoadingMessages(false);
+          setReloadTrigger(prev => prev + 1);
         }
-      }, 6000);
+      }, 4000);
 
       setLoadingMessages(true);
       setMessages([]);
@@ -907,21 +908,7 @@ export const ChatProvider: React.FC<{
     };
   }, [activeChat, userId, conversations.length, loadingChats, fetchUnread, reloadTrigger]);
 
-  // Final 8-second fallback if messages stay empty after load completes
-  useEffect(() => {
-    if (activeChat && !loadingMessages && messages.length === 0) {
-      if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
-      fallbackTimerRef.current = setTimeout(() => {
-        if (isMountedRef.current && activeChat && !loadingMessages && messages.length === 0) {
-          console.warn("Fallback Timer: Messages still empty after 8s. Forcing soft refresh.");
-          setReloadTrigger(prev => prev + 1);
-        }
-      }, 8000);
-    }
-    return () => {
-      if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
-    };
-  }, [activeChat, loadingMessages, messages.length]);
+
 
   const setTyping = (isTyping: boolean) => {
     if (!globalChannelRef.current || !activeConversationId) return;
