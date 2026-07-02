@@ -819,20 +819,53 @@ export const ChatProvider: React.FC<{
         if (convId && isMounted) {
           setActiveConversationId(convId);
 
-          const fetchPromise = supabase
-            .from("messages")
-            .select("*")
-            .eq("conversation_id", convId)
-            .order("created_at", { ascending: true });
+          let msgData = null;
+          let error = null;
 
-          const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error("Timeout_Fetching_Messages")), 5000)
-          );
+          const attemptFetch = async () => {
+            const controller = new AbortController();
+            const fetchPromise = supabase
+              .from("messages")
+              .select("*")
+              .eq("conversation_id", convId)
+              .order("created_at", { ascending: true })
+              .abortSignal(controller.signal);
 
-          const { data: msgData, error } = (await Promise.race([
-            fetchPromise,
-            timeoutPromise,
-          ])) as any;
+            const timeoutId = setTimeout(() => {
+              controller.abort();
+            }, 2500);
+
+            try {
+              const res = await fetchPromise;
+              clearTimeout(timeoutId);
+              return res;
+            } catch (err: any) {
+              clearTimeout(timeoutId);
+              if (err.name === "AbortError") {
+                throw new Error("Timeout_Fetching_Messages");
+              }
+              throw err;
+            }
+          };
+
+          try {
+            const result = await attemptFetch();
+            msgData = result.data;
+            error = result.error;
+          } catch (err: any) {
+             if (err.message === "Timeout_Fetching_Messages") {
+                console.warn("Message fetch attempt 1 timed out. Refreshing session and retrying...");
+                const { error: refreshErr, data: refreshData } = await supabase.auth.refreshSession();
+                if (!refreshErr && refreshData?.session?.access_token) {
+                   supabase.realtime.setAuth(refreshData.session.access_token);
+                }
+                const result2 = await attemptFetch();
+                msgData = result2.data;
+                error = result2.error;
+             } else {
+                 throw err;
+             }
+          }
 
           if (error) throw error;
 
