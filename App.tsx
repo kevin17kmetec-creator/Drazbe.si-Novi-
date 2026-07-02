@@ -473,6 +473,7 @@ const MainApp: React.FC = () => {
   const [isPollingStopped, setIsPollingStopped] = useState(false);
   const [isHydrating, setIsHydrating] = useState(true);
   const [settingsTab, setSettingsTab] = useState<'profile' | 'personal' | 'stripe'>('profile');
+  const [appWakeupTrigger, setAppWakeupTrigger] = useState(0);
 
   // URL and Path Preservation Hook
   useEffect(() => {
@@ -850,6 +851,7 @@ const MainApp: React.FC = () => {
     const handleVis = async () => {
       if (document.visibilityState === "visible") {
         const now = Date.now();
+        setAppWakeupTrigger(prev => prev + 1);
         fetchAuctions(); // Instantly refresh bids
         if (now - lastSessionCheckRef.current < 60000) return; // Only check once per minute on focus
 
@@ -3226,7 +3228,7 @@ const MainApp: React.FC = () => {
   }
 
   return (
-    <ChatProvider userId={userData.id} auctions={auctions}>
+    <ChatProvider userId={userData.id} auctions={auctions} appWakeupTrigger={appWakeupTrigger}>
       <div className="min-h-screen bg-[#f3f4f6] font-sans selection:bg-[#FEBA4F] selection:text-[#0A1128] overflow-x-hidden">
         <Toaster
           position="top-center"

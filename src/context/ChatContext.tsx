@@ -99,8 +99,9 @@ const removeFailedMessage = (convId: string, tempId: string) => {
 export const ChatProvider: React.FC<{
   userId: string;
   auctions: AuctionItem[];
+  appWakeupTrigger?: number;
   children: React.ReactNode;
-}> = ({ userId, auctions, children }) => {
+}> = ({ userId, auctions, appWakeupTrigger = 0, children }) => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeChat, setActiveChat] = useState<string | null>(null);
   const [activeConversationId, setActiveConversationId] = useState<
@@ -186,13 +187,15 @@ export const ChatProvider: React.FC<{
   }, [hardResetChatState]);
 
   useEffect(() => {
-    const handleFocus = async () => {
+    if (appWakeupTrigger === 0) return; // Ignore initial render
+
+    const handleWakeup = async () => {
       const isHealthy =
         globalChannelRef.current && globalChannelRef.current.state === "joined";
       if (isHealthy) return;
 
       console.warn(
-        "Window focus returned and socket is unhealthy. Attempting silent session refresh.",
+        "Wakeup trigger detected and socket is unhealthy. Attempting silent session refresh.",
       );
       reconnectAttemptsRef.current = 0;
       isReconnectingRef.current = false;
@@ -213,7 +216,7 @@ export const ChatProvider: React.FC<{
         if (data?.session?.access_token) {
           supabase.realtime.setAuth(data.session.access_token);
         }
-        setupGlobalChannel();
+        setupGlobalChannel(true);
         await resyncAll();
         setReloadTrigger((prev) => prev + 1);
       } catch (err) {
@@ -221,9 +224,8 @@ export const ChatProvider: React.FC<{
         window.location.reload();
       }
     };
-    window.addEventListener("focus", handleFocus);
-    return () => window.removeEventListener("focus", handleFocus);
-  }, [hardResetChatState]);
+    handleWakeup();
+  }, [appWakeupTrigger, hardResetChatState]);
 
   const activeConvIdRef = useRef<string | null>(null);
   activeConvIdRef.current = activeConversationId;
@@ -612,50 +614,6 @@ export const ChatProvider: React.FC<{
 
     setupGlobalChannel();
 
-    const handleVisibilityChange = async () => {
-      if (document.visibilityState === "visible") {
-        const isHealthy =
-          globalChannelRef.current &&
-          globalChannelRef.current.state === "joined";
-        if (isHealthy) return;
-
-        console.warn(
-          "Visibility returned and socket is unhealthy. Attempting silent session refresh.",
-        );
-        reconnectAttemptsRef.current = 0;
-        isReconnectingRef.current = false;
-
-        if (tabReturnWatchdogRef.current)
-          clearTimeout(tabReturnWatchdogRef.current);
-
-        tabReturnWatchdogRef.current = setTimeout(() => {
-          console.warn(
-            "Watchdog: Silent recovery timed out after 4s, forcing window reload to renew auth session.",
-          );
-          window.location.reload();
-        }, 4000);
-
-        try {
-          const { error, data } = await supabase.auth.refreshSession();
-          if (error) throw error;
-          if (data?.session?.access_token) {
-            supabase.realtime.setAuth(data.session.access_token);
-          }
-          setupGlobalChannel();
-          await resyncAll();
-          setReloadTrigger((prev) => prev + 1);
-        } catch (err) {
-          console.error(
-            "Watchdog: Silent refresh failed, forcing reload:",
-            err,
-          );
-          window.location.reload();
-        }
-      }
-    };
-
-    window.addEventListener("visibilitychange", handleVisibilityChange);
-
     const pingInterval = setInterval(() => {
       if (
         globalChannelRef.current &&
@@ -676,7 +634,6 @@ export const ChatProvider: React.FC<{
           supabase.removeChannel(globalChannelRef.current);
         } catch (_) {}
       }
-      window.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [userId, setupGlobalChannel, hardResetChatState]);
 
@@ -764,7 +721,16 @@ export const ChatProvider: React.FC<{
       setOtherUserTyping(false);
 
       try {
-        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+        const sessionPromise = supabase.auth.getSession();
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("Session fetch timeout")), 2000)
+        );
+
+        const { data: sessionData, error: sessionError } = (await Promise.race([
+          sessionPromise,
+          timeoutPromise,
+        ]).catch((e) => ({ data: { session: null }, error: e }))) as any;
+        
         let needsRefresh = false;
         
         if (sessionError || !sessionData?.session) {
@@ -779,7 +745,15 @@ export const ChatProvider: React.FC<{
 
         if (needsRefresh) {
           console.log("ChatContext: Session stale on active chat mount. Refreshing...");
-          const { error: refreshErr, data: refreshData } = await supabase.auth.refreshSession();
+          const refreshPromise = supabase.auth.refreshSession();
+          const refreshTimeout = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("Session refresh timeout")), 2000)
+          );
+          const { error: refreshErr, data: refreshData } = (await Promise.race([
+            refreshPromise,
+            refreshTimeout,
+          ]).catch((e) => ({ data: { session: null }, error: e }))) as any;
+          
           if (!refreshErr && refreshData?.session?.access_token) {
             supabase.realtime.setAuth(refreshData.session.access_token);
           }
