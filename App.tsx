@@ -1036,16 +1036,30 @@ const MainApp: React.FC = () => {
 
   useEffect(() => {
     const handleVis = async () => {
-      if (document.visibilityState === "visible") {
+      if (document.visibilityState === "hidden") {
+        try {
+          supabase.removeAllChannels();
+        } catch (e) {
+          console.warn("Global visibility cleanup error", e);
+        }
+      } else if (document.visibilityState === "visible") {
         setAppWakeupTrigger(prev => prev + 1);
         fetchAuctions(); // Instantly refresh bids
       }
     };
+    
+    const handleFocus = () => {
+      if (document.visibilityState === "visible") {
+        setAppWakeupTrigger(prev => prev + 1);
+        fetchAuctions();
+      }
+    };
+
     document.addEventListener("visibilitychange", handleVis);
-    window.addEventListener("focus", handleVis);
+    window.addEventListener("focus", handleFocus);
     return () => {
       document.removeEventListener("visibilitychange", handleVis);
-      window.removeEventListener("focus", handleVis);
+      window.removeEventListener("focus", handleFocus);
     };
   }, [fetchAuctions]);
 
@@ -1113,7 +1127,7 @@ const MainApp: React.FC = () => {
       if (timeoutId) clearTimeout(timeoutId);
       if (channel) supabase.removeChannel(channel).catch(() => {});
     };
-  }, [fetchAuctions]);
+  }, [fetchAuctions, appWakeupTrigger]);
 
   // Sync selectedItem if it was updated in the background
   useEffect(() => {

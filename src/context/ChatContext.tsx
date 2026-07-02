@@ -133,7 +133,8 @@ export const ChatProvider: React.FC<{
   const forceReconnectRef = useRef<() => void>(() => {});
   const reconnectAttemptsRef = useRef(0);
   const isReconnectingRef = useRef(false);
-  const tabReturnWatchdogRef = useRef<NodeJS.Timeout | null>(null);
+  const safetyTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const fallbackTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const hardResetChatState = useCallback(async () => {
     console.warn(
@@ -200,28 +201,36 @@ export const ChatProvider: React.FC<{
       reconnectAttemptsRef.current = 0;
       isReconnectingRef.current = false;
 
-      if (tabReturnWatchdogRef.current)
-        clearTimeout(tabReturnWatchdogRef.current);
-
-      tabReturnWatchdogRef.current = setTimeout(() => {
-        console.warn(
-          "Watchdog: Silent recovery timed out after 4s, forcing window reload to renew auth session.",
-        );
-        window.location.reload();
-      }, 4000);
+      const safeRefreshSession = async () => {
+        try {
+          const refreshPromise = supabase.auth.refreshSession();
+          const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("Refresh Timeout")), 2000)
+          );
+          const res = (await Promise.race([
+            refreshPromise,
+            timeoutPromise,
+          ])) as any;
+          if (res?.data?.session?.access_token) {
+            supabase.realtime.setAuth(res.data.session.access_token);
+          }
+          return res;
+        } catch (e) {
+          console.warn("Session refresh timed out or failed", e);
+          return { error: e };
+        }
+      };
 
       try {
-        const { error, data } = await supabase.auth.refreshSession();
-        if (error) throw error;
-        if (data?.session?.access_token) {
-          supabase.realtime.setAuth(data.session.access_token);
+        const { error } = await safeRefreshSession();
+        if (error) {
+           console.warn("Watchdog: Silent refresh returned error, continuing with recovery anyway:", error);
         }
         setupGlobalChannel(true);
         await resyncAll();
         setReloadTrigger((prev) => prev + 1);
       } catch (err) {
-        console.error("Watchdog: Silent refresh failed, forcing reload:", err);
-        window.location.reload();
+        console.error("Watchdog: Recovery failed completely:", err);
       }
     };
     handleWakeup();
@@ -549,13 +558,6 @@ export const ChatProvider: React.FC<{
           if (status === "SUBSCRIBED") {
             setConnectionState(false);
             reconnectAttemptsRef.current = 0;
-            if (tabReturnWatchdogRef.current) {
-              clearTimeout(tabReturnWatchdogRef.current);
-              tabReturnWatchdogRef.current = null;
-              console.log(
-                "Watchdog: Successful silent reconnection completed.",
-              );
-            }
           }
           if (
             status === "SYSTEM_ERROR" ||
@@ -565,14 +567,6 @@ export const ChatProvider: React.FC<{
           ) {
             setConnectionState(true);
             console.error("Global Channel Issue:", status, err);
-
-            if (tabReturnWatchdogRef.current) {
-              console.warn(
-                "Watchdog: Immediate failure after tab return, forcing window reload to renew auth session.",
-              );
-              window.location.reload();
-              return;
-            }
 
             reconnectAttemptsRef.current += 1;
             const delay = Math.min(
@@ -592,10 +586,6 @@ export const ChatProvider: React.FC<{
         setConnectionState(channel.state !== "joined");
         if (channel.state === "joined") {
           reconnectAttemptsRef.current = 0;
-          if (tabReturnWatchdogRef.current) {
-            clearTimeout(tabReturnWatchdogRef.current);
-            tabReturnWatchdogRef.current = null;
-          }
         }
       }
 
@@ -716,11 +706,21 @@ export const ChatProvider: React.FC<{
 
   // 4. Focus Chat Loading Logic
   useEffect(() => {
+    
     const loadMessages = async () => {
       if (!activeChat || !userId) return;
 
       // Allow conversations array to populate fully first during initial load
       if (conversations.length === 0 && loadingChats) return;
+
+      if (safetyTimerRef.current) clearTimeout(safetyTimerRef.current);
+      // Hard safety net: Force spinner off after 6 seconds
+      safetyTimerRef.current = setTimeout(() => {
+        if (isMountedRef.current) {
+          console.warn("Safety Timer: Forced setLoadingMessages(false) after 6s timeout.");
+          setLoadingMessages(false);
+        }
+      }, 6000);
 
       setLoadingMessages(true);
       setMessages([]);
@@ -747,99 +747,123 @@ export const ChatProvider: React.FC<{
           return;
         }
 
-        let convId = activeConvItem.id;
-
-        if (!convId) {
-          let { data: convData } = await supabase
-            .from("conversations")
-            .select("id")
-            .eq("auction_id", activeChat)
-            .or(
-              `and(participant_one.eq.${userId},participant_two.eq.${activeConvItem.otherUserId}),and(participant_one.eq.${activeConvItem.otherUserId},participant_two.eq.${userId})`,
-            )
-            .maybeSingle();
-
-          if (!convData) {
-            const { data: newConv } = await supabase
-              .from("conversations")
-              .insert([
-                {
-                  auction_id: activeChat,
-                  participant_one: userId,
-                  participant_two: activeConvItem.otherUserId,
-                },
-              ])
-              .select("id")
-              .single();
-            if (newConv) convData = newConv;
-          }
-          if (convData) convId = convData.id;
-
-          if (convId && isMountedRef.current) {
-            setConversations((prev) =>
-              prev.map((c) =>
-                c.auction.id === activeChat ? { ...c, id: convId } : c,
-              ),
-            );
-          }
-        }
-
-        if (convId && isMountedRef.current) {
-          setActiveConversationId(convId);
-
-          let msgData = null;
-          let error = null;
-
-          const attemptFetch = async () => {
-            const controller = new AbortController();
-            const fetchPromise = supabase
-              .from("messages")
-              .select("*")
-              .eq("conversation_id", convId)
-              .order("created_at", { ascending: true })
-              .abortSignal(controller.signal);
-
-            const timeoutId = setTimeout(() => {
-              controller.abort();
-            }, 2500);
-
+          const safeRefreshSession = async () => {
             try {
-              const res = await fetchPromise;
-              clearTimeout(timeoutId);
-              return res;
-            } catch (err: any) {
-              clearTimeout(timeoutId);
-              if (err.name === "AbortError") {
-                throw new Error("Timeout_Fetching_Messages");
+              const refreshPromise = supabase.auth.refreshSession();
+              const timeoutPromise = new Promise((_, reject) =>
+                setTimeout(() => reject(new Error("Refresh Timeout")), 2000)
+              );
+              const res = (await Promise.race([
+                refreshPromise,
+                timeoutPromise,
+              ])) as any;
+              if (res?.data?.session?.access_token) {
+                supabase.realtime.setAuth(res.data.session.access_token);
               }
-              throw err;
+              return res;
+            } catch (e) {
+              console.warn("Session refresh timed out or failed", e);
+              return { error: e };
             }
           };
 
-          try {
-            const result = await attemptFetch();
-            msgData = result.data;
-            error = result.error;
-            
-            if (error || !msgData) {
-              throw new Error("DB_Fetch_Error");
-            }
-          } catch (err: any) {
-             if (err.message === "Timeout_Fetching_Messages" || err.message === "DB_Fetch_Error") {
-                console.warn(`Message fetch attempt 1 failed (${err.message}). Refreshing session and retrying...`);
-                const { error: refreshErr, data: refreshData } = await supabase.auth.refreshSession();
-                if (!refreshErr && refreshData?.session?.access_token) {
-                   supabase.realtime.setAuth(refreshData.session.access_token);
+          const fetchWithRetry = async (
+            queryBuilderFn: (signal: AbortSignal) => any,
+            retryCount = 1
+          ) => {
+            let attempt = 0;
+            while (attempt <= retryCount) {
+              const controller = new AbortController();
+              const timeoutId = setTimeout(() => controller.abort(), 2500);
+              try {
+                const res = await queryBuilderFn(controller.signal);
+                clearTimeout(timeoutId);
+                if (res.error) throw res.error;
+                return res;
+              } catch (err: any) {
+                clearTimeout(timeoutId);
+                const isTimeout = err.name === "AbortError" || err.message?.includes("Timeout");
+                const isAuthError = err.code === "PGRST301" || err.code === "401" || err.message?.toLowerCase().includes("auth");
+                
+                if (attempt < retryCount && (isTimeout || isAuthError || !err.message)) {
+                  console.warn(`Query failed (${err.message || 'Unknown'}). Safe refreshing session and retrying...`);
+                  await safeRefreshSession();
+                  attempt++;
+                } else {
+                  throw err;
                 }
-                const result2 = await attemptFetch();
-                msgData = result2.data;
-                error = result2.error;
-             } else {
-                 throw err;
-             }
+              }
+            }
+          };
+
+          let convId = activeConvItem.id;
+
+          if (!convId) {
+            try {
+              let convData = await fetchWithRetry((signal) =>
+                supabase
+                  .from("conversations")
+                  .select("id")
+                  .eq("auction_id", activeChat)
+                  .or(
+                    `and(participant_one.eq.${userId},participant_two.eq.${activeConvItem.otherUserId}),and(participant_one.eq.${activeConvItem.otherUserId},participant_two.eq.${userId})`
+                  )
+                  .abortSignal(signal)
+                  .maybeSingle()
+              );
+
+              if (!convData?.data) {
+                const newConvRes = await fetchWithRetry((signal) =>
+                  supabase
+                    .from("conversations")
+                    .insert([
+                      {
+                        auction_id: activeChat,
+                        participant_one: userId,
+                        participant_two: activeConvItem.otherUserId,
+                      },
+                    ])
+                    .select("id")
+                    .abortSignal(signal)
+                    .single()
+                );
+                if (newConvRes?.data) convData = newConvRes;
+              }
+              if (convData?.data) convId = convData.data.id;
+
+              if (convId && isMountedRef.current) {
+                setConversations((prev) =>
+                  prev.map((c) =>
+                    c.auction.id === activeChat ? { ...c, id: convId } : c
+                  )
+                );
+              }
+            } catch (error) {
+              console.error("Error setting up conversation:", error);
+            }
           }
 
-          if (error) throw error;
+          if (convId && isMountedRef.current) {
+            setActiveConversationId(convId);
+
+            let msgData = null;
+            let error = null;
+
+            try {
+              const result = await fetchWithRetry((signal) =>
+                supabase
+                  .from("messages")
+                  .select("*")
+                  .eq("conversation_id", convId)
+                  .order("created_at", { ascending: true })
+                  .abortSignal(signal)
+              );
+              msgData = result.data;
+            } catch (err: any) {
+              error = err;
+            }
+
+            if (error) throw error;
 
           if (msgData && isMountedRef.current) {
             const failed = getFailedMessages(convId);
@@ -865,6 +889,7 @@ export const ChatProvider: React.FC<{
             setupGlobalChannel(true);
         }
       } finally {
+        if (safetyTimerRef.current) clearTimeout(safetyTimerRef.current);
         if (isMountedRef.current) setLoadingMessages(false);
       }
     };
@@ -876,7 +901,27 @@ export const ChatProvider: React.FC<{
       setMessages([]);
       setLoadingMessages(false);
     }
+    
+    return () => {
+        if (safetyTimerRef.current) clearTimeout(safetyTimerRef.current);
+    };
   }, [activeChat, userId, conversations.length, loadingChats, fetchUnread, reloadTrigger]);
+
+  // Final 8-second fallback if messages stay empty after load completes
+  useEffect(() => {
+    if (activeChat && !loadingMessages && messages.length === 0) {
+      if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
+      fallbackTimerRef.current = setTimeout(() => {
+        if (isMountedRef.current && activeChat && !loadingMessages && messages.length === 0) {
+          console.warn("Fallback Timer: Messages still empty after 8s. Forcing soft refresh.");
+          setReloadTrigger(prev => prev + 1);
+        }
+      }, 8000);
+    }
+    return () => {
+      if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
+    };
+  }, [activeChat, loadingMessages, messages.length]);
 
   const setTyping = (isTyping: boolean) => {
     if (!globalChannelRef.current || !activeConversationId) return;
