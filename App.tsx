@@ -847,81 +847,6 @@ const MainApp: React.FC = () => {
   const lastSessionCheckRef = useRef(0);
   const isCheckingSessionRef = useRef(false);
 
-  useEffect(() => {
-    const handleVis = async () => {
-      if (document.visibilityState === "visible") {
-        const now = Date.now();
-        setAppWakeupTrigger(prev => prev + 1);
-        fetchAuctions(); // Instantly refresh bids
-        if (now - lastSessionCheckRef.current < 60000) return; // Only check once per minute on focus
-
-        if (isCheckingSessionRef.current) return;
-        isCheckingSessionRef.current = true;
-
-        try {
-          // Use getSession with a timeout race to prevent infinite hanging
-          const sessionPromise = supabase.auth.getSession();
-          const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error("Session fetch timeout")), 5000),
-          );
-
-          const {
-            data: { session },
-            error,
-          } = (await Promise.race([sessionPromise, timeoutPromise])) as any;
-
-          lastSessionCheckRef.current = Date.now();
-
-          if (
-            error &&
-            (error.name === "AbortError" || error.message?.includes("timeout"))
-          ) {
-            console.warn(
-              "Session check aborted or timed out on visibility change.",
-            );
-            return;
-          }
-
-          if (session?.user) {
-            if (!isLoggedIn) {
-              // Recover session if it was lost
-              setIsLoggedIn(true);
-            }
-          } else if (!session && isLoggedIn) {
-            console.log("No session found on focus, logging out...");
-            setIsLoggedIn(false);
-            setIsVerified(false);
-            setUserData({
-              id: "",
-              firstName: "",
-              lastName: "",
-              username: "",
-              email: "",
-              profilePicture: "",
-              is_verified: false,
-              stripe_onboarding_complete: false,
-              profile_picture_url: "",
-              first_name: "",
-              last_name: "",
-            });
-          }
-        } catch (err: any) {
-          if (err.name !== "AbortError" && !err.message?.includes("timeout")) {
-            console.error("Session check error on visibility change:", err);
-          }
-        } finally {
-          isCheckingSessionRef.current = false;
-        }
-      }
-    };
-    document.addEventListener("visibilitychange", handleVis);
-    window.addEventListener("focus", handleVis);
-    return () => {
-      document.removeEventListener("visibilitychange", handleVis);
-      window.removeEventListener("focus", handleVis);
-    };
-  }, [userData.id, isLoggedIn]);
-
   const currentUserWinnings = useMemo(() => {
     if (!userData?.id) return [];
     return auctions
@@ -1108,6 +1033,21 @@ const MainApp: React.FC = () => {
       }
     }
   }, []);
+
+  useEffect(() => {
+    const handleVis = async () => {
+      if (document.visibilityState === "visible") {
+        setAppWakeupTrigger(prev => prev + 1);
+        fetchAuctions(); // Instantly refresh bids
+      }
+    };
+    document.addEventListener("visibilitychange", handleVis);
+    window.addEventListener("focus", handleVis);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVis);
+      window.removeEventListener("focus", handleVis);
+    };
+  }, [fetchAuctions]);
 
   // Effect to reset page and scroll to top on ANY view/category change
   useEffect(() => {

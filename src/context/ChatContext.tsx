@@ -706,10 +706,16 @@ export const ChatProvider: React.FC<{
     };
   }, [userId]);
 
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
   // 4. Focus Chat Loading Logic
   useEffect(() => {
-    let isMounted = true;
-
     const loadMessages = async () => {
       if (!activeChat || !userId) return;
 
@@ -721,44 +727,6 @@ export const ChatProvider: React.FC<{
       setOtherUserTyping(false);
 
       try {
-        const sessionPromise = supabase.auth.getSession();
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("Session fetch timeout")), 2000)
-        );
-
-        const { data: sessionData, error: sessionError } = (await Promise.race([
-          sessionPromise,
-          timeoutPromise,
-        ]).catch((e) => ({ data: { session: null }, error: e }))) as any;
-        
-        let needsRefresh = false;
-        
-        if (sessionError || !sessionData?.session) {
-          needsRefresh = true;
-        } else if (sessionData.session.expires_at) {
-          const expiresAt = sessionData.session.expires_at * 1000;
-          // Refresh if expiring within 5 minutes or already expired
-          if (Date.now() > expiresAt - 5 * 60 * 1000) {
-            needsRefresh = true;
-          }
-        }
-
-        if (needsRefresh) {
-          console.log("ChatContext: Session stale on active chat mount. Refreshing...");
-          const refreshPromise = supabase.auth.refreshSession();
-          const refreshTimeout = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error("Session refresh timeout")), 2000)
-          );
-          const { error: refreshErr, data: refreshData } = (await Promise.race([
-            refreshPromise,
-            refreshTimeout,
-          ]).catch((e) => ({ data: { session: null }, error: e }))) as any;
-          
-          if (!refreshErr && refreshData?.session?.access_token) {
-            supabase.realtime.setAuth(refreshData.session.access_token);
-          }
-        }
-
         if (
           !globalChannelRef.current ||
           globalChannelRef.current.state === "CLOSED" ||
@@ -770,7 +738,7 @@ export const ChatProvider: React.FC<{
           setupGlobalChannel(true);
         }
 
-        if (!isMounted) return;
+        if (!isMountedRef.current) return;
 
         const activeConvItem = conversations.find(
           (c) => c.auction.id === activeChat,
@@ -807,7 +775,7 @@ export const ChatProvider: React.FC<{
           }
           if (convData) convId = convData.id;
 
-          if (convId && isMounted) {
+          if (convId && isMountedRef.current) {
             setConversations((prev) =>
               prev.map((c) =>
                 c.auction.id === activeChat ? { ...c, id: convId } : c,
@@ -816,7 +784,7 @@ export const ChatProvider: React.FC<{
           }
         }
 
-        if (convId && isMounted) {
+        if (convId && isMountedRef.current) {
           setActiveConversationId(convId);
 
           let msgData = null;
@@ -852,9 +820,13 @@ export const ChatProvider: React.FC<{
             const result = await attemptFetch();
             msgData = result.data;
             error = result.error;
+            
+            if (error || !msgData) {
+              throw new Error("DB_Fetch_Error");
+            }
           } catch (err: any) {
-             if (err.message === "Timeout_Fetching_Messages") {
-                console.warn("Message fetch attempt 1 timed out. Refreshing session and retrying...");
+             if (err.message === "Timeout_Fetching_Messages" || err.message === "DB_Fetch_Error") {
+                console.warn(`Message fetch attempt 1 failed (${err.message}). Refreshing session and retrying...`);
                 const { error: refreshErr, data: refreshData } = await supabase.auth.refreshSession();
                 if (!refreshErr && refreshData?.session?.access_token) {
                    supabase.realtime.setAuth(refreshData.session.access_token);
@@ -869,7 +841,7 @@ export const ChatProvider: React.FC<{
 
           if (error) throw error;
 
-          if (msgData && isMounted) {
+          if (msgData && isMountedRef.current) {
             const failed = getFailedMessages(convId);
             const merged = [
               ...msgData.map((m: any) => ({ ...m, status: "sent" as const })),
@@ -893,7 +865,7 @@ export const ChatProvider: React.FC<{
             setupGlobalChannel(true);
         }
       } finally {
-        if (isMounted) setLoadingMessages(false);
+        if (isMountedRef.current) setLoadingMessages(false);
       }
     };
 
@@ -904,10 +876,6 @@ export const ChatProvider: React.FC<{
       setMessages([]);
       setLoadingMessages(false);
     }
-
-    return () => {
-      isMounted = false;
-    };
   }, [activeChat, userId, conversations.length, loadingChats, fetchUnread, reloadTrigger]);
 
   const setTyping = (isTyping: boolean) => {
