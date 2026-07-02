@@ -762,11 +762,44 @@ export const ChatProvider: React.FC<{
       setOtherUserTyping(false);
 
       try {
+        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+        let needsRefresh = false;
+        
+        if (sessionError || !sessionData?.session) {
+          needsRefresh = true;
+        } else if (sessionData.session.expires_at) {
+          const expiresAt = sessionData.session.expires_at * 1000;
+          // Refresh if expiring within 5 minutes or already expired
+          if (Date.now() > expiresAt - 5 * 60 * 1000) {
+            needsRefresh = true;
+          }
+        }
+
+        if (needsRefresh) {
+          console.log("ChatContext: Session stale on active chat mount. Refreshing...");
+          const { error: refreshErr, data: refreshData } = await supabase.auth.refreshSession();
+          if (!refreshErr && refreshData?.session?.access_token) {
+            supabase.realtime.setAuth(refreshData.session.access_token);
+          }
+        }
+
+        if (
+          !globalChannelRef.current ||
+          globalChannelRef.current.state === "CLOSED" ||
+          globalChannelRef.current.state === "ERRORED" ||
+          globalChannelRef.current.state === "CHANNEL_ERROR" || 
+          isConnectingRef.current
+        ) {
+          console.log("ChatContext: Socket disconnected or recovering. Forcing resubscription.");
+          setupGlobalChannel();
+        }
+
+        if (!isMounted) return;
+
         const activeConvItem = conversations.find(
           (c) => c.auction.id === activeChat,
         );
         if (!activeConvItem) {
-          if (isMounted) setLoadingMessages(false);
           return;
         }
 
