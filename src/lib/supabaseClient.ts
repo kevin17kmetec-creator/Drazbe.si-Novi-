@@ -1,10 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://placeholder.supabase.co';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'placeholder';
+const supabasePublishableKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'placeholder';
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.error("Missing critical Supabase environment variables! Please check your Vercel settings.");
+if (!supabaseUrl || !supabasePublishableKey || supabasePublishableKey === 'placeholder') {
+  console.error("Missing critical Supabase publishable key! Please check your environment variables or Vercel settings.");
 }
 
 // Forcefully clear any stale lock in localStorage to prevent 5000ms race conditions
@@ -24,7 +24,7 @@ if (typeof window !== 'undefined') {
   }
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+export const supabase = createClient(supabaseUrl, supabasePublishableKey, {
     auth: {
         autoRefreshToken: true,
         persistSession: true,
