@@ -4,15 +4,16 @@ import App from './App.tsx';
 import './index.css';
 
 if (typeof window !== "undefined") {
-  const silentPatterns = ["tabs:outgoing.message.ready", "SES", "MetaMask", "lockdown", "contentscript.js", "wallet", "ethereum", "inpage.js"];
+  // Ultra-aggressive global error silencer for extensions
+  const silentPatterns = ["tabs:outgoing", "tabs:outgoing.message.ready", "SES", "MetaMask", "lockdown", "contentscript", "wallet", "ethereum", "inpage.js", "chrome-extension", "moz-extension"];
   
-  const shouldSilence = (msg: string) => {
+  const shouldSilence = (msg: any) => {
     if (!msg) return false;
-    const msgStr = String(msg).toLowerCase();
+    const msgStr = typeof msg === 'string' ? msg.toLowerCase() : String(msg).toLowerCase();
     return silentPatterns.some(pattern => msgStr.includes(pattern.toLowerCase()));
   };
 
-  const silenceEvent = (event: ErrorEvent | PromiseRejectionEvent) => {
+  const silenceEvent = (event: Event) => {
     let msg = "";
     if (event instanceof ErrorEvent) {
       msg = event.message || (event.error && event.error.message) || "";
@@ -29,22 +30,24 @@ if (typeof window !== "undefined") {
   window.addEventListener("error", silenceEvent, true);
   window.addEventListener("unhandledrejection", silenceEvent, true);
 
-  // Aggressive monkey-patching of console methods
-  const originalConsoleError = console.error;
-  console.error = (...args) => {
-    const msg = args.map(a => (typeof a === 'string' ? a : (a?.message || ''))).join(' ');
-    if (shouldSilence(msg)) return;
-    originalConsoleError(...args);
-  };
-  
-  const originalConsoleWarn = console.warn;
-  console.warn = (...args) => {
-    const msg = args.map(a => (typeof a === 'string' ? a : (a?.message || ''))).join(' ');
-    if (shouldSilence(msg)) return;
-    originalConsoleWarn(...args);
-  };
+  // Deep monkey-patch of console
+  const methods = ['error', 'warn', 'info', 'log', 'debug'] as const;
+  methods.forEach(method => {
+    const original = console[method];
+    console[method] = (...args) => {
+      const msg = args.map(a => {
+        try {
+          return typeof a === 'string' ? a : (a?.message || JSON.stringify(a) || '');
+        } catch(e) {
+          return String(a);
+        }
+      }).join(' ');
+      if (shouldSilence(msg)) return;
+      original(...args);
+    };
+  });
 
-  // Prevent extensions from overriding window fetch or XHR with unhandled exceptions
+  // Protect global fetch from extensions
   const originalFetch = window.fetch;
   window.fetch = async (...args) => {
     try {

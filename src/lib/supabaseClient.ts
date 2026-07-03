@@ -7,12 +7,10 @@ if (!supabaseUrl || !supabasePublishableKey || supabasePublishableKey === 'place
   console.error("Missing critical Supabase publishable key! Please check your environment variables or Vercel settings.");
 }
 
-// Forcefully clear any stale lock in localStorage to prevent 5000ms race conditions
+// Forcefully clear any stale lock in localStorage to prevent tab-freeze race conditions
 if (typeof window !== 'undefined') {
   try {
     const projectId = new URL(supabaseUrl).hostname.split('.')[0];
-    const lockKey = `sb-${projectId}-auth-token-code-verifier`;
-    const fallbackLock = `sb-${projectId}-auth-token`;
     for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
         if (key && key.includes('auth-token') && key.includes('lock')) {
@@ -20,7 +18,7 @@ if (typeof window !== 'undefined') {
         }
     }
   } catch (err) {
-    console.warn('Could not clear auth locks:', err);
+    // Ignore
   }
 }
 
@@ -40,5 +38,10 @@ export const supabase = createClient(supabaseUrl, supabasePublishableKey, {
         },
         timeout: 30000,
         heartbeatIntervalMs: 15000,
+    },
+    global: {
+        headers: {
+            'x-application-name': 'drazba-realtime'
+        }
     }
 });
