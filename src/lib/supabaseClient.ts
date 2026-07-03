@@ -33,5 +33,11 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
             // Bypass Web Locks API to prevent tab-freeze deadlocks & 'steal' errors
             return await fn();
         }
+    },
+    realtime: {
+        params: {
+            eventsPerSecond: 40,
+        },
+        timeout: 30000,
     }
 });
