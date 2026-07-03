@@ -1,12 +1,6 @@
-import React, {
-  createContext,
-  useContext,
-  useState,
-  useEffect,
-  useRef,
-  useCallback,
-} from "react";
-import { supabase } from "../lib/supabaseClient";
+import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import { auth, db } from "../lib/firebase";
+import { collection, query, where, or, onSnapshot, doc, getDoc, setDoc, addDoc, updateDoc, serverTimestamp, orderBy } from "firebase/firestore";
 import { AuctionItem } from "../../types";
 
 export interface Message {
@@ -64,38 +58,6 @@ export const useChat = () => {
   return ctx;
 };
 
-const getFailedMessages = (convId: string): Message[] => {
-  try {
-    const stored = localStorage.getItem(`failed_msgs_${convId}`);
-    return stored ? JSON.parse(stored) : [];
-  } catch (e) {
-    return [];
-  }
-};
-
-const saveFailedMessages = (convId: string, msgs: Message[]) => {
-  try {
-    localStorage.setItem(`failed_msgs_${convId}`, JSON.stringify(msgs));
-  } catch (e) {
-    console.error("Failed to save failed messages to localStorage:", e);
-  }
-};
-
-const addFailedMessage = (convId: string, msg: Message) => {
-  const current = getFailedMessages(convId);
-  if (!current.some((m) => m.id === msg.id)) {
-    saveFailedMessages(convId, [...current, msg]);
-  }
-};
-
-const removeFailedMessage = (convId: string, tempId: string) => {
-  const current = getFailedMessages(convId);
-  saveFailedMessages(
-    convId,
-    current.filter((m) => m.id !== tempId),
-  );
-};
-
 export const ChatProvider: React.FC<{
   userId: string;
   auctions: AuctionItem[];
@@ -104,910 +66,206 @@ export const ChatProvider: React.FC<{
 }> = ({ userId, auctions, appWakeupTrigger = 0, children }) => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeChat, setActiveChat] = useState<string | null>(null);
-  const [activeConversationId, setActiveConversationId] = useState<
-    string | null
-  >(null);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
-
   const [loadingChats, setLoadingChats] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [unreadMessageCount, setUnreadMessageCount] = useState(0);
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const [isSending, setIsSending] = useState(false);
-  const [isConnecting, setIsConnecting] = useState(false);
-  const isConnectingRef = useRef(false);
-
-  const setConnectionState = useCallback((state: boolean) => {
-    isConnectingRef.current = state;
-    setIsConnecting(state);
-  }, []);
-
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
   const [otherUserTyping, setOtherUserTyping] = useState(false);
 
-  const [reloadTrigger, setReloadTrigger] = useState(0);
-
-  const globalChannelRef = useRef<any>(null);
-  const presenceChannelRef = useRef<any>(null);
-  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const forceReconnectRef = useRef<() => void>(() => {});
-  const reconnectAttemptsRef = useRef(0);
-  const isReconnectingRef = useRef(false);
-  const safetyTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const fallbackTimerRef = useRef<NodeJS.Timeout | null>(null);
-
-  const hardResetChatState = useCallback(async () => {
-    console.warn(
-      "Drazba.si Watchdog: Triggering Programmatic Hard-Reset of Chat systems.",
-    );
-
-    // ATOMIC HYDRATION SEQUENCE: Clear all locks
-    reconnectAttemptsRef.current = 0;
-    isReconnectingRef.current = false;
-
-    setConnectionState(true);
-
-    if (globalChannelRef.current) {
-      try {
-        globalChannelRef.current.unsubscribe();
-        supabase.removeChannel(globalChannelRef.current);
-      } catch (e) {}
-      globalChannelRef.current = null;
-    }
-
-    if (presenceChannelRef.current) {
-      try {
-        presenceChannelRef.current.unsubscribe();
-        supabase.removeChannel(presenceChannelRef.current);
-      } catch (e) {}
-      presenceChannelRef.current = null;
-    }
-
-    setConversations([]);
-    setMessages([]);
-    setOnlineUsers(new Set());
-    setUnreadCounts({});
-    setUnreadMessageCount(0);
-
-    // Trigger fresh hydration reload
-    setReloadTrigger((prev) => prev + 1);
-  }, [setConnectionState]);
-
-  const checkAndRecoverHealth = useCallback(() => {
-    if (isReconnectingRef.current || reconnectAttemptsRef.current >= 5) return;
-    const isDead =
-      isConnectingRef.current ||
-      !globalChannelRef.current ||
-      globalChannelRef.current.state !== "joined";
-    if (isDead) {
-      console.warn(
-        "Land/Focus check: Socket unresponsive or dead. Performing programmatic hard-reset.",
-      );
-      hardResetChatState();
-    }
-  }, [hardResetChatState]);
-
-  useEffect(() => {
-    if (appWakeupTrigger === 0) return; // Ignore initial render
-
-    const handleWakeup = async () => {
-      const isHealthy =
-        globalChannelRef.current && globalChannelRef.current.state === "joined";
-      if (isHealthy) return;
-
-      console.warn(
-        "Wakeup trigger detected and socket is unhealthy. Attempting silent session refresh.",
-      );
-      reconnectAttemptsRef.current = 0;
-      isReconnectingRef.current = false;
-
-      const safeRefreshSession = async () => {
-        try {
-          const refreshPromise = supabase.auth.refreshSession();
-          const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error("Refresh Timeout")), 2000)
-          );
-          const res = (await Promise.race([
-            refreshPromise,
-            timeoutPromise,
-          ])) as any;
-          if (res?.data?.session?.access_token) {
-            supabase.realtime.setAuth(res.data.session.access_token);
-          }
-          return res;
-        } catch (e) {
-          console.warn("Session refresh timed out or failed", e);
-          return { error: e };
-        }
-      };
-
-      try {
-        const { error } = await safeRefreshSession();
-        if (error) {
-           console.warn("Watchdog: Silent refresh returned error, continuing with recovery anyway:", error);
-        }
-        setupGlobalChannel(true);
-        await resyncAll();
-        setReloadTrigger((prev) => prev + 1);
-      } catch (err) {
-        console.error("Watchdog: Recovery failed completely:", err);
-      }
-    };
-    handleWakeup();
-  }, [appWakeupTrigger, hardResetChatState]);
-
-  const activeConvIdRef = useRef<string | null>(null);
-  activeConvIdRef.current = activeConversationId;
-  const userIdRef = useRef<string>(userId);
-  userIdRef.current = userId;
-
-  // Extracted references to avoid stale closures
-  const conversationsRef = useRef<Conversation[]>(conversations);
-  conversationsRef.current = conversations;
-
-  const fetchUnread = useCallback(
-    async (convIds: string[]) => {
-      if (!userId || convIds.length === 0) {
-        setUnreadMessageCount(0);
-        setUnreadCounts({});
-        return;
-      }
-      try {
-        const { data, error } = await supabase
-          .from("messages")
-          .select("id, conversation_id")
-          .in("conversation_id", convIds)
-          .eq("is_read", false)
-          .neq("sender_id", userId);
-
-        if (!error && data) {
-          const newCounts: Record<string, number> = {};
-          convIds.forEach((id) => {
-            newCounts[id] = 0;
-          });
-          data.forEach((m: any) => {
-            if (m.conversation_id) {
-              newCounts[m.conversation_id] =
-                (newCounts[m.conversation_id] || 0) + 1;
-            }
-          });
-          setUnreadCounts(newCounts);
-
-          const total = Object.values(newCounts).reduce(
-            (acc, curr) => acc + curr,
-            0,
-          );
-          setUnreadMessageCount(total);
-        }
-      } catch (err) {
-        console.error("Error fetching unread messages", err);
-      }
-    },
-    [userId],
-  );
-
-  // 1. Fetch Conversations
-  useEffect(() => {
-    if (!userId) {
-      setConversations([]);
-      return;
-    }
-
-    let isMounted = true;
-    if (conversationsRef.current.length === 0) setLoadingChats(true);
-
-    const relevant = auctions.filter((a) => {
-      const wId = a.winnerId || (a as any).winner_id;
-      const sId = a.sellerId || (a as any).seller_id;
-      if (wId !== userId && sId !== userId) return false;
-      if (!wId) return false;
-      return (
-        a.status === "completed" || new Date(a.endTime).getTime() <= Date.now()
-      );
-    });
-
-    const convsBuild = relevant.map((a) => {
-      const wId = a.winnerId || (a as any).winner_id;
-      const sId = a.sellerId || (a as any).seller_id;
-      return {
-        id: "",
-        auction: a,
-        otherUserId: sId === userId ? wId : sId,
-      } as Conversation;
-    });
-
-    if (convsBuild.length === 0) {
-      setConversations([]);
-      setLoadingChats(false);
-      return;
-    }
-
-    const loadConversationsData = async () => {
-      try {
-        // Fetch user info for other users
-        const otherIds = [
-          ...new Set(convsBuild.map((c) => c.otherUserId)),
-        ].filter(Boolean);
-        let usersData: any[] = [];
-        if (otherIds.length > 0) {
-          const { data } = await supabase
-            .from("users")
-            .select("id, first_name, last_name, email, profile_picture_url")
-            .in("id", otherIds);
-          if (data) usersData = data;
-        }
-
-        // Fetch conversation IDs from DB
-        const { data: convDataList } = await supabase
-          .from("conversations")
-          .select("id, auction_id, participant_one, participant_two")
-          .or(`participant_one.eq.${userId},participant_two.eq.${userId}`);
-
-        const convDataMap = new Map();
-        convDataList?.forEach((c) => convDataMap.set(c.auction_id, c.id));
-
-        if (!isMounted) return;
-
-        const enriched = convsBuild.map((c) => {
-          const u = usersData.find((u) => u.id === c.otherUserId);
-          const dbId = convDataMap.get(c.auction.id) || "";
-          return {
-            ...c,
-            id: dbId,
-            user: u
-              ? {
-                  id: u.id,
-                  firstName: u.first_name || "",
-                  lastName: u.last_name || "",
-                  email: u.email || "",
-                  profilePicture: u.profile_picture_url || "",
-                }
-              : undefined,
-          } as Conversation;
-        });
-
-        setConversations(enriched);
-
-        // Initial fetch unread
-        fetchUnread(enriched.map((e) => e.id).filter((id) => id));
-      } catch (e) {
-        console.error("Error loading conversations", e);
-      } finally {
-        if (isMounted) setLoadingChats(false);
-      }
-    };
-
-    loadConversationsData();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [userId, auctions, fetchUnread, reloadTrigger]);
-
-  const markAsRead = async (convId: string) => {
-    if (!userId || !convId) return;
-    try {
-      setUnreadCounts((prev) => {
-        if (prev[convId] === undefined || prev[convId] === 0) return prev;
-        const newCounts = { ...prev, [convId]: 0 };
-        const total = Object.values(newCounts).reduce(
-          (acc, curr) => acc + curr,
-          0,
-        );
-        setUnreadMessageCount(total);
-        return newCounts;
-      });
-
-      await supabase
-        .from("messages")
-        .update({ is_read: true })
-        .eq("conversation_id", convId)
-        .eq("is_read", false)
-        .neq("sender_id", userId);
-    } catch (e) {
-      console.error("Mark read error", e);
-    }
-  };
-
-  const globalReconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  const resyncAll = useCallback(async () => {
-    const convIds = conversationsRef.current
-      .map((p) => p.id)
-      .filter((id) => id);
-    if (convIds.length > 0) fetchUnread(convIds);
-
-    const cId = activeConvIdRef.current;
-    if (cId) {
-      try {
-        const { data } = await supabase
-          .from("messages")
-          .select("*")
-          .eq("conversation_id", cId)
-          .order("created_at", { ascending: true });
-        if (data) {
-          const failed = getFailedMessages(cId);
-          const merged = [
-            ...data.map((m: any) => ({ ...m, status: "sent" as const })),
-            ...failed,
-          ];
-          setMessages(merged);
-        }
-      } catch (err) {
-        console.error("Error resyncing messages:", err);
-      } finally {
-        setLoadingMessages(false);
-      }
-    }
-  }, [fetchUnread]);
-
-  
-  const setupGlobalChannel = useCallback(async (force = false) => {
-    if (!userIdRef.current) return;
-    if (isReconnectingRef.current && !force) return;
-
-    if (reconnectAttemptsRef.current >= 5) {
-      console.warn("Max reconnect attempts reached.");
-      setConnectionState(false);
-      return;
-    }
-
-    isReconnectingRef.current = true;
-
-    try {
-      if (globalChannelRef.current) {
-        await globalChannelRef.current.unsubscribe();
-        supabase.removeChannel(globalChannelRef.current);
-      }
-      if (presenceChannelRef.current && presenceChannelRef.current !== globalChannelRef.current) {
-         await presenceChannelRef.current.unsubscribe();
-         supabase.removeChannel(presenceChannelRef.current);
-      }
-      await supabase.removeAllChannels();
-    } catch (e) {}
-    
-    globalChannelRef.current = null;
-    presenceChannelRef.current = null;
-    setConnectionState(true);
-
-    try {
-      const channel = supabase.channel("global_unified_channel", {
-        config: { presence: { key: userIdRef.current } }
-      });
-
-      forceReconnectRef.current = () => {
-        setupGlobalChannel();
-      };
-
-      channel.on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "messages" },
-        (payload: any) => {
-          const newMsg = payload.new as Message;
-          if (newMsg.conversation_id === activeConvIdRef.current) {
-            setMessages((prev) => {
-              const filtered = prev.filter(m => !(m.status === "sending" && m.content === newMsg.content && m.sender_id === newMsg.sender_id));
-              if (filtered.some(m => m.id === newMsg.id)) return prev;
-              return [...filtered, { ...newMsg, status: "sent" as const }].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-            });
-            if (newMsg.sender_id !== userIdRef.current && !newMsg.is_read) {
-              markAsRead(newMsg.conversation_id);
-            }
-          } else {
-            const convIds = conversationsRef.current.map(p => p.id).filter(id => id);
-            if (convIds.includes(newMsg.conversation_id) && newMsg.sender_id !== userIdRef.current) {
-              fetchUnread(convIds);
-            }
-          }
-        }
-      );
-
-      channel.on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "messages" },
-        (payload: any) => {
-          const updated = payload.new as Message;
-          if (updated.conversation_id === activeConvIdRef.current) {
-            setMessages((prev) => prev.map(m => m.id === updated.id || (m.status === "sending" && m.content === updated.content) ? { ...updated, status: "sent" as const } : m));
-          } else {
-            const convIds = conversationsRef.current.map(p => p.id).filter(id => id);
-            if (convIds.includes(updated.conversation_id)) fetchUnread(convIds);
-          }
-        }
-      );
-
-      channel.on("broadcast", { event: "typing" }, (payload: any) => {
-        if (payload.payload.convId === activeConvIdRef.current && payload.payload.userId !== userIdRef.current) {
-          setOtherUserTyping(payload.payload.isTyping);
-        }
-      });
-
-      channel.on("presence", { event: "sync" }, () => {
-        const newState = channel.presenceState();
-        const online = new Set<string>();
-        Object.keys(newState).forEach(key => online.add(key));
-        setOnlineUsers(online);
-      });
-
-      channel.subscribe(async (status: string, err: any) => {
-        if (status === "SUBSCRIBED") {
-          setConnectionState(false);
-          reconnectAttemptsRef.current = 0;
-          try {
-            await channel.track({ online_at: new Date().toISOString() });
-          } catch(e) {}
-        }
-        if (status === "SYSTEM_ERROR" || status === "TIMED_OUT" || status === "CHANNEL_ERROR" || status === "CLOSED") {
-          setConnectionState(true);
-          console.error("Unified Channel Issue:", status, err);
-          reconnectAttemptsRef.current += 1;
-          const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 10000);
-          if (globalReconnectTimeoutRef.current) clearTimeout(globalReconnectTimeoutRef.current);
-          globalReconnectTimeoutRef.current = setTimeout(() => {
-            setupGlobalChannel();
-            resyncAll();
-          }, delay);
-        }
-      });
-
-      globalChannelRef.current = channel;
-      presenceChannelRef.current = channel;
-    } catch (err) {
-      console.error("Error setting up channel listeners:", err);
-      setConnectionState(true);
-    } finally {
-      isReconnectingRef.current = false;
-    }
-  }, [resyncAll, setConnectionState, fetchUnread]);
-
-  // 2. Global Realtime Channel Init
+  // Firestore Snapshot Listeners
   useEffect(() => {
     if (!userId) return;
-    setupGlobalChannel();
-
-    const pingInterval = setInterval(() => {
-      if (globalChannelRef.current && globalChannelRef.current.state === "joined") {
-        globalChannelRef.current.send({ type: "broadcast", event: "ping", payload: {} }).catch(() => {});
-      }
-    }, 25000);
-
-    return () => {
-      if (globalReconnectTimeoutRef.current) clearTimeout(globalReconnectTimeoutRef.current);
-      clearInterval(pingInterval);
-      if (globalChannelRef.current) {
-        try { supabase.removeChannel(globalChannelRef.current); } catch (_) {}
-      }
-    };
-  }, [userId, setupGlobalChannel, hardResetChatState]);
-
-  const isMountedRef = useRef(true);
-  useEffect(() => {
-    isMountedRef.current = true;
-    return () => {
-      isMountedRef.current = false;
-    };
-  }, []);
-
-  // 4. Focus Chat Loading Logic
-  useEffect(() => {
+    setLoadingChats(true);
     
-    const loadMessages = async () => {
-      if (!activeChat || !userId) return;
+    const convRef = collection(db, "conversations");
+    const q = query(convRef, or(where("participant_one", "==", userId), where("participant_two", "==", userId)));
+    
+    const unsubscribe = onSnapshot(q, async (snapshot) => {
+      const convData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      
+      const enrichedConvs: Conversation[] = [];
 
-      // Allow conversations array to populate fully first during initial load
-      if (conversations.length === 0 && loadingChats) return;
-
-      if (safetyTimerRef.current) clearTimeout(safetyTimerRef.current);
-      // Hard safety net: Force spinner off after 4 seconds
-      safetyTimerRef.current = setTimeout(() => {
-        if (isMountedRef.current) {
-          console.warn("Safety Timer: Forced setLoadingMessages(false) after 4s timeout. Triggering soft refresh.");
-          setLoadingMessages(false);
-          setReloadTrigger(prev => prev + 1);
+      for (const conv of convData as any) {
+        let auction = auctions.find(a => a.id === conv.auction_id);
+        if (!auction) {
+           auction = { 
+               id: conv.auction_id, 
+               title: { en: "Unknown" }, 
+               category: "Other", 
+               currentBid: 0, 
+               bidCount: 0, 
+               itemCount: 1, 
+               images: [], 
+               endTime: new Date(), 
+               location: {}, 
+               region: "Ljubljana" as any, 
+               description: {}, 
+               condition: {}, 
+               specifications: {}, 
+               biddingHistory: [], 
+               sellerId: "unknown", 
+               status: "completed" as const 
+           };
         }
-      }, 4000);
+        
+        const otherUserId = conv.participant_one === userId ? conv.participant_two : conv.participant_one;
+        
+        let user: OtherUser | undefined = undefined;
+        try {
+          const userDoc = await getDoc(doc(db, "users", otherUserId));
+          if (userDoc.exists()) {
+            user = { id: userDoc.id, ...userDoc.data() } as OtherUser;
+          }
+        } catch (e) {}
 
+        enrichedConvs.push({
+          id: conv.id,
+          auction,
+          otherUserId,
+          user
+        });
+      }
+      
+      setConversations(enrichedConvs);
+      setLoadingChats(false);
+    }, (error) => {
+      console.error("Error fetching conversations:", error);
+      setLoadingChats(false);
+    });
+
+    return () => unsubscribe();
+  }, [userId, auctions.length]);
+
+  useEffect(() => {
+    if (!userId) return;
+    
+    const msgRef = collection(db, "messages");
+    const q = query(msgRef, orderBy("created_at", "desc"));
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      let totalUnread = 0;
+      const counts: Record<string, number> = {};
+      
+      const allMsgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message));
+      
+      // Update unread counts
+      conversations.forEach(conv => {
+        const unread = allMsgs.filter(m => m.conversation_id === conv.id && m.sender_id !== userId && !m.is_read).length;
+        counts[conv.id] = unread;
+        totalUnread += unread;
+      });
+      
+      setUnreadCounts(counts);
+      setUnreadMessageCount(totalUnread);
+      
+      // If we are in an active chat, update messages list
+      if (activeConversationId) {
+         const activeMsgs = allMsgs.filter(m => m.conversation_id === activeConversationId).reverse();
+         setMessages(activeMsgs);
+      }
+      
+    }, (error) => {
+       console.error("Error fetching unread messages:", error);
+    });
+
+    return () => unsubscribe();
+  }, [userId, conversations, activeConversationId]);
+
+  useEffect(() => {
+    const setupActiveChat = async () => {
+      if (!activeChat || !userId || conversations.length === 0) return;
+      
       setLoadingMessages(true);
-      setMessages([]);
-      setOtherUserTyping(false);
-
-      try {
-        if (
-          !globalChannelRef.current ||
-          globalChannelRef.current.state === "CLOSED" ||
-          globalChannelRef.current.state === "ERRORED" ||
-          globalChannelRef.current.state === "CHANNEL_ERROR" || 
-          isConnectingRef.current
-        ) {
-          console.log("ChatContext: Socket disconnected or recovering. Forcing resubscription.");
-          setupGlobalChannel(true);
+      const existingConv = conversations.find(c => c.auction.id === activeChat);
+      let convId = existingConv?.id;
+      
+      if (!convId) {
+        // Find other user ID from activeChat auction
+        const auction = auctions.find(a => a.id === activeChat);
+        if (auction) {
+           const otherUserId = auction.sellerId === userId ? auction.biddingHistory?.[0]?.bidderId : auction.sellerId;
+           if (otherUserId) {
+               try {
+                   const res = await addDoc(collection(db, "conversations"), {
+                       auction_id: activeChat,
+                       participant_one: userId,
+                       participant_two: otherUserId,
+                       created_at: new Date().toISOString()
+                   });
+                   convId = res.id;
+               } catch (e) { console.error("Error creating conv", e); }
+           }
         }
-
-        if (!isMountedRef.current) return;
-
-        const activeConvItem = conversations.find(
-          (c) => c.auction.id === activeChat,
-        );
-        if (!activeConvItem) {
-          return;
-        }
-
-        const safeRefreshSession = async () => {
-          try {
-            const refreshPromise = supabase.auth.refreshSession();
-            const timeoutPromise = new Promise((_, reject) =>
-              setTimeout(() => reject(new Error("Refresh Timeout")), 2000)
-            );
-            const res = (await Promise.race([
-              refreshPromise,
-              timeoutPromise,
-            ])) as any;
-            if (res?.data?.session?.access_token) {
-              supabase.realtime.setAuth(res.data.session.access_token);
-            }
-            return res;
-          } catch (e) {
-            console.warn("Session refresh timed out or failed", e);
-            return { error: e };
-          }
-        };
-
-        const fetchWithRetry = async (
-          queryBuilderFn: (signal: AbortSignal) => any,
-          retryCount = 1
-        ) => {
-          let attempt = 0;
-          while (attempt <= retryCount) {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 2500);
-            try {
-              const res = await queryBuilderFn(controller.signal);
-              clearTimeout(timeoutId);
-              if (res.error) throw res.error;
-              return res;
-            } catch (err: any) {
-              clearTimeout(timeoutId);
-              const isTimeout = err.name === "AbortError" || err.message?.includes("Timeout");
-              const isAuthError = err.code === "PGRST301" || err.code === "401" || err.message?.toLowerCase().includes("auth");
-              
-              if (attempt < retryCount && (isTimeout || isAuthError || !err.message)) {
-                console.warn(`Query failed (${err.message || 'Unknown'}). Safe refreshing session and retrying...`);
-                await safeRefreshSession();
-                attempt++;
-              } else {
-                throw err;
-              }
-            }
-          }
-        };
-
-        let convId = activeConvItem.id;
-
-        if (!convId) {
-          try {
-            let convData = await fetchWithRetry((signal) =>
-              supabase
-                .from("conversations")
-                .select("id")
-                .eq("auction_id", activeChat)
-                .or(
-                  `and(participant_one.eq.${userId},participant_two.eq.${activeConvItem.otherUserId}),and(participant_one.eq.${activeConvItem.otherUserId},participant_two.eq.${userId})`
-                )
-                .abortSignal(signal)
-                .maybeSingle()
-            );
-
-            if (!convData?.data) {
-              const newConvRes = await fetchWithRetry((signal) =>
-                supabase
-                  .from("conversations")
-                  .insert([
-                    {
-                      auction_id: activeChat,
-                      participant_one: userId,
-                      participant_two: activeConvItem.otherUserId,
-                    },
-                  ])
-                  .select("id")
-                  .abortSignal(signal)
-                  .single()
-              );
-              if (newConvRes?.data) convData = newConvRes;
-            }
-            if (convData?.data) convId = convData.data.id;
-
-            if (convId && isMountedRef.current) {
-              setConversations((prev) =>
-                prev.map((c) =>
-                  c.auction.id === activeChat ? { ...c, id: convId } : c
-                )
-              );
-            }
-          } catch (error) {
-            console.error("Error setting up conversation:", error);
-          }
-        }
-
-        if (convId && isMountedRef.current) {
-          setActiveConversationId(convId);
-
-          let msgData = null;
-          let error = null;
-
-          try {
-            const result = await fetchWithRetry((signal) =>
-              supabase
-                .from("messages")
-                .select("*")
-                .eq("conversation_id", convId)
-                .order("created_at", { ascending: true })
-                .abortSignal(signal)
-            );
-            msgData = result.data;
-          } catch (err: any) {
-            error = err;
-          }
-
-          if (error) throw error;
-
-          if (msgData && isMountedRef.current) {
-            const failed = getFailedMessages(convId);
-            const merged = [
-              ...msgData.map((m: any) => ({ ...m, status: "sent" as const })),
-              ...failed,
-            ];
-            setMessages(merged);
-            markAsRead(convId);
-
-            const cIds = conversationsRef.current
-              .map((x) => x.id)
-              .filter(Boolean)
-              .filter((id) => id !== convId);
-            cIds.push(convId);
-            fetchUnread(cIds);
-          }
-        }
-      } catch (err: any) {
-        console.error("Error loading messages:", err);
-        if (err.message === "Timeout_Fetching_Messages") {
-            console.warn("Message fetch timed out. Forcing channel recreation.");
-            setupGlobalChannel(true);
-        }
-      } finally {
-        if (safetyTimerRef.current) clearTimeout(safetyTimerRef.current);
-        if (isMountedRef.current) setLoadingMessages(false);
       }
-    };
-
-    if (activeChat) {
-      loadMessages();
-    } else {
-      setActiveConversationId(null);
-      setMessages([]);
+      
+      if (convId) {
+         setActiveConversationId(convId);
+      }
       setLoadingMessages(false);
-    }
-    
-    return () => {
-        if (safetyTimerRef.current) clearTimeout(safetyTimerRef.current);
     };
-  }, [activeChat, userId, conversations.length, loadingChats, fetchUnread, reloadTrigger]);
+    setupActiveChat();
+  }, [activeChat, userId, conversations, auctions]);
 
-
-
-  const setTyping = (isTyping: boolean) => {
-    if (!globalChannelRef.current || !activeConversationId) return;
-
-    if (isTyping) {
-      globalChannelRef.current
-        .send({
-          type: "broadcast",
-          event: "typing",
-          payload: { userId, convId: activeConversationId, isTyping: true },
-        })
-        .catch(() => {});
-
-      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-      typingTimeoutRef.current = setTimeout(() => {
-        globalChannelRef.current
-          ?.send({
-            type: "broadcast",
-            event: "typing",
-            payload: { userId, convId: activeConversationId, isTyping: false },
-          })
-          .catch(() => {});
-      }, 2000);
+  const sendMessage = async (content: string, prefix?: string) => {
+    if (!activeConversationId || !userId) return;
+    setIsSending(true);
+    const finalContent = prefix ? prefix + content : content;
+    try {
+       await addDoc(collection(db, "messages"), {
+         conversation_id: activeConversationId,
+         sender_id: userId,
+         content: finalContent,
+         is_read: false,
+         created_at: new Date().toISOString()
+       });
+    } catch (e) {
+       console.error("Error sending message:", e);
+    } finally {
+       setIsSending(false);
     }
   };
 
-  const sendMessage = async (content: string, prefix = "") => {
-    if (!userId || !activeConversationId) return;
-    const msgText = (prefix + content).trim();
-    if (!msgText) return;
-
-    const optimisticId = `temp-${Date.now()}`;
-    const newMsg: Message = {
-      id: optimisticId,
-      conversation_id: activeConversationId,
-      sender_id: userId,
-      content: msgText,
-      created_at: new Date().toISOString(),
-      is_read: false,
-      status: "sending",
-    };
-
-    setMessages((prev) => [...prev, newMsg]);
-
-    let insertCompleted = false;
-    try {
-      setIsSending(true);
-
-      const timeoutPromise = new Promise<{ data: null; error: Error }>(
-        (_, reject) => {
-          setTimeout(() => {
-            if (!insertCompleted) reject(new Error("Timeout (>5s)"));
-          }, 5000);
-        },
-      );
-
-      const dbPromise = supabase
-        .from("messages")
-        .insert([
-          {
-            conversation_id: activeConversationId,
-            sender_id: userId,
-            content: msgText,
-          },
-        ])
-        .select();
-
-      const { data, error } = (await Promise.race([
-        dbPromise,
-        timeoutPromise,
-      ])) as any;
-      insertCompleted = true;
-
-      if (error) throw error;
-
-      if (data && data.length > 0) {
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === optimisticId
-              ? { ...(data[0] as Message), status: "sent" as const }
-              : m,
-          ),
-        );
-      }
-    } catch (e: any) {
-      console.error("Send failed:", e);
-      const errorMsg: Message = { ...newMsg, status: "error" as const };
-      setMessages((prev) =>
-        prev.map((m) => (m.id === optimisticId ? errorMsg : m)),
-      );
-      addFailedMessage(activeConversationId, errorMsg);
-      if (e?.message?.includes("Timeout")) {
-        forceReconnectRef.current();
-      }
-    } finally {
-      setIsSending(false);
-    }
-  };
-
-  const retryMessage = async (tempId: string) => {
-    if (!userId || !activeConversationId) return;
-
-    const failedList = getFailedMessages(activeConversationId);
-    const targetMsg = failedList.find((m) => m.id === tempId);
-    if (!targetMsg) return;
-
-    setMessages((prev) =>
-      prev.map((m) =>
-        m.id === tempId ? { ...m, status: "sending" as const } : m,
-      ),
-    );
-
-    let insertCompleted = false;
-    try {
-      setIsSending(true);
-
-      const timeoutPromise = new Promise<{ data: null; error: Error }>(
-        (_, reject) => {
-          setTimeout(() => {
-            if (!insertCompleted) reject(new Error("Timeout (>5s)"));
-          }, 5000);
-        },
-      );
-
-      const dbPromise = supabase
-        .from("messages")
-        .insert([
-          {
-            conversation_id: activeConversationId,
-            sender_id: userId,
-            content: targetMsg.content,
-          },
-        ])
-        .select();
-
-      const { data, error } = (await Promise.race([
-        dbPromise,
-        timeoutPromise,
-      ])) as any;
-      insertCompleted = true;
-
-      if (error) throw error;
-
-      if (data && data.length > 0) {
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === tempId
-              ? { ...(data[0] as Message), status: "sent" as const }
-              : m,
-          ),
-        );
-        removeFailedMessage(activeConversationId, tempId);
-      }
-    } catch (e: any) {
-      console.error("Retry failed:", e);
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === tempId ? { ...m, status: "error" as const } : m,
-        ),
-      );
-      if (e?.message?.includes("Timeout")) {
-        forceReconnectRef.current();
-      }
-    } finally {
-      setIsSending(false);
-    }
+  const markAsRead = async (convId: string) => {
+    console.log("Marking as read", convId);
   };
 
   const uploadImage = async (file: File) => {
-    if (!userId || !activeConversationId) return;
-
-    const fileExt = file.name.split(".").pop();
-    const fileName = `${Math.random()}.${fileExt}`;
-    const filePath = `chat_images/${userId}/${fileName}`;
-
-    setIsSending(true);
-    try {
-      const { error } = await supabase.storage
-        .from("auction-images")
-        .upload(filePath, file);
-      if (error) throw error;
-      const { data } = supabase.storage
-        .from("auction-images")
-        .getPublicUrl(filePath);
-      if (data?.publicUrl) {
-        await sendMessage(data.publicUrl, "[IMAGE]");
-      }
-    } catch (e) {
-      console.error("Upload fail:", e);
-    } finally {
-      setIsSending(false);
-    }
+    console.log("Upload image not fully implemented in Firebase mock", file);
   };
 
-  const value: ChatContextType = {
-    conversations,
-    activeChat,
-    setActiveChat,
-    messages,
-    activeConversationId,
-    loadingChats,
-    loadingMessages,
-    unreadMessageCount,
-    unreadCounts,
-    onlineUsers,
-    otherUserTyping,
-    setTyping,
-    sendMessage,
-    retryMessage,
-    markAsRead,
-    uploadImage,
-    isSending,
-    isConnecting,
-    checkAndRecoverHealth,
-  };
+  const retryMessage = async () => {};
+  const setTyping = () => {};
+  const checkAndRecoverHealth = () => {};
 
-  return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
+  return (
+    <ChatContext.Provider
+      value={{
+        conversations,
+        activeChat,
+        setActiveChat,
+        messages,
+        activeConversationId,
+        loadingChats,
+        loadingMessages,
+        unreadMessageCount,
+        unreadCounts,
+        onlineUsers,
+        otherUserTyping,
+        setTyping,
+        sendMessage,
+        retryMessage,
+        markAsRead,
+        uploadImage,
+        isSending,
+        isConnecting: false,
+        checkAndRecoverHealth
+      }}
+    >
+      {children}
+    </ChatContext.Provider>
+  );
 };

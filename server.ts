@@ -2,7 +2,11 @@ import express from "express";
 import Stripe from "stripe";
 import { createServer as createViteServer } from "vite";
 import path from "path";
-import { createClient } from '@supabase/supabase-js';
+const admin = require('firebase-admin');
+if (!admin.apps.length) {
+  admin.initializeApp({ credential: admin.credential.applicationDefault() });
+}
+const db = admin.firestore();
 import { Resend } from 'resend';
 import { generateInvoicePDF, generateCertificatePDF } from './src/lib/pdfGenerator';
 import dotenv from 'dotenv';

@@ -84,7 +84,11 @@ import {
 
 import imageCompression from "browser-image-compression";
 
-import { supabase } from "./src/lib/supabaseClient";
+import { auth, db } from "./src/lib/firebase";
+import { collection, doc, setDoc, getDoc, getDocs, updateDoc, addDoc, query, where, onSnapshot, orderBy, serverTimestamp } from "firebase/firestore";
+import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, updatePassword, updateProfile, sendPasswordResetEmail, setPersistence, browserLocalPersistence } from "firebase/auth";
+import { getStorage, ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
+import { seedDatabase } from "./src/lib/seed";
 import { seedDatabase } from "./src/lib/seed";
 
 import {
@@ -130,6 +134,7 @@ const SignedImg = ({
 }) => {
   const [signedUrl, setSignedUrl] = useState<string>("");
   useEffect(() => {
+    seedDatabase();
     if (!src) return;
     if (src.startsWith("http")) {
       setSignedUrl(src);
@@ -781,13 +786,11 @@ const MainApp: React.FC = () => {
     setWatchedIds(newWatchedIds);
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const user = auth.currentUser; const session = user ? { user } : null;
       if (session?.user) {
-        await supabase.from("users").upsert({
-          id: session.user.id,
+        if (session?.user?.uid) await setDoc(doc(db, "users", session.user.uid), { id: session.user.id,
           email: session.user.email,
-          watched_auctions: newWatchedIds,
-        });
+          watched_auctions: newWatchedIds, }, { merge: true });
       }
     } catch (err) {
       console.error("Error updating watched auctions:", err);
@@ -930,7 +933,7 @@ const MainApp: React.FC = () => {
   const fetchAuctions = useCallback(async () => {
     try {
       // Adding a timeout check just in case, though Supabase has one
-      const { data, error } = await supabase.from("auctions").select("*");
+      const snapshot = await getDocs(collection(db, "auctions")); const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })); const error = null;
       if (error) {
         consecutiveErrorsRef.current++;
 
@@ -956,7 +959,7 @@ const MainApp: React.FC = () => {
       const usersMap = new Map((usersData || []).map((u) => [u.id, u]));
 
       const supabaseData: AuctionItem[] = data.map((d) => {
-        const seller: any = usersMap.get(d.seller_id);
+        const seller = usersMap.get(d.seller_id);
         let sellerName = "Neznan prodajalec";
         if (seller) {
           if (seller.user_type === "business" && seller.company_name) {
@@ -1157,9 +1160,7 @@ const MainApp: React.FC = () => {
     // Only use onAuthStateChange, which inherently fires an INITIAL_SESSION event
     // on setup. Avoid calling getSession() manually here to prevent race conditions
     // and duplicate loads.
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => { const session = user ? { user } : null; const event = user ? 'SIGNED_IN' : 'SIGNED_OUT';
       if (session?.user) {
         setIsLoggedIn(true);
         setUserData((prev) => {
@@ -1541,13 +1542,13 @@ const MainApp: React.FC = () => {
   const handleRatingSubmit = async () => {
     const { auctionId, sellerId, rating, comment } = ratingModal;
     if (!auctionId || !sellerId || !rating) return;
-    const { error } = await supabase.from("reviews").insert({
+    await addDoc(collection(db, "reviews"), {
       auction_id: auctionId,
       reviewer_id: userData.id,
       reviewee_id: sellerId,
       rating,
       comment,
-    });
+    }); const error = null;
     if (!error || (error.message && error.message.includes("find the table"))) {
       // If no error or the "table doesn't exist" error, assume success from frontend perspective but normally we need the table.
       // The prompt says we provide SQL, so we let it succeed or complain.
@@ -1576,13 +1577,11 @@ const MainApp: React.FC = () => {
     if (dontShowTermsAgain) {
       setHasAcceptedTerms(true);
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const user = auth.currentUser; const session = user ? { user } : null;
         if (session?.user) {
-          await supabase.from("users").upsert({
-            id: session.user.id,
+          if (session?.user?.uid) await setDoc(doc(db, "users", session.user.uid), { id: session.user.id,
             email: session.user.email,
-            has_accepted_terms: true,
-          });
+            has_accepted_terms: true, }, { merge: true });
         }
       } catch (err) {
         console.error("Error saving terms acceptance:", err);
@@ -1738,7 +1737,7 @@ const MainApp: React.FC = () => {
     setActiveView("grid");
 
     try {
-      await supabase.auth.signOut();
+      await signOut(auth);
       toast.success(t("loggedOut"));
     } catch (err) {
       console.error("Error signing out:", err);
@@ -1785,13 +1784,11 @@ const MainApp: React.FC = () => {
       setCurrentPlan(newTier);
       setIsSubscriptionCanceled(false);
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const user = auth.currentUser; const session = user ? { user } : null;
         if (session?.user) {
-          await supabase.from("users").upsert({
-            id: session.user.id,
+          if (session?.user?.uid) await setDoc(doc(db, "users", session.user.uid), { id: session.user.id,
             email: session.user.email,
-            subscription: newTier,
-          });
+            subscription: newTier, }, { merge: true });
         }
       } catch (err) {
         console.error("Error saving subscription:", err);
@@ -2223,7 +2220,7 @@ const MainApp: React.FC = () => {
 
               if (!userId) {
                 console.log("No userId in state, fetching session...");
-                const { data: { session } } = await supabase.auth.getSession();
+                const user = auth.currentUser; const session = user ? { user } : null;
                 userId = session?.user?.id || "";
                 console.log("Session fetched:", userId);
               } else {
