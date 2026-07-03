@@ -748,123 +748,123 @@ export const ChatProvider: React.FC<{
           return;
         }
 
-          const safeRefreshSession = async () => {
+        const safeRefreshSession = async () => {
+          try {
+            const refreshPromise = supabase.auth.refreshSession();
+            const timeoutPromise = new Promise((_, reject) =>
+              setTimeout(() => reject(new Error("Refresh Timeout")), 2000)
+            );
+            const res = (await Promise.race([
+              refreshPromise,
+              timeoutPromise,
+            ])) as any;
+            if (res?.data?.session?.access_token) {
+              supabase.realtime.setAuth(res.data.session.access_token);
+            }
+            return res;
+          } catch (e) {
+            console.warn("Session refresh timed out or failed", e);
+            return { error: e };
+          }
+        };
+
+        const fetchWithRetry = async (
+          queryBuilderFn: (signal: AbortSignal) => any,
+          retryCount = 1
+        ) => {
+          let attempt = 0;
+          while (attempt <= retryCount) {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 2500);
             try {
-              const refreshPromise = supabase.auth.refreshSession();
-              const timeoutPromise = new Promise((_, reject) =>
-                setTimeout(() => reject(new Error("Refresh Timeout")), 2000)
-              );
-              const res = (await Promise.race([
-                refreshPromise,
-                timeoutPromise,
-              ])) as any;
-              if (res?.data?.session?.access_token) {
-                supabase.realtime.setAuth(res.data.session.access_token);
-              }
+              const res = await queryBuilderFn(controller.signal);
+              clearTimeout(timeoutId);
+              if (res.error) throw res.error;
               return res;
-            } catch (e) {
-              console.warn("Session refresh timed out or failed", e);
-              return { error: e };
-            }
-          };
-
-          const fetchWithRetry = async (
-            queryBuilderFn: (signal: AbortSignal) => any,
-            retryCount = 1
-          ) => {
-            let attempt = 0;
-            while (attempt <= retryCount) {
-              const controller = new AbortController();
-              const timeoutId = setTimeout(() => controller.abort(), 2500);
-              try {
-                const res = await queryBuilderFn(controller.signal);
-                clearTimeout(timeoutId);
-                if (res.error) throw res.error;
-                return res;
-              } catch (err: any) {
-                clearTimeout(timeoutId);
-                const isTimeout = err.name === "AbortError" || err.message?.includes("Timeout");
-                const isAuthError = err.code === "PGRST301" || err.code === "401" || err.message?.toLowerCase().includes("auth");
-                
-                if (attempt < retryCount && (isTimeout || isAuthError || !err.message)) {
-                  console.warn(`Query failed (${err.message || 'Unknown'}). Safe refreshing session and retrying...`);
-                  await safeRefreshSession();
-                  attempt++;
-                } else {
-                  throw err;
-                }
+            } catch (err: any) {
+              clearTimeout(timeoutId);
+              const isTimeout = err.name === "AbortError" || err.message?.includes("Timeout");
+              const isAuthError = err.code === "PGRST301" || err.code === "401" || err.message?.toLowerCase().includes("auth");
+              
+              if (attempt < retryCount && (isTimeout || isAuthError || !err.message)) {
+                console.warn(`Query failed (${err.message || 'Unknown'}). Safe refreshing session and retrying...`);
+                await safeRefreshSession();
+                attempt++;
+              } else {
+                throw err;
               }
-            }
-          };
-
-          let convId = activeConvItem.id;
-
-          if (!convId) {
-            try {
-              let convData = await fetchWithRetry((signal) =>
-                supabase
-                  .from("conversations")
-                  .select("id")
-                  .eq("auction_id", activeChat)
-                  .or(
-                    `and(participant_one.eq.${userId},participant_two.eq.${activeConvItem.otherUserId}),and(participant_one.eq.${activeConvItem.otherUserId},participant_two.eq.${userId})`
-                  )
-                  .abortSignal(signal)
-                  .maybeSingle()
-              );
-
-              if (!convData?.data) {
-                const newConvRes = await fetchWithRetry((signal) =>
-                  supabase
-                    .from("conversations")
-                    .insert([
-                      {
-                        auction_id: activeChat,
-                        participant_one: userId,
-                        participant_two: activeConvItem.otherUserId,
-                      },
-                    ])
-                    .select("id")
-                    .abortSignal(signal)
-                    .single()
-                );
-                if (newConvRes?.data) convData = newConvRes;
-              }
-              if (convData?.data) convId = convData.data.id;
-
-              if (convId && isMountedRef.current) {
-                setConversations((prev) =>
-                  prev.map((c) =>
-                    c.auction.id === activeChat ? { ...c, id: convId } : c
-                  )
-                );
-              }
-            } catch (error) {
-              console.error("Error setting up conversation:", error);
             }
           }
+        };
 
-          if (convId && isMountedRef.current) {
-            setActiveConversationId(convId);
+        let convId = activeConvItem.id;
 
-            let msgData = null;
-            let error = null;
+        if (!convId) {
+          try {
+            let convData = await fetchWithRetry((signal) =>
+              supabase
+                .from("conversations")
+                .select("id")
+                .eq("auction_id", activeChat)
+                .or(
+                  `and(participant_one.eq.${userId},participant_two.eq.${activeConvItem.otherUserId}),and(participant_one.eq.${activeConvItem.otherUserId},participant_two.eq.${userId})`
+                )
+                .abortSignal(signal)
+                .maybeSingle()
+            );
 
-            try {
-              const result = await fetchWithRetry((signal) =>
+            if (!convData?.data) {
+              const newConvRes = await fetchWithRetry((signal) =>
                 supabase
-                  .from("messages")
-                  .select("*")
-                  .eq("conversation_id", convId)
-                  .order("created_at", { ascending: true })
+                  .from("conversations")
+                  .insert([
+                    {
+                      auction_id: activeChat,
+                      participant_one: userId,
+                      participant_two: activeConvItem.otherUserId,
+                    },
+                  ])
+                  .select("id")
                   .abortSignal(signal)
+                  .single()
               );
-              msgData = result.data;
-            } catch (err: any) {
-              error = err;
+              if (newConvRes?.data) convData = newConvRes;
             }
+            if (convData?.data) convId = convData.data.id;
 
-            if (error) throw error;
+            if (convId && isMountedRef.current) {
+              setConversations((prev) =>
+                prev.map((c) =>
+                  c.auction.id === activeChat ? { ...c, id: convId } : c
+                )
+              );
+            }
+          } catch (error) {
+            console.error("Error setting up conversation:", error);
+          }
+        }
+
+        if (convId && isMountedRef.current) {
+          setActiveConversationId(convId);
+
+          let msgData = null;
+          let error = null;
+
+          try {
+            const result = await fetchWithRetry((signal) =>
+              supabase
+                .from("messages")
+                .select("*")
+                .eq("conversation_id", convId)
+                .order("created_at", { ascending: true })
+                .abortSignal(signal)
+            );
+            msgData = result.data;
+          } catch (err: any) {
+            error = err;
+          }
+
+          if (error) throw error;
 
           if (msgData && isMountedRef.current) {
             const failed = getFailedMessages(convId);

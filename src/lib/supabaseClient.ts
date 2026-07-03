@@ -39,5 +39,6 @@ export const supabase = createClient(supabaseUrl, supabasePublishableKey, {
             eventsPerSecond: 40,
         },
         timeout: 30000,
+        heartbeatIntervalMs: 15000,
     }
 });

@@ -1035,31 +1035,28 @@ const MainApp: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    let hideTimer: NodeJS.Timeout;
+    
     const handleVis = async () => {
       if (document.visibilityState === "hidden") {
         try {
-          supabase.removeAllChannels();
-        } catch (e) {
-          console.warn("Global visibility cleanup error", e);
-        }
+          hideTimer = setTimeout(async () => {
+             try {
+                await supabase.removeAllChannels();
+             } catch(e) {}
+          }, 1000);
+        } catch (e) {}
       } else if (document.visibilityState === "visible") {
+        clearTimeout(hideTimer);
         setAppWakeupTrigger(prev => prev + 1);
         fetchAuctions(); // Instantly refresh bids
       }
     };
-    
-    const handleFocus = () => {
-      if (document.visibilityState === "visible") {
-        setAppWakeupTrigger(prev => prev + 1);
-        fetchAuctions();
-      }
-    };
 
     document.addEventListener("visibilitychange", handleVis);
-    window.addEventListener("focus", handleFocus);
     return () => {
+      clearTimeout(hideTimer);
       document.removeEventListener("visibilitychange", handleVis);
-      window.removeEventListener("focus", handleFocus);
     };
   }, [fetchAuctions]);
 
