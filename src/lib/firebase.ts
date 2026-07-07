@@ -16,5 +16,5 @@ const firebaseConfig = {
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
 export const auth = getAuth(app);
-export const db = getFirestore(app, "ai-studio-drazbasinovi-38070e3e-07bd-4fb9-b15f-4716b0b344b0");
+export const db = getFirestore(app);
 export const rtdb = getDatabase(app);
