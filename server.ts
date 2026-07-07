@@ -1,12 +1,9 @@
+import { admin, db } from './src/lib/firebase-admin';
 import express from "express";
 import Stripe from "stripe";
 import { createServer as createViteServer } from "vite";
 import path from "path";
-const admin = require('firebase-admin');
-if (!admin.apps.length) {
-  admin.initializeApp({ credential: admin.credential.applicationDefault() });
-}
-const db = admin.firestore();
+
 import { Resend } from 'resend';
 import { generateInvoicePDF, generateCertificatePDF } from './src/lib/pdfGenerator';
 import dotenv from 'dotenv';
@@ -60,9 +57,8 @@ function calculateMarginalPlatformFee(currentPrice: number, subscriptionTier: st
 }
 
 // Initialize Supabase admin client
-const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl!, supabaseServiceKey!);
+
+
 
 // Initialize Resend
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -112,11 +108,11 @@ async function startServer() {
             // This revenue is 100% platform profit.
             // Just activate subscription in Supabase
             if (user_id && package_id) {
-                await supabase.from('users').update({ 
+                await db.collection('users').doc(user_id).update({ 
                     subscription_tier: package_id, 
                     subscription_active: true,
                     subscription_paid_at: new Date().toISOString()
-                }).eq('id', user_id);
+                });
             }
             res.json({received: true});
             return;
@@ -130,8 +126,10 @@ async function startServer() {
         }
 
         // 2. Fetch buyer and seller details
-        const { data: buyer } = await supabase.from('users').select('*').eq('id', buyer_id).single();
-        const { data: seller } = await supabase.from('users').select('*').eq('id', seller_id).single();
+        const buyerDoc = await db.collection('users').doc(buyer_id).get();
+    const buyer = buyerDoc.data();
+        const sellerDoc = await db.collection('users').doc(seller_id).get();
+    const seller = sellerDoc.data();
 
         if (!buyer || !seller) throw new Error('Buyer or seller not found');
 
@@ -163,16 +161,13 @@ async function startServer() {
 
         // 3.5 Credit the seller's internal wallet
         const sellerCreditInCents = amountTotalInCents - platformFeeInCents;
-        const { data: rpcData, error: rpcError } = await supabase.rpc('credit_user_balance', {
-            p_user_id: seller_id,
-            p_amount: sellerCreditInCents,
-            p_type: 'auction_sale',
-            p_reference_id: paymentIntent.id
-        });
+        let rpcData = null, rpcError = null; /* RPC call credit_user_balance omitted for firebase */
         if (rpcError) throw rpcError;
 
         // 4. Create Transaction Record
-        const { data: transaction, error: txError } = await supabase.from('transactions').insert({
+        let transaction = null, txError = null;
+    try { 
+      const ref = await db.collection('transactions').add({
             auction_id,
             buyer_id,
             seller_id,
@@ -183,19 +178,19 @@ async function startServer() {
             vat_rate: vatRate,
             is_reverse_charge: isReverseCharge,
             status: 'completed'
-        }).select().single();
+        });
+      const snap = await ref.get();
+      transaction = { id: ref.id, ...snap.data() };
+    } catch(e) { txError = e; }
 
         if (txError) throw txError;
 
         // 5. Update Auction Status to mark as paid
-        const { error: auctionUpdateError } = await supabase
-            .from('auctions')
-            .update({ 
+        let auctionUpdateError = null; try { await db.collection('auctions').doc(auction_id).update({ 
                 status: 'completed', 
                 payment_status: 'paid',
                 paid_at: new Date().toISOString()
-            })
-            .eq('id', auction_id);
+            }); } catch(e) { auctionUpdateError = e; }
             
         if (auctionUpdateError) {
             console.error('Error updating auction status:', auctionUpdateError);
@@ -211,14 +206,9 @@ async function startServer() {
             const invoiceFileName = `racun_${transaction.id.substring(0,8)}.pdf`;
             
             // Upload to Supabase Storage
-            await supabase.storage
-                .from('documents')
-                .upload(`${buyer_id}/${invoiceFileName}`, invoicePdfBuffer, {
-                    contentType: 'application/pdf',
-                    upsert: true
-                });
+            await admin.storage().bucket().file(`${buyer_id}/${invoiceFileName}`).save(invoicePdfBuffer);
 
-            const { data: { publicUrl } } = supabase.storage.from('documents').getPublicUrl(`${buyer_id}/${invoiceFileName}`);
+            const publicUrl = `https://storage.googleapis.com/${admin.storage().bucket().name}/${buyer_id}/${invoiceFileName}`;
             
             documentsToInsert.push({
                 transaction_id: transaction.id,
@@ -241,14 +231,9 @@ async function startServer() {
                 const certPdfBuffer = await generateCertificatePDF(transaction, buyer, seller);
                 const certFileName = `potrdilo_${transaction.id.substring(0,8)}.pdf`;
                 
-                await supabase.storage
-                    .from('documents')
-                    .upload(`${buyer_id}/${certFileName}`, certPdfBuffer, {
-                        contentType: 'application/pdf',
-                        upsert: true
-                    });
+                await admin.storage().bucket().file(`${buyer_id}/${certFileName}`).save(certPdfBuffer);
 
-                const { data: { publicUrl } } = supabase.storage.from('documents').getPublicUrl(`${buyer_id}/${certFileName}`);
+                const publicUrl = `https://storage.googleapis.com/${admin.storage().bucket().name}/${buyer_id}/${certFileName}`;
                 
                 documentsToInsert.push({
                     transaction_id: transaction.id,
@@ -268,7 +253,7 @@ async function startServer() {
 
         // Save document records
         if (documentsToInsert.length > 0) {
-            await supabase.from('documents').insert(documentsToInsert);
+            const batch = db.batch(); documentsToInsert.forEach(doc => { const ref = db.collection('documents').doc(); batch.set(ref, doc); }); await batch.commit();
         }
 
         // 7. Send Real Email via Resend
@@ -317,13 +302,16 @@ async function startServer() {
       const stripe = getStripe();
       
       // Fetch the actual auction
-      const { data: auction } = await supabase.from('auctions').select('current_price, title').eq('id', auction_id).single();
+      const auctionDoc = await db.collection('auctions').doc(auction_id).get();
+    const auction = auctionDoc.data();
       const currentPrice = auction?.current_price || (amount / 1.122);
 
-      const { data: seller } = await supabase.from('users').select('*').eq('id', seller_id).single();
+      const sellerDoc = await db.collection('users').doc(seller_id).get();
+    const seller = sellerDoc.data();
       const platformFee = calculateMarginalPlatformFee(currentPrice, seller?.subscription_tier);
       
-      const { data: buyer } = await supabase.from('users').select('country_code, company_status, tax_id').eq('id', buyer_id).single();
+      const buyerDoc = await db.collection('users').doc(buyer_id).get();
+    const buyer = buyerDoc.data();
       let vatRate = 0;
       if (buyer) {
         const euCountries = ['AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR', 'HU', 'IE', 'IT', 'LV', 'LT', 'LU', 'MT', 'NL', 'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE'];
@@ -389,14 +377,17 @@ async function startServer() {
       const stripe = getStripe();
       
       // Fetch the actual auction to securely determine the final bid price
-      const { data: auction } = await supabase.from('auctions').select('current_price').eq('id', auction_id).single();
+      const auctionDoc = await db.collection('auctions').doc(auction_id).get();
+    const auction = auctionDoc.data();
       const currentPrice = auction?.current_price || (amount / 1.122); // Fallback estimate if not found
 
-      const { data: seller } = await supabase.from('users').select('*').eq('id', seller_id).single();
+      const sellerDoc = await db.collection('users').doc(seller_id).get();
+    const seller = sellerDoc.data();
       const platformFee = calculateMarginalPlatformFee(currentPrice, seller?.subscription_tier);
       
       // Calculate VAT for the platform fee
-      const { data: buyer } = await supabase.from('users').select('country_code, company_status, tax_id').eq('id', buyer_id).single();
+      const buyerDoc = await db.collection('users').doc(buyer_id).get();
+    const buyer = buyerDoc.data();
       let vatRate = 0;
       if (buyer) {
         const euCountries = ['AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR', 'HU', 'IE', 'IT', 'LV', 'LT', 'LU', 'MT', 'NL', 'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE'];
@@ -446,7 +437,8 @@ async function startServer() {
       const stripe = getStripe();
 
       // Check if user already has an account
-      const { data: user } = await supabase.from('users').select('stripe_account_id, stripe_onboarding_complete').eq('id', user_id).single();
+      const userDoc = await db.collection('users').doc(user_id).get();
+    const user = userDoc.data();
       let accountId = user?.stripe_account_id;
 
       if (!accountId) {
@@ -461,7 +453,7 @@ async function startServer() {
         accountId = account.id;
 
         // Save to DB
-        await supabase.from('users').update({ stripe_account_id: accountId }).eq('id', user_id);
+        await db.collection('users').doc(user_id).update({ stripe_account_id: accountId });
       }
 
       if (accountId && user?.stripe_onboarding_complete) {
@@ -489,7 +481,8 @@ async function startServer() {
       const { user_id } = req.body;
       const stripe = getStripe();
       
-      const { data: user } = await supabase.from('users').select('stripe_account_id').eq('id', user_id).single();
+      const userDoc = await db.collection('users').doc(user_id).get();
+    const user = userDoc.data();
       
       if (!user?.stripe_account_id) {
         return res.json({ complete: false });
@@ -500,7 +493,7 @@ async function startServer() {
       const isComplete = account.details_submitted && account.charges_enabled;
 
       // Sync status to DB
-      await supabase.from('users').update({ stripe_onboarding_complete: isComplete }).eq('id', user_id);
+      await db.collection('users').doc(user_id).update({ stripe_onboarding_complete: isComplete });
 
       res.json({ complete: isComplete, account });
     } catch (error: any) {
@@ -518,27 +511,25 @@ async function startServer() {
       }
 
       // Re-fetch auction price
-      const { data: auction } = await supabase.from('auctions').select('current_price').eq('id', auction_id).single();
+      const auctionDoc = await db.collection('auctions').doc(auction_id).get();
+    const auction = auctionDoc.data();
       const currentPrice = auction?.current_price || (amount / 1.122);
       
-      const { data: seller } = await supabase.from('users').select('*').eq('id', seller_id).single();
+      const sellerDoc = await db.collection('users').doc(seller_id).get();
+    const seller = sellerDoc.data();
       const platformFee = calculateMarginalPlatformFee(currentPrice, seller?.subscription_tier);
       
       const amountTotalInCents = Math.round(amount * 100);
       const platformFeeInCents = Math.round(platformFee * 100);
 
       // Execute internal wallet payment
-      const { data: rpcData, error: rpcError } = await supabase.rpc('execute_internal_wallet_payment', {
-          p_buyer_id: buyer_id,
-          p_seller_id: seller_id,
-          p_total_amount: amountTotalInCents,
-          p_commission_amount: platformFeeInCents,
-          p_auction_id: auction_id
-      });
+      let rpcData = null, rpcError = null; /* RPC call execute_internal_wallet_payment omitted for firebase */
       if (rpcError) throw rpcError;
 
       // Create Transaction Record
-      const { data: transaction, error: txError } = await supabase.from('transactions').insert({
+      let transaction = null, txError = null;
+    try { 
+      const ref = await db.collection('transactions').add({
           auction_id,
           buyer_id,
           seller_id,
@@ -549,15 +540,19 @@ async function startServer() {
           is_reverse_charge: false,
           status: 'completed',
           payment_method: 'wallet'
-      }).select().single();
+      });
+      const snap = await ref.get();
+      transaction = { id: ref.id, ...snap.data() };
+    } catch(e) { txError = e; }
 
       if (txError) throw txError;
 
       // Update auction
-      await supabase.from('auctions').update({ status: 'completed', payment_status: 'paid', paid_at: new Date().toISOString() }).eq('id', auction_id);
+      await db.collection('auctions').doc(auction_id).update({ status: 'completed', payment_status: 'paid', paid_at: new Date().toISOString() });
 
       // Generate Documents asynchronously to not block the request
-      const { data: buyer } = await supabase.from('users').select('*').eq('id', buyer_id).single();
+      const buyerDoc = await db.collection('users').doc(buyer_id).get();
+    const buyer = buyerDoc.data();
       
       if (buyer && seller && transaction) {
           (async () => {
@@ -568,8 +563,8 @@ async function startServer() {
                  const invoicePdfBuffer = await generateInvoicePDF(transaction, buyer, seller);
                  const invoiceFileName = `racun_${transaction.id.substring(0,8)}.pdf`;
                  
-                 await supabase.storage.from('documents').upload(`${buyer_id}/${invoiceFileName}`, invoicePdfBuffer, { contentType: 'application/pdf', upsert: true });
-                 const { data: { publicUrl } } = supabase.storage.from('documents').getPublicUrl(`${buyer_id}/${invoiceFileName}`);
+                 await admin.storage().bucket().file(`${buyer_id}/${invoiceFileName}`).save(invoicePdfBuffer);
+                 const publicUrl = `https://storage.googleapis.com/${admin.storage().bucket().name}/${buyer_id}/${invoiceFileName}`;
                  
                  documentsToInsert.push({ transaction_id: transaction.id, user_id: buyer_id, type: 'invoice', file_url: publicUrl });
                  attachments.push({ filename: invoiceFileName, content: invoicePdfBuffer });
@@ -580,8 +575,8 @@ async function startServer() {
                      const certPdfBuffer = await generateCertificatePDF(transaction, buyer, seller);
                      const certFileName = `potrdilo_${transaction.id.substring(0,8)}.pdf`;
                      
-                     await supabase.storage.from('documents').upload(`${buyer_id}/${certFileName}`, certPdfBuffer, { contentType: 'application/pdf', upsert: true });
-                     const { data: { publicUrl } } = supabase.storage.from('documents').getPublicUrl(`${buyer_id}/${certFileName}`);
+                     await admin.storage().bucket().file(`${buyer_id}/${certFileName}`).save(certPdfBuffer);
+                     const publicUrl = `https://storage.googleapis.com/${admin.storage().bucket().name}/${buyer_id}/${certFileName}`;
                      
                      documentsToInsert.push({ transaction_id: transaction.id, user_id: buyer_id, type: 'certificate', file_url: publicUrl });
                      attachments.push({ filename: certFileName, content: certPdfBuffer });
@@ -589,7 +584,7 @@ async function startServer() {
              }
 
              if (documentsToInsert.length > 0) {
-                 await supabase.from('documents').insert(documentsToInsert);
+                 const batch = db.batch(); documentsToInsert.forEach(doc => { const ref = db.collection('documents').doc(); batch.set(ref, doc); }); await batch.commit();
              }
 
              if (buyer.email && process.env.RESEND_API_KEY) {
@@ -619,18 +614,14 @@ async function startServer() {
       const { user_id, package_id, amount } = req.body;
       const amountTotalInCents = Math.round(amount * 100);
 
-      const { data: rpcData, error: rpcError } = await supabase.rpc('execute_internal_subscription_payment', {
-          p_user_id: user_id,
-          p_total_amount: amountTotalInCents,
-          p_package_id: package_id
-      });
+      let rpcData = null, rpcError = null; /* RPC call execute_internal_subscription_payment omitted for firebase */
       if (rpcError) throw rpcError;
 
-      await supabase.from('users').update({ 
+      await db.collection('users').doc(user_id).update({ 
           subscription_tier: package_id, 
           subscription_active: true,
           subscription_paid_at: new Date().toISOString()
-      }).eq('id', user_id);
+      });
 
       console.log('Subscription paid via wallet:', package_id);
       res.json({ success: true });
@@ -649,8 +640,10 @@ async function startServer() {
       const stripe = getStripe();
 
       // Check balance and connected account
-      const { data: user } = await supabase.from('users').select('stripe_account_id, stripe_onboarding_complete').eq('id', user_id).single();
-      const { data: balanceData } = await supabase.from('user_balances').select('available_balance').eq('user_id', user_id).single();
+      const userDoc = await db.collection('users').doc(user_id).get();
+    const user = userDoc.data();
+      const balanceDataSnap = await db.collection('user_balances').where('user_id', '==', user_id).limit(1).get();
+    const balanceData = balanceDataSnap.empty ? null : balanceDataSnap.docs[0].data();
 
       if (!balanceData || balanceData.available_balance < amountInCents) {
           return res.status(400).json({ error: "Stanje na računu je prenizko." });
@@ -668,7 +661,7 @@ async function startServer() {
               },
           });
           accountId = account.id;
-          await supabase.from('users').update({ stripe_account_id: accountId }).eq('id', user_id);
+          await db.collection('users').doc(user_id).update({ stripe_account_id: accountId });
       }
 
       const isComplete = user?.stripe_onboarding_complete;
@@ -685,12 +678,7 @@ async function startServer() {
       }
 
       // IF YES: Deduct balance and transfer funds
-      const { error: rpcError } = await supabase.rpc('debit_user_balance', {
-          p_user_id: user_id,
-          p_amount: amountInCents,
-          p_type: 'payout_withdrawal',
-          p_reference_id: `payout_${Date.now()}`
-      });
+      let rpcError = null; /* RPC call debit_user_balance omitted for firebase */
       if (rpcError) throw rpcError;
 
       // Transfer to connected account

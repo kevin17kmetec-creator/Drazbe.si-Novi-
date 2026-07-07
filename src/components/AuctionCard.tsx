@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { MapPin, ChevronLeft, ChevronRight, Clock, Eye, Building2, Minus, Plus, Lock, Trophy } from 'lucide-react';
 import { AuctionItem, Seller } from '../../types.ts';
-import { MOCK_SELLERS } from '../../data.ts';
 import { supabase } from '../lib/supabaseClient';
 import { getIncrement, formatSeconds } from '../lib/utils';
 
@@ -22,7 +21,7 @@ export const AuctionCard: React.FC<{
   const [timeLeftStr, setTimeLeftStr] = useState('');
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [signedImages, setSignedImages] = useState<string[]>([]);
-  const seller = MOCK_SELLERS.find(s => s.id === item.sellerId);
+  const seller = undefined;
   const minNextBid = item.currentBid + getIncrement(item.currentBid);
   const [bidValue, setBidValue] = useState(minNextBid);
   const [bidStatus, setBidStatus] = useState<'success' | 'outbid' | 'error' | null>(null);

@@ -5,7 +5,6 @@ import {
   Award, Package, ThumbsUp, AlertCircle
 } from 'lucide-react';
 import { Seller, AuctionItem, Review, Region } from '../../types';
-import { MOCK_REVIEWS } from '../../data';
 
 interface SellerViewProps {
   seller: Seller;
@@ -23,7 +22,7 @@ const SellerView: React.FC<SellerViewProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'active' | 'past' | 'reviews'>('active');
   const [newReview, setNewReview] = useState({ rating: 5, comment: '', wouldRecommend: true });
-  const [reviews, setReviews] = useState<Review[]>(MOCK_REVIEWS[seller.id] || []);
+  const [reviews, setReviews] = useState<Review[]>([]);
 
   const sellerAuctions = useMemo(() => 
     auctions.filter(a => a.sellerId === seller.id),

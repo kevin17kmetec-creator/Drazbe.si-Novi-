@@ -1,6 +1,6 @@
+import { admin, db } from '../src/lib/firebase-admin';
 import { Buffer } from 'buffer';
 import Stripe from 'stripe';
-import { createClient } from '@supabase/supabase-js';
 import { Resend } from 'resend';
 import { generateInvoicePDF, generateCertificatePDF } from '../src/lib/pdfGenerator';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
@@ -13,9 +13,8 @@ export const config = {
 };
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '');
-const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl!, supabaseServiceKey!);
+
+
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 async function buffer(readable: any) {
@@ -61,8 +60,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           return res.status(200).json({received: true});
       }
 
-      const { data: buyer } = await supabase.from('users').select('*').eq('id', buyer_id).single();
-      const { data: seller } = await supabase.from('users').select('*').eq('id', seller_id).single();
+      const buyerDoc = await db.collection('users').doc(buyer_id).get();
+    const buyer = buyerDoc.data();
+      const sellerDoc = await db.collection('users').doc(seller_id).get();
+    const seller = sellerDoc.data();
 
       if (!buyer || !seller) throw new Error('Buyer or seller not found');
 
@@ -70,7 +71,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       
       let platformFee = 0;
       let currentPrice = amountTotal / 1.122; // Quick fallback
-      const { data: auction } = await supabase.from('auctions').select('current_price').eq('id', auction_id).single();
+      const auctionDoc = await db.collection('auctions').doc(auction_id).get();
+    const auction = auctionDoc.data();
       if (auction?.current_price) {
           currentPrice = auction.current_price;
           const feePercentage = Number(fee_percentage) || 10;
@@ -99,7 +101,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       const vatAmount = platformFee * (vatRate / 100);
 
-      const { data: transaction, error: txError } = await supabase.from('transactions').insert({
+      let transaction = null, txError = null;
+    try { 
+      const ref = await db.collection('transactions').add({
           auction_id,
           buyer_id,
           seller_id,
@@ -110,18 +114,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           vat_rate: vatRate,
           is_reverse_charge: isReverseCharge,
           status: 'completed'
-      }).select().single();
+      });
+      const snap = await ref.get();
+      transaction = { id: ref.id, ...snap.data() };
+    } catch(e) { txError = e; }
 
       if (txError) throw txError;
 
-      const { error: auctionUpdateError } = await supabase
-          .from('auctions')
-          .update({ 
+      let auctionUpdateError = null; try { await db.collection('auctions').doc(auction_id).update({ 
               status: 'completed', 
               payment_status: 'paid',
               paid_at: new Date().toISOString()
-          })
-          .eq('id', auction_id);
+          }); } catch(e) { auctionUpdateError = e; }
           
       if (auctionUpdateError) {
           console.error('Error updating auction status:', auctionUpdateError);
@@ -134,14 +138,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           const invoicePdfBuffer = await generateInvoicePDF(transaction, buyer, seller);
           const invoiceFileName = `racun_${transaction.id.substring(0,8)}.pdf`;
           
-          await supabase.storage
-              .from('documents')
-              .upload(`${buyer_id}/${invoiceFileName}`, invoicePdfBuffer, {
-                  contentType: 'application/pdf',
-                  upsert: true
-              });
+          await admin.storage().bucket().file(`${buyer_id}/${invoiceFileName}`).save(invoicePdfBuffer);
 
-          const { data: { publicUrl } } = supabase.storage.from('documents').getPublicUrl(`${buyer_id}/${invoiceFileName}`);
+          const publicUrl = `https://storage.googleapis.com/${admin.storage().bucket().name}/${buyer_id}/${invoiceFileName}`;
           
           documentsToInsert.push({
               transaction_id: transaction.id,
@@ -163,14 +162,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               const certPdfBuffer = await generateCertificatePDF(transaction, buyer, seller);
               const certFileName = `potrdilo_${transaction.id.substring(0,8)}.pdf`;
               
-              await supabase.storage
-                  .from('documents')
-                  .upload(`${buyer_id}/${certFileName}`, certPdfBuffer, {
-                      contentType: 'application/pdf',
-                      upsert: true
-                  });
+              await admin.storage().bucket().file(`${buyer_id}/${certFileName}`).save(certPdfBuffer);
 
-              const { data: { publicUrl } } = supabase.storage.from('documents').getPublicUrl(`${buyer_id}/${certFileName}`);
+              const publicUrl = `https://storage.googleapis.com/${admin.storage().bucket().name}/${buyer_id}/${certFileName}`;
               
               documentsToInsert.push({
                   transaction_id: transaction.id,
@@ -189,7 +183,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       if (documentsToInsert.length > 0) {
-          await supabase.from('documents').insert(documentsToInsert);
+          const batch = db.batch(); documentsToInsert.forEach(doc => { const ref = db.collection('documents').doc(); batch.set(ref, doc); }); await batch.commit();
       }
 
       const buyerEmail = buyer.email;

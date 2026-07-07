@@ -157,12 +157,6 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
     } finally { setLoading(false); }
   };
 
-  const demoLogin = (verified: boolean) => {
-    setAppLoggedIn(true);
-    setIsVerified(verified);
-    onLoginSuccess();
-  };
-
   if (isForgotPassword) {
       return (
         <div className="max-w-[1600px] mx-auto px-6 py-20 animate-in flex justify-center">
@@ -289,16 +283,7 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
 
           <button type="button" onClick={() => { setIsLogin(!isLogin); setPassword(''); setConfirmPassword(''); }} className="w-full text-xs font-black uppercase tracking-widest text-slate-400 hover:text-[#0A1128] mt-4">{isLogin ? t('noAccountRegister') : t('haveAccountLogin')}</button>
         </form>
-
-        <div className="pt-8 border-t border-slate-100 space-y-4">
-            <button onClick={() => demoLogin(true)} className="w-full border-2 border-green-500 text-green-600 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-green-50 transition-all flex items-center justify-center gap-2">
-                <CheckCircle2 size={14} /> Demo: Verificiran uporabnik
-            </button>
-            <button onClick={() => demoLogin(false)} className="w-full border-2 border-amber-500 text-amber-600 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-amber-50 transition-all flex items-center justify-center gap-2">
-                <AlertCircle size={14} /> Demo: Neverificiran uporabnik
-            </button>
         </div>
-      </div>
     </div>
   );
 };

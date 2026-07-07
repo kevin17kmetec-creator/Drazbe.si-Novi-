@@ -1,11 +1,10 @@
+import { admin, db } from '../src/lib/firebase-admin';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import Stripe from 'stripe';
-import { createClient } from '@supabase/supabase-js';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '');
-const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl!, supabaseServiceKey!);
+
+
 
 export default async function handler(
   req: VercelRequest,
@@ -22,14 +21,16 @@ export default async function handler(
     const { amount, currency = "eur", auction_id, buyer_id, seller_id, fee_percentage, return_url } = req.body;
       
     // Fetch the actual auction
-    const { data: auction } = await supabase.from('auctions').select('current_price, title').eq('id', auction_id).single();
+    const auctionDoc = await db.collection('auctions').doc(auction_id).get();
+    const auction = auctionDoc.data();
     const currentPrice = auction?.current_price || (amount / 1.122);
 
     // Fee calculations
     const feePercentage = Number(fee_percentage) || 10;
     const platformFee = currentPrice * (feePercentage / 100);
     
-    const { data: buyer } = await supabase.from('users').select('country_code, company_status, tax_id').eq('id', buyer_id).single();
+    const buyerDoc = await db.collection('users').doc(buyer_id).get();
+    const buyer = buyerDoc.data();
     let vatRate = 0;
     if (buyer) {
       const euCountries = ['AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR', 'HU', 'IE', 'IT', 'LV', 'LT', 'LU', 'MT', 'NL', 'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE'];
@@ -49,7 +50,8 @@ export default async function handler(
     const totalPlatformFeeGross = platformFee + vatAmount;
     const applicationFeeAmount = Math.min(Math.round(totalPlatformFeeGross * 100), Math.round(amount * 100));
 
-    const { data: seller } = await supabase.from('users').select('stripe_account_id, stripe_onboarding_complete').eq('id', seller_id).single();
+    const sellerDoc = await db.collection('users').doc(seller_id).get();
+    const seller = sellerDoc.data();
     
     if (!seller?.stripe_account_id || !seller?.stripe_onboarding_complete) {
        return res.status(400).json({ error: "Prodajalec še nima nastavljenega računa za prejemanje plačil." });

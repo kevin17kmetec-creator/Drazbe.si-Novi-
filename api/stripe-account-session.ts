@@ -1,11 +1,10 @@
+import { admin, db } from '../src/lib/firebase-admin';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import Stripe from 'stripe';
-import { createClient } from '@supabase/supabase-js';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '');
-const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl!, supabaseServiceKey!);
+
+
 
 export default async function handler(
   req: VercelRequest,
@@ -22,7 +21,8 @@ export default async function handler(
     const { user_id } = req.body;
 
     // Check if user already has an account
-    const { data: user } = await supabase.from('users').select('stripe_account_id').eq('id', user_id).single();
+    const userDoc = await db.collection('users').doc(user_id).get();
+    const user = userDoc.data();
     let accountId = user?.stripe_account_id;
 
     if (!accountId) {
@@ -37,7 +37,7 @@ export default async function handler(
       accountId = account.id;
 
       // Save to DB
-      await supabase.from('users').update({ stripe_account_id: accountId }).eq('id', user_id);
+      await db.collection('users').doc(user_id).update({ stripe_account_id: accountId });
     }
 
     // Create an AccountSession

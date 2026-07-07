@@ -5,7 +5,6 @@ import React, {
   useCallback,
   useRef,
 } from "react";
-import { MOCK_SELLERS, EXTENDED_MOCK_AUCTIONS } from "./data";
 import AuctionView from "./src/components/AuctionView";
 import SellerView from "./src/components/SellerView";
 import { SubscriptionsView } from "./src/components/SubscriptionsView";
@@ -316,7 +315,7 @@ const MainApp: React.FC = () => {
   );
 
   const [auctions, setAuctions] = useState<AuctionItem[]>(
-    EXTENDED_MOCK_AUCTIONS,
+    [],
   );
   const [activeView, setActiveView] = useState<ViewState>(() => {
     if (typeof window === "undefined") return "grid";
@@ -640,7 +639,7 @@ const MainApp: React.FC = () => {
         setActiveView("messages");
       } else if (path.startsWith("/drazba") || path.startsWith("/auction") || path.startsWith("/auktion")) {
         if (id) {
-          let found = EXTENDED_MOCK_AUCTIONS.find((a) => a.id === id);
+          let found = [].find((a) => a.id === id);
           if (!found) {
             const { data } = await supabase
               .from("auctions")
@@ -677,7 +676,7 @@ const MainApp: React.FC = () => {
         setActiveView("grid");
       } else if (path.startsWith("/prodajalec") || path.startsWith("/seller") || path.startsWith("/verkaufer")) {
         if (id) {
-          let found = MOCK_SELLERS.find((s) => s.id === id);
+          let found = [].find((s) => s.id === id);
           if (!found) {
             const { data } = await supabase
               .from("users")
@@ -988,7 +987,7 @@ const MainApp: React.FC = () => {
         const newData = IS_LIVE
           ? supabaseData
           : (() => {
-              const merged = [...EXTENDED_MOCK_AUCTIONS];
+              const merged = [...[]];
               supabaseData.forEach((fd) => {
                 const idx = merged.findIndex((m) => m.id === fd.id);
                 if (idx > -1) merged[idx] = fd;
@@ -1025,9 +1024,9 @@ const MainApp: React.FC = () => {
 
       if (!IS_LIVE) {
         setAuctions((prev) =>
-          prev.length === EXTENDED_MOCK_AUCTIONS.length
+          prev.length === [].length
             ? prev
-            : [...EXTENDED_MOCK_AUCTIONS],
+            : [...[]],
         );
       }
     }
@@ -2052,22 +2051,9 @@ const MainApp: React.FC = () => {
             setSearchQuery("");
             setActiveView("grid");
             window.scrollTo({ top: 0, behavior: "instant" });
-
-            // If it's a demo login (no session), we need to set a fake user ID
-            supabase.auth.getSession().then(({ data: { session } }) => {
-              if (!session) {
-                setIsAuthLoading(false);
-                setUserData((prev) => ({
-                  ...prev,
-                  id: "demo-user-id",
-                  firstName: "Demo",
-                  lastName: "Uporabnik",
-                  email: "demo@example.com",
-                }));
-              }
-            });
           }}
           setIsVerified={setIsVerified}
+
           setAppLoggedIn={(val) => setIsLoggedIn(val)}
         />
       );
@@ -2192,7 +2178,7 @@ const MainApp: React.FC = () => {
               setIsCheckoutOpen(true);
             }}
             onSellerClick={(sellerId) => {
-              const s = MOCK_SELLERS.find((s) => s.id === sellerId);
+              const s = [].find((s) => s.id === sellerId);
               if (s) setSelectedSeller(s);
               else if (typeof sellerId !== "string")
                 setSelectedSeller(sellerId);
