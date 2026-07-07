@@ -16,5 +16,6 @@ const firebaseConfig = {
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
 export const auth = getAuth(app);
+// Fixed default production database mapping
 export const db = getFirestore(app);
 export const rtdb = getDatabase(app);
