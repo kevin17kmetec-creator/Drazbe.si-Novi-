@@ -293,25 +293,6 @@ function slugToSettingsTab(slug: string): 'profile' | 'personal' | 'stripe' {
 }
 
 const MainApp: React.FC = () => {
-  const [isAllowed, setIsAllowed] = useState<boolean | null>(null);
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const allowed = localStorage.getItem('is_allowed_developer') === 'true';
-      if (allowed) {
-        setIsAllowed(true);
-      } else {
-        const urlParams = new URLSearchParams(window.location.search);
-        if (urlParams.get('preview') === 'open') {
-          localStorage.setItem('is_allowed_developer', 'true');
-          setIsAllowed(true);
-        } else {
-          setIsAllowed(false);
-        }
-      }
-    }
-  }, []);
-
   const [language, setLanguage] = useState(() => {
     if (typeof window === "undefined") return "SLO";
     const path = window.location.pathname;
@@ -2573,15 +2554,7 @@ const MainApp: React.FC = () => {
     fetchAuctions();
   };
 
-  if (isAllowed === false) {
-    return (
-      <div className="min-h-screen bg-[#f3f4f6] flex items-center justify-center font-sans">
-        <h1 className="text-3xl font-black text-[#0A1128] uppercase tracking-widest">Stran je trenutno v pripravi.</h1>
-      </div>
-    );
-  }
-
-  if (isHydrating || isAllowed === null) {
+  if (isHydrating) {
     return (
       <div className="min-h-screen bg-[#f3f4f6] flex items-center justify-center">
         <div className="w-12 h-12 border-4 border-[#0A1128] border-t-[#FEBA4F] rounded-full animate-spin"></div>
