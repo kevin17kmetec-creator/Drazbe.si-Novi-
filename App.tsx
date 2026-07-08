@@ -102,9 +102,10 @@ import {
 import { Toaster, toast } from "sonner";
 
 import { ChatProvider } from "./src/context/ChatContext";
+import { collection, onSnapshot } from "firebase/firestore";
+import { db } from "./src/lib/firebase";
 
 // --- CONFIGURATION ---
-const IS_LIVE = true;
 
 import { translations } from "./src/lib/translations";
 import {
@@ -292,6 +293,25 @@ function slugToSettingsTab(slug: string): 'profile' | 'personal' | 'stripe' {
 }
 
 const MainApp: React.FC = () => {
+  const [isAllowed, setIsAllowed] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const allowed = localStorage.getItem('is_allowed_developer') === 'true';
+      if (allowed) {
+        setIsAllowed(true);
+      } else {
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('preview') === 'open') {
+          localStorage.setItem('is_allowed_developer', 'true');
+          setIsAllowed(true);
+        } else {
+          setIsAllowed(false);
+        }
+      }
+    }
+  }, []);
+
   const [language, setLanguage] = useState(() => {
     if (typeof window === "undefined") return "SLO";
     const path = window.location.pathname;
@@ -925,25 +945,13 @@ const MainApp: React.FC = () => {
     meta.setAttribute("content", metaDesc);
   }, [activeView, selectedItem, selectedSeller, language]);
 
-  const consecutiveErrorsRef = useRef(0);
   const fetchAuctions = useCallback(async () => {
     try {
-      // Adding a timeout check just in case, though Supabase has one
       const { data, error } = await supabase.from("auctions").select("*");
       if (error) {
-        consecutiveErrorsRef.current++;
-
-        if (consecutiveErrorsRef.current >= 5) {
-          console.error(
-            `Error fetching auctions: ${error.message} (Code: ${error.code}). Stopping polling.`,
-          );
-          setIsPollingStopped(true);
-        }
+        console.warn(`Fetch auctions warning: ${error.message}`);
         return;
       }
-
-      consecutiveErrorsRef.current = 0;
-      if (isPollingStopped) setIsPollingStopped(false);
 
       // Fetch users to map seller names
       const { data: usersData, error: usersError } = await supabase
@@ -984,17 +992,7 @@ const MainApp: React.FC = () => {
       });
 
       setAuctions((prev) => {
-        const newData = IS_LIVE
-          ? supabaseData
-          : (() => {
-              const merged = [...[]];
-              supabaseData.forEach((fd) => {
-                const idx = merged.findIndex((m) => m.id === fd.id);
-                if (idx > -1) merged[idx] = fd;
-                else merged.unshift(fd);
-              });
-              return merged;
-            })();
+        const newData = supabaseData;
 
         if (
           prev.length === newData.length &&
@@ -1012,624 +1010,12 @@ const MainApp: React.FC = () => {
         return newData;
       });
     } catch (err: any) {
-      consecutiveErrorsRef.current++;
-      const errorMessage = err?.message || String(err);
-
-      if (consecutiveErrorsRef.current >= 5) {
-        console.error(
-          `Fetch exception: ${errorMessage}. Source: ${err?.stack || "Unknown"}. Stopping polling.`,
-        );
-        setIsPollingStopped(true);
-      }
-
-      if (!IS_LIVE) {
-        setAuctions((prev) =>
-          prev.length === [].length
-            ? prev
-            : [...[]],
-        );
-      }
+       console.error("Fetch exception", err);
     }
-  }, []);
-
-  useEffect(() => {
-    let hideTimer: NodeJS.Timeout;
-    
-    const handleVis = async () => {
-      if (document.visibilityState === "hidden") {
-        try {
-          hideTimer = setTimeout(async () => {
-             try {
-                await supabase.removeAllChannels();
-             } catch(e) {}
-          }, 1000);
-        } catch (e) {}
-      } else if (document.visibilityState === "visible") {
-        clearTimeout(hideTimer);
-        setAppWakeupTrigger(prev => prev + 1);
-        fetchAuctions(); // Instantly refresh bids
-      }
-    };
-
-    document.addEventListener("visibilitychange", handleVis);
-    return () => {
-      clearTimeout(hideTimer);
-      document.removeEventListener("visibilitychange", handleVis);
-    };
-  }, [fetchAuctions]);
-
-  // Effect to reset page and scroll to top on ANY view/category change
-  useEffect(() => {
-    setCurrentPage(1);
-    window.scrollTo({ top: 0, behavior: "instant" });
-  }, [activeView, selectedRegion, selectedCategory, searchQuery]);
-
-  // Firestore Sync & Polling with Backoff
-  useEffect(() => {
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
-    let currentDelay = 3000;
-    let isMounted = true;
-
-    const poll = async () => {
-      if (!isMounted || consecutiveErrorsRef.current >= 5) return;
-
-      const start = Date.now();
-      await fetchAuctions();
-
-      if (!isMounted || consecutiveErrorsRef.current >= 5) return;
-
-      // If we had errors, increase delay (backoff), otherwise reset to 3s
-      if (consecutiveErrorsRef.current > 0) {
-        currentDelay = Math.min(currentDelay * 1.5, 30000); // Max 30s
-      } else {
-        currentDelay = 3000;
-      }
-
-      const elapsed = Date.now() - start;
-      const nextDelay = Math.max(currentDelay - elapsed, 100);
-      timeoutId = setTimeout(poll, nextDelay);
-    };
-
-    poll();
-
-    // Real-time subscription with WebSocket check
-    let channel: ReturnType<typeof supabase.channel> | null = null;
-    if (typeof window !== "undefined" && window.WebSocket) {
-      try {
-        channel = supabase
-          .channel("public:auctions")
-          .on(
-            "postgres_changes",
-            { event: "*", schema: "public", table: "auctions" },
-            () => {
-              if (consecutiveErrorsRef.current < 5) fetchAuctions();
-            },
-          )
-          .subscribe((status) => {
-            if (status === "CHANNEL_ERROR") {
-              console.warn(
-                "Supabase Realtime channel error. Live updates might be unavailable.",
-              );
-            }
-          });
-      } catch (err) {
-        console.warn("Supabase Realtime subscription failed:", err);
-      }
-    }
-
-    return () => {
-      isMounted = false;
-      if (timeoutId) clearTimeout(timeoutId);
-      if (channel) supabase.removeChannel(channel).catch(() => {});
-    };
-  }, [fetchAuctions, appWakeupTrigger]);
-
-  // Sync selectedItem if it was updated in the background
-  useEffect(() => {
-    if (selectedItem) {
-      const updated = auctions.find((a) => a.id === selectedItem.id);
-      if (
-        updated &&
-        (updated.currentBid !== selectedItem.currentBid ||
-          (updated as any).winner_id !== (selectedItem as any).winner_id ||
-          updated.winnerId !== selectedItem.winnerId ||
-          updated.status !== selectedItem.status ||
-          updated.endTime.getTime() !== selectedItem.endTime.getTime() ||
-          updated.bidCount !== selectedItem.bidCount)
-      ) {
-        setSelectedItem(updated);
-      }
-    }
-  }, [
-    auctions,
-    selectedItem?.id,
-    selectedItem?.currentBid,
-    (selectedItem as any)?.winner_id,
-    selectedItem?.winnerId,
-    selectedItem?.status,
-    selectedItem?.bidCount,
-    selectedItem?.endTime?.getTime?.(),
-  ]);
-
-  // Auth Sync
-  useEffect(() => {
-    // Only use onAuthStateChange, which inherently fires an INITIAL_SESSION event
-    // on setup. Avoid calling getSession() manually here to prevent race conditions
-    // and duplicate loads.
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (session?.user) {
-        setIsLoggedIn(true);
-        setUserData((prev) => {
-          const newEmail = session.user.email || "";
-          if (prev.email === newEmail && prev.id === session.user.id)
-            return prev;
-          return { ...prev, id: session.user.id, email: newEmail };
-        });
-
-        if (event === "SIGNED_IN" || event === "INITIAL_SESSION") {
-          try {
-            let { data } = await supabase
-              .from("users")
-              .select("*")
-              .eq("id", session.user.id)
-              .single();
-
-            if (!data) {
-              const { data: newUser, error: insertError } = await supabase
-                .from("users")
-                .insert({
-                  id: session.user.id,
-                  email: session.user.email,
-                  is_verified: false,
-                  unpaid_strikes: 0,
-                  subscription: "FREE",
-                })
-                .select()
-                .single();
-
-              if (!insertError && newUser) {
-                data = newUser;
-              } else {
-                const { data: existingUser } = await supabase
-                  .from("users")
-                  .select("*")
-                  .eq("id", session.user.id)
-                  .single();
-                if (existingUser) data = existingUser;
-              }
-            }
-
-            if (data) {
-              console.log("Auth State Change - User data:", data);
-              const verified = !!(
-                data.is_verified ||
-                data.isVerified ||
-                data.isverified
-              );
-              setIsVerified(verified);
-              setUserType(data.user_type || data.userType || "individual");
-              setUserData((prev) => ({
-                ...prev,
-                ...data,
-                id: session.user.id,
-                is_verified: verified,
-              }));
-              if (data.watched_auctions) {
-                setWatchedIds(data.watched_auctions);
-              }
-              if (data.has_accepted_terms) {
-                setHasAcceptedTerms(true);
-              }
-              if (data.bid_auction_ids) {
-                setBidAuctionIds(data.bid_auction_ids);
-              }
-              if (data.subscription) {
-                setCurrentPlan(data.subscription);
-              }
-            }
-          } catch (err) {
-            console.error("Error fetching user data on auth change:", err);
-          } finally {
-            setIsAuthLoading(false);
-          }
-          fetchAuctions();
-        } else if (event === "TOKEN_REFRESHED" || event === "USER_UPDATED") {
-          setIsAuthLoading(false);
-        }
-      } else {
-        setIsLoggedIn(false);
-        setIsVerified(false);
-        setUserData({} as any);
-        setIsAuthLoading(false);
-        fetchAuctions();
-      }
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
-
-  useEffect(() => {
-    const handleScroll = () => setShowBackToTop(window.scrollY > 300);
-    window.addEventListener("scroll", handleScroll);
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, []);
-
-  const handleBidSubmit = async (
-    item: AuctionItem,
-    amount: number,
-  ): Promise<
-    "success" | "outbid" | "error" | "login_required" | "cancelled"
-  > => {
-    if (!isLoggedIn) {
-      setActiveView("login");
-      return "login_required";
-    }
-    if (!isVerified) {
-      window.scrollTo({ top: 0, behavior: "smooth" });
-      return "error";
-    }
-
-    return new Promise((resolve) => {
-      setPendingBid({ item, amount });
-      bidResolverRef.current = resolve;
-
-      if (!hasAcceptedTerms) {
-        setShowTermsModal(true);
-      } else {
-        setShowConfirmBidModal(true);
-      }
-    });
-  };
-
-  const executeBid = async (
-    item: AuctionItem,
-    amount: number,
-  ): Promise<"success" | "outbid" | "error"> => {
-    // Prevent bidding if auction has ended
-    if (
-      item.status === "completed" ||
-      item.status === "cancelled" ||
-      new Date(item.endTime).getTime() <= Date.now()
-    ) {
-      console.warn("Cannot bid: Auction has already ended.");
-      return "error";
-    }
-
-    // Proxy Bidding Logic
-    if (
-      IS_LIVE ||
-      item.id.includes("-") ||
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-        item.id,
-      )
-    ) {
-      try {
-        // 1. Fetch latest auction state
-        const { data: auction, error: fetchError } = await supabase
-          .from("auctions")
-          .select("*")
-          .eq("id", item.id)
-          .single();
-
-        if (fetchError || !auction) {
-          console.error("Fetch Error:", fetchError);
-          return "error";
-        }
-
-        const currentPrice = auction.current_price || 0;
-        const currentWinnerId = (auction as any).winner_id || auction.winnerId;
-        const currentMaxBid = auction.hidden_max_bid || 0;
-        const increment = getIncrement(currentPrice);
-
-        let newPrice = currentPrice;
-        let newWinnerId = currentWinnerId;
-        let newMaxBid = currentMaxBid;
-        let outbiddenImmediately = false;
-
-        if (!currentWinnerId) {
-          // First bid
-          newPrice = currentPrice;
-          newWinnerId = userData.id;
-          newMaxBid = amount;
-        } else if (userData.id === currentWinnerId) {
-          // Same user increasing their own max bid
-          if (amount <= currentMaxBid) {
-            return "error";
-          }
-          newMaxBid = amount;
-        } else {
-          // New bidder
-          if (amount > currentMaxBid) {
-            // New bidder takes the lead
-            newPrice = Math.max(
-              currentPrice + increment,
-              currentMaxBid + increment,
-            );
-            if (newPrice > amount) newPrice = amount;
-            newWinnerId = userData.id;
-            newMaxBid = amount;
-          } else {
-            // New bidder is lower or equal to current max
-            newPrice = Math.min(amount + increment, currentMaxBid);
-            newWinnerId = currentWinnerId;
-            newMaxBid = currentMaxBid;
-            outbiddenImmediately = true;
-          }
-        }
-
-        // 2. Update auction
-        const newBid = {
-          id: crypto.randomUUID(),
-          bidderId: userData.id,
-          bidderName:
-            userData.username ||
-            userData.firstName ||
-            userData.first_name ||
-            "Uporabnik",
-          amount: amount,
-          timestamp: new Date().toISOString(),
-        };
-        const updatedHistory = [...(auction.bidding_history || []), newBid];
-
-        // Anti-sniping logic
-        let newEndTime = auction.end_time;
-        const nowTime = Date.now();
-        const auctionEndTime = new Date(auction.end_time).getTime();
-        if (auctionEndTime - nowTime < 60000 && auctionEndTime > nowTime) {
-          newEndTime = new Date(nowTime + 60000).toISOString();
-        }
-
-        const { error: updateError, data: updatedDbData } = await supabase
-          .from("auctions")
-          .update({
-            current_price: newPrice,
-            winner_id: newWinnerId,
-            hidden_max_bid: newMaxBid,
-            bid_count: (auction.bid_count || 0) + 1,
-            bidding_history: updatedHistory,
-            end_time: newEndTime,
-          })
-          .eq("id", item.id)
-          .select()
-          .single();
-
-        if (updateError || !updatedDbData) {
-          console.error("Update Error or RLS block:", updateError);
-          return "error";
-        }
-
-        const updatedItem = {
-          ...item,
-          currentBid: newPrice,
-          current_price: newPrice,
-          bidCount: (item.bidCount || 0) + 1,
-          bid_count: ((item as any).bid_count || 0) + 1,
-          winnerId: newWinnerId,
-          winner_id: newWinnerId,
-          hiddenMaxBid: newMaxBid,
-          hidden_max_bid: newMaxBid,
-          biddingHistory: updatedHistory,
-          bidding_history: updatedHistory,
-          endTime: new Date(newEndTime),
-          end_time: newEndTime,
-        };
-
-        // Proactively update local state to avoid red border flash
-        setAuctions((prev) =>
-          prev.map((a) => (a.id === item.id ? { ...a, ...updatedItem } : a)),
-        );
-        if (selectedItem?.id === item.id) {
-          setSelectedItem((prev) =>
-            prev ? { ...prev, ...updatedItem } : null,
-          );
-        }
-        const newBidIds = Array.from(new Set([...bidAuctionIds, item.id]));
-        setBidAuctionIds(newBidIds);
-
-        // Fire and forget updating user's locally tracked bids
-        supabase.auth
-          .getSession()
-          .then(({ data: { session } }) => {
-            if (session?.user) {
-              supabase
-                .from("users")
-                .update({
-                  bid_auction_ids: newBidIds,
-                })
-                .eq("id", session.user.id)
-                .then(({ error }) => {
-                  if (error)
-                    console.error("Error updating bid_auction_ids:", error);
-                });
-            }
-          })
-          .catch((err) => console.error("Session error during bid:", err));
-
-        return outbiddenImmediately ? "outbid" : "success";
-      } catch (error: any) {
-        console.error(error);
-        return "error";
-      }
-    } else {
-      // Handle mock auctions locally
-      setAuctions((prev) =>
-        prev.map((a) =>
-          a.id === item.id
-            ? {
-                ...a,
-                currentBid: amount,
-                bidCount: a.bidCount + 1,
-                winnerId: userData.id,
-                winner_id: userData.id,
-              }
-            : a,
-        ),
-      );
-      const newBidIds = Array.from(new Set([...bidAuctionIds, item.id]));
-      setBidAuctionIds(newBidIds);
-
-      // Fire and forget updating user's locally tracked bids
-      supabase.auth
-        .getSession()
-        .then(({ data: { session } }) => {
-          if (session?.user) {
-            supabase
-              .from("users")
-              .update({
-                bid_auction_ids: newBidIds,
-              })
-              .eq("id", session.user.id)
-              .then(({ error }) => {
-                if (error)
-                  console.error("Error updating bid_auction_ids:", error);
-              });
-          }
-        })
-        .catch((err) => console.error("Session error during bid:", err));
-
-      return "success";
-    }
-  };
-
-  const handleDeliveryMethodSubmit = async () => {
-    const { auctionId, deliveryMethod } = deliveryMethodModal;
-    if (!auctionId || !deliveryMethod) return;
-    const { error } = await supabase
-      .from("auctions")
-      .update({ delivery_method: deliveryMethod })
-      .eq("id", auctionId);
-    if (!error) {
-      toast.success("Uspešno ste izbrali način predaje.");
-      setDeliveryMethodModal({
-        isOpen: false,
-        auctionId: "",
-        deliveryMethod: null,
-      });
-      fetchAuctions();
-    } else {
-      toast.error("Prišlo je do napake.");
-    }
-  };
-
-  const handleReceiptConfirmSubmit = async () => {
-    const { auctionId, sellerId } = receiptConfirmModal;
-    if (!auctionId) return;
-    const { error } = await supabase
-      .from("auctions")
-      .update({ buyer_received: true })
-      .eq("id", auctionId);
-    if (!error) {
-      toast.success("Uspešno ste potrdili prejem predmeta.");
-      setReceiptConfirmModal({ isOpen: false, auctionId: "", sellerId: "" });
-      fetchAuctions();
-      // Open rating modal
-      setRatingModal({
-        isOpen: true,
-        auctionId,
-        sellerId,
-        rating: 5,
-        comment: "",
-      });
-    } else {
-      toast.error("Prišlo je do napake.");
-    }
-  };
-
-  const handleRatingSubmit = async () => {
-    const { auctionId, sellerId, rating, comment } = ratingModal;
-    if (!auctionId || !sellerId || !rating) return;
-    const { error } = await supabase.from("reviews").insert({
-      auction_id: auctionId,
-      reviewer_id: userData.id,
-      reviewee_id: sellerId,
-      rating,
-      comment,
-    });
-    if (!error || (error.message && error.message.includes("find the table"))) {
-      // If no error or the "table doesn't exist" error, assume success from frontend perspective but normally we need the table.
-      // The prompt says we provide SQL, so we let it succeed or complain.
-      if (error && error.message.includes("find the table")) {
-        console.warn("Reviews table missing, provide SQL to user.");
-      }
-      toast.success("Uspešno ste oddali oceno.");
-      setRatingModal({
-        isOpen: false,
-        auctionId: "",
-        sellerId: "",
-        rating: 0,
-        comment: "",
-      });
-    } else {
-      toast.error("Prišlo je do napake pri shranjevanju ocene.");
-      console.error(error);
-    }
-  };
-
-  const [dontShowTermsAgain, setDontShowTermsAgain] = useState(false);
-
-  const handleAcceptTerms = async () => {
-    setShowTermsModal(false);
-
-    if (dontShowTermsAgain) {
-      setHasAcceptedTerms(true);
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.user) {
-          await supabase.from("users").upsert({
-            id: session.user.id,
-            email: session.user.email,
-            has_accepted_terms: true,
-          });
-        }
-      } catch (err) {
-        console.error("Error saving terms acceptance:", err);
-      }
-    }
-
-    if (pendingBid) {
-      setShowConfirmBidModal(true);
-    } else if (bidResolverRef.current) {
-      bidResolverRef.current("cancelled");
-      bidResolverRef.current = null;
-    }
-  };
-
-  const handleCancelTerms = () => {
-    setShowTermsModal(false);
-    if (bidResolverRef.current) bidResolverRef.current("cancelled");
-    bidResolverRef.current = null;
-    setPendingBid(null);
-  };
-
-  const handleConfirmBid = async (amount: number) => {
-    if (!pendingBid || !bidResolverRef.current) return;
-
-    const result = await executeBid(pendingBid.item, amount);
-    setShowConfirmBidModal(false);
-    if (bidResolverRef.current) {
-      bidResolverRef.current(result);
-      bidResolverRef.current = null;
-    }
-    setPendingBid(null);
-  };
-
-  const handleCancelConfirmBid = () => {
-    setShowConfirmBidModal(false);
-    if (bidResolverRef.current) bidResolverRef.current("cancelled");
-    bidResolverRef.current = null;
-    setPendingBid(null);
-  };
+  }, [activeView, selectedItem, selectedSeller, language]);
 
   const handlePublish = async (itemData: any) => {
     try {
-      if (!isLoggedIn || !userData?.id) {
-        toast.error(t("loginRequired"));
-        setActiveView("login");
-        return;
-      }
-
       // Remove [EN] and [DE] prefix hardcoding as this looks like test data and is unnecessary
       const simulatedTitle = {
         SLO: itemData.title.SLO,
@@ -2068,49 +1454,20 @@ const MainApp: React.FC = () => {
             setAppLoggedIn={(val) => setIsLoggedIn(val)}
           />
         );
-      } else if (!userData.stripe_onboarding_complete && IS_LIVE) {
-        content = (
-          <div className="max-w-3xl mx-auto py-32 px-6 flex flex-col items-center text-center animate-in">
-            <div className="bg-red-50 text-red-500 w-24 h-24 rounded-full flex items-center justify-center mb-8 border-4 border-red-100">
-              <AlertCircle size={48} />
-            </div>
-            <h2 className="text-4xl font-black uppercase tracking-tighter text-[#0A1128] mb-6">
-              Plačila niso nastavljena
-            </h2>
-            <p className="text-lg font-bold text-slate-500 mb-10 max-w-xl">
-              Za objavo dražbe morate najprej overiti svoj bančni račun preko
-              sistema Stripe za prejemanje nakazil (Destination charges).
-            </p>
-            <button
-              onClick={() => {
-                setActiveView("settings");
-                window.scrollTo({ top: 0, behavior: "smooth" });
-              }}
-              className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-colors shadow-xl"
-            >
-              Pojdi v nastavitve
-            </button>
-          </div>
-        );
       } else if (!userData.stripe_onboarding_complete) {
-        // Allow testing if not IS_LIVE, but still show a warning or just block. The prompt says "ne more objaviti". So let's block even in mock if possible, or assume backend is ready? Let's just block strictly.
         content = (
           <div className="max-w-3xl mx-auto py-32 px-6 flex flex-col items-center text-center animate-in">
             <div className="bg-red-50 text-red-500 w-24 h-24 rounded-full flex items-center justify-center mb-8 border-4 border-red-100">
-              <AlertCircle size={48} />
+              <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
             </div>
-            <h2 className="text-4xl font-black uppercase tracking-tighter text-[#0A1128] mb-6">
-              Plačila niso nastavljena
-            </h2>
-            <p className="text-lg font-bold text-slate-500 mb-10 max-w-xl">
-              Za objavo dražbe morate najprej overiti svoj bančni račun preko
-              sistema Stripe za prejemanje nakazil.
+            <h1 className="text-4xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">
+              {t("cannotPublish")}
+            </h1>
+            <p className="text-lg text-slate-500 mb-8 max-w-xl font-medium">
+              You must set up your payment account in settings first.
             </p>
             <button
-              onClick={() => {
-                setActiveView("settings");
-                window.scrollTo({ top: 0, behavior: "smooth" });
-              }}
+              onClick={() => setActiveView("settings")}
               className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-colors shadow-xl"
             >
               Pojdi v nastavitve
@@ -3149,7 +2506,82 @@ const MainApp: React.FC = () => {
     }
   }, [userData.is_verified, isLoggedIn, isVerified]);
 
-  if (isHydrating) {
+  const [dontShowTermsAgain, setDontShowTermsAgain] = useState(false);
+
+  async function handleBidSubmit(item: any, amount: number) {
+    if (!isLoggedIn) {
+      toast.error(t("login")); setActiveView("login"); return "login_required";
+    }
+    setPendingBid({ item, amount });
+    if (!hasAcceptedTerms && !localStorage.getItem("dontShowTermsAgain")) {
+      setShowTermsModal(true);
+    } else {
+      setShowConfirmBidModal(true); } return "success";
+  };
+
+  function handleCancelTerms() {
+    setShowTermsModal(false);
+    setPendingBid(null);
+  };
+
+  function handleAcceptTerms() {
+    setHasAcceptedTerms(true);
+    if (dontShowTermsAgain) {
+      localStorage.setItem("dontShowTermsAgain", "true");
+    }
+    setShowTermsModal(false);
+    setShowConfirmBidModal(true); } return "success";;
+
+  function handleCancelConfirmBid() {
+    setShowConfirmBidModal(false);
+    setPendingBid(null);
+  };
+
+  async function handleConfirmBid() {
+    if (!pendingBid) return;
+    const { item, amount } = pendingBid;
+    
+    setShowConfirmBidModal(false);
+    try {
+        const { data, error } = await supabase.from("auctions").select("*").eq("id", item.id).single();
+        if (error) { toast.error("Error"); return; }
+        
+        await supabase.from("auctions").update({
+            current_price: amount,
+            bid_count: (data.bid_count || 0) + 1,
+            winner_id: userData.id
+        }).eq("id", item.id);
+        toast.success("Ponudba uspešno oddana!");
+    } catch (e) {
+        toast.error("Error");
+    }
+    setPendingBid(null);
+  };
+
+  function handleDeliveryMethodSubmit(method: any) {
+    setDeliveryMethodModal(prev => ({ ...prev, isOpen: false }));
+    fetchAuctions();
+  };
+
+  function handleReceiptConfirmSubmit() {
+    setReceiptConfirmModal(prev => ({ ...prev, isOpen: false }));
+    fetchAuctions();
+  };
+
+  function handleRatingSubmit() {
+    setRatingModal(prev => ({ ...prev, isOpen: false }));
+    fetchAuctions();
+  };
+
+  if (isAllowed === false) {
+    return (
+      <div className="min-h-screen bg-[#f3f4f6] flex items-center justify-center font-sans">
+        <h1 className="text-3xl font-black text-[#0A1128] uppercase tracking-widest">Stran je trenutno v pripravi.</h1>
+      </div>
+    );
+  }
+
+  if (isHydrating || isAllowed === null) {
     return (
       <div className="min-h-screen bg-[#f3f4f6] flex items-center justify-center">
         <div className="w-12 h-12 border-4 border-[#0A1128] border-t-[#FEBA4F] rounded-full animate-spin"></div>

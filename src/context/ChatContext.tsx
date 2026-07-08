@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { auth, db } from "../lib/firebase";
+import { onAuthStateChanged } from "firebase/auth";
 import { collection, query, where, or, onSnapshot, doc, getDoc, setDoc, addDoc, updateDoc, serverTimestamp, orderBy } from "firebase/firestore";
 import { AuctionItem } from "../../types";
 
@@ -79,100 +80,125 @@ export const ChatProvider: React.FC<{
   // Firestore Snapshot Listeners
   useEffect(() => {
     if (!userId) return;
-    setLoadingChats(true);
     
-    const convRef = collection(db, "conversations");
-    const q = query(convRef, or(where("participant_one", "==", userId), where("participant_two", "==", userId)));
+    let unsubscribe = () => {};
+    let isMounted = true;
     
-    const unsubscribe = onSnapshot(q, async (snapshot) => {
-      const convData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      
-      const enrichedConvs: Conversation[] = [];
-
-      for (const conv of convData as any) {
-        let auction = auctions.find(a => a.id === conv.auction_id);
-        if (!auction) {
-           auction = { 
-               id: conv.auction_id, 
-               title: { en: "Unknown" }, 
-               category: "Other", 
-               currentBid: 0, 
-               bidCount: 0, 
-               itemCount: 1, 
-               images: [], 
-               endTime: new Date(), 
-               location: {}, 
-               region: "Ljubljana" as any, 
-               description: {}, 
-               condition: {}, 
-               specifications: {}, 
-               biddingHistory: [], 
-               sellerId: "unknown", 
-               status: "completed" as const 
-           };
-        }
+    const setupListener = () => {
+        if (!auth.currentUser) return; // wait for auth
+        setLoadingChats(true);
+        const convRef = collection(db, "conversations");
+        const q = query(convRef, or(where("participant_one", "==", userId), where("participant_two", "==", userId)));
         
-        const otherUserId = conv.participant_one === userId ? conv.participant_two : conv.participant_one;
-        
-        let user: OtherUser | undefined = undefined;
-        try {
-          const userDoc = await getDoc(doc(db, "users", otherUserId));
-          if (userDoc.exists()) {
-            user = { id: userDoc.id, ...userDoc.data() } as OtherUser;
+        unsubscribe = onSnapshot(q, async (snapshot) => {
+          if (!isMounted) return;
+          const convData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+          
+          const enrichedConvs = [];
+          for (const conv of convData) {
+            let auction = auctions.find(a => a.id === conv.auction_id);
+            if (!auction) {
+               auction = {
+                    id: conv.auction_id,
+                    title: { en: "Unknown" },
+                    category: "Other",
+                    currentBid: 0,
+                    bidCount: 0,
+                    itemCount: 1,
+                    images: [],
+                    endTime: new Date(),
+                    location: {},
+                    region: "Ljubljana" as any,
+                    description: {},
+                    condition: {},
+                    specifications: {},
+                    biddingHistory: [],
+                    sellerId: "unknown",
+                    status: "completed"
+                };
+            }
+            
+            const otherUserId = conv.participant_one === userId ? conv.participant_two : conv.participant_one;
+            let user = undefined;
+            try {
+              const userDoc = await getDoc(doc(db, "users", otherUserId));
+              if (userDoc.exists()) {
+                user = { id: userDoc.id, ...userDoc.data() };
+              }
+            } catch (e) {}
+            enrichedConvs.push({ id: conv.id, auction, otherUserId, user });
           }
-        } catch (e) {}
-
-        enrichedConvs.push({
-          id: conv.id,
-          auction,
-          otherUserId,
-          user
+          
+          setConversations(enrichedConvs);
+          setLoadingChats(false);
+        }, (error) => {
+          console.error("Error fetching conversations:", error);
+          setLoadingChats(false);
         });
-      }
-      
-      setConversations(enrichedConvs);
-      setLoadingChats(false);
-    }, (error) => {
-      console.error("Error fetching conversations:", error);
-      setLoadingChats(false);
+    };
+
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+        if (user) {
+            setupListener();
+        } else {
+            setLoadingChats(false);
+        }
     });
 
-    return () => unsubscribe();
+    return () => {
+        isMounted = false;
+        unsubscribeAuth();
+        unsubscribe();
+    };
   }, [userId, auctions.length]);
 
   useEffect(() => {
     if (!userId) return;
     
-    const msgRef = collection(db, "messages");
-    const q = query(msgRef, orderBy("created_at", "desc"));
-    
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      let totalUnread = 0;
-      const counts: Record<string, number> = {};
-      
-      const allMsgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message));
-      
-      // Update unread counts
-      conversations.forEach(conv => {
-        const unread = allMsgs.filter(m => m.conversation_id === conv.id && m.sender_id !== userId && !m.is_read).length;
-        counts[conv.id] = unread;
-        totalUnread += unread;
-      });
-      
-      setUnreadCounts(counts);
-      setUnreadMessageCount(totalUnread);
-      
-      // If we are in an active chat, update messages list
-      if (activeConversationId) {
-         const activeMsgs = allMsgs.filter(m => m.conversation_id === activeConversationId).reverse();
-         setMessages(activeMsgs);
-      }
-      
-    }, (error) => {
-       console.error("Error fetching unread messages:", error);
+    let unsubscribe = () => {};
+    let isMounted = true;
+
+    const setupListener = () => {
+        if (!auth.currentUser) return;
+        const msgRef = collection(db, "messages");
+        const q = query(msgRef, orderBy("created_at", "desc"));
+        
+        unsubscribe = onSnapshot(q, (snapshot) => {
+          if (!isMounted) return;
+          let totalUnread = 0;
+          const counts = {};
+          
+          const allMsgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message));
+          
+          conversations.forEach(conv => {
+            const unread = allMsgs.filter(m => m.conversation_id === conv.id && m.sender_id !== userId && !m.is_read).length;
+            counts[conv.id] = unread;
+            totalUnread += unread;
+          });
+          
+          setUnreadCounts(counts);
+          setUnreadMessageCount(totalUnread);
+          
+          if (activeConversationId) {
+             const activeMsgs = allMsgs.filter(m => m.conversation_id === activeConversationId).reverse();
+             setMessages(activeMsgs);
+          }
+        }, (error) => {
+           console.error("Error fetching unread messages:", error);
+        });
+    };
+
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+        if (user) {
+            setupListener();
+        }
     });
 
-    return () => unsubscribe();
+    return () => {
+        isMounted = false;
+        unsubscribeAuth();
+        unsubscribe();
+    };
   }, [userId, conversations, activeConversationId]);
 
   useEffect(() => {
