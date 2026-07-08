@@ -2497,7 +2497,9 @@ const MainApp: React.FC = () => {
     if (!hasAcceptedTerms && !localStorage.getItem("dontShowTermsAgain")) {
       setShowTermsModal(true);
     } else {
-      setShowConfirmBidModal(true); } return "success";
+      setShowConfirmBidModal(true);
+    return "success";
+  }
   };
 
   function handleCancelTerms() {
@@ -2511,7 +2513,9 @@ const MainApp: React.FC = () => {
       localStorage.setItem("dontShowTermsAgain", "true");
     }
     setShowTermsModal(false);
-    setShowConfirmBidModal(true); } return "success";;
+    setShowConfirmBidModal(true);
+    return "success";
+  }
 
   function handleCancelConfirmBid() {
     setShowConfirmBidModal(false);
