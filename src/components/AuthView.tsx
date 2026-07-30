@@ -40,6 +40,71 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
   const strengthColor = strength <= 1 ? 'bg-red-500' : strength === 2 ? 'bg-amber-500' : strength === 3 ? 'bg-green-400' : 'bg-green-600';
   const strengthText = strength <= 1 ? t('weak') : strength === 2 ? t('moderate') : strength === 3 ? t('good') : t('excellent');
 
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email || !password) return toast.error(t("missingFields") || "Manjkajoči podatki.");
+    
+    if (!isLogin) {
+        if (!hasUppercase || !hasNumber || !hasMinLength) {
+            return toast.error(t("passwordRequirements") || "Geslo ne ustreza zahtevam.");
+        }
+        if (password !== confirmPassword) {
+            setPasswordsMatch(false);
+            return toast.error(t("passwordsNotMatch") || "Gesli se ne ujemata.");
+        }
+    }
+    
+    setLoading(true);
+    try {
+      if (isLogin) {
+          const cred = await signInWithEmailAndPassword(auth, email, password);
+          const user = cred.user;
+          if (user) {
+              (async () => {
+                  try {
+                      await setDoc(doc(db, "users", user.uid), { remember_me: rememberMe }, { merge: true });
+                  } catch (e) {
+                      console.warn("Background update error:", e);
+                  }
+              })();
+          }
+          onLoginSuccess();
+      } else {
+          const cred = await createUserWithEmailAndPassword(auth, email, password);
+          const user = cred.user;
+          if (user) {
+              await setDoc(doc(db, "users", user.uid), {
+                   id: user.uid,
+                   email: email,
+                   is_verified: false,
+                   unpaid_strikes: 0,
+                   subscription: "FREE"
+               }, { merge: true });
+          }
+          toast.success(t("registrationSuccess") || "Registracija uspešna.");
+          setIsLogin(true);
+      }
+    } catch (error: any) {
+        let errorCode = error.code || "";
+        let errorMsg = error.message || JSON.stringify(error);
+        
+        if (
+            errorCode === "auth/user-not-found" || 
+            errorCode === "auth/wrong-password" || 
+            errorCode === "auth/invalid-credential" ||
+            errorMsg.includes("Invalid login credentials") ||
+            errorMsg.includes("invalid-credential")
+        ) {
+            toast.error("Napačni prijavni podatki ali pa uporabnik ne obstaja.");
+        } else {
+            toast.error(t("authError") + " " + errorMsg);
+        }
+    } finally { 
+        setLoading(false); 
+    }
+  };
+
   const handleForgotPassword = async (e: React.FormEvent) => {
       e.preventDefault();
       if (!email) return toast.error(t('emailRequired'));
@@ -49,98 +114,9 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
           await sendPasswordResetEmail(auth, email);
           toast.success(t('resetLinkSent'));
           setIsForgotPassword(false);
-      } catch (error: any) {
-          toast.error(`${t('authError')} ${error.message}`);
-      } finally {
-          setLoading(false);
-      }
-  };
-
-  const handleGoogleLogin = async () => {
-    setLoading(true);
-    try {
-      const provider = new GoogleAuthProvider();
-      const result = await signInWithPopup(auth, provider);
-      await setDoc(doc(db, 'users', result.user.uid), { id: result.user.uid, email: result.user.email, is_verified: false }, { merge: true });
-      onLoginSuccess();
-    } catch (error: any) {
-      toast.error(`${t('googleLoginError')} ${error.message}`);
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    // Check for OAuth errors in URL
-    const params = new URLSearchParams(window.location.search);
-    const error = params.get('error_description') || params.get('error');
-    if (error) {
-      if (error.includes('identity_already_exists') || error.toLowerCase().includes('already registered')) {
-        toast.error(t('emailInUse'));
-      } else {
-        toast.error(`${t('authError')} ${error}`);
-      }
-      // Clean up URL
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
-  }, []);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!isLogin) {
-        if (!hasUppercase || !hasNumber || !hasMinLength) {
-            return toast.error(t('passwordRequirements'));
-        }
-        if (password !== confirmPassword) {
-            setPasswordsMatch(false);
-            return toast.error(t('passwordsNotMatch'));
-        }
-    }
-
-    setLoading(true);
-    try {
-      if (isLogin) {
-          const cred = await signInWithEmailAndPassword(auth, email, password);
-          const user = cred.user;
-          if (user) {
-              // Background updates without blocking the main flow
-              (async () => {
-                  try {
-                      await setDoc(doc(db, 'users', user.uid), { remember_me: rememberMe }, { merge: true });
-                  } catch (e) {
-                      console.warn('Background update error:', e);
-                  }
-              })();
-          }
-          
-          setLoading(false);
-          onLoginSuccess();
-      } else {
-          const cred = await createUserWithEmailAndPassword(auth, email, password);
-          const user = cred.user;
-          if (user) {
-              // Try to insert into users table. If RLS blocks it because email is not confirmed yet,
-              // we will also handle this in App.tsx on first login.
-              await setDoc(doc(db, 'users', user.uid), {
-                   id: user.uid,
-                   email: email,
-                   is_verified: false,
-                   unpaid_strikes: 0,
-                   subscription: 'FREE'
-               }, { merge: true });
-          }
-          
-          toast.success(t('registrationSuccess'));
-          setIsLogin(true); // Switch to login view after registration
-      }
-    } catch (error: any) { 
+          } catch (error: any) {
         let errorMsg = error.message || JSON.stringify(error);
-        if (errorMsg.includes('Invalid login credentials')) {
-            errorMsg = t('invalidCredentials') || "Napačni prijavni podatki.";
-            toast.error(errorMsg);
-        } else {
-            toast.error(`${t('authError')} ${errorMsg}`); 
-        }
+        toast.error(t("authError") + " " + errorMsg);
     } finally { setLoading(false); }
   };
 
