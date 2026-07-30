@@ -104,6 +104,7 @@ import { ChatProvider } from "./src/context/ChatContext";
 import { collection, onSnapshot, setDoc, doc, getDocs, getDoc, updateDoc, addDoc, query, where, runTransaction } from "firebase/firestore";
 import { db, auth, storage } from "./src/lib/firebase";
 import { onAuthStateChanged, signOut, updatePassword } from "firebase/auth";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 // --- CONFIGURATION ---
 
@@ -1271,7 +1272,6 @@ const MainApp: React.FC = () => {
           data.profilePicture &&
           data.profilePicture.startsWith("data:image")
         ) {
-          try {
             console.log("Processing profile picture...");
 
             // Manual base64 to Blob conversion to avoid CSP fetch issues
@@ -1300,47 +1300,27 @@ const MainApp: React.FC = () => {
 
             const fileName = `${userData.id}-${Date.now()}.jpg`;
 
+            const storageRef = ref(storage, `profiles/${fileName}`);
             try {
-              const { ref, uploadBytes, getDownloadURL } = require('firebase/storage');
-              const storageRef = ref(storage, `profiles/${fileName}`);
-              await uploadBytes(storageRef, compressedFile, { contentType: 'image/jpeg' });
+              await uploadBytes(storageRef, compressedFile, { contentType: "image/jpeg" });
               const url = await getDownloadURL(storageRef);
               updateData.profile_picture_url = url;
               console.log("Profile picture uploaded:", url);
-            } catch(e) {
-              console.error("Error uploading profile picture:", e);
-              toast.error(t("imageUploadError"));
+            } catch (uploadErr) {
+              console.error("Image upload failed:", uploadErr);
+              throw new Error("IMAGE_UPLOAD_FAILED");
             }
-          } catch (imgErr) {
-            console.error("Error processing profile picture:", imgErr);
-          }
         } else if (!data.profilePicture) {
           updateData.profile_picture_url = null;
         }
 
         console.log("Updating database with:", updateData);
-        let error: any = null;
-        try {
-          await setDoc(doc(db, 'users', uid), {
-            email: userData.email,
-            ...updateData,
-          }, { merge: true });
-        } catch (e: any) {
-          error = e;
-        }
-        const updatedUser = { id: uid, email: userData.email, ...updateData };
+        await setDoc(doc(db, "users", uid), {
+          email: userData.email,
+          ...updateData,
+        }, { merge: true });
 
-        if (error) {
-          console.error("Database update error:", error);
-          if (error.code === "23505" && error.message.includes("username")) {
-            toast.error(
-              "To uporabniško ime je že zasedeno. Prosimo, izberite drugega.",
-            );
-          } else {
-            toast.error(`Napaka pri shranjevanju: ${error.message}`);
-          }
-          return;
-        }
+        const updatedUser = { id: uid, email: userData.email, ...updateData };
 
         if (updatedUser) {
           console.log("User updated successfully:", updatedUser);
@@ -1348,9 +1328,15 @@ const MainApp: React.FC = () => {
         }
 
         toast.success(t("saveChanges") + " - " + t("success"));
-      } catch (err) {
+      } catch (err: any) {
         console.error("Error saving settings:", err);
-        toast.error("Prišlo je do napake pri shranjevanju.");
+        if (err.code === "23505" && err.message?.includes("username")) {
+          toast.error("To uporabniško ime je že zasedeno. Prosimo, izberite drugega.");
+        } else if (err.message === "IMAGE_UPLOAD_FAILED" || (err.code && err.code.startsWith("storage/"))) {
+            toast.error("Napaka pri nalaganju profilne slike.");
+        } else {
+          toast.error(`Napaka pri shranjevanju: ${err.message || err}`);
+        }
       }
     },
     [userData?.id, userData?.email, t],
