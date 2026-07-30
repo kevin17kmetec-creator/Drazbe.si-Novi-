@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { User, CheckCircle2, AlertCircle, ShieldCheck, XCircle, ArrowLeft } from 'lucide-react';
 import { auth, db } from '../lib/firebase';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail, signInWithPopup, GoogleAuthProvider, sendEmailVerification, signOut } from 'firebase/auth';
 import { setDoc, doc } from 'firebase/firestore';
 import { toast } from 'sonner';
 
@@ -60,6 +60,14 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
       if (isLogin) {
           const cred = await signInWithEmailAndPassword(auth, email, password);
           const user = cred.user;
+          
+          if (!user.emailVerified) {
+              await signOut(auth);
+              toast.error("Vaš e-poštni naslov še ni potrjen. Prosimo, preverite svojo e-pošto in kliknite na potrditveno povezavo.");
+              setLoading(false);
+              return;
+          }
+
           if (user) {
               (async () => {
                   try {
@@ -73,6 +81,9 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
       } else {
           const cred = await createUserWithEmailAndPassword(auth, email, password);
           const user = cred.user;
+          
+          await sendEmailVerification(user);
+          
           if (user) {
               await setDoc(doc(db, "users", user.uid), {
                    id: user.uid,
@@ -82,7 +93,10 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
                    subscription: "FREE"
                }, { merge: true });
           }
-          toast.success(t("registrationSuccess") || "Registracija uspešna.");
+          
+          await signOut(auth);
+          
+          toast.success("Registracija uspešna! Na vaš e-poštni naslov smo poslali potrditveno povezavo. Prosimo, potrdite jo pred prvo prijavo.");
           setIsLogin(true);
       }
     } catch (error: any) {
@@ -96,7 +110,7 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
             errorMsg.includes("Invalid login credentials") ||
             errorMsg.includes("invalid-credential")
         ) {
-            toast.error("Napačni prijavni podatki ali pa uporabnik ne obstaja.");
+            toast.error("Napačno e-poštno ime ali geslo.");
         } else {
             toast.error(t("authError") + " " + errorMsg);
         }
@@ -104,7 +118,6 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
         setLoading(false); 
     }
   };
-
 
   const handleGoogleLogin = async () => {
     setLoading(true);

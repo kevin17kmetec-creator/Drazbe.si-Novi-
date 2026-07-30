@@ -835,8 +835,12 @@ const MainApp: React.FC = () => {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
+        if (!user.emailVerified && user.providerData.some(p => p.providerId === "password")) {
+          await signOut(auth);
+          return;
+        }
         setIsLoggedIn(true);
-        const snap = await getDoc(doc(db, 'users', user.uid));
+        const snap = await getDoc(doc(db, "users", user.uid));
         const data: any = snap.exists() ? { id: snap.id, ...snap.data() } : null;
         const error = null;
 
