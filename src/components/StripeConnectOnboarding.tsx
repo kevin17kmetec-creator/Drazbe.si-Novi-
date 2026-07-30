@@ -30,12 +30,19 @@ export const StripeConnectOnboarding: React.FC<Props> = ({ userId, isComplete, o
             return_url: window.location.href 
         }),
       });
+      
+      let data;
+      try {
+        data = await response.json();
+      } catch (e) {
+        console.warn("Failed to parse JSON response:", e);
+      }
+
       if (!response.ok) {
-        throw new Error("Napaka pri povezovanju s Stripe sistemom");
+        throw new Error((data && data.error) ? data.error : "Napaka pri povezovanju s Stripe sistemom");
       }
       
-      const data = await response.json();
-      if (data.url) {
+      if (data && data.url) {
           if (popup) {
               popup.location.href = data.url;
           } else {
@@ -47,7 +54,7 @@ export const StripeConnectOnboarding: React.FC<Props> = ({ userId, isComplete, o
     } catch (err: any) {
         console.error(err);
         if (popup) popup.close();
-        alert('Napaka pri povezovanju s Stripe sistemom');
+        alert(err.message || 'Napaka pri povezovanju s Stripe sistemom');
     } finally {
         setLoading(false);
     }

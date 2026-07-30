@@ -472,7 +472,7 @@ async function startServer() {
       res.json({ url: accountLink.url });
     } catch (error: any) {
       console.error("Stripe Account Link Error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: error.message || 'Stripe configuration error' });
     }
   });
 

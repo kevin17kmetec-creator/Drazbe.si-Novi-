@@ -2,10 +2,6 @@ import { admin, db } from '../src/lib/firebase-admin';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import Stripe from 'stripe';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '');
-
-
-
 export default async function handler(
   req: VercelRequest,
   res: VercelResponse
@@ -22,6 +18,12 @@ export default async function handler(
   }
 
   try {
+    const stripeKey = process.env.STRIPE_SECRET_KEY;
+    if (!stripeKey) {
+      throw new Error('Stripe configuration error: STRIPE_SECRET_KEY is missing');
+    }
+    const stripe = new Stripe(stripeKey);
+
     const { user_id, return_url, refresh_url } = req.body;
 
     // Check if user already has an account
@@ -61,6 +63,6 @@ export default async function handler(
     return res.status(200).json({ url: accountLink.url });
   } catch (error: any) {
     console.error("Stripe Account Link Error:", error);
-    return res.status(500).json({ error: error.message });
+    return res.status(500).json({ error: error.message || 'Stripe configuration error' });
   }
 }
