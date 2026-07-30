@@ -1471,13 +1471,16 @@ const MainApp: React.FC = () => {
               {t("cannotPublish")}
             </h1>
             <p className="text-lg text-slate-500 mb-8 max-w-xl font-medium">
-              You must set up your payment account in settings first.
+              Za objavo dražbe morate najprej povezati svoj bančni račun za prejem izplačil.
             </p>
             <button
-              onClick={() => setActiveView("settings")}
+              onClick={() => {
+                  setSettingsTab("stripe");
+                  setActiveView("settings");
+              }}
               className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-colors shadow-xl"
             >
-              Pojdi v nastavitve
+              Uredi plačila in izplačila
             </button>
           </div>
         );

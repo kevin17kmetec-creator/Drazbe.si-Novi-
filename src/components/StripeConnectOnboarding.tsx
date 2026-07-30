@@ -31,15 +31,9 @@ export const StripeConnectOnboarding: React.FC<Props> = ({ userId, isComplete, o
         }),
       });
       if (!response.ok) {
-        let errorMsg = 'Failed to create stripe link';
-        try {
-            const data = await response.json();
-            if (data.error) errorMsg = data.error;
-        } catch(e) {
-            errorMsg = `Server error: ${response.status} ${response.statusText}`;
-        }
-        throw new Error(errorMsg);
+        throw new Error("Napaka pri povezovanju s Stripe sistemom");
       }
+      
       const data = await response.json();
       if (data.url) {
           if (popup) {
@@ -53,7 +47,7 @@ export const StripeConnectOnboarding: React.FC<Props> = ({ userId, isComplete, o
     } catch (err: any) {
         console.error(err);
         if (popup) popup.close();
-        alert(err.message || 'Prišlo je do napake pri preusmeritvi na Stripe.');
+        alert('Napaka pri povezovanju s Stripe sistemom');
     } finally {
         setLoading(false);
     }
