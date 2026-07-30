@@ -1028,7 +1028,7 @@ const MainApp: React.FC = () => {
         return fetchedData;
       });
     }, (error) => {
-      console.error('Auctions snapshot error:', error);
+      if (error.code === 'permission-denied') { console.warn('Auctions snapshot permission denied (expected if not logged in).'); } else { console.error('Auctions snapshot error:', error); }
     });
 
     return () => {

@@ -105,6 +105,20 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
     }
   };
 
+
+  const handleGoogleLogin = async () => {
+    setLoading(true);
+    try {
+      const provider = new GoogleAuthProvider();
+      const result = await signInWithPopup(auth, provider);
+      await setDoc(doc(db, "users", result.user.uid), { id: result.user.uid, email: result.user.email, is_verified: false }, { merge: true });
+      onLoginSuccess();
+    } catch (error: any) {
+      toast.error(`${t("googleLoginError")} ${error.message}`);
+      setLoading(false);
+    }
+  };
+
   const handleForgotPassword = async (e: React.FormEvent) => {
       e.preventDefault();
       if (!email) return toast.error(t('emailRequired'));
