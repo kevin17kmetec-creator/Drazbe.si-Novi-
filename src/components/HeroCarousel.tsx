@@ -2,13 +2,11 @@ import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { AuctionItem } from '../../types.ts';
 import { StaticTimer } from './StaticTimer';
-import { supabase } from '../lib/supabaseClient';
 
 const getImageUrl = (path: string) => {
   if (!path) return '';
   if (path.startsWith('http') || path.startsWith('data:')) return path;
-  const { data } = supabase.storage.from('auction-images').getPublicUrl(path);
-  return data.publicUrl;
+  return `https://storage.googleapis.com/auction-images/${path}`;
 };
 
 export const HeroCarousel: React.FC<{ items: AuctionItem[]; onSelectItem: (item: AuctionItem) => void; t: any; language: string }> = ({ items, onSelectItem, t, language }) => {
@@ -29,7 +27,7 @@ export const HeroCarousel: React.FC<{ items: AuctionItem[]; onSelectItem: (item:
             newSignedImages[item.id] = imgPath;
           } else {
             try {
-              const { data } = await supabase.storage.from('auction-images').createSignedUrl(imgPath, 3600);
+              const data = { signedUrl: `https://storage.googleapis.com/auction-images/${imgPath}` };
               if (data?.signedUrl) {
                 newSignedImages[item.id] = data.signedUrl;
               }

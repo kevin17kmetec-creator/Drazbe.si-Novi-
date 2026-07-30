@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { MapPin, ChevronLeft, ChevronRight, Clock, Eye, Building2, Minus, Plus, Lock, Trophy } from 'lucide-react';
 import { AuctionItem, Seller } from '../../types.ts';
-import { supabase } from '../lib/supabaseClient';
 import { getIncrement, formatSeconds } from '../lib/utils';
 
 export const AuctionCard: React.FC<{
@@ -14,7 +13,7 @@ export const AuctionCard: React.FC<{
   isWatched: boolean;
   onWatchToggle: () => void;
   onClick: () => void;
-  onBidSubmit?: (item: AuctionItem, amount: number) => Promise<'success' | 'outbid' | 'error' | 'login_required' | 'cancelled'> | void;
+  onBidSubmit?: (item: AuctionItem, amount: number) => Promise<'ok' | 'outbid' | 'error' | 'login_required' | 'cancelled'> | void;
   onSellerClick?: (seller: Seller) => void;
   onTimeUp?: (auctionId: string) => void;
 }> = ({ item, t, language, isVerified, currentUserId, hasBid, isWatched, onWatchToggle, onClick, onBidSubmit, onSellerClick, onTimeUp }) => {
@@ -24,7 +23,7 @@ export const AuctionCard: React.FC<{
   const seller = undefined;
   const minNextBid = item.currentBid + getIncrement(item.currentBid);
   const [bidValue, setBidValue] = useState(minNextBid);
-  const [bidStatus, setBidStatus] = useState<'success' | 'outbid' | 'error' | null>(null);
+  const [bidStatus, setBidStatus] = useState<'ok' | 'outbid' | 'error' | null>(null);
   const [isBidding, setIsBidding] = useState(false);
   const isWinner = currentUserId && (item.winnerId === currentUserId || (item as any).winner_id === currentUserId);
   const hasEndedFiredRef = useRef(false);
@@ -33,8 +32,7 @@ export const AuctionCard: React.FC<{
     if (!item?.images) return;
     const urls = item.images.map((imgPath: string) => {
       if (imgPath.startsWith('http') || imgPath.startsWith('blob:') || imgPath.startsWith('data:')) return imgPath;
-      const { data } = supabase.storage.from('auction-images').getPublicUrl(imgPath);
-      return data.publicUrl || imgPath;
+      return `https://storage.googleapis.com/auction-images/${imgPath}`;
     });
     setSignedImages(urls);
   }, [item?.images]);
@@ -71,7 +69,7 @@ export const AuctionCard: React.FC<{
     setIsBidding(true);
     const result = await onBidSubmit(item, bidValue);
     setIsBidding(false);
-    if (result === 'success' || result === 'outbid' || result === 'error') {
+    if (result === 'ok' || result === 'outbid' || result === 'error') {
         setBidStatus(result);
         setTimeout(() => setBidStatus(null), 4000);
     }
@@ -188,11 +186,11 @@ export const AuctionCard: React.FC<{
              {bidStatus && (
                  <div className={`absolute -top-12 left-0 right-0 flex justify-center animate-in fade-in slide-in-from-bottom-2 duration-300 z-10`}>
                      <div className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest shadow-xl border ${
-                         bidStatus === 'success' ? 'bg-green-500/90 text-white border-green-400/50' :
+                         bidStatus === 'ok' ? 'bg-green-500/90 text-white border-green-400/50' :
                          bidStatus === 'outbid' ? 'bg-orange-500/90 text-white border-orange-400/50' :
                          'bg-red-500/90 text-white border-red-400/50'
                      }`}>
-                         {bidStatus === 'success' ? t('bidSuccessMsg') :
+                         {bidStatus === 'ok' ? t('bidSuccessMsg') :
                           bidStatus === 'outbid' ? t('bidOutbid') :
                           t('bidError')}
                      </div>

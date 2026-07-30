@@ -1,11 +1,12 @@
-const admin = require('firebase-admin');
+import { initializeApp, getApps, applicationDefault } from 'firebase-admin/app';
+import { getFirestore } from 'firebase-admin/firestore';
 
-if (!admin.apps.length) {
-    admin.initializeApp({
-        credential: admin.credential.applicationDefault()
+if (!getApps().length) {
+    initializeApp({
+        credential: applicationDefault()
     });
 }
 
-const db = admin.firestore();
-const adminObj: any = admin;
+const db = getFirestore();
+const adminObj: any = {};
 export { adminObj as admin, db };

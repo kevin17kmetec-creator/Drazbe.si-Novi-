@@ -168,7 +168,14 @@ export const ChatProvider: React.FC<{
           let totalUnread = 0;
           const counts = {};
           
-          const allMsgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message));
+          const allMsgs = snapshot.docs.map(doc => {
+            const data = doc.data();
+            return {
+              id: doc.id,
+              ...data,
+              created_at: data.created_at?.toDate ? data.created_at.toDate().toISOString() : (data.created_at || new Date().toISOString())
+            } as Message;
+          });
           
           conversations.forEach(conv => {
             const unread = allMsgs.filter(m => m.conversation_id === conv.id && m.sender_id !== userId && !m.is_read).length;
@@ -220,7 +227,7 @@ export const ChatProvider: React.FC<{
                        auction_id: activeChat,
                        participant_one: userId,
                        participant_two: otherUserId,
-                       created_at: new Date().toISOString()
+                       created_at: serverTimestamp()
                    });
                    convId = res.id;
                } catch (e) { console.error("Error creating conv", e); }
@@ -246,7 +253,7 @@ export const ChatProvider: React.FC<{
          sender_id: userId,
          content: finalContent,
          is_read: false,
-         created_at: new Date().toISOString()
+         created_at: serverTimestamp()
        });
     } catch (e) {
        console.error("Error sending message:", e);

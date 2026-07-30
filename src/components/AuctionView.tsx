@@ -5,7 +5,6 @@ import {
   CreditCard, Landmark, Plus, Minus, X, Calendar as CalendarIcon, Phone, Mail, User,
   MessageSquare
 } from 'lucide-react';
-import { supabase } from '../lib/supabaseClient';
 import { getIncrement, calculateMarginalPlatformFee } from '../lib/utils';
 
 const TimeBox = ({ value, label }: { value: number, label: string }) => (
@@ -18,7 +17,7 @@ const TimeBox = ({ value, label }: { value: number, label: string }) => (
 export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onSellerClick, t, language, isVerified, currentPlan, isWatched, onWatchToggle, currentUserId }: { 
   item: any, 
   onBack: () => void, 
-  onBidSubmit: (item: any, amount: number) => Promise<"error" | "success" | "outbid" | "login_required" | "cancelled">,
+  onBidSubmit: (item: any, amount: number) => Promise<"error" | "ok" | "outbid" | "login_required" | "cancelled">,
   onCheckout: (item: any) => void,
   onSellerClick?: (sellerId: string) => void,
   t: any,
@@ -46,8 +45,8 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
     if (!item?.images) return;
     const urls = item.images.map((imgPath: string) => {
       if (imgPath.startsWith('http') || imgPath.startsWith('blob:') || imgPath.startsWith('data:')) return imgPath;
-      const { data } = supabase.storage.from('auction-images').getPublicUrl(imgPath);
-      return data.publicUrl || imgPath;
+      const publicUrl = `https://storage.googleapis.com/auction-images/${imgPath}`;
+      return publicUrl || imgPath;
     });
     setSignedImages(urls);
     if (urls.length > 0) setSelectedImage(urls[0]);
@@ -66,7 +65,7 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
 
   useEffect(() => {
     try {
-      supabase.auth.getUser().then(({ data: { user } }) => setCurrentUser(user)).catch(err => console.error("Error getting user in AuctionView:", err));
+      
     } catch (err) {
       console.error("Supabase auth error in AuctionView:", err);
     }
@@ -102,7 +101,7 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
     
     try {
       const result = await onBidSubmit(item, Number(bidAmount));
-      if (result === 'success') {
+      if (result === 'ok') {
           setBidAmount('');
           setBidSuccess(true);
           setTimeout(() => setBidSuccess(false), 3000);

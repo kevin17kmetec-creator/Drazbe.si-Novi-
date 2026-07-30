@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { User, CheckCircle2, AlertCircle, ShieldCheck, XCircle, ArrowLeft } from 'lucide-react';
-import { supabase } from '../lib/supabaseClient';
+import { auth, db } from '../lib/firebase';
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
+import { setDoc, doc } from 'firebase/firestore';
 import { toast } from 'sonner';
 
 export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerified: (v: boolean) => void; setAppLoggedIn: (val: boolean) => void }> = ({ t, onLoginSuccess, setIsVerified, setAppLoggedIn }) => {
@@ -44,10 +46,7 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
       
       setLoading(true);
       try {
-          const { error } = await supabase.auth.resetPasswordForEmail(email, {
-              redirectTo: window.location.origin,
-          });
-          if (error) throw error;
+          await sendPasswordResetEmail(auth, email);
           toast.success(t('resetLinkSent'));
           setIsForgotPassword(false);
       } catch (error: any) {
@@ -60,13 +59,10 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
   const handleGoogleLogin = async () => {
     setLoading(true);
     try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: window.location.origin,
-        }
-      });
-      if (error) throw error;
+      const provider = new GoogleAuthProvider();
+      const result = await signInWithPopup(auth, provider);
+      await setDoc(doc(db, 'users', result.user.uid), { id: result.user.uid, email: result.user.email, is_verified: false }, { merge: true });
+      onLoginSuccess();
     } catch (error: any) {
       toast.error(`${t('googleLoginError')} ${error.message}`);
       setLoading(false);
@@ -104,19 +100,15 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
     setLoading(true);
     try {
       if (isLogin) {
-          const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-          if (error) throw error;
-          
-          if (data.user) {
+          const cred = await signInWithEmailAndPassword(auth, email, password);
+          const user = cred.user;
+          if (user) {
               // Background updates without blocking the main flow
               (async () => {
                   try {
-                      await supabase.auth.updateUser({
-                          data: { remember_me: rememberMe }
-                      });
-                      await supabase.from('users').update({ remember_me: rememberMe }).eq('id', data.user.id);
+                      await setDoc(doc(db, 'users', user.uid), { remember_me: rememberMe }, { merge: true });
                   } catch (e) {
-                      console.warn("Background update error:", e);
+                      console.warn('Background update error:', e);
                   }
               })();
           }
@@ -124,23 +116,18 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
           setLoading(false);
           onLoginSuccess();
       } else {
-          const { data, error } = await supabase.auth.signUp({ email, password });
-          if (error) throw error;
-          
-          if (data.user) {
+          const cred = await createUserWithEmailAndPassword(auth, email, password);
+          const user = cred.user;
+          if (user) {
               // Try to insert into users table. If RLS blocks it because email is not confirmed yet,
               // we will also handle this in App.tsx on first login.
-              const { error: insertError } = await supabase.from('users').insert({ 
-                  id: data.user.id, 
-                  email: email, 
-                  is_verified: false, 
-                  unpaid_strikes: 0, 
-                  subscription: 'FREE' 
-              });
-              
-              if (insertError) {
-                  console.warn("Could not insert user immediately (likely RLS/email confirmation):", insertError);
-              }
+              await setDoc(doc(db, 'users', user.uid), {
+                   id: user.uid,
+                   email: email,
+                   is_verified: false,
+                   unpaid_strikes: 0,
+                   subscription: 'FREE'
+               }, { merge: true });
           }
           
           toast.success(t('registrationSuccess'));

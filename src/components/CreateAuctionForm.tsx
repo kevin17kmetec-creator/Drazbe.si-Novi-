@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, FileUp, Trash2, Gavel, Wand2, X, Eye, ChevronLeft, ChevronRight, GripHorizontal } from 'lucide-react';
 import { Category, Region, AuctionItem } from '../../types.ts';
-import { supabase } from '../lib/supabaseClient';
+import { storage } from '../lib/firebase';
+import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { toast } from 'sonner';
 import { GoogleGenAI } from '@google/genai';
 import imageCompression from 'browser-image-compression';
@@ -26,9 +27,7 @@ const SignedImg = ({ src, alt, className, onClick }: { src: string, alt: string,
     useEffect(() => {
         if (!src) return;
         if (src.startsWith('http')) { setSignedUrl(src); return; }
-        supabase.storage.from('auction-images').createSignedUrl(src, 3600).then(({data}) => {
-            if (data?.signedUrl) setSignedUrl(data.signedUrl);
-        });
+        setSignedUrl(`https://storage.googleapis.com/auction-images/${src}`);
     }, [src]);
     return <img src={signedUrl || src} alt={alt} loading="lazy" className={className} onClick={onClick} referrerPolicy="no-referrer" />;
 };
@@ -326,10 +325,13 @@ export const CreateAuctionForm: React.FC<{
                     const fileName = `${Date.now()}-${compressedFile.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
                     const arrayBuffer = await compressedFile.arrayBuffer();
                     
-                    const { error: uploadError } = await supabase.storage.from('auction-images').upload(fileName, arrayBuffer, {
-                        contentType: compressedFile.type,
-                        upsert: true
-                    });
+                    let uploadError = null;
+                    let downloadUrl = '';
+                    try {
+                        const storageRef = ref(storage, `auction-images/${fileName}`);
+                        await uploadBytes(storageRef, arrayBuffer, { contentType: compressedFile.type });
+                        downloadUrl = await getDownloadURL(storageRef);
+                    } catch(e) { uploadError = e; }
                     
                     if (uploadError) {
                         setUploadProgress(prev => ({ ...prev, [i]: { state: 'Napaka', percent: 0 } }));
@@ -337,7 +339,7 @@ export const CreateAuctionForm: React.FC<{
                     }
 
                     uploadedFilesRef.current.push(fileName);
-                    imageUrls.push(fileName);
+                    imageUrls.push(downloadUrl);
                     setUploadProgress(prev => ({ ...prev, [i]: { state: 'Zaključeno', percent: 100 } }));
                 }
 
@@ -363,7 +365,9 @@ export const CreateAuctionForm: React.FC<{
             if (error.message === 'CANCELED') {
                 toast.error("Nalaganje prekinjeno.");
                 if (uploadedFilesRef.current.length > 0) {
-                    await supabase.storage.from('auction-images').remove(uploadedFilesRef.current);
+                    for (const path of uploadedFilesRef.current) {
+                        try { await deleteObject(ref(storage, `auction-images/${path}`)); } catch (e) {}
+                    }
                 }
                 return;
             }
@@ -669,7 +673,7 @@ export const CreateAuctionForm: React.FC<{
                                           isWatched={false}
                                           onWatchToggle={()=>{}}
                                           onBack={()=>{}} 
-                                          onBidSubmit={async () => 'success'} 
+                                          onBidSubmit={async () => 'ok'} 
                                           onCheckout={()=>{}} 
                                           onSellerClick={()=>{}} 
                                        />

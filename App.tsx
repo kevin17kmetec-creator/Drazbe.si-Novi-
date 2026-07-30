@@ -83,7 +83,6 @@ import {
 
 import imageCompression from "browser-image-compression";
 
-import { supabase } from "./src/lib/supabaseClient";
 import { seedDatabase } from "./src/lib/seed";
 
 import {
@@ -102,8 +101,9 @@ import {
 import { Toaster, toast } from "sonner";
 
 import { ChatProvider } from "./src/context/ChatContext";
-import { collection, onSnapshot } from "firebase/firestore";
-import { db } from "./src/lib/firebase";
+import { collection, onSnapshot, setDoc, doc, getDocs, getDoc, updateDoc, addDoc, query, where, runTransaction } from "firebase/firestore";
+import { db, auth, storage } from "./src/lib/firebase";
+import { onAuthStateChanged, signOut, updatePassword } from "firebase/auth";
 
 // --- CONFIGURATION ---
 
@@ -135,12 +135,7 @@ const SignedImg = ({
       setSignedUrl(src);
       return;
     }
-    supabase.storage
-      .from("auction-images")
-      .createSignedUrl(src, 3600)
-      .then(({ data }) => {
-        if (data?.signedUrl) setSignedUrl(data.signedUrl);
-      });
+    setSignedUrl(`https://storage.googleapis.com/auction-images/${src}`);
   }, [src]);
   return (
     <img
@@ -449,7 +444,7 @@ const MainApp: React.FC = () => {
   const [showConfirmBidModal, setShowConfirmBidModal] = useState(false);
   const bidResolverRef = useRef<
     | ((
-        value: "success" | "outbid" | "error" | "login_required" | "cancelled",
+        value: "ok" | "outbid" | "error" | "login_required" | "cancelled",
       ) => void)
     | null
   >(null);
@@ -642,11 +637,8 @@ const MainApp: React.FC = () => {
         if (id) {
           let found = [].find((a) => a.id === id);
           if (!found) {
-            const { data } = await supabase
-              .from("auctions")
-              .select("*")
-              .eq("id", id)
-              .single();
+            const snap = await getDoc(doc(db, 'auctions', id));
+            const data: any = snap.exists() ? { id: snap.id, ...snap.data() } : null;
             if (data) {
               found = {
                 ...data,
@@ -679,11 +671,8 @@ const MainApp: React.FC = () => {
         if (id) {
           let found = [].find((s) => s.id === id);
           if (!found) {
-            const { data } = await supabase
-              .from("users")
-              .select("*")
-              .eq("id", id)
-              .single();
+            const snap = await getDoc(doc(db, 'users', id));
+            const data: any = snap.exists() ? { id: snap.id, ...snap.data() } : null;
             if (data) found = data;
           }
           if (found) {
@@ -781,13 +770,10 @@ const MainApp: React.FC = () => {
     setWatchedIds(newWatchedIds);
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const user = auth.currentUser;
+      const session = user ? { user: { id: user.uid, email: user.email } } : null;
       if (session?.user) {
-        await supabase.from("users").upsert({
-          id: session.user.id,
-          email: session.user.email,
-          watched_auctions: newWatchedIds,
-        });
+        await setDoc(doc(db, 'users', session.user.id), { id: session.user.id, email: session.user.email, watched_auctions: newWatchedIds }, { merge: true });
       }
     } catch (err) {
       console.error("Error updating watched auctions:", err);
@@ -845,6 +831,60 @@ const MainApp: React.FC = () => {
 
   const lastSessionCheckRef = useRef(0);
   const isCheckingSessionRef = useRef(false);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        setIsLoggedIn(true);
+        const snap = await getDoc(doc(db, 'users', user.uid));
+        const data: any = snap.exists() ? { id: snap.id, ...snap.data() } : null;
+        const error = null;
+
+        if (data) {
+          setUserData((prev) => ({
+            ...prev,
+            ...data,
+            id: user.uid,
+            email: user.email,
+          }));
+          setIsVerified(data.is_verified || false);
+        } else {
+          await setDoc(doc(db, 'users', user.uid), {
+            id: user.uid,
+            email: user.email,
+            is_verified: false,
+            subscription: 'FREE'
+          }, { merge: true });
+          
+          setUserData((prev) => ({
+            ...prev,
+            id: user.uid,
+            email: user.email,
+          }));
+          setIsVerified(false);
+        }
+      } else {
+        setIsLoggedIn(false);
+        setIsVerified(false);
+        setUserData({
+          id: "",
+          firstName: "",
+          lastName: "",
+          username: "",
+          email: "",
+          profilePicture: "",
+          is_verified: false,
+          stripe_onboarding_complete: false,
+          profile_picture_url: "",
+          first_name: "",
+          last_name: ""
+        } as any);
+      }
+      setIsAuthLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   const currentUserWinnings = useMemo(() => {
     if (!userData?.id) return [];
@@ -926,39 +966,37 @@ const MainApp: React.FC = () => {
     meta.setAttribute("content", metaDesc);
   }, [activeView, selectedItem, selectedSeller, language]);
 
-  const fetchAuctions = useCallback(async () => {
-    try {
-      const { data, error } = await supabase.from("auctions").select("*");
-      if (error) {
-        console.warn(`Fetch auctions warning: ${error.message}`);
-        return;
-      }
+  const [usersMap, setUsersMap] = useState<Map<string, any>>(new Map());
 
-      // Fetch users to map seller names
-      const { data: usersData, error: usersError } = await supabase
-        .from("users")
-        .select("id, username, company_name, user_type, first_name, last_name");
-      if (usersError) {
-        console.error("Error fetching users for map:", usersError.message);
-      }
-      const usersMap = new Map((usersData || []).map((u) => [u.id, u]));
+  // Private stream: Users
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
+      setUsersMap(new Map(snap.docs.map(d => [d.id, d.data()])));
+    }, (error) => {
+      console.error('Users snapshot error:', error);
+    });
+    return () => unsubUsers();
+  }, [isLoggedIn]);
 
-      const supabaseData: AuctionItem[] = data.map((d) => {
-        const seller: any = usersMap.get(d.seller_id);
+  // Public stream: Auctions
+  useEffect(() => {
+    const unsubAuctions = onSnapshot(collection(db, 'auctions'), (snap) => {
+      const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const fetchedData: AuctionItem[] = data.map((d: any) => {
+        const seller = usersMap.get(d.seller_id) || {};
         let sellerName = "Neznan prodajalec";
-        if (seller) {
-          if (seller.user_type === "business" && seller.company_name) {
-            sellerName = seller.company_name;
-          } else if (seller.username) {
-            sellerName = seller.username;
-          } else if (seller.first_name && seller.last_name) {
-            sellerName = `${seller.first_name} ${seller.last_name}`;
-          }
+        if (seller.user_type === "business" && seller.company_name) {
+          sellerName = seller.company_name;
+        } else if (seller.username) {
+          sellerName = seller.username;
+        } else if (seller.first_name && seller.last_name) {
+          sellerName = `${seller.first_name} ${seller.last_name}`;
         }
 
         return {
           ...d,
-          endTime: new Date(d.end_time || d.endTime),
+          endTime: new Date(d.end_time || d.endTime || Date.now()),
           currentBid: d.current_price || d.currentBid,
           hiddenMaxBid: d.hidden_max_bid || d.hiddenMaxBid,
           bidCount: d.bid_count || d.bidCount,
@@ -973,27 +1011,32 @@ const MainApp: React.FC = () => {
       });
 
       setAuctions((prev) => {
-        const newData = supabaseData;
-
         if (
-          prev.length === newData.length &&
+          prev.length === fetchedData.length &&
           prev.every(
             (p, i) =>
-              p.id === newData[i].id &&
-              p.status === newData[i].status &&
-              p.currentBid === newData[i].currentBid &&
-              p.bidCount === newData[i].bidCount &&
-              p.payment_status === newData[i].payment_status,
+              p.id === fetchedData[i].id &&
+              p.status === fetchedData[i].status &&
+              p.currentBid === fetchedData[i].currentBid &&
+              p.bidCount === fetchedData[i].bidCount &&
+              p.payment_status === fetchedData[i].payment_status &&
+              p.endTime?.getTime() === fetchedData[i].endTime?.getTime()
           )
         ) {
           return prev;
         }
-        return newData;
+        return fetchedData;
       });
-    } catch (err: any) {
-       console.error("Fetch exception", err);
-    }
-  }, [activeView, selectedItem, selectedSeller, language]);
+    }, (error) => {
+      console.error('Auctions snapshot error:', error);
+    });
+
+    return () => {
+      unsubAuctions();
+    };
+  }, [usersMap]);
+
+  const fetchAuctions = () => {}; // Dummy to satisfy existing calls
 
   const handlePublish = async (itemData: any) => {
     try {
@@ -1031,7 +1074,8 @@ const MainApp: React.FC = () => {
         }
       };
 
-      const insertPromise = supabase.from("auctions").insert({
+      const newDocRef = doc(collection(db, 'auctions'));
+      const insertPromise = setDoc(newDocRef, { id: newDocRef.id,
         title: simulatedTitle,
         description: simulatedDescription,
         current_price: parseInt(itemData.startingPrice),
@@ -1104,7 +1148,7 @@ const MainApp: React.FC = () => {
     setActiveView("grid");
 
     try {
-      await supabase.auth.signOut();
+      await signOut(auth);
       toast.success(t("loggedOut"));
     } catch (err) {
       console.error("Error signing out:", err);
@@ -1113,11 +1157,8 @@ const MainApp: React.FC = () => {
 
   const handleStripeVerified = useCallback(async () => {
     if (!userData.id) return;
-    const { data } = await supabase
-      .from("users")
-      .select("*")
-      .eq("id", userData.id)
-      .single();
+    const snap = await getDoc(doc(db, 'users', userData.id));
+    const data: any = snap.exists() ? { id: snap.id, ...snap.data() } : null;
     if (data) {
       setUserData((prev) => ({
         ...prev,
@@ -1151,13 +1192,10 @@ const MainApp: React.FC = () => {
       setCurrentPlan(newTier);
       setIsSubscriptionCanceled(false);
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const user = auth.currentUser;
+      const session = user ? { user: { id: user.uid, email: user.email } } : null;
         if (session?.user) {
-          await supabase.from("users").upsert({
-            id: session.user.id,
-            email: session.user.email,
-            subscription: newTier,
-          });
+          await setDoc(doc(db, 'users', session.user.id), { id: session.user.id, email: session.user.email, subscription: newTier }, { merge: true });
         }
       } catch (err) {
         console.error("Error saving subscription:", err);
@@ -1184,7 +1222,8 @@ const MainApp: React.FC = () => {
   const handleSaveSettings = useCallback(
     async (data: any) => {
       console.log("handleSaveSettings called with data:", data);
-      if (!userData?.id) {
+      const uid = auth.currentUser?.uid || userData?.id;
+      if (!uid) {
         console.log("No user ID found in state");
         toast.error("Uporabnik ni prijavljen.");
         return;
@@ -1193,9 +1232,12 @@ const MainApp: React.FC = () => {
       try {
         // Update password if provided
         if (data.newPassword && data.oldPassword) {
-          const { error: passError } = await supabase.auth.updateUser({
-            password: data.newPassword,
-          });
+          let passError = null;
+          try {
+            if (auth.currentUser) await updatePassword(auth.currentUser, data.newPassword);
+          } catch (e) {
+            passError = e;
+          }
           if (passError) {
             toast.error(`Napaka pri spremembi gesla: ${passError.message}`);
             return;
@@ -1254,23 +1296,16 @@ const MainApp: React.FC = () => {
 
             const fileName = `${userData.id}-${Date.now()}.jpg`;
 
-            const { data: uploadData, error: uploadError } =
-              await supabase.storage
-                .from("auction-images")
-                .upload(`profiles/${fileName}`, compressedFile, {
-                  contentType: "image/jpeg",
-                  upsert: true,
-                });
-
-            if (uploadError) {
-              console.error("Error uploading profile picture:", uploadError);
+            try {
+              const { ref, uploadBytes, getDownloadURL } = require('firebase/storage');
+              const storageRef = ref(storage, `profiles/${fileName}`);
+              await uploadBytes(storageRef, compressedFile, { contentType: 'image/jpeg' });
+              const url = await getDownloadURL(storageRef);
+              updateData.profile_picture_url = url;
+              console.log("Profile picture uploaded:", url);
+            } catch(e) {
+              console.error("Error uploading profile picture:", e);
               toast.error(t("imageUploadError"));
-            } else if (uploadData) {
-              const { data: publicUrlData } = supabase.storage
-                .from("auction-images")
-                .getPublicUrl(`profiles/${fileName}`);
-              updateData.profile_picture_url = publicUrlData.publicUrl;
-              console.log("Profile picture uploaded:", publicUrlData.publicUrl);
             }
           } catch (imgErr) {
             console.error("Error processing profile picture:", imgErr);
@@ -1280,15 +1315,16 @@ const MainApp: React.FC = () => {
         }
 
         console.log("Updating database with:", updateData);
-        const { data: updatedUser, error } = await supabase
-          .from("users")
-          .update({
+        let error: any = null;
+        try {
+          await setDoc(doc(db, 'users', uid), {
             email: userData.email,
             ...updateData,
-          })
-          .eq("id", userData.id)
-          .select()
-          .single();
+          }, { merge: true });
+        } catch (e: any) {
+          error = e;
+        }
+        const updatedUser = { id: uid, email: userData.email, ...updateData };
 
         if (error) {
           console.error("Database update error:", error);
@@ -1474,7 +1510,7 @@ const MainApp: React.FC = () => {
       if (selectedItem) {
         content = (
           <AuctionView
-            item={selectedItem}
+            item={auctions.find(a => a.id === selectedItem.id) || selectedItem}
             t={t}
             language={language}
             isVerified={isVerified}
@@ -1496,13 +1532,7 @@ const MainApp: React.FC = () => {
                   t("auctionFallback"),
                 onSuccess: async () => {
                   setIsCheckoutOpen(false);
-                  await supabase
-                    .from("auctions")
-                    .update({
-                      payment_status: "paid",
-                      paid_at: new Date().toISOString(),
-                    })
-                    .eq("id", item.id);
+                  await setDoc(doc(db, 'auctions', item.id), { payment_status: 'paid', paid_at: new Date().toISOString() }, { merge: true });
                   toast.success(t("paymentSuccess"));
                   fetchAuctions();
                 },
@@ -1543,11 +1573,12 @@ const MainApp: React.FC = () => {
               data,
             );
             try {
-              let userId = userData.id;
+              let userId = auth.currentUser?.uid || userData?.id;
 
               if (!userId) {
                 console.log("No userId in state, fetching session...");
-                const { data: { session } } = await supabase.auth.getSession();
+                const user = auth.currentUser;
+      const session = user ? { user: { id: user.uid, email: user.email } } : null;
                 userId = session?.user?.id || "";
                 console.log("Session fetched:", userId);
               } else {
@@ -1579,12 +1610,13 @@ const MainApp: React.FC = () => {
 
               console.log("Updating verification data:", updateData);
 
-              const updatePromise = supabase
-                .from("users")
-                .update(updateData)
-                .eq("id", userId)
-                .select()
-                .single();
+              const updatePromise = (async () => {
+                try {
+                  await setDoc(doc(db, 'users', userId), updateData, { merge: true });
+                  const snap = await getDoc(doc(db, 'users', userId));
+                  return { data: snap.exists() ? { id: snap.id, ...snap.data() } : null, error: null };
+                } catch(e) { return { data: null, error: e }; }
+              })();
 
               const timeoutPromise = new Promise<{ data: any; error: any }>(
                 (resolve) =>
@@ -1928,13 +1960,7 @@ const MainApp: React.FC = () => {
                                   title: `${t("paymentFor")}: ${wonItem.title[language as keyof typeof wonItem.title] || wonItem.title.SLO}`,
                                   onSuccess: async () => {
                                     setIsCheckoutOpen(false);
-                                    await supabase
-                                      .from("auctions")
-                                      .update({
-                                        payment_status: "paid",
-                                        paid_at: new Date().toISOString(),
-                                      })
-                                      .eq("id", wonItem.id);
+                                    await setDoc(doc(db, 'auctions', wonItem.id), { payment_status: 'paid', paid_at: new Date().toISOString() }, { merge: true });
                                     toast.success(t("paymentSuccessEmail"));
                                     // Refresh to show paid status
                                     setTimeout(() => fetchAuctions(), 1500);
@@ -2498,7 +2524,7 @@ const MainApp: React.FC = () => {
       setShowTermsModal(true);
     } else {
       setShowConfirmBidModal(true);
-    return "success";
+    return "ok";
   }
   };
 
@@ -2514,7 +2540,7 @@ const MainApp: React.FC = () => {
     }
     setShowTermsModal(false);
     setShowConfirmBidModal(true);
-    return "success";
+    return "ok";
   }
 
   function handleCancelConfirmBid() {
@@ -2528,17 +2554,38 @@ const MainApp: React.FC = () => {
     
     setShowConfirmBidModal(false);
     try {
-        const { data, error } = await supabase.from("auctions").select("*").eq("id", item.id).single();
-        if (error) { toast.error("Error"); return; }
-        
-        await supabase.from("auctions").update({
-            current_price: amount,
-            bid_count: (data.bid_count || 0) + 1,
-            winner_id: userData.id
-        }).eq("id", item.id);
+        const auctionRef = doc(db, 'auctions', item.id);
+        await runTransaction(db, async (transaction) => {
+            const auctionDoc = await transaction.get(auctionRef);
+            if (!auctionDoc.exists()) {
+                throw new Error("Auction does not exist");
+            }
+            const data = auctionDoc.data();
+            const currentPrice = data.current_price || data.currentBid || 0;
+            if (amount <= currentPrice) {
+                throw new Error("Bid must be higher than current price");
+            }
+            
+            const endTimeStr = data.end_time || data.endTime;
+            const endTime = endTimeStr ? new Date(endTimeStr).getTime() : 0;
+            const now = Date.now();
+            let newEndTimeStr = endTimeStr;
+            
+            if (endTime > now && endTime - now < 60 * 1000) {
+                // Extend by 1 minute
+                newEndTimeStr = new Date(now + 60 * 1000).toISOString();
+            }
+
+            transaction.update(auctionRef, { 
+                current_price: amount, 
+                bid_count: (data.bid_count || 0) + 1, 
+                winner_id: userData.id,
+                end_time: newEndTimeStr
+            });
+        });
         toast.success("Ponudba uspešno oddana!");
-    } catch (e) {
-        toast.error("Error");
+    } catch (e: any) {
+        toast.error(e.message || "Error submitting bid");
     }
     setPendingBid(null);
   };

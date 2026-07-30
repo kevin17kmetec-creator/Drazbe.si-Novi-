@@ -8,7 +8,9 @@ import { AuctionItem, SubscriptionTier, Seller, Category, Region } from '../../t
 import { AuctionCard } from './AuctionCard';
 import AuctionView from './AuctionView';
 import { HeroCarousel } from './HeroCarousel';
-import { supabase } from '../lib/supabaseClient';
+import { auth, db } from '../lib/firebase';
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
+import { setDoc, doc } from 'firebase/firestore';
 import { toast } from 'sonner';
 
 export const WatchlistView = ({ 
@@ -65,10 +67,8 @@ export const VerificationView = ({ profile, onVerify, t }: { profile: any, onVer
     const handleVerify = async () => {
         setLoading(true);
         try {
-          const { error } = await supabase
-            .from('profiles')
-            .update({ is_verified: true, user_type: type })
-            .eq('id', profile.id);
+          let error = null;
+          try { await setDoc(doc(db, 'profiles', profile.id), { is_verified: true, user_type: type }, { merge: true }); } catch (e) { error = e; }
           
           if (error) throw error;
           
@@ -237,10 +237,8 @@ export const SettingsView = ({ profile, onUpdate, t }: { profile: any, onUpdate:
     e.preventDefault();
     setLoading(true);
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({ full_name: formData.full_name })
-        .eq('id', profile.id);
+      let error = null;
+      try { await setDoc(doc(db, 'profiles', profile.id), { full_name: formData.full_name }, { merge: true }); } catch (e) { error = e; }
       
       if (error) throw error;
       
@@ -290,10 +288,12 @@ export const AuthView = ({ mode, setMode, onAuthSuccess, t }: { mode: 'login' | 
     setError(null);
     try {
       if (mode === 'login') {
-          const { error } = await supabase.auth.signInWithPassword({ email, password });
+          let error = null;
+          try { await signInWithEmailAndPassword(auth, email, password); } catch (e) { error = e; }
           if (error) throw error;
       } else {
-          const { error } = await supabase.auth.signUp({ email, password });
+          let error = null;
+          try { await createUserWithEmailAndPassword(auth, email, password); } catch (e) { error = e; }
           if (error) throw error;
       }
       onAuthSuccess();
