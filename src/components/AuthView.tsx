@@ -110,7 +110,7 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
             errorMsg.includes("Invalid login credentials") ||
             errorMsg.includes("invalid-credential")
         ) {
-            toast.error("Napačno e-poštno ime ali geslo.");
+            toast.error("Prijavni podatki ne obstajajo ali pa so nepravilni.");
         } else {
             toast.error(t("authError") + " " + errorMsg);
         }
