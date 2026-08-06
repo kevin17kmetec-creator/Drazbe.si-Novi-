@@ -4,12 +4,14 @@ import Stripe from 'stripe';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '');
 
-
-
 export default async function handler(
   req: VercelRequest,
   res: VercelResponse
 ) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
@@ -20,23 +22,26 @@ export default async function handler(
   try {
     const { user_id } = req.body;
     
-    const userDoc = await db.collection('users').doc(user_id).get();
-    const user = userDoc.data();
+    const userDocRef = db.collection('users').doc(user_id);
+    const userDoc = await userDocRef.get();
+    const user = userDoc.data() || {};
     
-    if (!user?.stripe_account_id) {
+    let targetStripeAccountId = user.stripeAccountId || user.stripe_account_id;
+
+    if (!targetStripeAccountId) {
       return res.status(200).json({ complete: false });
     }
 
-    const account = await stripe.accounts.retrieve(user.stripe_account_id);
+    const account = await stripe.accounts.retrieve(targetStripeAccountId);
     
     const isComplete = account.details_submitted && account.charges_enabled;
 
     // Sync status to DB
-    await db.collection('users').doc(user_id).update({ stripe_onboarding_complete: isComplete });
+    await userDocRef.set({ stripe_onboarding_complete: isComplete }, { merge: true });
 
     return res.status(200).json({ complete: isComplete, account });
   } catch (error: any) {
     console.error("Stripe Check Account Status Error:", error);
-    return res.status(500).json({ error: error.message });
+    return res.status(500).json({ error: error.message || 'Server configuration error' });
   }
 }

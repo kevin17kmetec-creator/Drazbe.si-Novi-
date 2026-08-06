@@ -31,16 +31,13 @@ export const StripeConnectOnboarding: React.FC<Props> = ({ userId, isComplete, o
         }),
       });
       
-      let data;
-      try {
-        data = await response.json();
-      } catch (e) {
-        console.warn("Failed to parse JSON response:", e);
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("API returned non-200 response:", response.status, errorText);
+        throw new Error(`Server status ${response.status}: ${errorText || 'Failed to fetch link'}`);
       }
 
-      if (!response.ok) {
-        throw new Error((data && data.error) ? data.error : "Napaka pri povezovanju s Stripe sistemom");
-      }
+      const data = await response.json();
       
       if (data && data.url) {
           if (popup) {

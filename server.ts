@@ -486,24 +486,27 @@ async function startServer() {
       const { user_id } = req.body;
       const stripe = getStripe();
       
-      const userDoc = await db.collection('users').doc(user_id).get();
-    const user = userDoc.data();
+      const userDocRef = db.collection('users').doc(user_id);
+      const userDoc = await userDocRef.get();
+      const user = userDoc.data() || {};
       
-      if (!user?.stripe_account_id) {
+      let targetStripeAccountId = user.stripeAccountId || user.stripe_account_id;
+
+      if (!targetStripeAccountId) {
         return res.json({ complete: false });
       }
 
-      const account = await stripe.accounts.retrieve(user.stripe_account_id);
+      const account = await stripe.accounts.retrieve(targetStripeAccountId);
       
       const isComplete = account.details_submitted && account.charges_enabled;
 
       // Sync status to DB
-      await db.collection('users').doc(user_id).update({ stripe_onboarding_complete: isComplete });
+      await userDocRef.set({ stripe_onboarding_complete: isComplete }, { merge: true });
 
       res.json({ complete: isComplete, account });
     } catch (error: any) {
       console.error("Stripe Check Account Status Error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: error.message || 'Server configuration error' });
     }
   });
 
@@ -645,28 +648,28 @@ async function startServer() {
       const stripe = getStripe();
 
       // Check balance and connected account
-      const userDoc = await db.collection('users').doc(user_id).get();
-    const user = userDoc.data();
+      const userDocRef = db.collection('users').doc(user_id);
+      const userDoc = await userDocRef.get();
+      const user = userDoc.data() || {};
       const balanceDataSnap = await db.collection('user_balances').where('user_id', '==', user_id).limit(1).get();
-    const balanceData = balanceDataSnap.empty ? null : balanceDataSnap.docs[0].data();
-
+      const balanceData = balanceDataSnap.empty ? null : balanceDataSnap.docs[0].data();
       if (!balanceData || balanceData.available_balance < amountInCents) {
           return res.status(400).json({ error: "Stanje na računu je prenizko." });
       }
-
-      let accountId = user?.stripe_account_id;
-
+      let accountId = user.stripeAccountId || user.stripe_account_id;
       if (!accountId) {
           // IF NO: Create connected account
           const account = await stripe.accounts.create({
-              type: 'custom',
+              type: 'express',
               country: 'SI',
+              email: user.email,
               capabilities: {
                   transfers: { requested: true },
+                  card_payments: { requested: true }
               },
           });
           accountId = account.id;
-          await db.collection('users').doc(user_id).update({ stripe_account_id: accountId });
+          await userDocRef.set({ stripeAccountId: accountId }, { merge: true });
       }
 
       const isComplete = user?.stripe_onboarding_complete;
