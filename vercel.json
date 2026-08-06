@@ -20,7 +20,6 @@
     }
   },
   "rewrites": [
-    { "source": "/api/stripe-account-link", "destination": "/api/stripe-account-link" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ],
   "headers": [

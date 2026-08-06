@@ -1,3 +1,4 @@
+// Updated Stripe Onboarding v1.0.1
 import React, { useState } from 'react';
 import { AlertCircle, CheckCircle2 } from 'lucide-react';
 
