@@ -27,36 +27,40 @@ export default async function handler(
     const { user_id, return_url, refresh_url } = req.body;
 
     // Check if user already has an account
-    const userDoc = await db.collection('users').doc(user_id).get();
-    const user = userDoc.data();
-    let accountId = user?.stripe_account_id;
+    const userDocRef = db.collection('users').doc(user_id);
+    const userDoc = await userDocRef.get();
+    const user = userDoc.data() || {};
+    
+    let targetStripeAccountId = user.stripeAccountId || user.stripe_account_id;
 
-    if (!accountId) {
+    if (!targetStripeAccountId) {
       // Create an Express account
       const account = await stripe.accounts.create({
         type: 'express',
+        country: 'SI',
+        email: user.email,
         capabilities: {
           transfers: { requested: true },
           card_payments: { requested: true }
         }
       });
-      accountId = account.id;
+      targetStripeAccountId = account.id;
 
       // Save to DB
-      await db.collection('users').doc(user_id).update({ stripe_account_id: accountId });
+      await userDocRef.set({ stripeAccountId: targetStripeAccountId }, { merge: true });
     }
-    
+        
     // If onboarding is complete, generate a Login Link for the Express Dashboard
-    if (accountId && user?.stripe_onboarding_complete) {
-        const loginLink = await stripe.accounts.createLoginLink(accountId);
+    if (targetStripeAccountId && user.stripe_onboarding_complete) {
+        const loginLink = await stripe.accounts.createLoginLink(targetStripeAccountId);
         return res.status(200).json({ url: loginLink.url });
     }
 
     // Create an AccountLink for onboarding
     const accountLink = await stripe.accountLinks.create({
-      account: accountId,
-      refresh_url: refresh_url,
-      return_url: return_url,
+      account: targetStripeAccountId,
+      refresh_url: 'https://drazbe-si-novi.vercel.app/nastavitve',
+      return_url: 'https://drazbe-si-novi.vercel.app/nastavitve?stripe=success',
       type: 'account_onboarding',
     });
 
