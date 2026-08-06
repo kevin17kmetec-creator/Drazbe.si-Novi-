@@ -2,9 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import Stripe from 'stripe';
 import { db } from '../src/lib/firebase-admin';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
-  apiVersion: '2023-10-16' as any,
-});
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '');
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // CORS & Options
@@ -16,9 +14,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    console.log("Invoking Stripe account link API v1.0.1", req.body);
     const { userId } = req.body || {};
-    if (!userId) return res.status(400).json({ error: 'Missing userId parameter' });
+    if (!userId) return res.status(400).json({ error: 'Missing userId' });
 
     const userDocRef = db.collection('users').doc(userId);
     const userDoc = await userDocRef.get();
@@ -54,7 +51,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     return res.status(200).json({ url: accountLink.url });
   } catch (err: any) {
-    console.error("Stripe Onboarding Error:", err);
+    console.error("Stripe Error:", err);
     return res.status(500).json({ error: err.message || 'Internal Server Error' });
   }
 }
