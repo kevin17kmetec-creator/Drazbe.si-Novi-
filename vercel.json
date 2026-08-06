@@ -13,7 +13,14 @@
       "use": "@vercel/node"
     }
   ],
+  "functions": {
+    "api/*.ts": {
+      "memory": 1024,
+      "maxDuration": 10
+    }
+  },
   "rewrites": [
+    { "source": "/api/stripe-account-link", "destination": "/api/stripe-account-link" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ],
   "headers": [
