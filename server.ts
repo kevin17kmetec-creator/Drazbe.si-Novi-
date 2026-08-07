@@ -433,11 +433,12 @@ async function startServer() {
 
   app.post("/api/stripe-account-link", async (req, res) => {
     try {
-      const { user_id, return_url, refresh_url } = req.body;
+      const { user_id, userId, return_url, refresh_url } = req.body;
+      const targetUserId = userId || user_id;
       const stripe = getStripe();
 
       // Check if user already has an account
-      const userDocRef = db.collection('users').doc(user_id);
+      const userDocRef = db.collection('users').doc(targetUserId);
       const userDoc = await userDocRef.get();
       const user = userDoc.data() || {};
       

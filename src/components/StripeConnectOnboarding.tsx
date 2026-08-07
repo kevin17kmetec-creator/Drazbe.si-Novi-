@@ -24,7 +24,7 @@ export const StripeConnectOnboarding: React.FC<Props> = ({ userId, isComplete, o
       const response = await fetch('/api/stripe-account-link', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: userId })
+        body: JSON.stringify({ userId: userId, user_id: userId })
       });
       
       if (!response.ok) {
