@@ -1,4 +1,4 @@
-import { admin, db } from '../src/lib/firebase-admin';
+import { admin, db } from '../src/lib/firebase-admin.js';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import Stripe from 'stripe';
 

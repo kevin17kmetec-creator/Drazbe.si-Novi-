@@ -1,8 +1,8 @@
-import { admin, db } from '../src/lib/firebase-admin';
+import { admin, db } from '../src/lib/firebase-admin.js';
 import { Buffer } from 'buffer';
 import Stripe from 'stripe';
 import { Resend } from 'resend';
-import { generateInvoicePDF, generateCertificatePDF } from '../src/lib/pdfGenerator';
+import { generateInvoicePDF, generateCertificatePDF } from '../src/lib/pdfGenerator.js';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 // Stripe needs the raw body to verify the signature
