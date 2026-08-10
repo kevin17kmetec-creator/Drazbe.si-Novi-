@@ -21,15 +21,48 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let targetStripeAccountId = user.stripeAccountId || user.stripe_account_id;
 
     if (!targetStripeAccountId) {
-      const account = await stripe.accounts.create({
+      
+      const isBusiness = user.user_type === 'business' || user.userType === 'business';
+      const businessType = isBusiness ? 'company' : 'individual';
+      
+      const accountParams: any = {
         type: 'express',
-        country: 'SI',
+        country: user.country_code || 'SI',
         email: user.email,
+        business_type: businessType,
         capabilities: {
           transfers: { requested: true },
           card_payments: { requested: true }
         }
-      });
+      };
+      
+      if (isBusiness) {
+        accountParams.company = {
+          phone: user.phone || undefined,
+          name: user.company_name || user.companyName || undefined,
+          address: {
+            line1: user.company_street || user.companyStreet || undefined,
+            city: user.company_city || user.companyCity || undefined,
+            postal_code: user.company_postal_code || user.companyPostalCode || undefined,
+            country: user.country_code || 'SI'
+          }
+        };
+      } else {
+        accountParams.individual = {
+          phone: user.phone || undefined,
+          first_name: user.first_name || user.firstName || undefined,
+          last_name: user.last_name || user.lastName || undefined,
+          email: user.email || undefined,
+          address: {
+            line1: user.street || undefined,
+            city: user.city || undefined,
+            postal_code: user.postal_code || user.postalCode || undefined,
+            country: user.country_code || 'SI'
+          }
+        };
+      }
+
+      const account = await stripe.accounts.create(accountParams);
       targetStripeAccountId = account.id;
       await userDocRef.set({ stripeAccountId: targetStripeAccountId }, { merge: true });
     }

@@ -86,6 +86,7 @@ export const SettingsView: React.FC<{
     newPassword: '',
     confirmPassword: '',
     profilePicture: user?.profile_picture_url || user?.profilePicture || '',
+    phone: user?.phone || '',
     
     // Individual data
     street: user?.street || '',
@@ -305,6 +306,7 @@ export const SettingsView: React.FC<{
                                             {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.name}</option>)}
                                         </select>
                                     </div>
+                                    <div className="md:col-span-2"><label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Telefonska številka / Phone number</label><input type="text" placeholder="+38631000000" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 font-bold outline-none focus:border-[#FEBA4F]" /></div>
                                 </>
                             ) : (
                                 <>
@@ -316,6 +318,7 @@ export const SettingsView: React.FC<{
                                             {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.name}</option>)}
                                         </select>
                                     </div>
+                                    <div className="md:col-span-2"><label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Telefonska številka / Phone number</label><input type="text" placeholder="+38631000000" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 font-bold outline-none focus:border-[#FEBA4F]" /></div>
                                     <div className="md:col-span-2"><label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{t('companyStreet')}</label><input type="text" value={formData.companyStreet} onChange={e => setFormData({...formData, companyStreet: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 font-bold outline-none focus:border-[#FEBA4F]" /></div>
                                     <div><label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{t('companyCity')}</label><input type="text" value={formData.companyCity} onChange={e => setFormData({...formData, companyCity: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 font-bold outline-none focus:border-[#FEBA4F]" /></div>
                                     <div><label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{t('companyPostalCode')}</label><input type="text" value={formData.companyPostalCode} onChange={e => setFormData({...formData, companyPostalCode: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 font-bold outline-none focus:border-[#FEBA4F]" /></div>

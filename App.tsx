@@ -1251,6 +1251,7 @@ const MainApp: React.FC = () => {
 
         // Update user profile data
         const updateData: any = {
+          phone: data.phone,
           username: data.username,
           first_name: data.firstName,
           last_name: data.lastName,
