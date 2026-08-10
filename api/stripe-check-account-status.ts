@@ -2,12 +2,7 @@ import { admin, db } from '../src/lib/firebase-admin';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import Stripe from 'stripe';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '');
-
-export default async function handler(
-  req: VercelRequest,
-  res: VercelResponse
-) {
+export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -20,6 +15,7 @@ export default async function handler(
   }
 
   try {
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '');
     const { user_id } = req.body;
     
     const userDocRef = db.collection('users').doc(user_id);

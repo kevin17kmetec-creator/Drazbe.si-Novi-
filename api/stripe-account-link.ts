@@ -2,20 +2,17 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import Stripe from 'stripe';
 import { db } from '../src/lib/firebase-admin';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '');
-
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // CORS & Options
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
   if (req.method === 'OPTIONS') return res.status(200).end();
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '');
+    
     const { userId } = req.body || {};
-    if (!userId) return res.status(400).json({ error: 'Missing userId' });
+    if (!userId) return res.status(400).json({ error: 'Missing userId in request body' });
 
     const userDocRef = db.collection('users').doc(userId);
     const userDoc = await userDocRef.get();
@@ -51,7 +48,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     return res.status(200).json({ url: accountLink.url });
   } catch (err: any) {
-    console.error("Stripe Error:", err);
-    return res.status(500).json({ error: err.message || 'Internal Server Error' });
+    console.error("Stripe Account Link Error:", err);
+    return res.status(500).json({ 
+      error: err.message, 
+      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined 
+    });
   }
 }
