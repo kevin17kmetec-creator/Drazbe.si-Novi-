@@ -35,10 +35,11 @@ const SignedImg = ({ src, alt, className, onClick }: { src: string, alt: string,
 export const CreateAuctionForm: React.FC<{ 
     onBack: () => void; 
     t: any; 
+    language?: string;
     onPublish: (item: any) => void; 
     isLoggedIn: boolean;
     initialData?: any;
-}> = ({ onBack, t, onPublish, isLoggedIn, initialData }) => {
+}> = ({ onBack, t, language = 'SLO', onPublish, isLoggedIn, initialData }) => {
     const getLocalDateStr = (date: Date) => {
         const year = date.getFullYear();
         const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -632,7 +633,7 @@ export const CreateAuctionForm: React.FC<{
                                          createdAt: new Date()
                                       } as unknown as AuctionItem} 
                                       t={t} 
-                                      language="SLO" 
+                                      language={language} 
                                       isVerified={isLoggedIn} 
                                       currentUserId="mock" 
                                       isWatched={false} 
@@ -667,7 +668,7 @@ export const CreateAuctionForm: React.FC<{
                                              createdAt: new Date()
                                           } as unknown as AuctionItem} 
                                           t={t} 
-                                          language="SLO" 
+                                          language={language} 
                                           isVerified={isLoggedIn} 
                                           currentUserId="mock" 
                                           currentPlan="FREE"

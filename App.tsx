@@ -1489,7 +1489,7 @@ const MainApp: React.FC = () => {
               {t("cannotPublish")}
             </h1>
             <p className="text-lg text-slate-500 mb-8 max-w-xl font-medium">
-              Za objavo dražbe morate najprej povezati svoj bančni račun za prejem izplačil.
+              {t("connectBankAccountDesc")}
             </p>
             <button
               onClick={() => {
@@ -1498,7 +1498,7 @@ const MainApp: React.FC = () => {
               }}
               className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-colors shadow-xl"
             >
-              Uredi plačila in izplačila
+              {t("editPayouts")}
             </button>
           </div>
         );
@@ -1510,6 +1510,7 @@ const MainApp: React.FC = () => {
               setRepublishData(null);
             }}
             t={t}
+            language={language}
             onPublish={handlePublish}
             isLoggedIn={isLoggedIn}
             initialData={republishData}
