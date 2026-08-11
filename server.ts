@@ -1,4 +1,7 @@
-import { admin, db } from './src/lib/firebase-admin';
+import { db } from './src/lib/firebase';
+import { collection, doc, getDoc, getDocs, updateDoc, setDoc, addDoc, query, where, limit, writeBatch } from 'firebase/firestore';
+import { storage } from './src/lib/firebase';
+import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import express from "express";
 import Stripe from "stripe";
 import { createServer as createViteServer } from "vite";
@@ -108,7 +111,7 @@ async function startServer() {
             // This revenue is 100% platform profit.
             // Just activate subscription in Supabase
             if (user_id && package_id) {
-                await db.collection('users').doc(user_id).update({ 
+                await updateDoc(doc(db, 'users', user_id), { 
                     subscription_tier: package_id, 
                     subscription_active: true,
                     subscription_paid_at: new Date().toISOString()
@@ -126,9 +129,9 @@ async function startServer() {
         }
 
         // 2. Fetch buyer and seller details
-        const buyerDoc = await db.collection('users').doc(buyer_id).get();
+        const buyerDoc = await getDoc(doc(db, 'users', buyer_id));
     const buyer = buyerDoc.data();
-        const sellerDoc = await db.collection('users').doc(seller_id).get();
+        const sellerDoc = await getDoc(doc(db, 'users', seller_id));
     const seller = sellerDoc.data();
 
         if (!buyer || !seller) throw new Error('Buyer or seller not found');
@@ -167,7 +170,7 @@ async function startServer() {
         // 4. Create Transaction Record
         let transaction = null, txError = null;
     try { 
-      const ref = await db.collection('transactions').add({
+      const ref = await addDoc(collection(db, 'transactions'), {
             auction_id,
             buyer_id,
             seller_id,
@@ -179,17 +182,15 @@ async function startServer() {
             is_reverse_charge: isReverseCharge,
             status: 'completed'
         });
-      const snap = await ref.get();
+      const snap = await getDoc(ref);
       transaction = { id: ref.id, ...snap.data() };
     } catch(e) { txError = e; }
 
         if (txError) throw txError;
 
         // 5. Update Auction Status to mark as paid
-        let auctionUpdateError = null; try { await db.collection('auctions').doc(auction_id).update({ 
-                status: 'completed', 
-                payment_status: 'paid',
-                paid_at: new Date().toISOString()
+        let auctionUpdateError = null; try { await updateDoc(doc(db, 'auctions', auction_id), { 
+                status: 'completed', payment_status: 'paid', post_auction_status: 'paid', paid_at: new Date().toISOString()
             }); } catch(e) { auctionUpdateError = e; }
             
         if (auctionUpdateError) {
@@ -206,9 +207,9 @@ async function startServer() {
             const invoiceFileName = `racun_${transaction.id.substring(0,8)}.pdf`;
             
             // Upload to Supabase Storage
-            await admin.storage().bucket().file(`${buyer_id}/${invoiceFileName}`).save(invoicePdfBuffer);
-
-            const publicUrl = `https://storage.googleapis.com/${admin.storage().bucket().name}/${buyer_id}/${invoiceFileName}`;
+            const fileRef = storageRef(storage, `${buyer_id}/${invoiceFileName}`);
+            await uploadBytes(fileRef, invoicePdfBuffer);
+            const publicUrl = await getDownloadURL(fileRef);
             
             documentsToInsert.push({
                 transaction_id: transaction.id,
@@ -231,9 +232,9 @@ async function startServer() {
                 const certPdfBuffer = await generateCertificatePDF(transaction, buyer, seller);
                 const certFileName = `potrdilo_${transaction.id.substring(0,8)}.pdf`;
                 
-                await admin.storage().bucket().file(`${buyer_id}/${certFileName}`).save(certPdfBuffer);
-
-                const publicUrl = `https://storage.googleapis.com/${admin.storage().bucket().name}/${buyer_id}/${certFileName}`;
+                const fileRef = storageRef(storage, `${buyer_id}/${certFileName}`);
+                await uploadBytes(fileRef, certPdfBuffer);
+                const publicUrl = await getDownloadURL(fileRef);
                 
                 documentsToInsert.push({
                     transaction_id: transaction.id,
@@ -253,7 +254,7 @@ async function startServer() {
 
         // Save document records
         if (documentsToInsert.length > 0) {
-            const batch = db.batch(); documentsToInsert.forEach(doc => { const ref = db.collection('documents').doc(); batch.set(ref, doc); }); await batch.commit();
+            const batch = writeBatch(db); documentsToInsert.forEach(doc => { const ref = doc(collection(db, 'documents')); batch.set(ref, doc); }); await batch.commit();
         }
 
         // 7. Send Real Email via Resend
@@ -292,6 +293,101 @@ async function startServer() {
   app.use(express.json());
 
   // API routes FIRST
+  
+  app.post("/api/cron-auctions", async (req, res) => {
+    try {
+      const now = new Date();
+
+      // 1. Process active auctions that have ended
+      const activeSnap = await getDocs(query(collection(db, 'auctions'), where('status', '==', 'active')));
+      const endedDocs = activeSnap.docs.filter(docSnap => {
+        const data = docSnap.data();
+        const endTime = data.end_time || data.endTime;
+        return endTime && new Date(endTime).getTime() <= now.getTime();
+      });
+
+      for (let auctionDocItem of endedDocs) {
+        const data = auctionDocItem.data();
+        let hasBids = (data.bid_count > 0) || (data.bidCount > 0);
+        if (hasBids) {
+          const paymentDeadline = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
+          await updateDoc(doc(db, 'auctions', auctionDocItem.id), {
+            status: 'completed',
+            post_auction_status: 'awaiting_payment_1st',
+            payment_deadline: paymentDeadline
+          });
+        } else {
+          // Unsold
+          await updateDoc(doc(db, 'auctions', auctionDocItem.id), {
+            status: 'completed',
+            post_auction_status: 'unsold'
+          });
+        }
+      }
+
+      // 2. Process awaiting_payment_1st that expired
+      const awaiting1stSnap = await getDocs(query(collection(db, 'auctions'), where('post_auction_status', '==', 'awaiting_payment_1st')));
+      const expired1st = awaiting1stSnap.docs.filter(docSnap => {
+        const data = docSnap.data();
+        return data.payment_deadline && new Date(data.payment_deadline).getTime() <= now.getTime();
+      });
+
+      for (let auctionDocItem of expired1st) {
+        const data = auctionDocItem.data();
+        const winnerId = data.winner_id || data.winnerId;
+
+        if (winnerId) {
+          const userRef = doc(db, 'users', winnerId);
+          const userDoc = await getDoc(userRef);
+          if (userDoc.exists()) {
+            const udata = userDoc.data();
+            const newStrikes = (udata.unpaidStrikes || 0) + 1;
+            const updates: any = { unpaidStrikes: newStrikes };
+            if (newStrikes >= 3) {
+              updates.isBlocked = true;
+            }
+            await updateDoc(userRef, updates);
+          }
+        }
+
+        await updateDoc(doc(db, 'auctions', auctionDocItem.id), {
+          post_auction_status: 'failed_1st'
+        });
+      }
+
+      // 3. Process offered_2nd that expired (48h)
+      const offered2ndSnap = await getDocs(query(collection(db, 'auctions'), where('post_auction_status', '==', 'offered_2nd')));
+      const expiredOffers = offered2ndSnap.docs.filter(docSnap => {
+        const data = docSnap.data();
+        return data.second_chance_deadline && new Date(data.second_chance_deadline).getTime() <= now.getTime();
+      });
+
+      for (let auctionDocItem of expiredOffers) {
+        await updateDoc(doc(db, 'auctions', auctionDocItem.id), {
+          post_auction_status: 'archived'
+        });
+      }
+
+      // 4. Process awaiting_payment_2nd that expired (24h)
+      const awaiting2ndSnap = await getDocs(query(collection(db, 'auctions'), where('post_auction_status', '==', 'awaiting_payment_2nd')));
+      const expired2nd = awaiting2ndSnap.docs.filter(docSnap => {
+        const data = docSnap.data();
+        return data.payment_deadline && new Date(data.payment_deadline).getTime() <= now.getTime();
+      });
+
+      for (let auctionDocItem of expired2nd) {
+        await updateDoc(doc(db, 'auctions', auctionDocItem.id), {
+          post_auction_status: 'archived'
+        });
+      }
+
+      res.json({ success: true, processed: true });
+    } catch (e: any) {
+      console.error("Cron error:", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
   });
@@ -302,15 +398,15 @@ async function startServer() {
       const stripe = getStripe();
       
       // Fetch the actual auction
-      const auctionDoc = await db.collection('auctions').doc(auction_id).get();
+      const auctionDoc = await getDoc(doc(db, 'auctions', auction_id));
     const auction = auctionDoc.data();
       const currentPrice = auction?.current_price || (amount / 1.122);
 
-      const sellerDoc = await db.collection('users').doc(seller_id).get();
+      const sellerDoc = await getDoc(doc(db, 'users', seller_id));
     const seller = sellerDoc.data();
       const platformFee = calculateMarginalPlatformFee(currentPrice, seller?.subscription_tier);
       
-      const buyerDoc = await db.collection('users').doc(buyer_id).get();
+      const buyerDoc = await getDoc(doc(db, 'users', buyer_id));
     const buyer = buyerDoc.data();
       let vatRate = 0;
       if (buyer) {
@@ -377,16 +473,16 @@ async function startServer() {
       const stripe = getStripe();
       
       // Fetch the actual auction to securely determine the final bid price
-      const auctionDoc = await db.collection('auctions').doc(auction_id).get();
+      const auctionDoc = await getDoc(doc(db, 'auctions', auction_id));
     const auction = auctionDoc.data();
       const currentPrice = auction?.current_price || (amount / 1.122); // Fallback estimate if not found
 
-      const sellerDoc = await db.collection('users').doc(seller_id).get();
+      const sellerDoc = await getDoc(doc(db, 'users', seller_id));
     const seller = sellerDoc.data();
       const platformFee = calculateMarginalPlatformFee(currentPrice, seller?.subscription_tier);
       
       // Calculate VAT for the platform fee
-      const buyerDoc = await db.collection('users').doc(buyer_id).get();
+      const buyerDoc = await getDoc(doc(db, 'users', buyer_id));
     const buyer = buyerDoc.data();
       let vatRate = 0;
       if (buyer) {
@@ -438,8 +534,8 @@ async function startServer() {
       const stripe = getStripe();
 
       // Check if user already has an account
-      const userDocRef = db.collection('users').doc(targetUserId);
-      const userDoc = await userDocRef.get();
+      const userDocRef = doc(db, 'users', targetUserId);
+      const userDoc = await getDoc(userDocRef);
       const user = userDoc.data() || {};
       
       let targetStripeAccountId = user.stripeAccountId || user.stripe_account_id;
@@ -487,8 +583,8 @@ async function startServer() {
       const { user_id } = req.body;
       const stripe = getStripe();
       
-      const userDocRef = db.collection('users').doc(user_id);
-      const userDoc = await userDocRef.get();
+      const userDocRef = doc(db, 'users', user_id);
+      const userDoc = await getDoc(userDocRef);
       const user = userDoc.data() || {};
       
       let targetStripeAccountId = user.stripeAccountId || user.stripe_account_id;
@@ -520,11 +616,11 @@ async function startServer() {
       }
 
       // Re-fetch auction price
-      const auctionDoc = await db.collection('auctions').doc(auction_id).get();
+      const auctionDoc = await getDoc(doc(db, 'auctions', auction_id));
     const auction = auctionDoc.data();
       const currentPrice = auction?.current_price || (amount / 1.122);
       
-      const sellerDoc = await db.collection('users').doc(seller_id).get();
+      const sellerDoc = await getDoc(doc(db, 'users', seller_id));
     const seller = sellerDoc.data();
       const platformFee = calculateMarginalPlatformFee(currentPrice, seller?.subscription_tier);
       
@@ -538,7 +634,7 @@ async function startServer() {
       // Create Transaction Record
       let transaction = null, txError = null;
     try { 
-      const ref = await db.collection('transactions').add({
+      const ref = await addDoc(collection(db, 'transactions'), {
           auction_id,
           buyer_id,
           seller_id,
@@ -550,17 +646,17 @@ async function startServer() {
           status: 'completed',
           payment_method: 'wallet'
       });
-      const snap = await ref.get();
+      const snap = await getDoc(ref);
       transaction = { id: ref.id, ...snap.data() };
     } catch(e) { txError = e; }
 
       if (txError) throw txError;
 
       // Update auction
-      await db.collection('auctions').doc(auction_id).update({ status: 'completed', payment_status: 'paid', paid_at: new Date().toISOString() });
+      await updateDoc(doc(db, 'auctions', auction_id), { status: 'completed', payment_status: 'paid', post_auction_status: 'paid', paid_at: new Date().toISOString() });
 
       // Generate Documents asynchronously to not block the request
-      const buyerDoc = await db.collection('users').doc(buyer_id).get();
+      const buyerDoc = await getDoc(doc(db, 'users', buyer_id));
     const buyer = buyerDoc.data();
       
       if (buyer && seller && transaction) {
@@ -572,8 +668,9 @@ async function startServer() {
                  const invoicePdfBuffer = await generateInvoicePDF(transaction, buyer, seller);
                  const invoiceFileName = `racun_${transaction.id.substring(0,8)}.pdf`;
                  
-                 await admin.storage().bucket().file(`${buyer_id}/${invoiceFileName}`).save(invoicePdfBuffer);
-                 const publicUrl = `https://storage.googleapis.com/${admin.storage().bucket().name}/${buyer_id}/${invoiceFileName}`;
+                 const fileRef = storageRef(storage, `${buyer_id}/${invoiceFileName}`);
+            await uploadBytes(fileRef, invoicePdfBuffer);
+            const publicUrl = await getDownloadURL(fileRef);
                  
                  documentsToInsert.push({ transaction_id: transaction.id, user_id: buyer_id, type: 'invoice', file_url: publicUrl });
                  attachments.push({ filename: invoiceFileName, content: invoicePdfBuffer });
@@ -584,8 +681,9 @@ async function startServer() {
                      const certPdfBuffer = await generateCertificatePDF(transaction, buyer, seller);
                      const certFileName = `potrdilo_${transaction.id.substring(0,8)}.pdf`;
                      
-                     await admin.storage().bucket().file(`${buyer_id}/${certFileName}`).save(certPdfBuffer);
-                     const publicUrl = `https://storage.googleapis.com/${admin.storage().bucket().name}/${buyer_id}/${certFileName}`;
+                     const fileRef = storageRef(storage, `${buyer_id}/${certFileName}`);
+                await uploadBytes(fileRef, certPdfBuffer);
+                const publicUrl = await getDownloadURL(fileRef);
                      
                      documentsToInsert.push({ transaction_id: transaction.id, user_id: buyer_id, type: 'certificate', file_url: publicUrl });
                      attachments.push({ filename: certFileName, content: certPdfBuffer });
@@ -593,7 +691,7 @@ async function startServer() {
              }
 
              if (documentsToInsert.length > 0) {
-                 const batch = db.batch(); documentsToInsert.forEach(doc => { const ref = db.collection('documents').doc(); batch.set(ref, doc); }); await batch.commit();
+                 const batch = writeBatch(db); documentsToInsert.forEach(doc => { const ref = doc(collection(db, 'documents')); batch.set(ref, doc); }); await batch.commit();
              }
 
              if (buyer.email && process.env.RESEND_API_KEY) {
@@ -626,7 +724,7 @@ async function startServer() {
       let rpcData = null, rpcError = null; /* RPC call execute_internal_subscription_payment omitted for firebase */
       if (rpcError) throw rpcError;
 
-      await db.collection('users').doc(user_id).update({ 
+      await updateDoc(doc(db, 'users', user_id), { 
           subscription_tier: package_id, 
           subscription_active: true,
           subscription_paid_at: new Date().toISOString()
@@ -649,10 +747,10 @@ async function startServer() {
       const stripe = getStripe();
 
       // Check balance and connected account
-      const userDocRef = db.collection('users').doc(user_id);
-      const userDoc = await userDocRef.get();
+      const userDocRef = doc(db, 'users', user_id);
+      const userDoc = await getDoc(userDocRef);
       const user = userDoc.data() || {};
-      const balanceDataSnap = await db.collection('user_balances').where('user_id', '==', user_id).limit(1).get();
+      const balanceDataSnap = await getDocs(query(collection(db, 'user_balances'), where('user_id', '==', user_id), limit(1)));
       const balanceData = balanceDataSnap.empty ? null : balanceDataSnap.docs[0].data();
       if (!balanceData || balanceData.available_balance < amountInCents) {
           return res.status(400).json({ error: "Stanje na računu je prenizko." });

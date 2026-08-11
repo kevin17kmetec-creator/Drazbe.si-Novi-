@@ -220,7 +220,17 @@ export const ChatProvider: React.FC<{
         // Find other user ID from activeChat auction
         const auction = auctions.find(a => a.id === activeChat);
         if (auction) {
-           const otherUserId = auction.sellerId === userId ? auction.biddingHistory?.[0]?.bidderId : auction.sellerId;
+           // Fix finding other user
+           let otherUserId = auction.sellerId;
+           if (auction.sellerId === userId) {
+               otherUserId = auction.winnerId || (auction as any).winner_id;
+               if (!otherUserId && auction.post_auction_status === 'offered_2nd') {
+                   otherUserId = (auction as any).second_highest_bidder_id;
+               }
+               if (!otherUserId && (auction as any).top_bids?.length > 0) {
+                   otherUserId = (auction as any).top_bids[0].user_id;
+               }
+           }
            if (otherUserId) {
                try {
                    const res = await addDoc(collection(db, "conversations"), {

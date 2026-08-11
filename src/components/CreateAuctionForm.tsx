@@ -351,6 +351,7 @@ export const CreateAuctionForm: React.FC<{
             }
             
             await onPublish({ 
+                id: initialData?.id,
                 title: { SLO: formData.title },
                 startingPrice: formData.startingPrice,
                 description: formData.description,

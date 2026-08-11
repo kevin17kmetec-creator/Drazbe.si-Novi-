@@ -439,6 +439,8 @@ const MainApp: React.FC = () => {
     return null;
   });
   const [republishData, setRepublishData] = useState<any>(null);
+  const [quickRepublishItem, setQuickRepublishItem] = useState<any>(null);
+  const [quickRepublishDuration, setQuickRepublishDuration] = useState<number>(3); // days
   const [bidAuctionIds, setBidAuctionIds] = useState<string[]>([]);
   const [hasAcceptedTerms, setHasAcceptedTerms] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
@@ -853,6 +855,7 @@ const MainApp: React.FC = () => {
             email: user.email,
           }));
           setIsVerified(data.is_verified || false);
+          setUserType(data.user_type || data.userType || null);
         } else {
           await setDoc(doc(db, 'users', user.uid), {
             id: user.uid,
@@ -896,8 +899,8 @@ const MainApp: React.FC = () => {
     return auctions
       .filter(
         (a) =>
-          ((a as any).winner_id === userData.id ||
-            a.winnerId === userData.id) &&
+          (((a as any).winner_id === userData.id || a.winnerId === userData.id) || 
+           (a.second_highest_bidder_id === userData.id && (a.post_auction_status === 'offered_2nd' || a.post_auction_status === 'awaiting_payment_2nd'))) &&
           (a.status === "completed" || a.endTime.getTime() <= Date.now()),
       )
       .sort((a, b) => b.endTime.getTime() - a.endTime.getTime());
@@ -974,6 +977,15 @@ const MainApp: React.FC = () => {
   const [usersMap, setUsersMap] = useState<Map<string, any>>(new Map());
 
   // Private stream: Users
+  useEffect(() => {
+    // Fire cron job on mount and every 5 minutes
+    fetch('/api/cron-auctions', { method: 'POST' }).catch(console.error);
+    const cronInterval = setInterval(() => {
+       fetch('/api/cron-auctions', { method: 'POST' }).catch(console.error);
+    }, 5 * 60 * 1000);
+    return () => clearInterval(cronInterval);
+  }, []);
+  
   useEffect(() => {
     if (!isLoggedIn) return;
     const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
@@ -1079,7 +1091,7 @@ const MainApp: React.FC = () => {
         }
       };
 
-      const newDocRef = doc(collection(db, 'auctions'));
+      const newDocRef = itemData.id ? doc(db, 'auctions', itemData.id) : doc(collection(db, 'auctions'));
       const insertPromise = setDoc(newDocRef, { id: newDocRef.id,
         title: simulatedTitle,
         description: simulatedDescription,
@@ -1099,6 +1111,11 @@ const MainApp: React.FC = () => {
         condition: getConditionTranslations(itemData.condition || "Rabljeno"),
         specifications: {},
         bidding_history: [],
+        top_bids: [],
+        winner_id: null,
+        winnerId: null,
+        payment_status: 'unpaid',
+        post_auction_status: null,
         seller_id: userData.id,
         status: "active",
         images: itemData.images,
@@ -1945,7 +1962,8 @@ const MainApp: React.FC = () => {
                           </div>
                         ) : (
                           <div className="flex flex-col gap-2 w-full">
-                            <button
+                            {wonItem.post_auction_status !== 'offered_2nd' && wonItem.post_auction_status !== 'rejected_2nd' && (
+    <button
                               onClick={async () => {
                                 setCheckoutData({
                                   amount: parseFloat(
@@ -1954,7 +1972,7 @@ const MainApp: React.FC = () => {
                                   title: `${t("paymentFor")}: ${wonItem.title[language as keyof typeof wonItem.title] || wonItem.title.SLO}`,
                                   onSuccess: async () => {
                                     setIsCheckoutOpen(false);
-                                    await setDoc(doc(db, 'auctions', wonItem.id), { payment_status: 'paid', paid_at: new Date().toISOString() }, { merge: true });
+                                    await setDoc(doc(db, 'auctions', wonItem.id), { payment_status: 'paid', paid_at: new Date().toISOString(), post_auction_status: 'paid' }, { merge: true });
                                     toast.success(t("paymentSuccessEmail"));
                                     // Refresh to show paid status
                                     setTimeout(() => fetchAuctions(), 1500);
@@ -1972,6 +1990,7 @@ const MainApp: React.FC = () => {
                             >
                               <CardIcon size={18} /> Plačaj zdaj
                             </button>
+  )}
                             <button
                               onClick={() => {
                                 setActiveConversationId(wonItem.id);
@@ -2090,27 +2109,59 @@ const MainApp: React.FC = () => {
                             </span>
                           </span>
                           {soldItem.payment_status === "paid" ? (
-                            <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
-                              <CheckCircle2 size={12} /> Plačano
-                            </span>
-                          ) : (
-                            <span className="bg-red-100 text-red-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
-                              <Clock size={12} /> Čaka na plačilo
-                            </span>
-                          )}
+      <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
+          <CheckCircle2 size={12} /> Plačano
+      </span>
+   ) : soldItem.post_auction_status === "failed_1st" ? (
+      <span className="bg-red-100 text-red-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
+          <AlertCircle size={12} /> Zmagovalec ni plačal
+      </span>
+   ) : soldItem.post_auction_status === "offered_2nd" ? (
+      <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
+          <Clock size={12} /> Čaka na odločitev 2. ponudnika
+      </span>
+   ) : soldItem.post_auction_status === "awaiting_payment_2nd" ? (
+      <span className="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
+          <Clock size={12} /> Čaka na plačilo (2. ponudnik)
+      </span>
+   ) : (
+      <span className="bg-yellow-100 text-yellow-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
+          <Clock size={12} /> Čaka na plačilo
+      </span>
+   )}
                         </div>
                       </div>
                       <div className="flex flex-col gap-3 w-full md:w-auto">
                         <button
-                          onClick={() => {
-                            setSelectedItem(soldItem);
-                            setActiveView("detail");
-                            window.scrollTo({ top: 0, behavior: "instant" });
-                          }}
-                          className="bg-slate-100 text-[#0A1128] px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] transition-all shadow-xl flex items-center justify-center gap-2"
-                        >
-                          Odpri dražbo
-                        </button>
+      onClick={() => {
+        setSelectedItem(soldItem);
+        setActiveView("detail");
+        window.scrollTo({ top: 0, behavior: "instant" });
+      }}
+      className="bg-slate-100 text-[#0A1128] px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] transition-all shadow-xl flex items-center justify-center gap-2"
+    >
+      Odpri dražbo
+    </button>
+    {soldItem.post_auction_status === "failed_1st" && (
+      <>
+        {soldItem.top_bids && soldItem.top_bids.length > 1 ? (
+          <button
+            onClick={() => handleOfferToSecondBidder(soldItem)}
+            className="bg-blue-600 text-white px-8 py-3 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-blue-700 transition-all flex items-center justify-center gap-2"
+          >
+            Ponudi 2. ponudniku
+          </button>
+        ) : (
+          <p className="text-xs text-red-500 font-bold text-center">Ni 2. ponudnika</p>
+        )}
+        <button
+          onClick={() => handleMoveToArchive(soldItem)}
+          className="bg-red-100 text-red-700 px-8 py-3 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-red-200 transition-all flex items-center justify-center gap-2"
+        >
+          Premakni v arhiv
+        </button>
+      </>
+    )}
                         <button
                           onClick={() => {
                             setActiveConversationId(soldItem.id);
@@ -2159,17 +2210,16 @@ const MainApp: React.FC = () => {
         </div>
       );
       break;
-    case "myUnsold":
+    case "myArchive":
       // Filter: seller is current user, auction has ended, NO winner AND it ended less than 30 days ago
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      const currentUserUnsold = auctions.filter(
+      const currentUserArchive = auctions.filter(
         (a) =>
           (a.sellerId === userData.id ||
             (a as any).seller_id === userData.id) &&
           (a.status === "completed" || new Date(a.endTime) <= new Date()) &&
-          !(a.winnerId || (a as any).winner_id) &&
-          new Date(a.endTime) > thirtyDaysAgo,
+          (a.post_auction_status === "unsold" || a.post_auction_status === "archived" || a.post_auction_status === "failed_2nd" || a.post_auction_status === "rejected_2nd" || (!a.winnerId && !(a as any).winner_id))
       );
       content = (
         <div className="max-w-[1600px] mx-auto py-16 px-6 animate-in">
@@ -2186,7 +2236,7 @@ const MainApp: React.FC = () => {
               </div>
               <div>
                 <h2 className="text-4xl font-black uppercase tracking-tighter text-[#0A1128]">
-                  Neprodane dražbe
+                  Arhiv dražb
                 </h2>
                 <p className="text-slate-400 font-bold mt-2">
                   Dražbe, na katere ni bilo ponudb. Po 30 dneh bodo samodejno
@@ -2196,14 +2246,14 @@ const MainApp: React.FC = () => {
             </div>
 
             <div className="space-y-6">
-              {currentUserUnsold.length === 0 ? (
+              {currentUserArchive.length === 0 ? (
                 <div className="py-12 text-center">
                   <p className="text-slate-500 font-black uppercase tracking-widest text-lg">
-                    Nimate neprodanih dražb
+                    Arhiv je prazen
                   </p>
                 </div>
               ) : (
-                currentUserUnsold.map((soldItem) => {
+                currentUserArchive.map((soldItem) => {
                   return (
                     <div
                       key={soldItem.id}
@@ -2243,15 +2293,21 @@ const MainApp: React.FC = () => {
                       </div>
                       <div className="flex flex-col gap-3 w-full md:w-auto">
                         <button
-                          onClick={() => {
-                            setRepublishData(soldItem);
-                            setActiveView("createAuction");
-                            window.scrollTo({ top: 0, behavior: "instant" });
-                          }}
-                          className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl flex items-center justify-center gap-2"
-                        >
-                          <Upload size={16} /> Ponovno objavi
-                        </button>
+    onClick={() => setQuickRepublishItem(soldItem)}
+    className="bg-[#FEBA4F] text-[#0A1128] px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#0A1128] hover:text-[#FEBA4F] transition-all shadow-xl flex items-center justify-center gap-2"
+  >
+    <Upload size={16} /> Hitra objava
+  </button>
+  <button
+    onClick={() => {
+      setRepublishData(soldItem);
+      setActiveView("createAuction");
+      window.scrollTo({ top: 0, behavior: "instant" });
+    }}
+    className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl flex items-center justify-center gap-2"
+  >
+    <Upload size={16} /> Uredi in objavi
+  </button>
                       </div>
                     </div>
                   );
@@ -2513,6 +2569,10 @@ const MainApp: React.FC = () => {
     if (!isLoggedIn) {
       toast.error(t("login")); setActiveView("login"); return "login_required";
     }
+    if ((userData as any).isBlocked || (userData as any).unpaidStrikes >= 3) {
+      toast.error("Vaš račun je blokiran za ponujanje zaradi preveč neplačanih dražb (3 opomini).");
+      return "error";
+    }
     setPendingBid({ item, amount });
     if (!hasAcceptedTerms && !localStorage.getItem("dontShowTermsAgain")) {
       setShowTermsModal(true);
@@ -2570,11 +2630,29 @@ const MainApp: React.FC = () => {
                 newEndTimeStr = new Date(now + 60 * 1000).toISOString();
             }
 
+            // Update top bids to keep track of 2nd highest
+            let topBids = data.top_bids || [];
+            topBids.push({ user_id: userData.id, amount, timestamp: new Date().toISOString() });
+            // Sort by amount desc
+            topBids.sort((a, b) => b.amount - a.amount);
+            // Keep only unique users (highest bid per user) to find the true 2nd highest bidder
+            let uniqueTopBids = [];
+            let seenUsers = new Set();
+            for (let bid of topBids) {
+                if (!seenUsers.has(bid.user_id)) {
+                    uniqueTopBids.push(bid);
+                    seenUsers.add(bid.user_id);
+                }
+            }
+            // Keep top 3 just in case
+            uniqueTopBids = uniqueTopBids.slice(0, 3);
+            
             transaction.update(auctionRef, { 
-                current_price: amount, 
-                bid_count: (data.bid_count || 0) + 1, 
-                winner_id: userData.id,
-                end_time: newEndTimeStr
+                 current_price: amount, 
+                 bid_count: (data.bid_count || 0) + 1, 
+                 winner_id: userData.id,
+                 top_bids: uniqueTopBids,
+                 end_time: newEndTimeStr
             });
         });
         toast.success("Ponudba uspešno oddana!");
@@ -2582,6 +2660,110 @@ const MainApp: React.FC = () => {
         toast.error(e.message || "Error submitting bid");
     }
     setPendingBid(null);
+  };
+
+  
+  const handleQuickRepublish = async () => {
+    if (!quickRepublishItem) return;
+    try {
+      const now = new Date();
+      const endTime = new Date(now.getTime() + quickRepublishDuration * 24 * 60 * 60 * 1000);
+      const auctionRef = doc(db, 'auctions', quickRepublishItem.id);
+      await updateDoc(auctionRef, {
+        status: 'active',
+        endTime: endTime.toISOString(),
+        end_time: endTime.toISOString(),
+        currentBid: quickRepublishItem.startingBid || quickRepublishItem.starting_price || 0,
+        current_price: quickRepublishItem.startingBid || quickRepublishItem.starting_price || 0,
+        bidCount: 0,
+        bid_count: 0,
+        biddingHistory: [],
+        top_bids: [],
+        winnerId: null,
+        winner_id: null,
+        payment_status: 'unpaid',
+        post_auction_status: null
+      });
+      toast.success("Dražba uspešno ponovno objavljena!");
+      setQuickRepublishItem(null);
+      fetchAuctions();
+    } catch (e: any) {
+      toast.error(e.message || "Napaka pri ponovni objavi");
+    }
+  };
+
+  
+  const handleOfferToSecondBidder = async (auction: any) => {
+    try {
+      const topBids = auction.top_bids || [];
+      const secondBid = topBids.length > 1 ? topBids[1] : null;
+      if (!secondBid) {
+        toast.error("Ni 2. najvišjega ponudnika za to dražbo.");
+        return;
+      }
+      
+      const now = new Date();
+      const deadline = new Date(now.getTime() + 48 * 60 * 60 * 1000).toISOString();
+      const auctionRef = doc(db, 'auctions', auction.id);
+      
+      await updateDoc(auctionRef, {
+        post_auction_status: 'offered_2nd',
+        second_highest_bidder_id: secondBid.user_id,
+        second_chance_deadline: deadline,
+        currentBid: secondBid.amount,
+        current_price: secondBid.amount
+      });
+      
+      toast.success("Dražba je bila ponujena 2. najvišjemu ponudniku. Ima 48 ur, da jo sprejme.");
+      fetchAuctions();
+    } catch (e: any) {
+      toast.error("Napaka pri ponujanju dražbe: " + e.message);
+    }
+  };
+
+  const handleMoveToArchive = async (auction: any) => {
+    try {
+      const auctionRef = doc(db, 'auctions', auction.id);
+      await updateDoc(auctionRef, {
+        post_auction_status: 'archived'
+      });
+      toast.success("Dražba premaknjena v arhiv.");
+      fetchAuctions();
+    } catch (e: any) {
+      toast.error("Napaka pri premikanju: " + e.message);
+    }
+  };
+
+  
+  const handleAcceptSecondChance = async (auction: any) => {
+    try {
+      const now = new Date();
+      const paymentDeadline = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
+      const auctionRef = doc(db, 'auctions', auction.id);
+      await updateDoc(auctionRef, {
+        post_auction_status: 'awaiting_payment_2nd',
+        payment_deadline: paymentDeadline,
+        winner_id: userData.id, // Update winner so it looks like they won
+        winnerId: userData.id
+      });
+      toast.success("Sprejeli ste ponudbo! Imate 24 ur za plačilo.");
+      fetchAuctions();
+    } catch (e: any) {
+      toast.error("Napaka: " + e.message);
+    }
+  };
+
+  const handleRejectSecondChance = async (auction: any) => {
+    try {
+      const auctionRef = doc(db, 'auctions', auction.id);
+      await updateDoc(auctionRef, {
+        post_auction_status: 'rejected_2nd'
+      });
+      toast.success("Zavrnili ste ponudbo. Dražba je zaključena.");
+      fetchAuctions();
+    } catch (e: any) {
+      toast.error("Napaka: " + e.message);
+    }
   };
 
   function handleDeliveryMethodSubmit(method: any) {
