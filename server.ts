@@ -557,20 +557,7 @@ async function startServer() {
         }
     }
 
-    const parseDob = (dobStr: string) => {
-        if (!dobStr) return undefined;
-        const parts = dobStr.split('-');
-        if (parts.length === 3) {
-           return {
-              day: parseInt(parts[2]),
-              month: parseInt(parts[1]),
-              year: parseInt(parts[0])
-           };
-        }
-        return undefined;
-    };
-
-    const dob = user.dob ? parseDob(user.dob) : undefined;
+    
 
     const accountParams: any = {
       email: user.email,
@@ -602,7 +589,6 @@ async function startServer() {
         first_name: user.first_name || user.firstName || undefined,
         last_name: user.last_name || user.lastName || undefined,
         email: user.email || undefined,
-        dob: dob || undefined,
         address: {
           line1: user.street || user.address?.street || undefined,
           city: user.city || user.address?.city || undefined,
@@ -616,9 +602,9 @@ async function startServer() {
       accountParams.type = 'express';
       accountParams.country = user.country_code || 'SI';
       accountParams.capabilities = {
-        transfers: { requested: true },
-        card_payments: { requested: true }
+        transfers: { requested: true }
       };
+      accountParams.settings = { payouts: { schedule: { interval: 'manual' } } };
       
       const account = await stripe.accounts.create(accountParams);
       targetStripeAccountId = account.id;
@@ -851,9 +837,9 @@ async function startServer() {
               country: 'SI',
               email: user.email,
               capabilities: {
-                  transfers: { requested: true },
-                  card_payments: { requested: true }
+                  transfers: { requested: true }
               },
+              settings: { payouts: { schedule: { interval: 'manual' } } },
           });
           accountId = account.id;
           await userDocRef.set({ stripeAccountId: accountId }, { merge: true });
