@@ -576,6 +576,9 @@ async function startServer() {
       email: user.email,
       business_type: businessType,
       business_profile: {
+         url: 'https://drazbe.si',
+         product_description: 'Sodelovanje in prodaja na spletni platformi',
+         mcc: '5999',
          support_email: user.email,
          support_phone: formattedPhone || undefined,
          name: isBusiness ? (user.company_name || user.companyName) : `${user.first_name || user.firstName || ''} ${user.last_name || user.lastName || ''}`.trim() || undefined,
