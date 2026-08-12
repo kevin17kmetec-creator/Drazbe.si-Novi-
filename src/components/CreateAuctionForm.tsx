@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, FileUp, Trash2, Gavel, Wand2, X, Eye, ChevronLeft, ChevronRight, GripHorizontal } from 'lucide-react';
 import { Category, Region, AuctionItem } from '../../types.ts';
 import { storage } from '../lib/firebase';
-import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
+import { ref, uploadBytesResumable, getDownloadURL, deleteObject, UploadTask } from 'firebase/storage';
 import { toast } from 'sonner';
 import { GoogleGenAI } from '@google/genai';
 import imageCompression from 'browser-image-compression';
@@ -284,11 +284,15 @@ export const CreateAuctionForm: React.FC<{
     const [showPreview, setShowPreview] = useState(false);
     const cancelRef = useRef(false);
     const uploadedFilesRef = useRef<string[]>([]);
+    const activeUploadTaskRef = useRef<UploadTask | null>(null);
 
     useEffect(() => {
         // cleanup on unmount
         return () => {
             uploadedFilesRef.current = [];
+            if (activeUploadTaskRef.current) {
+                try { activeUploadTaskRef.current.cancel(); } catch (e) {}
+            }
         };
     }, []);
 
@@ -318,29 +322,38 @@ export const CreateAuctionForm: React.FC<{
                     if (cancelRef.current) throw new Error('CANCELED');
                     
                     const compressedFile = imageFiles[i];
-                    setUploadProgress(prev => ({ ...prev, [i]: { state: t('preparing'), percent: 50 } }));
+                    setUploadProgress(prev => ({ ...prev, [i]: { state: t('preparing'), percent: 20 } }));
                     
                     if (cancelRef.current) throw new Error('CANCELED');
-                    setUploadProgress(prev => ({ ...prev, [i]: { state: t('uploading'), percent: 60 } }));
                     
                     const fileName = `${Date.now()}-${compressedFile.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
-                    const arrayBuffer = await compressedFile.arrayBuffer();
+                    const storageRef = ref(storage, `auction-images/${fileName}`);
                     
-                    let uploadError = null;
+                    const uploadTask = uploadBytesResumable(storageRef, compressedFile, { contentType: compressedFile.type });
+                    activeUploadTaskRef.current = uploadTask;
+
+                    // Track actual upload progress
+                    uploadTask.on('state_changed', (snapshot) => {
+                        if (snapshot.totalBytes > 0) {
+                            const percent = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
+                            setUploadProgress(prev => ({ ...prev, [i]: { state: t('uploading'), percent } }));
+                        }
+                    });
+
                     let downloadUrl = '';
                     try {
-                        const storageRef = ref(storage, `auction-images/${fileName}`);
-                        await uploadBytes(storageRef, arrayBuffer, { contentType: compressedFile.type });
+                        await uploadTask;
                         downloadUrl = await getDownloadURL(storageRef);
-                    } catch(e) { 
-                        console.error("Storage upload error details:", e);
-                        uploadError = e; 
+                    } catch (e: any) {
+                        activeUploadTaskRef.current = null;
+                        if (cancelRef.current || e?.code === 'storage/canceled') {
+                            throw new Error('CANCELED');
+                        }
+                        throw e;
                     }
                     
-                    if (uploadError) {
-                        setUploadProgress(prev => ({ ...prev, [i]: { state: 'Napaka', percent: 0 } }));
-                        throw uploadError;
-                    }
+                    activeUploadTaskRef.current = null;
+                    if (cancelRef.current) throw new Error('CANCELED');
 
                     uploadedFilesRef.current.push(fileName);
                     imageUrls.push(downloadUrl);
@@ -367,10 +380,11 @@ export const CreateAuctionForm: React.FC<{
                 images: imageUrls
             });
         } catch (error: any) { 
-            if (error.message === 'CANCELED') {
-                toast.error("Nalaganje prekinjeno.");
+            if (cancelRef.current || error?.message === 'CANCELED' || error?.code === 'storage/canceled') {
                 if (uploadedFilesRef.current.length > 0) {
-                    for (const path of uploadedFilesRef.current) {
+                    const filesToDelete = [...uploadedFilesRef.current];
+                    uploadedFilesRef.current = [];
+                    for (const path of filesToDelete) {
                         try { await deleteObject(ref(storage, `auction-images/${path}`)); } catch (e) {}
                     }
                 }
@@ -380,12 +394,38 @@ export const CreateAuctionForm: React.FC<{
             const errorMsg = error.message || JSON.stringify(error);
             toast.error(`${t('imageUploadError')} ${errorMsg}`, { duration: 5000 });
         } finally { 
+            activeUploadTaskRef.current = null;
             setUploading(false); 
         }
     };
 
-    const handleCancelUpload = () => {
+    const handleCancelUpload = async () => {
         cancelRef.current = true;
+        setUploading(false);
+        setUploadProgress({});
+
+        if (activeUploadTaskRef.current) {
+            try {
+                activeUploadTaskRef.current.cancel();
+            } catch (e) {
+                console.log("Error canceling active upload task:", e);
+            }
+            activeUploadTaskRef.current = null;
+        }
+
+        if (uploadedFilesRef.current.length > 0) {
+            const filesToDelete = [...uploadedFilesRef.current];
+            uploadedFilesRef.current = [];
+            for (const path of filesToDelete) {
+                try {
+                    await deleteObject(ref(storage, `auction-images/${path}`));
+                } catch (e) {
+                    console.error("Failed to delete partially uploaded image:", e);
+                }
+            }
+        }
+
+        toast.error("Nalaganje prekinjeno.");
     };
 
     const handleNumericChange = (field: string, value: string) => {

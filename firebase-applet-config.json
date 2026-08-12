@@ -4,7 +4,7 @@
   "apiKey": "AIzaSyAIBpZLRkpmgUION6mLrz5Us04Sk4LRrso",
   "authDomain": "drazbesi.firebaseapp.com",
   "firestoreDatabaseId": "(default)",
-  "storageBucket": "drazbesi.firebasestorage.app",
+  "storageBucket": "drazbesi.appspot.com",
   "messagingSenderId": "922499036814",
   "measurementId": ""
 }
