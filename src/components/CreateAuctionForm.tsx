@@ -332,7 +332,10 @@ export const CreateAuctionForm: React.FC<{
                         const storageRef = ref(storage, `auction-images/${fileName}`);
                         await uploadBytes(storageRef, arrayBuffer, { contentType: compressedFile.type });
                         downloadUrl = await getDownloadURL(storageRef);
-                    } catch(e) { uploadError = e; }
+                    } catch(e) { 
+                        console.error("Storage upload error details:", e);
+                        uploadError = e; 
+                    }
                     
                     if (uploadError) {
                         setUploadProgress(prev => ({ ...prev, [i]: { state: 'Napaka', percent: 0 } }));
