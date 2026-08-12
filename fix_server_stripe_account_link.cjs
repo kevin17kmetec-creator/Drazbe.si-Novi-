@@ -1,25 +1,10 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
-import Stripe from 'stripe';
-import { db } from '../src/lib/firebase-admin.js';
+const fs = require('fs');
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  if (req.method === 'OPTIONS') return res.status(200).end();
+let serverCode = fs.readFileSync('server.ts', 'utf8');
 
-  try {
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '');
-    
-    const { userId } = req.body || {};
-    if (!userId) return res.status(400).json({ error: 'Missing userId in request body' });
+const oldLogicRegex = /if \(\!targetStripeAccountId\) \{\s*\/\/\s*Create an Express account[\s\S]*?targetStripeAccountId = account\.id;\s*\/\/\s*Save to DB\s*await userDocRef\.set\(\{ stripeAccountId: targetStripeAccountId \}, \{ merge: true \}\);\s*\}/;
 
-    const userDocRef = db.collection('users').doc(userId);
-    const userDoc = await userDocRef.get();
-    const user = userDoc.data() || {};
-
-    let targetStripeAccountId = user.stripeAccountId || user.stripe_account_id;
-    const isBusiness = user.user_type === 'business' || user.userType === 'business';
+const newLogic = `const isBusiness = user.user_type === 'business' || user.userType === 'business';
     const businessType = isBusiness ? 'company' : 'individual';
 
     let formattedPhone = undefined;
@@ -36,9 +21,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
     }
 
-    const parseDob = (dobStr) => {
+    const parseDob = (dobStr: string) => {
         if (!dobStr) return undefined;
-        // Assuming dobStr is YYYY-MM-DD
         const parts = dobStr.split('-');
         if (parts.length === 3) {
            return {
@@ -58,7 +42,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       business_profile: {
          support_email: user.email,
          support_phone: formattedPhone || undefined,
-         name: isBusiness ? (user.company_name || user.companyName) : `${user.first_name || user.firstName || ''} ${user.last_name || user.lastName || ''}`.trim() || undefined,
+         name: isBusiness ? (user.company_name || user.companyName) : \`\${user.first_name || user.firstName || ''} \${user.last_name || user.lastName || ''}\`.trim() || undefined,
       }
     };
     
@@ -99,15 +83,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       
       const account = await stripe.accounts.create(accountParams);
       targetStripeAccountId = account.id;
-      await userDocRef.set({ stripeAccountId: targetStripeAccountId }, { merge: true });
+      await setDoc(userDocRef, { stripeAccountId: targetStripeAccountId }, { merge: true });
     } else {
-      
       if (!user.stripe_onboarding_complete) {
          try {
              await stripe.accounts.update(targetStripeAccountId, accountParams);
          } catch (e: any) {
              console.error("Failed to update existing Stripe account:", e.message);
-             // If it failed because of business_type or phone, try updating just the basic info
              try {
                 const fallbackParams = { ...accountParams };
                 delete fallbackParams.business_type;
@@ -122,27 +104,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
              }
          }
       }
+    }`;
 
-    }
-
-    if (targetStripeAccountId && user.stripe_onboarding_complete) {
-        const loginLink = await stripe.accounts.createLoginLink(targetStripeAccountId);
-        return res.status(200).json({ url: loginLink.url });
-    }
-
-    const accountLink = await stripe.accountLinks.create({
-      account: targetStripeAccountId,
-      refresh_url: 'https://drazbe-si-novi.vercel.app/nastavitve',
-      return_url: 'https://drazbe-si-novi.vercel.app/nastavitve?stripe=success',
-      type: 'account_onboarding',
-    });
-
-    return res.status(200).json({ url: accountLink.url });
-  } catch (err: any) {
-    console.error("Stripe Account Link Error:", err);
-    return res.status(500).json({ 
-      error: err.message, 
-      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined 
-    });
-  }
-}
+serverCode = serverCode.replace(oldLogicRegex, newLogic);
+fs.writeFileSync('server.ts', serverCode);
