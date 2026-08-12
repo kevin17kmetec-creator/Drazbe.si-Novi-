@@ -1135,7 +1135,7 @@ const MainApp: React.FC = () => {
       );
 
       const { error } = (await Promise.race([
-        insertPromise,
+        insertPromise.then(() => ({ data: true, error: null })).catch((e: any) => ({ data: null, error: e })),
         timeoutPromise,
       ])) as any;
 

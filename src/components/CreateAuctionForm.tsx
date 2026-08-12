@@ -317,22 +317,18 @@ export const CreateAuctionForm: React.FC<{
             let imageUrls: string[] = [...existingImages];
             
             if (isLoggedIn) {
-                // Sequential upload allows cancellation easily
-                for (let i = 0; i < imageFiles.length; i++) {
+                // Upload all images in parallel for maximum speed
+                const activeTasks: UploadTask[] = [];
+                const uploadPromises = imageFiles.map(async (compressedFile, i) => {
                     if (cancelRef.current) throw new Error('CANCELED');
-                    
-                    const compressedFile = imageFiles[i];
                     setUploadProgress(prev => ({ ...prev, [i]: { state: t('preparing'), percent: 20 } }));
                     
-                    if (cancelRef.current) throw new Error('CANCELED');
-                    
-                    const fileName = `${Date.now()}-${compressedFile.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
+                    const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}-${compressedFile.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
                     const storageRef = ref(storage, `auction-images/${fileName}`);
                     
                     const uploadTask = uploadBytesResumable(storageRef, compressedFile, { contentType: compressedFile.type });
-                    activeUploadTaskRef.current = uploadTask;
+                    activeTasks.push(uploadTask);
 
-                    // Track actual upload progress
                     uploadTask.on('state_changed', (snapshot) => {
                         if (snapshot.totalBytes > 0) {
                             const percent = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
@@ -346,12 +342,10 @@ export const CreateAuctionForm: React.FC<{
                         downloadUrl = await getDownloadURL(storageRef);
                         uploadedFilesRef.current.push(fileName);
                     } catch (e: any) {
-                        activeUploadTaskRef.current = null;
                         if (cancelRef.current || e?.code === 'storage/canceled') {
                             throw new Error('CANCELED');
                         }
                         console.warn("Firebase Storage upload encountered an error, falling back to data URL:", e);
-                        // Fallback to Base64 Data URL so auction publishing never fails due to storage CORS/quota issues
                         downloadUrl = await new Promise<string>((resolve, reject) => {
                             const reader = new FileReader();
                             reader.onload = () => resolve(reader.result as string);
@@ -360,12 +354,21 @@ export const CreateAuctionForm: React.FC<{
                         });
                     }
                     
-                    activeUploadTaskRef.current = null;
-                    if (cancelRef.current) throw new Error('CANCELED');
-
-                    imageUrls.push(downloadUrl);
                     setUploadProgress(prev => ({ ...prev, [i]: { state: 'Zaključeno', percent: 100 } }));
-                }
+                    return { i, url: downloadUrl };
+                });
+
+                // Re-implement the active task canceling via a small hack since we can't easily change the ref type here
+                // We'll attach our activeTasks array to the ref temporarily if it's an object
+                (activeUploadTaskRef as any).currentTasks = activeTasks;
+
+                const results = await Promise.all(uploadPromises);
+                
+                // Maintain order
+                results.sort((a, b) => a.i - b.i);
+                results.forEach(res => imageUrls.push(res.url));
+                
+                if (cancelRef.current) throw new Error('CANCELED');
 
                 if (cancelRef.current) throw new Error('CANCELED');
             } else {
@@ -403,6 +406,7 @@ export const CreateAuctionForm: React.FC<{
         } finally { 
             activeUploadTaskRef.current = null;
             setUploading(false); 
+            setUploadProgress({});
         }
     };
 
@@ -412,12 +416,14 @@ export const CreateAuctionForm: React.FC<{
         setUploadProgress({});
 
         if (activeUploadTaskRef.current) {
-            try {
-                activeUploadTaskRef.current.cancel();
-            } catch (e) {
-                console.log("Error canceling active upload task:", e);
-            }
+            try { activeUploadTaskRef.current.cancel(); } catch (e) {}
             activeUploadTaskRef.current = null;
+        }
+        if ((activeUploadTaskRef as any).currentTasks) {
+            (activeUploadTaskRef as any).currentTasks.forEach((t: any) => {
+                try { t.cancel(); } catch (e) {}
+            });
+            (activeUploadTaskRef as any).currentTasks = null;
         }
 
         if (uploadedFilesRef.current.length > 0) {
