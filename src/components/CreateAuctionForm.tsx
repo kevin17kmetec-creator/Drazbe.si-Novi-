@@ -344,18 +344,25 @@ export const CreateAuctionForm: React.FC<{
                     try {
                         await uploadTask;
                         downloadUrl = await getDownloadURL(storageRef);
+                        uploadedFilesRef.current.push(fileName);
                     } catch (e: any) {
                         activeUploadTaskRef.current = null;
                         if (cancelRef.current || e?.code === 'storage/canceled') {
                             throw new Error('CANCELED');
                         }
-                        throw e;
+                        console.warn("Firebase Storage upload encountered an error, falling back to data URL:", e);
+                        // Fallback to Base64 Data URL so auction publishing never fails due to storage CORS/quota issues
+                        downloadUrl = await new Promise<string>((resolve, reject) => {
+                            const reader = new FileReader();
+                            reader.onload = () => resolve(reader.result as string);
+                            reader.onerror = reject;
+                            reader.readAsDataURL(compressedFile);
+                        });
                     }
                     
                     activeUploadTaskRef.current = null;
                     if (cancelRef.current) throw new Error('CANCELED');
 
-                    uploadedFilesRef.current.push(fileName);
                     imageUrls.push(downloadUrl);
                     setUploadProgress(prev => ({ ...prev, [i]: { state: 'Zaključeno', percent: 100 } }));
                 }
