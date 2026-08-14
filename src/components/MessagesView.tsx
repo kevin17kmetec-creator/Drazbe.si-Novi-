@@ -1,3 +1,4 @@
+import { CheckoutFlow } from './CheckoutFlow';
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { ArrowLeft, SendHorizontal, Image as ImageIcon, Check, CheckCheck, Loader2, User, MessageSquare, AlertCircle, RefreshCw } from 'lucide-react';
 import { AuctionItem } from '../../types';
@@ -195,6 +196,9 @@ export const MessagesView: React.FC<{
                         </div>
 
                         <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-50/30">
+                            {currentChatConv && (
+                                <CheckoutFlow auction={currentChatConv.auction} currentUserId={userId} />
+                            )}
                             {loadingMessages ? (
                                 <div className="flex justify-center py-10"><Loader2 className="animate-spin text-slate-300" size={24} /></div>
                             ) : messages.length === 0 ? (

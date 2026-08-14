@@ -1,3 +1,4 @@
+import { GoogleGenAI } from '@google/genai';
 import { db } from './src/lib/firebase';
 import { collection, doc, getDoc, getDocs, updateDoc, setDoc, addDoc, query, where, limit, writeBatch } from 'firebase/firestore';
 import { storage } from './src/lib/firebase';
@@ -842,7 +843,7 @@ async function startServer() {
               settings: { payouts: { schedule: { interval: 'manual' } } },
           });
           accountId = account.id;
-          await userDocRef.set({ stripeAccountId: accountId }, { merge: true });
+          await setDoc(userDocRef, { stripeAccountId: accountId }, { merge: true });
       }
 
       const isComplete = user?.stripe_onboarding_complete;
@@ -953,6 +954,44 @@ async function startServer() {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
+
+  
+  app.use(express.json());
+  
+  app.post("/api/analyze-receipt", async (req, res) => {
+    try {
+        const { imageUrl } = req.body;
+        if (!imageUrl) return res.status(400).json({error: "No imageUrl provided"});
+        
+        const response = await fetch(imageUrl);
+        const arrayBuffer = await response.arrayBuffer();
+        const base64Data = Buffer.from(arrayBuffer).toString('base64');
+        const mimeType = response.headers.get('content-type') || 'image/jpeg';
+        
+        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+        const geminiResponse = await ai.models.generateContent({
+            model: 'gemini-1.5-flash',
+            contents: [
+                {
+                    role: 'user',
+                    parts: [
+                        { inlineData: { data: base64Data, mimeType } },
+                        { text: "Analiziraj ta račun iz pošte. Poišči skupni znesek poštnine ali končni znesek za plačilo. Vrni izključno JSON objekt v obliki: {\"shipping_cost\": float, \"currency\": \"EUR\"}. Če zneska ne moreš z gotovostjo razbrati, vrni {\"shipping_cost\": null}." }
+                    ]
+                }
+            ],
+            config: {
+                responseMimeType: "application/json"
+            }
+        });
+        
+        const resultText = geminiResponse.text;
+        res.json(JSON.parse(resultText));
+    } catch (e: any) {
+        console.error("Gemini Vision error:", e);
+        res.status(500).json({ error: e.message });
+    }
+  });
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
