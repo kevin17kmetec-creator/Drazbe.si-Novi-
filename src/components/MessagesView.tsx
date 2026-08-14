@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { AuctionItem } from '../../types';
 import { useChat } from '../context/ChatContext';
+import { auth } from '../lib/firebase';
 
 const AvatarImage: React.FC<{ src?: string; className: string; fallbackSize?: number }> = ({ src, className, fallbackSize = 20 }) => {
   const [error, setError] = useState(false);
@@ -84,6 +85,8 @@ export const MessagesView: React.FC<{
     }
   }, [initialAuctionId, setActiveChat]);
 
+  const effectiveUserId = userId || auth.currentUser?.uid || '';
+
   // Find active conversation
   const currentChatConv = conversations.find(
     c => c.auction.id === activeChat || c.id === activeChat || c.id === `conv_${activeChat}`
@@ -95,14 +98,14 @@ export const MessagesView: React.FC<{
     : false;
 
   const isBuyer = currentChatConv
-    ? (currentChatConv.auction.winnerId === userId ||
-       (currentChatConv.auction as any).winner_id === userId ||
-       currentChatConv.auction.second_highest_bidder_id === userId)
+    ? (currentChatConv.auction.winnerId === effectiveUserId ||
+       (currentChatConv.auction as any).winner_id === effectiveUserId ||
+       currentChatConv.auction.second_highest_bidder_id === effectiveUserId)
     : false;
 
   const isSeller = currentChatConv
-    ? (currentChatConv.auction.sellerId === userId ||
-       (currentChatConv.auction as any).seller_id === userId)
+    ? (currentChatConv.auction.sellerId === effectiveUserId ||
+       (currentChatConv.auction as any).seller_id === effectiveUserId)
     : false;
 
   const scrollToBottom = useCallback(() => {
@@ -463,7 +466,7 @@ export const MessagesView: React.FC<{
                   </div>
                 ) : (
                   messages.map((m, idx) => {
-                    const isMe = m.sender_id === userId;
+                    const isMe = m.sender_id === effectiveUserId || (auth.currentUser && m.sender_id === auth.currentUser.uid);
                     const showTime =
                       idx === 0 ||
                       new Date(m.created_at).getTime() - new Date(messages[idx - 1].created_at).getTime() > 1000 * 60 * 5;

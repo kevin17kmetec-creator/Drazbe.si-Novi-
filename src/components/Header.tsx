@@ -40,7 +40,8 @@ export const Header: React.FC<{
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isLangOpen, setIsLangOpen] = useState(false);
 
-  const totalNotifications = (unreadMessageCount || 0) + (newWinningsCount || 0);
+  // Profile badge MUST only show won auctions count, message badge is exclusively on messages button
+  const wonAuctionsBadge = newWinningsCount || 0;
   const userMenuRef = useRef<HTMLDivElement>(null);
   const langMenuRef = useRef<HTMLDivElement>(null);
   const catMenuRef = useRef<HTMLDivElement>(null);
@@ -144,9 +145,9 @@ export const Header: React.FC<{
                     onClick={() => setIsUserMenuOpen(!isUserMenuOpen)} 
                     className="flex items-center gap-3 bg-white text-[#0A1128] px-6 py-2.5 rounded-2xl font-black text-sm shadow-xl hover:bg-[#FEBA4F] transition-colors"
                   >
-                    {totalNotifications > 0 && (
-                          <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold w-4 h-4 flex items-center justify-center rounded-full animate-pulse">{totalNotifications > 9 ? '9+' : totalNotifications}</span>
-                        )}
+                    {wonAuctionsBadge > 0 && (
+                      <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold w-4 h-4 flex items-center justify-center rounded-full animate-pulse">{wonAuctionsBadge > 9 ? '9+' : wonAuctionsBadge}</span>
+                    )}
                         {userProfilePicture ? (
                         <img src={userProfilePicture} alt="Profile" className="w-5 h-5 rounded-full object-cover" />
                     ) : (

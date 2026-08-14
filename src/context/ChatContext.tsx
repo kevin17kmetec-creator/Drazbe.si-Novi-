@@ -90,6 +90,7 @@ export const ChatProvider: React.FC<{
   appWakeupTrigger?: number;
   children: React.ReactNode;
 }> = ({ userId, auctions, children }) => {
+  const [authUserId, setAuthUserId] = useState<string>(userId || auth.currentUser?.uid || "");
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeChat, setActiveChat] = useState<string | null>(null);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
@@ -102,6 +103,20 @@ export const ChatProvider: React.FC<{
   const [onlineUsers] = useState<Set<string>>(new Set());
   const [otherUserTyping, setOtherUserTyping] = useState(false);
   const usersCacheRef = useRef<Map<string, OtherUser>>(new Map());
+
+  // Listen to auth changes so effectiveUserId is always in sync
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (u) => {
+      if (u) {
+        setAuthUserId(u.uid);
+      } else if (!userId) {
+        setAuthUserId("");
+      }
+    });
+    return () => unsub();
+  }, [userId]);
+
+  const effectiveUserId = userId || authUserId || auth.currentUser?.uid || "";
 
   // Helper to fetch/cache user info
   const fetchUserInfo = useCallback(async (targetUserId: string): Promise<OtherUser | undefined> => {
@@ -124,7 +139,7 @@ export const ChatProvider: React.FC<{
 
   // Compute eligible pickup conversations from auctions + Firestore conversations
   useEffect(() => {
-    if (!userId) {
+    if (!effectiveUserId) {
       setConversations([]);
       setLoadingChats(false);
       return;
@@ -140,9 +155,9 @@ export const ChatProvider: React.FC<{
         // 1. Build conversations from eligible pickup sold auctions
         for (const a of auctions) {
           // Check if user is seller or buyer
-          const isSeller = a.sellerId === userId || (a as any).seller_id === userId;
+          const isSeller = a.sellerId === effectiveUserId || (a as any).seller_id === effectiveUserId;
           const winnerId = a.winnerId || (a as any).winner_id || (a as any).winner || (a as any).second_highest_bidder_id || ((a as any).top_bids && (a as any).top_bids[0]?.bidder_id);
-          const isBuyer = winnerId === userId;
+          const isBuyer = winnerId === effectiveUserId;
 
           if (!isSeller && !isBuyer) continue;
 
@@ -165,7 +180,7 @@ export const ChatProvider: React.FC<{
           if (isPostalOnly) continue; // Postal delivery does not have chat
 
           const otherUserId = isSeller ? winnerId : (a.sellerId || (a as any).seller_id);
-          if (!otherUserId || otherUserId === userId) continue;
+          if (!otherUserId) continue;
 
           const convId = `conv_${a.id}`;
           const isPaid = a.payment_status === "paid" || (a as any).post_auction_status === "paid";
@@ -185,7 +200,7 @@ export const ChatProvider: React.FC<{
         for (const fc of firestoreConvs) {
           const convId = fc.id;
           const auctionId = fc.auction_id;
-          const otherUserId = fc.participant_one === userId ? fc.participant_two : fc.participant_one;
+          const otherUserId = fc.participant_one === effectiveUserId ? fc.participant_two : fc.participant_one;
 
           if (convMap.has(convId)) {
             const existing = convMap.get(convId)!;
@@ -264,7 +279,7 @@ export const ChatProvider: React.FC<{
 
     // Listen to Firestore conversations
     const convRef = collection(db, "conversations");
-    const q = query(convRef, or(where("participant_one", "==", userId), where("participant_two", "==", userId)));
+    const q = query(convRef, or(where("participant_one", "==", effectiveUserId), where("participant_two", "==", effectiveUserId)));
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -278,7 +293,7 @@ export const ChatProvider: React.FC<{
       isMounted = false;
       unsubscribe();
     };
-  }, [userId, auctions, fetchUserInfo]);
+  }, [effectiveUserId, auctions, fetchUserInfo]);
 
   // Handle activeChat / selection and auto-activate
   useEffect(() => {
@@ -296,8 +311,8 @@ export const ChatProvider: React.FC<{
     const existing = conversations.find(c => c.id === convId || c.auction.id === rawAuctionId);
     if (!existing) {
       const matchAuction = auctions.find(a => a.id === rawAuctionId);
-      if (matchAuction && userId) {
-        const isSeller = matchAuction.sellerId === userId || (matchAuction as any).seller_id === userId;
+      if (matchAuction && effectiveUserId) {
+        const isSeller = matchAuction.sellerId === effectiveUserId || (matchAuction as any).seller_id === effectiveUserId;
         const winnerId = matchAuction.winnerId || (matchAuction as any).winner_id || (matchAuction as any).second_highest_bidder_id;
         const otherUserId = isSeller ? winnerId : (matchAuction.sellerId || (matchAuction as any).seller_id);
         if (otherUserId) {
@@ -320,9 +335,9 @@ export const ChatProvider: React.FC<{
         }
       }
     }
-  }, [activeChat, conversations, auctions, userId, fetchUserInfo]);
+  }, [activeChat, conversations, auctions, effectiveUserId, fetchUserInfo]);
 
-  // Real-time listener for active conversation messages
+  // Real-time listener for active conversation messages (Without composite index requirement)
   useEffect(() => {
     if (!activeConversationId) {
       setMessages([]);
@@ -335,9 +350,7 @@ export const ChatProvider: React.FC<{
     const msgRef = collection(db, "messages");
     const q = query(
       msgRef,
-      where("conversation_id", "==", activeConversationId),
-      orderBy("created_at", "asc"),
-      limit(150)
+      where("conversation_id", "==", activeConversationId)
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -347,12 +360,14 @@ export const ChatProvider: React.FC<{
         let createdAtStr = new Date().toISOString();
         if (data.created_at?.toDate) {
           createdAtStr = data.created_at.toDate().toISOString();
-        } else if (data.created_at) {
+        } else if (typeof data.created_at === "string") {
           createdAtStr = data.created_at;
+        } else if (data.created_at?.seconds) {
+          createdAtStr = new Date(data.created_at.seconds * 1000).toISOString();
         }
 
         // Auto mark as read if received by current user
-        if (data.sender_id !== userId && !data.is_read) {
+        if (data.sender_id !== effectiveUserId && !data.is_read) {
           updateDoc(doc(db, "messages", d.id), { is_read: true }).catch(() => {});
         }
 
@@ -363,11 +378,16 @@ export const ChatProvider: React.FC<{
           content: data.content || "",
           created_at: createdAtStr,
           is_read: !!data.is_read,
-          status: "sent"
+          status: "sent" as const
         };
+      }).sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+
+      // Preserve any pending optimistic messages that haven't shown up in snapshot yet
+      setMessages(prev => {
+        const pendingOptimistic = prev.filter(m => m.status === "sending" && !loadedMsgs.some(l => l.content === m.content && l.sender_id === m.sender_id));
+        return [...loadedMsgs, ...pendingOptimistic].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
       });
 
-      setMessages(loadedMsgs);
       setLoadingMessages(false);
     }, (error) => {
       console.error("Error loading messages:", error);
@@ -378,11 +398,11 @@ export const ChatProvider: React.FC<{
       isMounted = false;
       unsubscribe();
     };
-  }, [activeConversationId, userId]);
+  }, [activeConversationId, effectiveUserId]);
 
   // Global unread messages counter listener
   useEffect(() => {
-    if (!userId || conversations.length === 0) {
+    if (!effectiveUserId || conversations.length === 0) {
       setUnreadMessageCount(0);
       setUnreadCounts({});
       return;
@@ -390,7 +410,7 @@ export const ChatProvider: React.FC<{
 
     const convIds = conversations.map(c => c.id);
     const msgRef = collection(db, "messages");
-    const q = query(msgRef, where("is_read", "==", false), limit(200));
+    const q = query(msgRef, where("is_read", "==", false), limit(300));
 
     const unsub = onSnapshot(q, (snapshot) => {
       const counts: Record<string, number> = {};
@@ -398,7 +418,7 @@ export const ChatProvider: React.FC<{
 
       snapshot.docs.forEach(d => {
         const m = d.data();
-        if (m.sender_id !== userId && convIds.includes(m.conversation_id)) {
+        if (m.sender_id !== effectiveUserId && (convIds.includes(m.conversation_id) || convIds.includes(`conv_${m.conversation_id}`))) {
           counts[m.conversation_id] = (counts[m.conversation_id] || 0) + 1;
           total += 1;
         }
@@ -411,14 +431,14 @@ export const ChatProvider: React.FC<{
     });
 
     return () => unsub();
-  }, [userId, conversations]);
+  }, [effectiveUserId, conversations]);
 
-  // Send message function with locked verification
+  // Send message function with optimistic UI updates and instant delivery
   const sendMessage = async (content: string, prefix?: string) => {
-    if (!activeConversationId || !userId) return;
+    if (!activeConversationId || !effectiveUserId) return;
 
     // Find current conversation
-    const currentConv = conversations.find(c => c.id === activeConversationId || c.auction.id === activeChat);
+    const currentConv = conversations.find(c => c.id === activeConversationId || c.auction.id === activeChat || `conv_${c.auction.id}` === activeConversationId);
     if (!currentConv) {
       toast.error("Pogovora ni mogoče najti.");
       return;
@@ -436,29 +456,49 @@ export const ChatProvider: React.FC<{
     const rawContent = (prefix ? prefix + content : content).trim();
     if (!rawContent) return;
 
+    const nowIso = new Date().toISOString();
+    const tempId = "temp_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7);
+
+    // Optimistically add message to local messages state for 0ms feedback
+    const optimisticMsg: Message = {
+      id: tempId,
+      conversation_id: activeConversationId,
+      sender_id: effectiveUserId,
+      content: rawContent,
+      created_at: nowIso,
+      is_read: false,
+      status: "sending"
+    };
+
+    setMessages(prev => [...prev.filter(m => m.id !== tempId), optimisticMsg]);
     setIsSending(true);
+
     try {
-      // 1. Ensure conversation document exists in Firestore
+      // 1. Add message document
+      const addedDoc = await addDoc(collection(db, "messages"), {
+        conversation_id: activeConversationId,
+        sender_id: effectiveUserId,
+        content: rawContent,
+        is_read: false,
+        created_at: nowIso
+      });
+
+      // 2. Ensure conversation document is updated in Firestore
       await setDoc(doc(db, "conversations", activeConversationId), {
         id: activeConversationId,
         auction_id: currentConv.auction.id,
-        participant_one: userId,
+        participant_one: effectiveUserId,
         participant_two: currentConv.otherUserId,
         last_message: rawContent,
-        last_message_at: serverTimestamp(),
-        updated_at: serverTimestamp()
+        last_message_at: nowIso,
+        updated_at: nowIso
       }, { merge: true });
 
-      // 2. Add message document
-      await addDoc(collection(db, "messages"), {
-        conversation_id: activeConversationId,
-        sender_id: userId,
-        content: rawContent,
-        is_read: false,
-        created_at: serverTimestamp()
-      });
+      // Update optimistic message status
+      setMessages(prev => prev.map(m => m.id === tempId ? { ...m, id: addedDoc.id, status: "sent" } : m));
     } catch (e: any) {
       console.error("Error sending message:", e);
+      setMessages(prev => prev.map(m => m.id === tempId ? { ...m, status: "error" } : m));
       toast.error("Napaka pri pošiljanju sporočila: " + (e.message || ""));
     } finally {
       setIsSending(false);
@@ -466,8 +506,8 @@ export const ChatProvider: React.FC<{
   };
 
   const uploadImage = async (file: File) => {
-    if (!activeConversationId || !userId) return;
-    const currentConv = conversations.find(c => c.id === activeConversationId);
+    if (!activeConversationId || !effectiveUserId) return;
+    const currentConv = conversations.find(c => c.id === activeConversationId || `conv_${c.auction.id}` === activeConversationId);
     const isPaid = currentConv?.auction?.payment_status === "paid" ||
       (currentConv?.auction as any)?.post_auction_status === "paid";
 
