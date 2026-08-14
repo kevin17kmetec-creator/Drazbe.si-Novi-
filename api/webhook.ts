@@ -124,11 +124,37 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       let auctionUpdateError = null; try { await db.collection('auctions').doc(auction_id).update({ 
               status: 'completed', 
               payment_status: 'paid',
+              post_auction_status: 'paid',
               paid_at: new Date().toISOString()
           }); } catch(e) { auctionUpdateError = e; }
           
       if (auctionUpdateError) {
           console.error('Error updating auction status:', auctionUpdateError);
+      }
+
+      // Track buyer spending for EU AML (10k annual limit) & purchase history
+      try {
+          const currentYear = new Date().getFullYear();
+          const currentYearSpent = (buyer.yearly_spent_by_year && buyer.yearly_spent_by_year[currentYear])
+              ? Number(buyer.yearly_spent_by_year[currentYear]) || 0
+              : (buyer.yearly_spent_year === currentYear && typeof buyer.yearly_spent === 'number')
+                  ? buyer.yearly_spent
+                  : 0;
+
+          const updatedYearlySpent = currentYearSpent + amountTotal;
+          const updatedTotalSpent = (Number(buyer.total_spent) || 0) + amountTotal;
+          const updatedPurchasesCount = (Number(buyer.purchases_count) || 0) + 1;
+
+          await db.collection('users').doc(buyer_id).update({
+              yearly_spent: updatedYearlySpent,
+              yearly_spent_year: currentYear,
+              [`yearly_spent_by_year.${currentYear}`]: updatedYearlySpent,
+              total_spent: updatedTotalSpent,
+              purchases_count: updatedPurchasesCount,
+              last_purchase_at: new Date().toISOString()
+          });
+      } catch (spentErr) {
+          console.error('Error updating buyer spending records:', spentErr);
       }
 
       const documentsToInsert = [];

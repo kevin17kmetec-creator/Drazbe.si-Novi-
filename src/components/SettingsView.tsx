@@ -224,6 +224,29 @@ export const SettingsView: React.FC<{
                     </div>
                 </div>
 
+                {/* EU Compliance & Annual Purchasing Limit Card */}
+                <div className="mb-10 p-6 bg-slate-50 border border-slate-100 rounded-3xl">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                    <div>
+                      <h4 className="text-xs font-black uppercase tracking-widest text-[#0A1128] mb-1">
+                        Letni limit nakupov (Zakonodaja EU / AML)
+                      </h4>
+                      <p className="text-xs text-slate-500 font-bold max-w-md">
+                        {isVerified 
+                          ? "Vaš profil je verificiran. Nakupovanje je neomejeno." 
+                          : "Uporabniki lahko brez dodatne verifikacije nemoteno opravijo do 10.000 € nakupov na koledarsko leto."}
+                      </p>
+                    </div>
+                    <div className="bg-white px-5 py-3 rounded-2xl border border-slate-200 text-left sm:text-right w-full sm:w-auto">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-0.5">Poraba v {new Date().getFullYear()}</p>
+                      <p className="text-base font-black text-[#0A1128]">
+                        €{((user?.yearly_spent_by_year && user.yearly_spent_by_year[new Date().getFullYear()]) || (user?.yearly_spent_year === new Date().getFullYear() ? user?.yearly_spent : 0) || 0).toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        <span className="text-slate-400 text-xs font-normal"> / {isVerified ? '∞' : '€10.000,00'}</span>
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="mb-10">
                     <h3 className="text-sm font-black uppercase tracking-widest text-[#0A1128] mb-6 flex items-center gap-2"><User size={16} className="text-[#FEBA4F]"/> {t('basicData')}</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

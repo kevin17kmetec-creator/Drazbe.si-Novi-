@@ -198,6 +198,31 @@ async function startServer() {
             console.error('Error updating auction status:', auctionUpdateError);
         }
 
+        // Track buyer spending for EU AML (10k annual limit) & purchase history
+        try {
+            const currentYear = new Date().getFullYear();
+            const currentYearSpent = (buyer.yearly_spent_by_year && buyer.yearly_spent_by_year[currentYear])
+                ? Number(buyer.yearly_spent_by_year[currentYear]) || 0
+                : (buyer.yearly_spent_year === currentYear && typeof buyer.yearly_spent === 'number')
+                    ? buyer.yearly_spent
+                    : 0;
+
+            const updatedYearlySpent = currentYearSpent + amountTotal;
+            const updatedTotalSpent = (Number(buyer.total_spent) || 0) + amountTotal;
+            const updatedPurchasesCount = (Number(buyer.purchases_count) || 0) + 1;
+
+            await updateDoc(doc(db, 'users', buyer_id), {
+                yearly_spent: updatedYearlySpent,
+                yearly_spent_year: currentYear,
+                [`yearly_spent_by_year.${currentYear}`]: updatedYearlySpent,
+                total_spent: updatedTotalSpent,
+                purchases_count: updatedPurchasesCount,
+                last_purchase_at: new Date().toISOString()
+            });
+        } catch (spentErr) {
+            console.error('Error updating buyer spending records in server webhook:', spentErr);
+        }
+
         // 6. Generate Documents
         const documentsToInsert = [];
         const attachments = [];
@@ -400,6 +425,33 @@ async function startServer() {
       
       let auctionTitle = "Plačilo";
       let sessionMetadata: any = { type };
+
+      // Check EU AML law: 10,000 € annual limit check for buyers without ID verification
+      if (buyer_id) {
+        const buyerDoc = await getDoc(doc(db, 'users', buyer_id));
+        const buyer = buyerDoc.data();
+        
+        if (buyer) {
+          const currentYear = new Date().getFullYear();
+          let currentYearSpent = 0;
+          
+          if (buyer.yearly_spent_by_year && buyer.yearly_spent_by_year[currentYear]) {
+            currentYearSpent = Number(buyer.yearly_spent_by_year[currentYear]) || 0;
+          } else if (buyer.yearly_spent_year === currentYear && typeof buyer.yearly_spent === 'number') {
+            currentYearSpent = buyer.yearly_spent;
+          }
+
+          const prospectiveTotal = currentYearSpent + (Number(amount) || 0);
+          const isVerified = !!(buyer.is_verified || buyer.is_id_verified || buyer.id_document_verified);
+
+          // EU Law limit: 10,000 € / year without identity document verification
+          if (prospectiveTotal > 10000 && !isVerified) {
+            return res.status(400).json({ 
+              error: "V skladu z zakonodajo EU (ZPPDFT-2 / AML) je za skupne letne nakupe nad 10.000 € obvezna identifikacija z osebnim dokumentom. Prosimo, verificirajte svoj profil v nastavitvah pred nadaljevanjem." 
+            });
+          }
+        }
+      }
 
       if (type === "auction" && auction_id && buyer_id && seller_id) {
         // Fetch the actual auction

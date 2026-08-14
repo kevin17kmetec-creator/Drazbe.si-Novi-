@@ -42,18 +42,17 @@ export const CheckoutModal: React.FC<{
       }
 
       if (data.url) {
-          if (popup) {
+          if (popup && !popup.closed) {
               popup.location.href = data.url;
           } else {
-              window.open(data.url, '_blank', 'width=800,height=700');
+              window.location.href = data.url;
           }
-          // We can also close the modal now that they are in the popup
           onClose();
       } else {
-          if (popup) popup.close();
+          if (popup && !popup.closed) popup.close();
       }
     } catch (err: any) {
-      if (popup) popup.close();
+      if (popup && !popup.closed) popup.close();
       setError(err.message || "Napaka pri preusmeritvi na plačilo");
     } finally {
       setIsProcessing(false);
@@ -66,22 +65,28 @@ export const CheckoutModal: React.FC<{
       <div className="relative bg-white w-full max-w-lg rounded-[3rem] p-10 shadow-2xl animate-in border-4 border-[#FEBA4F]">
         <button type="button" onClick={onClose} className="absolute top-8 right-8 p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400"><X size={24} /></button>
         <h3 className="text-3xl font-black text-[#0A1128] uppercase tracking-tighter mb-2">{t('checkout') || 'PLAČILO'}</h3>
-        <p className="text-slate-500 font-bold mb-8">{title}</p>
+        <p className="text-slate-500 font-bold mb-6">{title}</p>
         
-        <div className="bg-slate-50 rounded-2xl p-6 mb-8 border border-slate-100 text-center">
+        <div className="bg-slate-50 rounded-2xl p-6 mb-6 border border-slate-100 text-center">
           <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{t('totalAmount') || 'ZA PLAČILO'}</p>
           <p className="text-4xl font-black text-[#FEBA4F]">€{amount.toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
         </div>
 
-        <p className="text-slate-500 text-sm mb-8 text-center font-bold">
-          Preusmerjeni boste na varen sistem Stripe za izvedbo plačila, kjer lahko plačate s kartico, Google Pay ali Apple Pay.
-        </p>
+        <div className="bg-blue-50/70 border border-blue-100 rounded-2xl p-4 mb-6 text-center">
+          <p className="text-blue-900 text-xs font-bold leading-relaxed">
+            🛡️ Varno spletno plačilo preko sistema Stripe. Za nakupe na platformi (do 10.000 € letno po EU AML zakonodaji) bančni račun ali dodatna verifikacija nista potrebna.
+          </p>
+        </div>
 
-        {error && <div className="mb-6 text-red-500 text-sm font-bold text-center">{error}</div>}
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-2xl text-red-600 text-sm font-bold text-center leading-snug">
+            {error}
+          </div>
+        )}
 
-        <button type="button" onClick={handlePay} disabled={isProcessing} className="w-full bg-[#0A1128] text-white py-5 rounded-2xl font-black uppercase tracking-widest hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl disabled:opacity-50 flex items-center justify-center gap-2">
+        <button type="button" onClick={handlePay} disabled={isProcessing} className="w-full bg-[#0A1128] text-white py-5 rounded-2xl font-black uppercase tracking-widest hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer">
           {isProcessing ? <Clock className="animate-spin" size={20} /> : <Lock size={20} />}
-          {isProcessing ? 'Nalaganje...' : 'Nadaljuj na plačilo'}
+          {isProcessing ? 'Pripravljam varno plačilo...' : 'Nadaljuj na plačilo'}
         </button>
       </div>
     </div>

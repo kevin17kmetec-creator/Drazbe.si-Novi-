@@ -68,23 +68,31 @@ export default async function handler(
     // Ensure platform fee does not exceed total amount (failsafe)
     let applicationFeeAmount = Math.min(Math.round(totalPlatformFeeGross * 100), Math.round(amount * 100));
 
-    // Fetch seller connected account
-    let sellerAccountId = null;
-    if (seller_id && seller_id !== 'dizain-doo' && !seller_id.startsWith('sell')) {
-        // Query database safely
-        const sellerDoc = await admin.firestore().collection('users').doc(seller_id).get();
-        const seller = sellerDoc.exists ? sellerDoc.data() : null;
-        const error = null;
+    // Check EU AML law: 10,000 € annual limit check for buyers without ID verification
+    if (buyer_id) {
+      const buyerDoc = await db.collection('users').doc(buyer_id).get();
+      const buyer = buyerDoc.exists ? buyerDoc.data() : null;
+      
+      if (buyer) {
+        const currentYear = new Date().getFullYear();
+        let currentYearSpent = 0;
         
-        if (error || !seller) {
-           return res.status(400).json({ error: "Prodajalca ni mogoče najti v bazi, prenos sredstev ni mogoč." });
+        if (buyer.yearly_spent_by_year && buyer.yearly_spent_by_year[currentYear]) {
+          currentYearSpent = Number(buyer.yearly_spent_by_year[currentYear]) || 0;
+        } else if (buyer.yearly_spent_year === currentYear && typeof buyer.yearly_spent === 'number') {
+          currentYearSpent = buyer.yearly_spent;
         }
 
-        const accountId = seller.stripe_account_id;
-        if (!accountId || !seller.stripe_onboarding_complete) {
-           return res.status(400).json({ error: "Prodajalec še nima nastavljenega Stripe računa za prejemanje plačil! Nakupa ni mogoče izvesti." });
+        const prospectiveTotal = currentYearSpent + amount;
+        const isVerified = !!(buyer.is_verified || buyer.is_id_verified || buyer.id_document_verified);
+
+        // EU Law limit: 10,000 € / year without identity document verification
+        if (prospectiveTotal > 10000 && !isVerified) {
+          return res.status(400).json({ 
+            error: "V skladu z zakonodajo EU (ZPPDFT-2 / AML) je za skupne letne nakupe nad 10.000 € obvezna identifikacija z osebnim dokumentom. Prosimo, verificirajte svoj profil v nastavitvah pred nadaljevanjem." 
+          });
         }
-        sellerAccountId = accountId;
+      }
     }
 
     const payload: any = {
@@ -100,16 +108,6 @@ export default async function handler(
           fee_percentage: feePercentage
       }
     };
-
-    if (sellerAccountId) {
-        if (applicationFeeAmount > 0) {
-            payload.application_fee_amount = applicationFeeAmount;
-        }
-        payload.transfer_data = {
-           destination: sellerAccountId
-        };
-        console.log("Creating direct destination charge for account:", sellerAccountId, "with fee:", applicationFeeAmount);
-    }
 
     try {
       const paymentIntent = await stripe.paymentIntents.create(payload);

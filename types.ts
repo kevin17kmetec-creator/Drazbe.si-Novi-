@@ -75,6 +75,9 @@ export interface AuctionItem {
   sellerName?: string;
   status: 'active' | 'completed' | 'cancelled';
   payment_status?: 'unpaid' | 'paid';
+  post_auction_status?: 'pending_payment' | 'paid' | 'passed_to_second' | 'cancelled' | 'second_offer' | 'relisted' | string;
+  second_highest_bidder_id?: string;
+  top_bids?: Array<{ bidder_id: string; amount: number }>;
   paid_at?: string;
   winnerId?: string;
   hiddenMaxBid?: number; // For proxy bidding logic
@@ -117,4 +120,4 @@ export enum Region {
   Osrednjeslovenska = 'Osrednjeslovenska'
 }
 
-export type ViewState = 'grid' | 'detail' | 'login' | 'sellerProfile' | 'createAuction' | 'settings' | 'verification' | 'winnings' | 'lastChance' | 'subscriptions' | 'watchlist' | 'myBids' | 'mySold' | 'messages' | 'myUnsold';
+export type ViewState = 'grid' | 'detail' | 'login' | 'sellerProfile' | 'createAuction' | 'settings' | 'verification' | 'winnings' | 'lastChance' | 'subscriptions' | 'watchlist' | 'myBids' | 'mySold' | 'messages' | 'myUnsold' | 'myArchive';
