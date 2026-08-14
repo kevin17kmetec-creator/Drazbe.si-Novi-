@@ -1010,6 +1010,8 @@ const MainApp: React.FC = () => {
           sellerName = `${seller.first_name} ${seller.last_name}`;
         }
 
+        const isItemPaid = d.payment_status === "paid" || d.post_auction_status === "paid";
+
         return {
           ...d,
           endTime: new Date(d.end_time || d.endTime || Date.now()),
@@ -1019,7 +1021,8 @@ const MainApp: React.FC = () => {
           winnerId: d.winner_id || d.winnerId,
           winner_id: d.winner_id || d.winnerId,
           sellerId: d.seller_id || d.sellerId,
-          payment_status: d.payment_status || "unpaid",
+          payment_status: isItemPaid ? "paid" : (d.payment_status || "unpaid"),
+          post_auction_status: d.post_auction_status,
           paid_at: d.paid_at,
           sellerName: d.sellerName || sellerName,
           delivery_method: d.delivery_method,
@@ -1027,23 +1030,7 @@ const MainApp: React.FC = () => {
         };
       });
 
-      setAuctions((prev) => {
-        if (
-          prev.length === fetchedData.length &&
-          prev.every(
-            (p, i) =>
-              p.id === fetchedData[i].id &&
-              p.status === fetchedData[i].status &&
-              p.currentBid === fetchedData[i].currentBid &&
-              p.bidCount === fetchedData[i].bidCount &&
-              p.payment_status === fetchedData[i].payment_status &&
-              p.endTime?.getTime() === fetchedData[i].endTime?.getTime()
-          )
-        ) {
-          return prev;
-        }
-        return fetchedData;
-      });
+      setAuctions(fetchedData);
     }, (error) => {
       if (error.code === 'permission-denied') { console.warn('Auctions snapshot permission denied (expected if not logged in).'); } else { console.error('Auctions snapshot error:', error); }
     });
@@ -1053,7 +1040,126 @@ const MainApp: React.FC = () => {
     };
   }, [usersMap]);
 
-  const fetchAuctions = () => {}; // Dummy to satisfy existing calls
+  const fetchAuctions = async () => {
+    try {
+      const snap = await getDocs(collection(db, 'auctions'));
+      const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const fetchedData: AuctionItem[] = data.map((d: any) => {
+        const seller = usersMap.get(d.seller_id) || {};
+        let sellerName = "Neznan prodajalec";
+        if (seller.user_type === "business" && seller.company_name) {
+          sellerName = seller.company_name;
+        } else if (seller.username) {
+          sellerName = seller.username;
+        } else if (seller.first_name && seller.last_name) {
+          sellerName = `${seller.first_name} ${seller.last_name}`;
+        }
+
+        const isItemPaid = d.payment_status === "paid" || d.post_auction_status === "paid";
+
+        return {
+          ...d,
+          endTime: new Date(d.end_time || d.endTime || Date.now()),
+          currentBid: d.current_price || d.currentBid,
+          hiddenMaxBid: d.hidden_max_bid || d.hiddenMaxBid,
+          bidCount: d.bid_count || d.bidCount,
+          winnerId: d.winner_id || d.winnerId,
+          winner_id: d.winner_id || d.winnerId,
+          sellerId: d.seller_id || d.sellerId,
+          payment_status: isItemPaid ? "paid" : (d.payment_status || "unpaid"),
+          post_auction_status: d.post_auction_status,
+          paid_at: d.paid_at,
+          sellerName: d.sellerName || sellerName,
+          delivery_method: d.delivery_method,
+          buyer_received: d.buyer_received,
+        };
+      });
+      setAuctions(fetchedData);
+    } catch (e) {
+      console.warn("Manual fetch auctions warning:", e);
+    }
+  };
+
+  const refreshUserData = async (uid?: string) => {
+    const id = uid || userData.id;
+    if (!id) return;
+    try {
+      const snap = await getDoc(doc(db, 'users', id));
+      if (snap.exists()) {
+        const data = snap.data();
+        setUserData((prev) => ({
+          ...prev,
+          ...data,
+          id,
+        }));
+      }
+    } catch (e) {
+      console.warn("Failed to refresh user data:", e);
+    }
+  };
+
+  // Listen for Stripe popup completion messages
+  useEffect(() => {
+    const handlePopupMessage = async (event: MessageEvent) => {
+      if (event.data && event.data.type === 'STRIPE_POPUP_CALLBACK') {
+        const { status, action, sessionId } = event.data;
+        if (status === 'success') {
+          if (action === 'stripe_connect') {
+            toast.success("Stripe račun je bil uspešno povezan!");
+            if (userData?.id) {
+              await refreshUserData(userData.id);
+            }
+          } else {
+            toast.success(t("paymentSuccessEmail") || "Plačilo uspešno! Račun in potrdilo sta bila poslana.");
+            await fetchAuctions();
+            if (userData?.id) {
+              await refreshUserData(userData.id);
+            }
+            setTimeout(() => {
+              fetchAuctions();
+            }, 1200);
+          }
+        } else if (status === 'cancel') {
+          toast.info("Postopek je bil preklican.");
+        }
+      }
+    };
+
+    window.addEventListener('message', handlePopupMessage);
+    return () => window.removeEventListener('message', handlePopupMessage);
+  }, [userData, language]);
+
+  // Handle URL redirect returns from Stripe if user completed outside of popup
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const paymentParam = params.get('payment');
+    const sessionIdParam = params.get('session_id');
+    const stripeParam = params.get('stripe');
+
+    if (paymentParam === 'success' || sessionIdParam) {
+      const cleanUrl = window.location.pathname;
+      window.history.replaceState({}, document.title, cleanUrl);
+
+      if (sessionIdParam) {
+        fetch('/api/confirm-checkout-session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId: sessionIdParam })
+        }).then(() => {
+          fetchAuctions();
+          if (userData?.id) refreshUserData(userData.id);
+        }).catch(console.error);
+      } else {
+        fetchAuctions();
+      }
+      toast.success(t("paymentSuccessEmail") || "Plačilo uspešno! Račun in potrdilo sta bila poslana.");
+    } else if (stripeParam === 'success') {
+      const cleanUrl = window.location.pathname;
+      window.history.replaceState({}, document.title, cleanUrl);
+      toast.success("Stripe račun je bil uspešno povezan!");
+      if (userData?.id) refreshUserData(userData.id);
+    }
+  }, [userData]);
 
   const handlePublish = async (itemData: any) => {
     try {

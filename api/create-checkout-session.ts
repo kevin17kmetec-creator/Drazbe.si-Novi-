@@ -268,12 +268,17 @@ export default async function handler(
         },
         quantity: 1,
       }],
+      metadata: sessionMetadata,
       payment_intent_data: {
         metadata: sessionMetadata
       },
       mode: 'payment',
-      success_url: `${return_url || 'https://www.drazbe.eu'}?payment=success`,
-      cancel_url: `${return_url || 'https://www.drazbe.eu'}?payment=cancel`,
+      success_url: return_url && return_url.includes('/stripe-callback.html')
+        ? `${return_url}?payment=success&session_id={CHECKOUT_SESSION_ID}`
+        : `${return_url || 'https://www.drazbe.eu'}${return_url && return_url.includes('?') ? '&' : '?'}payment=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: return_url && return_url.includes('/stripe-callback.html')
+        ? `${return_url}?payment=cancel`
+        : `${return_url || 'https://www.drazbe.eu'}${return_url && return_url.includes('?') ? '&' : '?'}payment=cancel`,
     };
 
     if (stripeCustomerId) {

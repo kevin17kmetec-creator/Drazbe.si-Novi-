@@ -11,7 +11,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '');
     
-    const { userId } = req.body || {};
+    const { userId, return_url, refresh_url } = req.body || {};
     if (!userId) return res.status(400).json({ error: 'Missing userId in request body' });
 
     const userDocRef = db.collection('users').doc(userId);
@@ -119,10 +119,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(200).json({ url: loginLink.url });
     }
 
+    const origin = (req.headers.origin as string) || (req.headers.host ? `https://${req.headers.host}` : 'https://www.drazbe.eu');
     const accountLink = await stripe.accountLinks.create({
       account: targetStripeAccountId,
-      refresh_url: 'https://drazbe-si-novi.vercel.app/nastavitve',
-      return_url: 'https://drazbe-si-novi.vercel.app/nastavitve?stripe=success',
+      refresh_url: refresh_url || `${origin}/stripe-callback.html?stripe=refresh`,
+      return_url: return_url || `${origin}/stripe-callback.html?stripe=success`,
       type: 'account_onboarding',
     });
 

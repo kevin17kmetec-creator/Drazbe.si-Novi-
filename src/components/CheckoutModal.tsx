@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { X, Clock, Lock, CreditCard as CardIcon } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { X, Clock, Lock, CreditCard as CardIcon, ShieldCheck } from 'lucide-react';
 
 export const CheckoutModal: React.FC<{
   isOpen: boolean;
@@ -15,47 +15,127 @@ export const CheckoutModal: React.FC<{
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const popupRef = useRef<Window | null>(null);
+  const pollTimerRef = useRef<any>(null);
+
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data && event.data.type === 'STRIPE_POPUP_CALLBACK') {
+        const { status, action, sessionId } = event.data;
+        if (status === 'success') {
+          setIsProcessing(false);
+          if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+          if (popupRef.current && !popupRef.current.closed) {
+            try { popupRef.current.close(); } catch (e) {}
+          }
+          onSuccess();
+          onClose();
+        } else if (status === 'cancel') {
+          setIsProcessing(false);
+          if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+          setError("Plačilo je bilo preklicano.");
+        }
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => {
+      window.removeEventListener('message', handleMessage);
+      if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+    };
+  }, [onSuccess, onClose]);
 
   const handlePay = async () => {
-    const popup = window.open('', 'stripeCheckout', 'width=800,height=700,left=200,top=100');
+    setError(null);
+    setIsProcessing(true);
+
+    // Open popup immediately on click to prevent browser popup blockers
+    const popup = window.open('', 'stripeCheckout', 'width=800,height=750,left=250,top=100');
+    popupRef.current = popup;
+
     if (popup) {
-        popup.document.write('<div style="font-family: sans-serif; padding: 20px;">Pripravljam varno plačilo...</div>');
+      popup.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Dražbe.si - Varno plačilo</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0A1128; color: #fff; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; text-align: center; }
+            .loader { width: 36px; height: 36px; border: 3px solid rgba(254,186,79,0.2); border-top-color: #FEBA4F; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 16px; }
+            @keyframes spin { to { transform: rotate(360deg); } }
+            h3 { font-size: 18px; margin-bottom: 8px; color: #FEBA4F; }
+            p { font-size: 13px; color: #94a3b8; }
+          </style>
+        </head>
+        <body>
+          <div>
+            <div class="loader"></div>
+            <h3>Pripravljam varno plačilo...</h3>
+            <p>Preusmerjanje na sistem Stripe</p>
+          </div>
+        </body>
+        </html>
+      `);
     }
 
-    setIsProcessing(true);
-    setError(null);
-
     try {
+      const callbackUrl = `${window.location.origin}/stripe-callback.html`;
       const res = await fetch('/api/create-checkout-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-            amount, 
-            ...metadata,
-            return_url: window.location.href
+          amount, 
+          ...metadata,
+          return_url: callbackUrl
         })
       });
       const data = await res.json();
       
       if (data.error) {
-          throw new Error(data.error);
+        throw new Error(data.error);
       }
 
       if (data.url) {
-          if (popup && !popup.closed) {
-              popup.location.href = data.url;
-          } else {
-              window.location.href = data.url;
+        if (popup && !popup.closed) {
+          popup.location.href = data.url;
+        } else {
+          window.location.href = data.url;
+          return;
+        }
+
+        // Start fallback monitor for popup closure
+        let checkCount = 0;
+        if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+        pollTimerRef.current = setInterval(async () => {
+          checkCount++;
+          if (popup.closed) {
+            clearInterval(pollTimerRef.current);
+            setIsProcessing(false);
+            // If popup was closed after having loaded Stripe, trigger refresh to check if paid
+            if (checkCount > 5) {
+              if (metadata?.auction_id) {
+                try {
+                  await fetch('/api/confirm-checkout-session', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ auctionId: metadata.auction_id })
+                  });
+                } catch (e) {}
+              }
+              onSuccess();
+              onClose();
+            }
           }
-          onClose();
+        }, 1000);
+
       } else {
-          if (popup && !popup.closed) popup.close();
+        if (popup && !popup.closed) popup.close();
+        throw new Error("Povezava za plačilo ni na voljo.");
       }
     } catch (err: any) {
       if (popup && !popup.closed) popup.close();
-      setError(err.message || "Napaka pri preusmeritvi na plačilo");
-    } finally {
       setIsProcessing(false);
+      setError(err.message || "Napaka pri preusmeritvi na plačilo");
     }
   };
 
@@ -73,8 +153,9 @@ export const CheckoutModal: React.FC<{
         </div>
 
         <div className="bg-blue-50/70 border border-blue-100 rounded-2xl p-4 mb-6 text-center">
-          <p className="text-blue-900 text-xs font-bold leading-relaxed">
-            🛡️ Varno spletno plačilo preko sistema Stripe. Za nakupe na platformi (do 10.000 € letno po EU AML zakonodaji) bančni račun ali dodatna verifikacija nista potrebna.
+          <p className="text-blue-900 text-xs font-bold leading-relaxed flex items-center justify-center gap-2">
+            <ShieldCheck size={16} className="text-blue-600 shrink-0" />
+            Varno spletno plačilo preko sistema Stripe. Za nakupe na platformi (do 10.000 € letno po EU AML zakonodaji) bančni račun ali dodatna verifikacija nista potrebna.
           </p>
         </div>
 
@@ -84,7 +165,12 @@ export const CheckoutModal: React.FC<{
           </div>
         )}
 
-        <button type="button" onClick={handlePay} disabled={isProcessing} className="w-full bg-[#0A1128] text-white py-5 rounded-2xl font-black uppercase tracking-widest hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer">
+        <button 
+          type="button" 
+          onClick={handlePay} 
+          disabled={isProcessing} 
+          className="w-full bg-[#0A1128] text-white py-5 rounded-2xl font-black uppercase tracking-widest hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
+        >
           {isProcessing ? <Clock className="animate-spin" size={20} /> : <Lock size={20} />}
           {isProcessing ? 'Pripravljam varno plačilo...' : 'Nadaljuj na plačilo'}
         </button>

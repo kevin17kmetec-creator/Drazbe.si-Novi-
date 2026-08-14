@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { AlertCircle, CheckCircle2 } from 'lucide-react';
 
 interface Props {
@@ -11,20 +11,73 @@ interface Props {
 
 export const StripeConnectOnboarding: React.FC<Props> = ({ userId, isComplete, onComplete, t, language }) => {
   const [loading, setLoading] = useState(false);
+  const popupRef = useRef<Window | null>(null);
+  const pollTimerRef = useRef<any>(null);
+
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data && event.data.type === 'STRIPE_POPUP_CALLBACK') {
+        const { status, action } = event.data;
+        if (action === 'stripe_connect' || !action) {
+          if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+          if (popupRef.current && !popupRef.current.closed) {
+            try { popupRef.current.close(); } catch (e) {}
+          }
+          setLoading(false);
+          onComplete();
+        }
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => {
+      window.removeEventListener('message', handleMessage);
+      if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+    };
+  }, [onComplete]);
 
   const handleStartOnboarding = async () => {
     // Open a popup immediately on click to prevent Safari/mobile popup blockers
-    const popup = window.open('', 'stripeOnboarding', 'width=800,height=700,left=200,top=100');
+    const popup = window.open('', 'stripeOnboarding', 'width=800,height=750,left=250,top=100');
+    popupRef.current = popup;
+
     if (popup) {
-        popup.document.write('<div style="font-family: sans-serif; padding: 20px;">Nalaganje Stripe vmesnika...</div>');
+      popup.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Dražbe.si - Stripe povezovanje</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0A1128; color: #fff; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; text-align: center; }
+            .loader { width: 36px; height: 36px; border: 3px solid rgba(254,186,79,0.2); border-top-color: #FEBA4F; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 16px; }
+            @keyframes spin { to { transform: rotate(360deg); } }
+            h3 { font-size: 18px; margin-bottom: 8px; color: #FEBA4F; }
+            p { font-size: 13px; color: #94a3b8; }
+          </style>
+        </head>
+        <body>
+          <div>
+            <div class="loader"></div>
+            <h3>Pripravljam varno povezavo...</h3>
+            <p>Preusmerjanje na sistem Stripe</p>
+          </div>
+        </body>
+        </html>
+      `);
     }
 
     setLoading(true);
     try {
+      const callbackUrl = `${window.location.origin}/stripe-callback.html`;
       const response = await fetch('/api/stripe-account-link', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: userId, user_id: userId })
+        body: JSON.stringify({ 
+          userId: userId, 
+          user_id: userId,
+          return_url: `${callbackUrl}?stripe=success`,
+          refresh_url: `${callbackUrl}?stripe=refresh`
+        })
       });
       
       if (!response.ok) {
@@ -36,20 +89,31 @@ export const StripeConnectOnboarding: React.FC<Props> = ({ userId, isComplete, o
       const data = await response.json();
       
       if (data && data.url) {
-          if (popup) {
-              popup.location.href = data.url;
-          } else {
-              window.open(data.url, '_blank', 'width=800,height=700');
+        if (popup && !popup.closed) {
+          popup.location.href = data.url;
+        } else {
+          window.location.href = data.url;
+          return;
+        }
+
+        // Monitor popup closure
+        if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+        pollTimerRef.current = setInterval(() => {
+          if (popup.closed) {
+            clearInterval(pollTimerRef.current);
+            setLoading(false);
+            onComplete();
           }
+        }, 1000);
       } else {
-          if (popup) popup.close();
+        if (popup && !popup.closed) popup.close();
       }
     } catch (err: any) {
-        console.error(err);
-        if (popup) popup.close();
-        alert(err.message || 'Napaka pri povezovanju s Stripe sistemom');
+      console.error(err);
+      if (popup && !popup.closed) popup.close();
+      alert(err.message || 'Napaka pri povezovanju s Stripe sistemom');
     } finally {
-        setLoading(false);
+      setLoading(false);
     }
   };
 

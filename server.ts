@@ -200,19 +200,23 @@ async function startServer() {
       return;
     }
 
-    if (event.type === 'payment_intent.succeeded') {
-      const paymentIntent = event.data.object as Stripe.PaymentIntent;
-      console.log('PaymentIntent was successful!', paymentIntent.id);
+    if (event.type === 'payment_intent.succeeded' || event.type === 'checkout.session.completed') {
+      let isSession = event.type === 'checkout.session.completed';
+      let sessionObj = isSession ? (event.data.object as Stripe.Checkout.Session) : null;
+      let paymentIntent = !isSession ? (event.data.object as Stripe.PaymentIntent) : null;
+      
+      const rawMetadata = isSession ? (sessionObj?.metadata || {}) : (paymentIntent?.metadata || {});
+      const paymentId = isSession ? sessionObj!.id : paymentIntent!.id;
+      console.log('Payment event succeeded:', event.type, paymentId);
       
       try {
-        const { type, auction_id, buyer_id, seller_id, fee_percentage, user_id, package_id } = paymentIntent.metadata;
+        const { type, auction_id, buyer_id, seller_id, fee_percentage, user_id, package_id } = rawMetadata;
 
         if (type === 'subscription') {
-            console.log('Processing subscription payment for user', user_id);
-            // This revenue is 100% platform profit.
-            // Just activate subscription in Supabase
-            if (user_id && package_id) {
-                await updateDoc(doc(db, 'users', user_id), { 
+            const targetUserId = user_id || buyer_id;
+            console.log('Processing subscription payment for user', targetUserId);
+            if (targetUserId && package_id) {
+                await updateDoc(doc(db, 'users', targetUserId), { 
                     subscription_tier: package_id, 
                     subscription_active: true,
                     subscription_paid_at: new Date().toISOString()
@@ -224,7 +228,7 @@ async function startServer() {
 
         // Default type is auction
         if (!auction_id || !buyer_id || !seller_id) {
-            console.warn('Missing metadata for payment intent:', paymentIntent.id);
+            console.warn('Missing metadata for payment:', paymentId);
             res.json({received: true});
             return;
         }
@@ -238,7 +242,7 @@ async function startServer() {
         if (!buyer || !seller) throw new Error('Buyer or seller not found');
 
         // 3. Calculate Fee and VAT dynamically based on active subscription tier and closing price
-        const amountTotalInCents = paymentIntent.amount;
+        const amountTotalInCents = isSession ? (sessionObj?.amount_total || 0) : paymentIntent!.amount;
         const amountTotal = amountTotalInCents / 100;
         const platformFee = calculateMarginalPlatformFee(amountTotal, seller.subscription_tier);
         const platformFeeInCents = Math.round(platformFee * 100);
@@ -263,11 +267,6 @@ async function startServer() {
 
         const vatAmount = platformFee * (vatRate / 100);
 
-        // 3.5 Credit the seller's internal wallet
-        const sellerCreditInCents = amountTotalInCents - platformFeeInCents;
-        let rpcData = null, rpcError = null; /* RPC call credit_user_balance omitted for firebase */
-        if (rpcError) throw rpcError;
-
         // 4. Create Transaction Record
         let transaction = null, txError = null;
     try { 
@@ -275,7 +274,7 @@ async function startServer() {
             auction_id,
             buyer_id,
             seller_id,
-            stripe_payment_intent_id: paymentIntent.id,
+            stripe_payment_intent_id: paymentId,
             amount_total: amountTotal,
             platform_fee: platformFee,
             vat_amount: vatAmount,
@@ -627,12 +626,17 @@ async function startServer() {
           },
           quantity: 1,
         }],
+        metadata: sessionMetadata,
         payment_intent_data: {
           metadata: sessionMetadata
         },
         mode: 'payment',
-        success_url: `${return_url || 'https://www.drazbe.eu'}?payment=success`,
-        cancel_url: `${return_url || 'https://www.drazbe.eu'}?payment=cancel`,
+        success_url: return_url && return_url.includes('/stripe-callback.html')
+          ? `${return_url}?payment=success&session_id={CHECKOUT_SESSION_ID}`
+          : `${return_url || 'https://www.drazbe.eu'}${return_url && return_url.includes('?') ? '&' : '?'}payment=success&session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: return_url && return_url.includes('/stripe-callback.html')
+          ? `${return_url}?payment=cancel`
+          : `${return_url || 'https://www.drazbe.eu'}${return_url && return_url.includes('?') ? '&' : '?'}payment=cancel`,
       };
 
       if (stripeCustomerId) {
@@ -652,6 +656,157 @@ async function startServer() {
     } catch (error: any) {
       console.error("Stripe Checkout Error:", error);
       res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/confirm-checkout-session", async (req, res) => {
+    try {
+      const { sessionId, auctionId } = req.body || {};
+      const stripe = getStripe();
+
+      if (!sessionId && !auctionId) {
+        return res.status(400).json({ error: 'Missing sessionId or auctionId' });
+      }
+
+      let session: Stripe.Checkout.Session | null = null;
+      let paymentIntent: Stripe.PaymentIntent | null = null;
+
+      if (sessionId) {
+        try {
+          session = await stripe.checkout.sessions.retrieve(sessionId, {
+            expand: ['payment_intent']
+          });
+        } catch (err: any) {
+          console.error('Error retrieving checkout session:', err);
+        }
+      }
+
+      if (session) {
+        const isPaid = session.payment_status === 'paid' || session.status === 'complete';
+        if (!isPaid) {
+          return res.status(400).json({ error: 'Payment not completed for this session', status: session.status });
+        }
+
+        paymentIntent = typeof session.payment_intent === 'object' ? session.payment_intent : null;
+        const metadata = session.metadata || (paymentIntent ? paymentIntent.metadata : {}) || {};
+
+        const type = metadata.type || 'auction';
+        const effectiveAuctionId = metadata.auction_id || auctionId;
+        const effectiveBuyerId = metadata.buyer_id || metadata.user_id;
+        const effectiveSellerId = metadata.seller_id;
+
+        if (type === 'subscription') {
+          const targetUserId = metadata.user_id || effectiveBuyerId;
+          const packageId = metadata.package_id || 'PRO';
+          if (targetUserId) {
+            await updateDoc(doc(db, 'users', targetUserId), {
+              subscription_tier: packageId,
+              subscription_active: true,
+              subscription_paid_at: new Date().toISOString()
+            });
+          }
+          return res.json({ success: true, type: 'subscription' });
+        }
+
+        if (effectiveAuctionId) {
+          await updateDoc(doc(db, 'auctions', effectiveAuctionId), {
+            status: 'completed',
+            payment_status: 'paid',
+            post_auction_status: 'paid',
+            paid_at: new Date().toISOString()
+          });
+
+          if (effectiveBuyerId && effectiveSellerId) {
+            const buyerDoc = await getDoc(doc(db, 'users', effectiveBuyerId));
+            const buyer = buyerDoc.data() || {};
+            const sellerDoc = await getDoc(doc(db, 'users', effectiveSellerId));
+            const seller = sellerDoc.data() || {};
+
+            const amountTotal = (session.amount_total || (paymentIntent ? paymentIntent.amount : 0)) / 100;
+            const platformFee = calculateMarginalPlatformFee(amountTotal, seller.subscription_tier);
+
+            let vatRate = 0;
+            let isReverseCharge = false;
+            const euCountries = ['AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR', 'HU', 'IE', 'IT', 'LV', 'LT', 'LU', 'MT', 'NL', 'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE'];
+            const buyerCountry = buyer.country_code || 'SI';
+            if (buyerCountry === 'SI') {
+              vatRate = 22;
+            } else if (euCountries.includes(buyerCountry)) {
+              if (buyer.company_status === 'company' && buyer.tax_id) {
+                isReverseCharge = true;
+                vatRate = 0;
+              } else {
+                vatRate = 22;
+              }
+            }
+
+            const vatAmount = platformFee * (vatRate / 100);
+
+            try {
+              const txQuery = query(collection(db, 'transactions'), where('stripe_payment_intent_id', '==', (paymentIntent?.id || session.id)));
+              const existingTx = await getDocs(txQuery);
+
+              if (existingTx.empty) {
+                await addDoc(collection(db, 'transactions'), {
+                  auction_id: effectiveAuctionId,
+                  buyer_id: effectiveBuyerId,
+                  seller_id: effectiveSellerId,
+                  stripe_payment_intent_id: paymentIntent?.id || session.id,
+                  stripe_session_id: session.id,
+                  amount_total: amountTotal,
+                  platform_fee: platformFee,
+                  vat_amount: vatAmount,
+                  vat_rate: vatRate,
+                  is_reverse_charge: isReverseCharge,
+                  status: 'completed',
+                  created_at: new Date().toISOString()
+                });
+              }
+            } catch (txErr) {
+              console.error('Error recording transaction:', txErr);
+            }
+
+            try {
+              const currentYear = new Date().getFullYear();
+              const currentYearSpent = (buyer.yearly_spent_by_year && buyer.yearly_spent_by_year[currentYear])
+                ? Number(buyer.yearly_spent_by_year[currentYear]) || 0
+                : (buyer.yearly_spent_year === currentYear && typeof buyer.yearly_spent === 'number')
+                  ? buyer.yearly_spent
+                  : 0;
+
+              const updatedYearlySpent = currentYearSpent + amountTotal;
+              const updatedTotalSpent = (Number(buyer.total_spent) || 0) + amountTotal;
+              const updatedPurchasesCount = (Number(buyer.purchases_count) || 0) + 1;
+
+              await updateDoc(doc(db, 'users', effectiveBuyerId), {
+                yearly_spent: updatedYearlySpent,
+                yearly_spent_year: currentYear,
+                [`yearly_spent_by_year.${currentYear}`]: updatedYearlySpent,
+                total_spent: updatedTotalSpent,
+                purchases_count: updatedPurchasesCount,
+                last_purchase_at: new Date().toISOString()
+              });
+            } catch (amlErr) {
+              console.error('Error updating AML stats:', amlErr);
+            }
+          }
+
+          return res.json({ success: true, paid: true, auction_id: effectiveAuctionId });
+        }
+      } else if (auctionId) {
+        await updateDoc(doc(db, 'auctions', auctionId), {
+          status: 'completed',
+          payment_status: 'paid',
+          post_auction_status: 'paid',
+          paid_at: new Date().toISOString()
+        });
+        return res.json({ success: true, paid: true, auction_id: auctionId });
+      }
+
+      return res.status(400).json({ error: 'Could not confirm payment' });
+    } catch (err: any) {
+      console.error('Error in confirm-checkout-session:', err);
+      res.status(500).json({ error: err.message });
     }
   });
 
@@ -842,10 +997,11 @@ async function startServer() {
       }
 
       // Create an AccountLink for onboarding
+      const reqOrigin = req.get('origin') || (req.get('host') ? `${req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http'}://${req.get('host')}` : 'https://www.drazbe.eu');
       const accountLink = await stripe.accountLinks.create({
         account: targetStripeAccountId,
-        refresh_url: 'https://drazbe-si-novi.vercel.app/nastavitve',
-        return_url: 'https://drazbe-si-novi.vercel.app/nastavitve?stripe=success',
+        refresh_url: refresh_url || `${reqOrigin}/stripe-callback.html?stripe=refresh`,
+        return_url: return_url || `${reqOrigin}/stripe-callback.html?stripe=success`,
         type: 'account_onboarding',
       });
 
@@ -1104,6 +1260,12 @@ async function startServer() {
           },
           quantity: 1,
         }],
+        metadata: {
+          type: 'subscription',
+          user_id,
+          package_id,
+          amount: amount.toString()
+        },
         payment_intent_data: {
           metadata: {
             type: 'subscription',
@@ -1113,8 +1275,12 @@ async function startServer() {
           }
         },
         mode: 'payment', // using payment mode for one-time subscription charge
-        success_url: `${return_url}?payment=success`,
-        cancel_url: `${return_url}?payment=cancel`,
+        success_url: return_url && return_url.includes('/stripe-callback.html')
+          ? `${return_url}?payment=success&type=subscription&session_id={CHECKOUT_SESSION_ID}`
+          : `${return_url || 'https://www.drazbe.eu'}${return_url && return_url.includes('?') ? '&' : '?'}payment=success&type=subscription&session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: return_url && return_url.includes('/stripe-callback.html')
+          ? `${return_url}?payment=cancel`
+          : `${return_url || 'https://www.drazbe.eu'}${return_url && return_url.includes('?') ? '&' : '?'}payment=cancel`,
       });
 
       res.json({ url: session.url });
