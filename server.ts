@@ -395,42 +395,67 @@ async function startServer() {
 
   app.post("/api/create-checkout-session", async (req, res) => {
     try {
-      const { amount, currency = "eur", auction_id, buyer_id, seller_id, fee_percentage, return_url } = req.body;
+      const { amount, currency = "eur", auction_id, buyer_id, seller_id, fee_percentage, return_url, type = "auction" } = req.body;
       const stripe = getStripe();
       
-      // Fetch the actual auction
-      const auctionDoc = await getDoc(doc(db, 'auctions', auction_id));
-    const auction = auctionDoc.data();
-      const currentPrice = auction?.current_price || (amount / 1.122);
+      let auctionTitle = "Plačilo";
+      let sessionMetadata: any = { type };
 
-      const sellerDoc = await getDoc(doc(db, 'users', seller_id));
-    const seller = sellerDoc.data();
-      const platformFee = calculateMarginalPlatformFee(currentPrice, seller?.subscription_tier);
-      
-      const buyerDoc = await getDoc(doc(db, 'users', buyer_id));
-    const buyer = buyerDoc.data();
-      let vatRate = 0;
-      if (buyer) {
-        const euCountries = ['AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR', 'HU', 'IE', 'IT', 'LV', 'LT', 'LU', 'MT', 'NL', 'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE'];
-        const buyerCountry = buyer.country_code || 'SI';
-        if (buyerCountry === 'SI') {
-            vatRate = 22;
-        } else if (euCountries.includes(buyerCountry)) {
-            if (buyer.company_status === 'company' && buyer.tax_id) {
-                vatRate = 0;
-            } else {
-                vatRate = 22; 
-            }
+      if (type === "auction" && auction_id && buyer_id && seller_id) {
+        // Fetch the actual auction
+        const auctionDoc = await getDoc(doc(db, 'auctions', auction_id));
+        const auction = auctionDoc.data();
+        const currentPrice = auction?.current_price || (amount / 1.122);
+
+        const sellerDoc = await getDoc(doc(db, 'users', seller_id));
+        const seller = sellerDoc.data();
+        const platformFee = calculateMarginalPlatformFee(currentPrice, seller?.subscription_tier);
+        
+        const buyerDoc = await getDoc(doc(db, 'users', buyer_id));
+        const buyer = buyerDoc.data();
+        let vatRate = 0;
+        if (buyer) {
+          const euCountries = ['AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR', 'HU', 'IE', 'IT', 'LV', 'LT', 'LU', 'MT', 'NL', 'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE'];
+          const buyerCountry = buyer.country_code || 'SI';
+          if (buyerCountry === 'SI') {
+              vatRate = 22;
+          } else if (euCountries.includes(buyerCountry)) {
+              if (buyer.company_status === 'company' && buyer.tax_id) {
+                  vatRate = 0;
+              } else {
+                  vatRate = 22; 
+              }
+          }
         }
-      }
-      
-      const vatAmount = platformFee * (vatRate / 100);
-      const totalPlatformFeeGross = platformFee + vatAmount;
-      const applicationFeeAmount = Math.min(Math.round(totalPlatformFeeGross * 100), Math.round(amount * 100));
+        
+        const vatAmount = platformFee * (vatRate / 100);
+        const totalPlatformFeeGross = platformFee + vatAmount;
+        const applicationFeeAmount = Math.min(Math.round(totalPlatformFeeGross * 100), Math.round(amount * 100));
 
-      let auctionTitle = "Dražba";
-      if (auction?.title) {
-         auctionTitle = auction.title['SLO'] || auction.title['EN'] || "Dražba";
+        if (auction?.title) {
+           auctionTitle = auction.title['SLO'] || auction.title['EN'] || "Dražba";
+        }
+        
+        sessionMetadata = {
+          type: 'auction',
+          auction_id,
+          buyer_id,
+          seller_id,
+          fee_percentage
+        };
+      } else if (type === "subscription") {
+        auctionTitle = "Naročnina";
+      } else {
+         if (!auction_id || !buyer_id || !seller_id) {
+             console.warn("Missing required auction parameters, proceeding with simple payment.");
+             auctionTitle = "Plačilo dražbe";
+             sessionMetadata = {
+                 type: 'auction',
+                 auction_id: auction_id || '',
+                 buyer_id: buyer_id || '',
+                 seller_id: seller_id || '',
+             };
+         }
       }
 
       const session = await stripe.checkout.sessions.create({
@@ -448,13 +473,7 @@ async function startServer() {
         payment_intent_data: {
           // No more transfer_data! All funds go to the platform
           // The webhook handles crediting the seller's internal wallet
-          metadata: {
-            type: 'auction',
-            auction_id,
-            buyer_id,
-            seller_id,
-            fee_percentage
-          }
+          metadata: sessionMetadata
         },
         mode: 'payment',
         success_url: `${return_url}?payment=success`,
@@ -673,7 +692,7 @@ async function startServer() {
       const isComplete = account.details_submitted && account.charges_enabled;
 
       // Sync status to DB
-      await userDocRef.set({ stripe_onboarding_complete: isComplete }, { merge: true });
+      await setDoc(userDocRef, { stripe_onboarding_complete: isComplete }, { merge: true });
 
       res.json({ complete: isComplete, account });
     } catch (error: any) {

@@ -132,7 +132,7 @@ const SignedImg = ({
   const [signedUrl, setSignedUrl] = useState<string>("");
   useEffect(() => {
     if (!src) return;
-    if (src.startsWith("http")) {
+    if (src.startsWith("http") || src.startsWith("blob:") || src.startsWith("data:")) {
       setSignedUrl(src);
       return;
     }
@@ -314,6 +314,7 @@ const MainApp: React.FC = () => {
   const [auctions, setAuctions] = useState<AuctionItem[]>(
     [],
   );
+  const [lastSeenWinnings, setLastSeenWinnings] = useState(() => Number(localStorage.getItem('last_seen_winnings') || "0"));
   const [activeView, setActiveView] = useState<ViewState>(() => {
     if (typeof window === "undefined") return "grid";
     const isSessionActive = sessionStorage.getItem("session_tab_active");
@@ -475,6 +476,14 @@ const MainApp: React.FC = () => {
   const [appWakeupTrigger, setAppWakeupTrigger] = useState(0);
 
   // URL and Path Preservation Hook
+  useEffect(() => {
+    if (activeView === 'winnings') {
+      const now = Date.now();
+      localStorage.setItem('last_seen_winnings', now.toString());
+      setLastSeenWinnings(now);
+    }
+  }, [activeView]);
+
   useEffect(() => {
     if (isHydrating) return;
 
@@ -754,16 +763,6 @@ const MainApp: React.FC = () => {
     hydrateState();
   }, []);
 
-  // Redirect to home if logged in and on login page
-  useEffect(() => {
-    if (isLoggedIn && activeView === "login") {
-      setActiveView("grid");
-      setSelectedRegion(null);
-      setSelectedCategory(null);
-      setSearchQuery("");
-      window.scrollTo({ top: 0, behavior: "instant" });
-    }
-  }, [isLoggedIn, activeView]);
 
   const toggleWatch = async (id: string) => {
     const newWatchedIds = watchedIds.includes(id)
@@ -1019,6 +1018,7 @@ const MainApp: React.FC = () => {
           bidCount: d.bid_count || d.bidCount,
           winnerId: d.winner_id || d.winnerId,
           winner_id: d.winner_id || d.winnerId,
+          sellerId: d.seller_id || d.sellerId,
           payment_status: d.payment_status || "unpaid",
           paid_at: d.paid_at,
           sellerName: d.sellerName || sellerName,
@@ -1232,6 +1232,7 @@ const MainApp: React.FC = () => {
     setCheckoutData({
       amount: prices[tier],
       title: `${t("subscription")} - ${planNames[tier]}`,
+      metadata: { type: "subscription" },
       onSuccess: async () => {
         setIsCheckoutOpen(false);
         await saveSubscription(tier);
@@ -1875,10 +1876,10 @@ const MainApp: React.FC = () => {
                           typeof wonItem.images[0] === "string" && (
                             <SignedImg
                               src={
-                                wonItem.images[0]?.replace?.(
-                                  /([\[\]"'])/g,
-                                  "",
-                                ) || ""
+                                wonItem.images[0]
+
+
+
                               }
                               alt="Item"
                               className="w-full h-full object-cover"
@@ -2075,10 +2076,10 @@ const MainApp: React.FC = () => {
                           typeof soldItem.images[0] === "string" && (
                             <SignedImg
                               src={
-                                soldItem.images[0]?.replace?.(
-                                  /([\[\]"'])/g,
-                                  "",
-                                ) || ""
+                                soldItem.images[0]
+
+
+
                               }
                               alt="Item"
                               className="w-full h-full object-cover"

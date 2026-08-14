@@ -29,9 +29,10 @@ export const Header: React.FC<{
   onLanguageChange: (l: string) => void;
   t: (k: string) => string;
   auctions: AuctionItem[];
+  newWinningsCount?: number;
   userEmail?: string;
   userProfilePicture?: string;
-}> = ({ onHome, onSearch, onRegionSelect, onCategorySelect, onLastChance, onLogin, onLogout, onSettings, onSubscriptions, onCreateAuction, onMyWinnings, onMyBids, onMySold, onMyUnsold, onWatchlist, onMessages, activeView, selectedRegion, selectedCategory, isLoggedIn, isVerified, language, onLanguageChange, t, auctions, userEmail, userProfilePicture }) => {
+}> = ({ onHome, onSearch, onRegionSelect, onCategorySelect, onLastChance, onLogin, onLogout, onSettings, onSubscriptions, onCreateAuction, onMyWinnings, onMyBids, onMySold, onMyUnsold, onWatchlist, onMessages, activeView, selectedRegion, selectedCategory, isLoggedIn, isVerified, language, onLanguageChange, t, auctions, newWinningsCount, userEmail, userProfilePicture }) => {
   const { unreadMessageCount } = useChat();
 
   const [isRegOpen, setIsRegOpen] = useState(false);
@@ -39,6 +40,7 @@ export const Header: React.FC<{
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isLangOpen, setIsLangOpen] = useState(false);
 
+  const totalNotifications = (unreadMessageCount || 0) + (newWinningsCount || 0);
   const userMenuRef = useRef<HTMLDivElement>(null);
   const langMenuRef = useRef<HTMLDivElement>(null);
   const catMenuRef = useRef<HTMLDivElement>(null);
@@ -142,7 +144,10 @@ export const Header: React.FC<{
                     onClick={() => setIsUserMenuOpen(!isUserMenuOpen)} 
                     className="flex items-center gap-3 bg-white text-[#0A1128] px-6 py-2.5 rounded-2xl font-black text-sm shadow-xl hover:bg-[#FEBA4F] transition-colors"
                   >
-                    {userProfilePicture ? (
+                    {totalNotifications > 0 && (
+                          <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold w-4 h-4 flex items-center justify-center rounded-full animate-pulse">{totalNotifications > 9 ? '9+' : totalNotifications}</span>
+                        )}
+                        {userProfilePicture ? (
                         <img src={userProfilePicture} alt="Profile" className="w-5 h-5 rounded-full object-cover" />
                     ) : (
                         <User size={18} />
@@ -157,7 +162,11 @@ export const Header: React.FC<{
                             <p className="font-black text-xs truncate">{userEmail || 'Uporabnik Drazba.si'}</p>
                         </div>
                         <button onClick={() => { onCreateAuction(); setIsUserMenuOpen(false); }} className="w-full flex items-center gap-3 px-6 py-4 hover:bg-slate-50 transition-colors text-xs font-black uppercase tracking-widest"><PlusCircle size={18} /> {t('createAuction')}</button>
-                        <button onClick={() => { onMyWinnings(); setIsUserMenuOpen(false); }} className="w-full flex items-center gap-3 px-6 py-4 hover:bg-slate-50 transition-colors text-xs font-black uppercase tracking-widest"><Trophy size={18} /> {t('myWinnings')}</button>
+                        <button onClick={() => { onMyWinnings(); setIsUserMenuOpen(false); }} className="w-full flex items-center gap-3 px-6 py-4 hover:bg-slate-50 transition-colors text-xs font-black uppercase tracking-widest"><Trophy size={18} /> {t('myWinnings')}
+                          {newWinningsCount !== undefined && newWinningsCount > 0 && (
+                            <span className="ml-auto bg-red-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">{newWinningsCount}</span>
+                          )}
+                        </button>
                         <button onClick={() => { onMyBids(); setIsUserMenuOpen(false); }} className="w-full flex items-center gap-3 px-6 py-4 hover:bg-slate-50 transition-colors text-xs font-black uppercase tracking-widest"><Gavel size={18} /> {t('myBids')}</button>
                         <button onClick={() => { onMySold?.(); setIsUserMenuOpen(false); }} className="w-full flex items-center gap-3 px-6 py-4 hover:bg-slate-50 transition-colors text-xs font-black uppercase tracking-widest"><CreditCard size={18} /> {t('soldAuctions')}</button>
                         <button onClick={() => { onMyUnsold?.(); setIsUserMenuOpen(false); }} className="w-full flex items-center gap-3 px-6 py-4 hover:bg-slate-50 transition-colors text-xs font-black uppercase tracking-widest"><Settings size={18} /> {t('unsoldAuctions')}</button>
