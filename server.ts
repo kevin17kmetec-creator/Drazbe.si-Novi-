@@ -60,9 +60,109 @@ function calculateMarginalPlatformFee(currentPrice: number, subscriptionTier: st
     return totalFee;
 }
 
-// Initialize Supabase admin client
+function formatE164Phone(phoneStr?: string, defaultCountry = 'SI'): string | undefined {
+  if (!phoneStr || typeof phoneStr !== 'string') return undefined;
+  const cleaned = phoneStr.trim();
+  if (!cleaned) return undefined;
+  const digits = cleaned.replace(/[^0-9+]/g, '');
+  if (!digits) return undefined;
+  if (digits.startsWith('+')) return digits;
+  if (digits.startsWith('00')) return '+' + digits.substring(2);
+  if (digits.startsWith('0')) {
+    if (defaultCountry === 'SI') return '+386' + digits.substring(1);
+    if (defaultCountry === 'AT') return '+43' + digits.substring(1);
+    if (defaultCountry === 'DE') return '+49' + digits.substring(1);
+    if (defaultCountry === 'HR') return '+385' + digits.substring(1);
+    if (defaultCountry === 'IT') return '+39' + digits.substring(1);
+    return '+386' + digits.substring(1);
+  }
+  return '+386' + digits;
+}
 
+function getCustomerFullName(user: any): string {
+  if (!user) return '';
+  const first = (user.first_name || user.firstName || '').trim();
+  const last = (user.last_name || user.lastName || '').trim();
+  const combined = `${first} ${last}`.trim();
+  if (combined) return combined;
+  if (user.company_name || user.companyName) return (user.company_name || user.companyName).trim();
+  if (user.representative) return user.representative.trim();
+  if (user.name) return user.name.trim();
+  if (user.displayName) return user.displayName.trim();
+  if (user.username) return user.username.trim();
+  return '';
+}
 
+function getCustomerAddress(user: any): Stripe.AddressParam | undefined {
+  if (!user) return undefined;
+  const isBusiness = user.user_type === 'business' || user.userType === 'business';
+  const line1 = (isBusiness ? (user.company_street || user.companyStreet) : null) || user.street || (typeof user.address === 'string' ? user.address : user.address?.street) || user.company_street || user.companyStreet || undefined;
+  const city = (isBusiness ? (user.company_city || user.companyCity) : null) || user.city || user.address?.city || user.company_city || user.companyCity || undefined;
+  const postal_code = (isBusiness ? (user.company_postal_code || user.companyPostalCode) : null) || user.postal_code || user.postalCode || user.address?.postcode || user.company_postal_code || user.companyPostalCode || undefined;
+  const country = user.country_code || user.countryCode || (user.address && typeof user.address === 'object' ? user.address.country : null) || 'SI';
+
+  if (!line1 && !city && !postal_code && !country) {
+    return undefined;
+  }
+  return {
+    line1: line1 || undefined,
+    city: city || undefined,
+    postal_code: postal_code || undefined,
+    country: country || 'SI',
+  };
+}
+
+async function getOrCreateStripeCustomer(stripe: Stripe, userId: string, user: any): Promise<string | null> {
+  if (!user || !user.email) return null;
+  const email = user.email.trim();
+  const name = getCustomerFullName(user);
+  const phone = formatE164Phone(user.phone || user.phoneNumber || user.telephone, user.country_code || 'SI');
+  const address = getCustomerAddress(user);
+
+  let customerId = user.stripe_customer_id || user.stripeCustomerId;
+
+  const customerPayload: Stripe.CustomerCreateParams = {
+    email,
+    ...(name ? { name } : {}),
+    ...(phone ? { phone } : {}),
+    ...(address ? { address } : {}),
+    metadata: {
+      user_id: userId,
+      user_type: user.user_type || user.userType || 'individual',
+    }
+  };
+
+  if (customerId) {
+    try {
+      await stripe.customers.update(customerId, customerPayload);
+      return customerId;
+    } catch (e: any) {
+      console.warn("Could not update existing stripe customer, will search or create fresh:", e.message);
+      customerId = null;
+    }
+  }
+
+  if (!customerId) {
+    try {
+      const existingList = await stripe.customers.list({ email, limit: 1 });
+      if (existingList.data.length > 0) {
+        customerId = existingList.data[0].id;
+        await stripe.customers.update(customerId, customerPayload);
+      } else {
+        const newCustomer = await stripe.customers.create(customerPayload);
+        customerId = newCustomer.id;
+      }
+      
+      if (userId && customerId) {
+        await setDoc(doc(db, 'users', userId), { stripe_customer_id: customerId, stripeCustomerId: customerId }, { merge: true });
+      }
+    } catch (e: any) {
+      console.error("Error creating/linking stripe customer:", e);
+    }
+  }
+
+  return customerId;
+}
 
 // Initialize Resend
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -420,18 +520,22 @@ async function startServer() {
 
   app.post("/api/create-checkout-session", async (req, res) => {
     try {
-      const { amount, currency = "eur", auction_id, buyer_id, seller_id, fee_percentage, return_url, type = "auction" } = req.body;
+      const { amount, currency = "eur", auction_id, buyer_id, seller_id, fee_percentage, return_url, type = "auction", user_id, userId } = req.body;
       const stripe = getStripe();
       
+      const effectiveBuyerId = buyer_id || user_id || userId;
       let auctionTitle = "Plačilo";
       let sessionMetadata: any = { type };
+      let buyer: any = null;
+      let stripeCustomerId: string | null = null;
 
       // Check EU AML law: 10,000 € annual limit check for buyers without ID verification
-      if (buyer_id) {
-        const buyerDoc = await getDoc(doc(db, 'users', buyer_id));
-        const buyer = buyerDoc.data();
-        
-        if (buyer) {
+      if (effectiveBuyerId) {
+        const buyerDoc = await getDoc(doc(db, 'users', effectiveBuyerId));
+        if (buyerDoc.exists()) {
+          buyer = buyerDoc.data();
+          stripeCustomerId = await getOrCreateStripeCustomer(stripe, effectiveBuyerId, buyer);
+          
           const currentYear = new Date().getFullYear();
           let currentYearSpent = 0;
           
@@ -453,7 +557,7 @@ async function startServer() {
         }
       }
 
-      if (type === "auction" && auction_id && buyer_id && seller_id) {
+      if (type === "auction" && auction_id && effectiveBuyerId && seller_id) {
         // Fetch the actual auction
         const auctionDoc = await getDoc(doc(db, 'auctions', auction_id));
         const auction = auctionDoc.data();
@@ -463,8 +567,6 @@ async function startServer() {
         const seller = sellerDoc.data();
         const platformFee = calculateMarginalPlatformFee(currentPrice, seller?.subscription_tier);
         
-        const buyerDoc = await getDoc(doc(db, 'users', buyer_id));
-        const buyer = buyerDoc.data();
         let vatRate = 0;
         if (buyer) {
           const euCountries = ['AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR', 'HU', 'IE', 'IT', 'LV', 'LT', 'LU', 'MT', 'NL', 'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE'];
@@ -482,7 +584,6 @@ async function startServer() {
         
         const vatAmount = platformFee * (vatRate / 100);
         const totalPlatformFeeGross = platformFee + vatAmount;
-        const applicationFeeAmount = Math.min(Math.round(totalPlatformFeeGross * 100), Math.round(amount * 100));
 
         if (auction?.title) {
            auctionTitle = auction.title['SLO'] || auction.title['EN'] || "Dražba";
@@ -491,26 +592,30 @@ async function startServer() {
         sessionMetadata = {
           type: 'auction',
           auction_id,
-          buyer_id,
+          buyer_id: effectiveBuyerId,
           seller_id,
           fee_percentage
         };
       } else if (type === "subscription") {
         auctionTitle = "Naročnina";
+        sessionMetadata = {
+          type: 'subscription',
+          buyer_id: effectiveBuyerId || '',
+          user_id: effectiveBuyerId || '',
+        };
       } else {
-         if (!auction_id || !buyer_id || !seller_id) {
-             console.warn("Missing required auction parameters, proceeding with simple payment.");
-             auctionTitle = "Plačilo dražbe";
-             sessionMetadata = {
-                 type: 'auction',
-                 auction_id: auction_id || '',
-                 buyer_id: buyer_id || '',
-                 seller_id: seller_id || '',
-             };
-         }
+        if (!auction_id || !effectiveBuyerId || !seller_id) {
+          auctionTitle = "Plačilo dražbe";
+          sessionMetadata = {
+            type: 'auction',
+            auction_id: auction_id || '',
+            buyer_id: effectiveBuyerId || '',
+            seller_id: seller_id || '',
+          };
+        }
       }
 
-      const session = await stripe.checkout.sessions.create({
+      const sessionParams: Stripe.Checkout.SessionCreateParams = {
         payment_method_types: ['card'],
         line_items: [{
           price_data: {
@@ -523,14 +628,25 @@ async function startServer() {
           quantity: 1,
         }],
         payment_intent_data: {
-          // No more transfer_data! All funds go to the platform
-          // The webhook handles crediting the seller's internal wallet
           metadata: sessionMetadata
         },
         mode: 'payment',
-        success_url: `${return_url}?payment=success`,
-        cancel_url: `${return_url}?payment=cancel`,
-      });
+        success_url: `${return_url || 'https://www.drazbe.eu'}?payment=success`,
+        cancel_url: `${return_url || 'https://www.drazbe.eu'}?payment=cancel`,
+      };
+
+      if (stripeCustomerId) {
+        sessionParams.customer = stripeCustomerId;
+        sessionParams.customer_update = {
+          address: 'auto',
+          name: 'auto',
+          shipping: 'auto',
+        };
+      } else if (buyer?.email) {
+        sessionParams.customer_email = buyer.email;
+      }
+
+      const session = await stripe.checkout.sessions.create(sessionParams);
 
       res.json({ url: session.url });
     } catch (error: any) {
@@ -541,21 +657,30 @@ async function startServer() {
 
   app.post("/api/create-payment-intent", async (req, res) => {
     try {
-      const { amount, currency = "eur", auction_id, buyer_id, seller_id, fee_percentage } = req.body;
+      const { amount, currency = "eur", auction_id, buyer_id, seller_id, fee_percentage, user_id, userId } = req.body;
       const stripe = getStripe();
+      const effectiveBuyerId = buyer_id || user_id || userId;
       
+      let stripeCustomerId: string | null = null;
+      let buyer: any = null;
+      if (effectiveBuyerId) {
+        const buyerDoc = await getDoc(doc(db, 'users', effectiveBuyerId));
+        if (buyerDoc.exists()) {
+          buyer = buyerDoc.data();
+          stripeCustomerId = await getOrCreateStripeCustomer(stripe, effectiveBuyerId, buyer);
+        }
+      }
+
       // Fetch the actual auction to securely determine the final bid price
       const auctionDoc = await getDoc(doc(db, 'auctions', auction_id));
-    const auction = auctionDoc.data();
+      const auction = auctionDoc.data();
       const currentPrice = auction?.current_price || (amount / 1.122); // Fallback estimate if not found
 
       const sellerDoc = await getDoc(doc(db, 'users', seller_id));
-    const seller = sellerDoc.data();
+      const seller = sellerDoc.data();
       const platformFee = calculateMarginalPlatformFee(currentPrice, seller?.subscription_tier);
       
       // Calculate VAT for the platform fee
-      const buyerDoc = await getDoc(doc(db, 'users', buyer_id));
-    const buyer = buyerDoc.data();
       let vatRate = 0;
       if (buyer) {
         const euCountries = ['AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR', 'HU', 'IE', 'IT', 'LV', 'LT', 'LU', 'MT', 'NL', 'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE'];
@@ -574,10 +699,7 @@ async function startServer() {
       const vatAmount = platformFee * (vatRate / 100);
       const totalPlatformFeeGross = platformFee + vatAmount;
 
-      // Ensure platform fee does not exceed total amount (failsafe)
-      const applicationFeeAmount = Math.min(Math.round(totalPlatformFeeGross * 100), Math.round(amount * 100));
-
-      const paymentIntent = await stripe.paymentIntents.create({
+      const intentParams: Stripe.PaymentIntentCreateParams = {
         amount: Math.round(amount * 100), // Stripe expects amounts in cents
         currency,
         automatic_payment_methods: {
@@ -586,11 +708,20 @@ async function startServer() {
         metadata: {
             type: 'auction',
             auction_id,
-            buyer_id,
+            buyer_id: effectiveBuyerId || '',
             seller_id,
             fee_percentage
         }
-      });
+      };
+
+      if (stripeCustomerId) {
+        intentParams.customer = stripeCustomerId;
+      }
+      if (buyer?.email) {
+        intentParams.receipt_email = buyer.email;
+      }
+
+      const paymentIntent = await stripe.paymentIntents.create(intentParams);
 
       res.json({ clientSecret: paymentIntent.client_secret });
     } catch (error: any) {
@@ -648,6 +779,7 @@ async function startServer() {
       accountParams.company = {
         phone: formattedPhone || undefined,
         name: user.company_name || user.companyName || undefined,
+        tax_id: user.tax_number || user.taxNumber || user.tax_id || undefined,
         address: {
           line1: user.company_street || user.companyStreet || user.street || user.address?.street || undefined,
           city: user.company_city || user.companyCity || user.city || user.address?.city || undefined,
@@ -994,7 +1126,20 @@ async function startServer() {
 
   app.post("/api/create-verification-session", async (req, res) => {
     try {
+      const { user_id, userId } = req.body || {};
+      const targetUserId = user_id || userId;
       const stripe = getStripe();
+
+      let user: any = null;
+      if (targetUserId) {
+        const userDoc = await getDoc(doc(db, 'users', targetUserId));
+        if (userDoc.exists()) {
+          user = userDoc.data();
+        }
+      }
+
+      const formattedPhone = user?.phone ? formatE164Phone(user.phone, user.country_code || 'SI') : undefined;
+
       const session = await stripe.identity.verificationSessions.create({
         type: 'document',
         options: {
@@ -1003,6 +1148,13 @@ async function startServer() {
             require_matching_selfie: true,
           },
         },
+        provided_details: {
+          ...(user?.email ? { email: user.email.trim() } : {}),
+          ...(formattedPhone ? { phone: formattedPhone } : {}),
+        },
+        metadata: {
+          user_id: targetUserId || '',
+        }
       });
       res.json({ clientSecret: session.client_secret });
     } catch (error: any) {

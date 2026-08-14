@@ -55,6 +55,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       accountParams.company = {
         phone: formattedPhone || undefined,
         name: user.company_name || user.companyName || undefined,
+        tax_id: user.tax_number || user.taxNumber || user.tax_id || undefined,
         address: {
           line1: user.company_street || user.companyStreet || user.street || user.address?.street || undefined,
           city: user.company_city || user.companyCity || user.city || user.address?.city || undefined,
