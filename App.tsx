@@ -2054,64 +2054,67 @@ const MainApp: React.FC = () => {
                                 Potrdi prejem
                               </button>
                             )}
-                            <button
-                              onClick={() => {
-                                setActiveConversationId(wonItem.id);
-                                setActiveView("messages");
-                                window.scrollTo({
-                                  top: 0,
-                                  behavior: "instant",
-                                });
-                              }}
-                              className="mt-2 bg-[#FEBA4F] text-[#0A1128] px-4 py-2 rounded-xl font-bold text-xs hover:bg-white hover:border hover:border-[#FEBA4F] transition-all flex items-center justify-center gap-2"
-                            >
-                              <MessageSquare size={14} /> Sporočila
-                            </button>
+                            {wonItem.delivery_method !== "post" && (
+                              <button
+                                onClick={() => {
+                                  setActiveConversationId(wonItem.id);
+                                  setActiveView("messages");
+                                  window.scrollTo({
+                                    top: 0,
+                                    behavior: "instant",
+                                  });
+                                }}
+                                className="mt-2 bg-[#FEBA4F] text-[#0A1128] px-4 py-2 rounded-xl font-bold text-xs hover:bg-white hover:border hover:border-[#FEBA4F] transition-all flex items-center justify-center gap-2"
+                              >
+                                <MessageSquare size={14} /> Sporočila
+                              </button>
+                            )}
                           </div>
                         ) : (
                           <div className="flex flex-col gap-2 w-full">
                             {wonItem.post_auction_status !== 'offered_2nd' && wonItem.post_auction_status !== 'rejected_2nd' && (
-    <button
-                              onClick={async () => {
-                                setCheckoutData({
-                                  amount: parseFloat(
-                                    totalAmountToPay.toFixed(2),
-                                  ),
-                                  title: `${t("paymentFor")}: ${wonItem.title[language as keyof typeof wonItem.title] || wonItem.title.SLO}`,
-                                  onSuccess: async () => {
-                                    setIsCheckoutOpen(false);
-                                    await setDoc(doc(db, 'auctions', wonItem.id), { payment_status: 'paid', paid_at: new Date().toISOString(), post_auction_status: 'paid' }, { merge: true });
-                                    toast.success(t("paymentSuccessEmail"));
-                                    // Refresh to show paid status
-                                    setTimeout(() => fetchAuctions(), 1500);
-                                  },
-                                  metadata: {
-                                    auction_id: wonItem.id,
-                                    buyer_id: userData.id,
-                                    seller_id: wonItem.sellerId,
-                                    fee_percentage: feePercentage,
-                                  },
-                                });
-                                setIsCheckoutOpen(true);
-                              }}
-                              className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl flex items-center justify-center gap-2"
-                            >
-                              <CardIcon size={18} /> Plačaj zdaj
-                            </button>
-  )}
-                            <button
-                              onClick={() => {
-                                setActiveConversationId(wonItem.id);
-                                setActiveView("messages");
-                                window.scrollTo({
-                                  top: 0,
-                                  behavior: "instant",
-                                });
-                              }}
-                              className="bg-[#FEBA4F] text-[#0A1128] px-8 py-3 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#0A1128] hover:text-[#FEBA4F] transition-all flex items-center justify-center gap-2"
-                            >
-                              <MessageSquare size={18} /> Sporočila
-                            </button>
+                              <button
+                                onClick={async () => {
+                                  setCheckoutData({
+                                    amount: parseFloat(
+                                      totalAmountToPay.toFixed(2),
+                                    ),
+                                    title: `${t("paymentFor")}: ${wonItem.title[language as keyof typeof wonItem.title] || wonItem.title.SLO}`,
+                                    onSuccess: async () => {
+                                      setIsCheckoutOpen(false);
+                                      await setDoc(doc(db, 'auctions', wonItem.id), { payment_status: 'paid', paid_at: new Date().toISOString(), post_auction_status: 'paid' }, { merge: true });
+                                      toast.success(t("paymentSuccessEmail"));
+                                      setTimeout(() => fetchAuctions(), 1500);
+                                    },
+                                    metadata: {
+                                      auction_id: wonItem.id,
+                                      buyer_id: userData.id,
+                                      seller_id: wonItem.sellerId,
+                                      fee_percentage: feePercentage,
+                                    },
+                                  });
+                                  setIsCheckoutOpen(true);
+                                }}
+                                className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl flex items-center justify-center gap-2"
+                              >
+                                <CardIcon size={18} /> Plačaj zdaj
+                              </button>
+                            )}
+                            {wonItem.delivery_method !== "post" && (
+                              <button
+                                onClick={() => {
+                                  setActiveConversationId(wonItem.id);
+                                  setActiveView("messages");
+                                  window.scrollTo({
+                                    top: 0,
+                                    behavior: "instant",
+                                  });
+                                }}
+                                className="bg-[#FEBA4F] text-[#0A1128] px-8 py-3 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#0A1128] hover:text-[#FEBA4F] transition-all flex items-center justify-center gap-2"
+                              >
+                                <MessageSquare size={18} /> Sporočila
+                              </button>
+                            )}
                           </div>
                         )}
                       </div>
@@ -2164,10 +2167,29 @@ const MainApp: React.FC = () => {
                 </div>
               ) : (
                 currentUserSold.map((soldItem) => {
+                  const winnerId = soldItem.winnerId || (soldItem as any).winner_id || soldItem.second_highest_bidder_id || ((soldItem as any).top_bids && (soldItem as any).top_bids[0]?.bidder_id);
+                  const buyer = winnerId ? usersMap.get(winnerId) : null;
+                  const isPostalShipping = soldItem.delivery_method === "post" ||
+                    soldItem.delivery_method === "shipping" ||
+                    (soldItem as any).selected_delivery === "post" ||
+                    (soldItem as any).selected_delivery === "shipping" ||
+                    (soldItem as any).delivery_option === "shipping_only";
+
+                  const buyerName = buyer?.company_name
+                    ? buyer.company_name
+                    : buyer?.first_name || buyer?.firstName
+                    ? `${buyer.first_name || buyer.firstName} ${buyer.last_name || buyer.lastName || ''}`.trim()
+                    : buyer?.username || buyer?.email || "Kupec";
+                  const buyerAddress = buyer?.address || buyer?.street_address || "";
+                  const buyerPostalCode = buyer?.postal_code || buyer?.postcode || "";
+                  const buyerCity = buyer?.city || buyer?.place || "";
+                  const buyerPhone = buyer?.phone || buyer?.phone_number || buyer?.telephone || "";
+                  const buyerEmail = buyer?.email || "";
+
                   return (
                     <div
                       key={soldItem.id}
-                      className="flex flex-col md:flex-row items-center gap-8 p-6 rounded-[2.5rem] border-2 border-slate-100 hover:border-[#FEBA4F] transition-colors group"
+                      className="flex flex-col lg:flex-row items-start lg:items-center gap-8 p-6 sm:p-8 rounded-[2.5rem] border-2 border-slate-100 hover:border-[#FEBA4F] transition-colors group bg-white shadow-sm"
                     >
                       <div
                         className="w-32 h-32 shrink-0 bg-slate-100 rounded-3xl overflow-hidden shadow-md group-hover:scale-105 transition-transform cursor-pointer"
@@ -2181,18 +2203,13 @@ const MainApp: React.FC = () => {
                           soldItem.images.length > 0 &&
                           typeof soldItem.images[0] === "string" && (
                             <SignedImg
-                              src={
-                                soldItem.images[0]
-
-
-
-                              }
+                              src={soldItem.images[0]}
                               alt="Item"
                               className="w-full h-full object-cover"
                             />
                           )}
                       </div>
-                      <div className="flex-1 text-center md:text-left">
+                      <div className="flex-1 text-left w-full">
                         <h3
                           className="text-2xl font-black uppercase tracking-tighter text-[#0A1128] mb-2 cursor-pointer hover:text-[#FEBA4F] transition-colors"
                           onClick={() => {
@@ -2205,7 +2222,7 @@ const MainApp: React.FC = () => {
                             language as keyof typeof soldItem.title
                           ] || soldItem.title.SLO}
                         </h3>
-                        <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 text-sm font-bold text-slate-400">
+                        <div className="flex flex-wrap items-center gap-4 text-sm font-bold text-slate-400">
                           <span className="flex items-center gap-1.5">
                             <Gavel size={16} /> Prodajna cena:{" "}
                             <span className="text-[#0A1128] font-black">
@@ -2217,77 +2234,121 @@ const MainApp: React.FC = () => {
                             </span>
                           </span>
                           {soldItem.payment_status === "paid" ? (
-      <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
-          <CheckCircle2 size={12} /> Plačano
-      </span>
-   ) : soldItem.post_auction_status === "failed_1st" ? (
-      <span className="bg-red-100 text-red-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
-          <AlertCircle size={12} /> Zmagovalec ni plačal
-      </span>
-   ) : soldItem.post_auction_status === "offered_2nd" ? (
-      <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
-          <Clock size={12} /> Čaka na odločitev 2. ponudnika
-      </span>
-   ) : soldItem.post_auction_status === "awaiting_payment_2nd" ? (
-      <span className="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
-          <Clock size={12} /> Čaka na plačilo (2. ponudnik)
-      </span>
-   ) : (
-      <span className="bg-yellow-100 text-yellow-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
-          <Clock size={12} /> Čaka na plačilo
-      </span>
-   )}
+                            <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
+                              <CheckCircle2 size={12} /> Plačano
+                            </span>
+                          ) : soldItem.post_auction_status === "failed_1st" ? (
+                            <span className="bg-red-100 text-red-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
+                              <AlertCircle size={12} /> Zmagovalec ni plačal
+                            </span>
+                          ) : soldItem.post_auction_status === "offered_2nd" ? (
+                            <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
+                              <Clock size={12} /> Čaka na odločitev 2. ponudnika
+                            </span>
+                          ) : soldItem.post_auction_status === "awaiting_payment_2nd" ? (
+                            <span className="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
+                              <Clock size={12} /> Čaka na plačilo (2. ponudnik)
+                            </span>
+                          ) : (
+                            <span className="bg-yellow-100 text-yellow-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
+                              <Clock size={12} /> Čaka na plačilo
+                            </span>
+                          )}
                         </div>
+
+                        {/* SHIPPING DETAILS BOX (WHEN POSTAL DELIVERY) */}
+                        {isPostalShipping && (
+                          <div className="mt-4 p-4 rounded-2xl bg-slate-50 border border-slate-200">
+                            <div className="flex items-center justify-between gap-2 mb-2.5 pb-2 border-b border-slate-200">
+                              <span className="text-xs font-black uppercase tracking-wider text-[#0A1128] flex items-center gap-1.5">
+                                <Truck size={15} className="text-[#FEBA4F]" /> Podatki kupca za pošiljanje po pošti
+                              </span>
+                              <button
+                                onClick={() => {
+                                  const text = `${buyerName}\n${buyerAddress}\n${buyerPostalCode} ${buyerCity}\n${buyerPhone ? 'Tel: ' + buyerPhone : ''}\n${buyerEmail ? 'Email: ' + buyerEmail : ''}`;
+                                  navigator.clipboard.writeText(text);
+                                  toast.success("Naslov kupca je skopiran v odložišče!");
+                                }}
+                                className="text-[10px] font-black uppercase tracking-wider text-slate-600 hover:text-[#0A1128] bg-white px-3 py-1 rounded-lg border border-slate-200 shadow-sm transition-colors"
+                              >
+                                Kopiraj naslov
+                              </button>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-xs font-bold text-slate-600">
+                              <div>
+                                <span className="text-slate-400 font-medium block text-[10px] uppercase">Prejemnik</span>
+                                <span className="text-[#0A1128] font-black">{buyerName}</span>
+                              </div>
+                              <div>
+                                <span className="text-slate-400 font-medium block text-[10px] uppercase">Naslov</span>
+                                <span className="text-[#0A1128]">{buyerAddress || "Naslov ni vnesen"}</span>
+                              </div>
+                              <div>
+                                <span className="text-slate-400 font-medium block text-[10px] uppercase">Kraj in Pošta</span>
+                                <span className="text-[#0A1128]">{buyerPostalCode} {buyerCity || "Kraj ni vnesen"}</span>
+                              </div>
+                              <div>
+                                <span className="text-slate-400 font-medium block text-[10px] uppercase">Kontakt</span>
+                                <span className="text-[#0A1128] truncate">{buyerPhone || buyerEmail || "Ni podatka"}</span>
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </div>
-                      <div className="flex flex-col gap-3 w-full md:w-auto">
-                        <button
-      onClick={() => {
-        setSelectedItem(soldItem);
-        setActiveView("detail");
-        window.scrollTo({ top: 0, behavior: "instant" });
-      }}
-      className="bg-slate-100 text-[#0A1128] px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] transition-all shadow-xl flex items-center justify-center gap-2"
-    >
-      Odpri dražbo
-    </button>
-    {soldItem.post_auction_status === "failed_1st" && (
-      <>
-        {soldItem.top_bids && soldItem.top_bids.length > 1 ? (
-          <button
-            onClick={() => handleOfferToSecondBidder(soldItem)}
-            className="bg-blue-600 text-white px-8 py-3 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-blue-700 transition-all flex items-center justify-center gap-2"
-          >
-            Ponudi 2. ponudniku
-          </button>
-        ) : (
-          <p className="text-xs text-red-500 font-bold text-center">Ni 2. ponudnika</p>
-        )}
-        <button
-          onClick={() => handleMoveToArchive(soldItem)}
-          className="bg-red-100 text-red-700 px-8 py-3 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-red-200 transition-all flex items-center justify-center gap-2"
-        >
-          Premakni v arhiv
-        </button>
-      </>
-    )}
+
+                      <div className="flex flex-col gap-3 w-full lg:w-auto shrink-0">
                         <button
                           onClick={() => {
-                            setActiveConversationId(soldItem.id);
-                            setActiveView("messages");
+                            setSelectedItem(soldItem);
+                            setActiveView("detail");
                             window.scrollTo({ top: 0, behavior: "instant" });
                           }}
-                          className="bg-[#FEBA4F] text-[#0A1128] px-8 py-3 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#0A1128] hover:text-[#FEBA4F] transition-all flex items-center justify-center gap-2"
+                          className="bg-slate-100 text-[#0A1128] px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] transition-all shadow-sm flex items-center justify-center gap-2"
                         >
-                          <MessageSquare size={18} /> Sporočila
+                          Odpri dražbo
                         </button>
+                        {soldItem.post_auction_status === "failed_1st" && (
+                          <>
+                            {soldItem.top_bids && soldItem.top_bids.length > 1 ? (
+                              <button
+                                onClick={() => handleOfferToSecondBidder(soldItem)}
+                                className="bg-blue-600 text-white px-8 py-3 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-blue-700 transition-all flex items-center justify-center gap-2"
+                              >
+                                Ponudi 2. ponudniku
+                              </button>
+                            ) : (
+                              <p className="text-xs text-red-500 font-bold text-center">Ni 2. ponudnika</p>
+                            )}
+                            <button
+                              onClick={() => handleMoveToArchive(soldItem)}
+                              className="bg-red-100 text-red-700 px-8 py-3 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-red-200 transition-all flex items-center justify-center gap-2"
+                            >
+                              Premakni v arhiv
+                            </button>
+                          </>
+                        )}
 
-                        <div className="flex flex-col items-center gap-2 mt-2">
+                        {/* Sporočila button: ONLY shown for personal pickup, NOT for postal shipping */}
+                        {!isPostalShipping && (
+                          <button
+                            onClick={() => {
+                              setActiveConversationId(soldItem.id);
+                              setActiveView("messages");
+                              window.scrollTo({ top: 0, behavior: "instant" });
+                            }}
+                            className="bg-[#FEBA4F] text-[#0A1128] px-8 py-3.5 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#0A1128] hover:text-[#FEBA4F] transition-all flex items-center justify-center gap-2 shadow-sm"
+                          >
+                            <MessageSquare size={18} /> Sporočila
+                          </button>
+                        )}
+
+                        <div className="flex flex-col items-center gap-2 mt-1">
                           {soldItem.delivery_method ? (
-                            <div className="text-xs font-bold text-slate-500 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-100 flex items-center gap-1.5">
+                            <div className="text-xs font-bold text-slate-500 bg-slate-50 px-3.5 py-1.5 rounded-xl border border-slate-100 flex items-center gap-1.5">
                               {soldItem.delivery_method === "pickup" ? (
-                                <MapPin size={14} />
+                                <MapPin size={14} className="text-[#FEBA4F]" />
                               ) : (
-                                <Truck size={14} />
+                                <Truck size={14} className="text-[#FEBA4F]" />
                               )}
                               {soldItem.delivery_method === "pickup"
                                 ? "Osebni prevzem"
@@ -2437,6 +2498,37 @@ const MainApp: React.FC = () => {
           onBack={() => {
             setActiveView("grid");
             setActiveConversationId(null);
+          }}
+          onOpenAuction={(auction) => {
+            setSelectedItem(auction);
+            setActiveView("detail");
+            window.scrollTo({ top: 0, behavior: "instant" });
+          }}
+          onPayAuction={(auction) => {
+            const currentBid = auction.currentBid || 0;
+            const fee = currentPlan === SubscriptionTier.FREE ? 0.05 : 0.03;
+            const totalToPay = currentBid * (1 + fee);
+            setCheckoutData({
+              amount: parseFloat(totalToPay.toFixed(2)),
+              title: `${t("paymentFor")}: ${auction.title[language as keyof typeof auction.title] || auction.title.SLO}`,
+              onSuccess: async () => {
+                setIsCheckoutOpen(false);
+                await setDoc(doc(db, 'auctions', auction.id), {
+                  payment_status: 'paid',
+                  paid_at: new Date().toISOString(),
+                  post_auction_status: 'paid'
+                }, { merge: true });
+                toast.success(t("paymentSuccessEmail") || "Plačilo uspešno!");
+                setTimeout(() => fetchAuctions(), 1000);
+              },
+              metadata: {
+                auction_id: auction.id,
+                buyer_id: userData.id,
+                seller_id: auction.sellerId || (auction as any).seller_id,
+                fee_percentage: fee * 100,
+              },
+            });
+            setIsCheckoutOpen(true);
           }}
         />
       );
@@ -2909,9 +3001,21 @@ const MainApp: React.FC = () => {
     }
   };
 
-  function handleDeliveryMethodSubmit(method: any) {
-    setDeliveryMethodModal(prev => ({ ...prev, isOpen: false }));
-    fetchAuctions();
+  async function handleDeliveryMethodSubmit() {
+    if (!deliveryMethodModal.auctionId || !deliveryMethodModal.deliveryMethod) return;
+    try {
+      await updateDoc(doc(db, 'auctions', deliveryMethodModal.auctionId), {
+        delivery_method: deliveryMethodModal.deliveryMethod,
+        selected_delivery: deliveryMethodModal.deliveryMethod,
+      });
+      toast.success("Način predaje je bil uspešno posodobljen.");
+    } catch (e: any) {
+      console.error("Napaka pri posodabljanju načina predaje:", e);
+      toast.error("Napaka pri shranjevanju načina predaje: " + e.message);
+    } finally {
+      setDeliveryMethodModal({ isOpen: false, auctionId: "", deliveryMethod: null });
+      fetchAuctions();
+    }
   };
 
   function handleReceiptConfirmSubmit() {

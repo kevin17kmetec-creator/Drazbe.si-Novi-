@@ -1,8 +1,23 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import { auth, db } from "../lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { collection, query, where, or, onSnapshot, doc, getDoc, setDoc, addDoc, updateDoc, serverTimestamp, orderBy } from "firebase/firestore";
+import {
+  collection,
+  query,
+  where,
+  or,
+  onSnapshot,
+  doc,
+  getDoc,
+  setDoc,
+  addDoc,
+  updateDoc,
+  serverTimestamp,
+  orderBy,
+  limit
+} from "firebase/firestore";
 import { AuctionItem } from "../../types";
+import { toast } from "sonner";
 
 export interface Message {
   id: string;
@@ -16,10 +31,17 @@ export interface Message {
 
 export interface OtherUser {
   id: string;
-  firstName: string;
-  lastName: string;
-  email: string;
-  profilePicture: string;
+  firstName?: string;
+  lastName?: string;
+  first_name?: string;
+  last_name?: string;
+  username?: string;
+  company_name?: string;
+  email?: string;
+  profilePicture?: string;
+  profile_picture_url?: string;
+  phone?: string;
+  user_type?: string;
 }
 
 export interface Conversation {
@@ -27,6 +49,9 @@ export interface Conversation {
   auction: AuctionItem;
   otherUserId: string;
   user?: OtherUser;
+  lastMessage?: string;
+  lastMessageTime?: string;
+  isLocked?: boolean;
 }
 
 interface ChatContextType {
@@ -64,7 +89,7 @@ export const ChatProvider: React.FC<{
   auctions: AuctionItem[];
   appWakeupTrigger?: number;
   children: React.ReactNode;
-}> = ({ userId, auctions, appWakeupTrigger = 0, children }) => {
+}> = ({ userId, auctions, children }) => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeChat, setActiveChat] = useState<string | null>(null);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
@@ -74,214 +99,418 @@ export const ChatProvider: React.FC<{
   const [unreadMessageCount, setUnreadMessageCount] = useState(0);
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const [isSending, setIsSending] = useState(false);
-  const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
+  const [onlineUsers] = useState<Set<string>>(new Set());
   const [otherUserTyping, setOtherUserTyping] = useState(false);
+  const usersCacheRef = useRef<Map<string, OtherUser>>(new Map());
 
-  // Firestore Snapshot Listeners
+  // Helper to fetch/cache user info
+  const fetchUserInfo = useCallback(async (targetUserId: string): Promise<OtherUser | undefined> => {
+    if (!targetUserId) return undefined;
+    if (usersCacheRef.current.has(targetUserId)) {
+      return usersCacheRef.current.get(targetUserId);
+    }
+    try {
+      const snap = await getDoc(doc(db, "users", targetUserId));
+      if (snap.exists()) {
+        const u = { id: snap.id, ...snap.data() } as OtherUser;
+        usersCacheRef.current.set(targetUserId, u);
+        return u;
+      }
+    } catch (e) {
+      console.warn("Failed to fetch user in chat:", targetUserId, e);
+    }
+    return undefined;
+  }, []);
+
+  // Compute eligible pickup conversations from auctions + Firestore conversations
   useEffect(() => {
-    if (!userId) return;
-    
-    let unsubscribe = () => {};
+    if (!userId) {
+      setConversations([]);
+      setLoadingChats(false);
+      return;
+    }
+
     let isMounted = true;
-    
-    const setupListener = () => {
-        if (!auth.currentUser) return; // wait for auth
-        setLoadingChats(true);
-        const convRef = collection(db, "conversations");
-        const q = query(convRef, or(where("participant_one", "==", userId), where("participant_two", "==", userId)));
-        
-        unsubscribe = onSnapshot(q, async (snapshot) => {
-          if (!isMounted) return;
-          const convData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
-          
-          const enrichedConvs = [];
-          for (const conv of convData) {
-            let auction = auctions.find(a => a.id === conv.auction_id);
-            if (!auction) {
-               auction = {
-                    id: conv.auction_id,
-                    title: { en: "Unknown" },
-                    category: "Other",
-                    currentBid: 0,
-                    bidCount: 0,
-                    itemCount: 1,
-                    images: [],
-                    endTime: new Date(),
-                    location: {},
-                    region: "Ljubljana" as any,
-                    description: {},
-                    condition: {},
-                    specifications: {},
-                    biddingHistory: [],
-                    sellerId: "unknown",
-                    status: "completed"
-                };
-            }
-            
-            const otherUserId = conv.participant_one === userId ? conv.participant_two : conv.participant_one;
-            let user = undefined;
+    setLoadingChats(true);
+
+    const buildConversations = async (firestoreConvs: any[] = []) => {
+      try {
+        const convMap = new Map<string, Conversation>();
+
+        // 1. Build conversations from eligible pickup sold auctions
+        for (const a of auctions) {
+          // Check if user is seller or buyer
+          const isSeller = a.sellerId === userId || (a as any).seller_id === userId;
+          const winnerId = a.winnerId || (a as any).winner_id || (a as any).winner || (a as any).second_highest_bidder_id || ((a as any).top_bids && (a as any).top_bids[0]?.bidder_id);
+          const isBuyer = winnerId === userId;
+
+          if (!isSeller && !isBuyer) continue;
+
+          // Check if auction is completed/ended
+          const isFinished = a.status === "completed" ||
+            a.payment_status === "paid" ||
+            (a as any).post_auction_status === "paid" ||
+            (a.endTime && new Date(a.endTime).getTime() <= Date.now());
+
+          if (!isFinished) continue;
+          if (!winnerId) continue; // No winner
+
+          // Check delivery method: ONLY allow personal pickup, NOT exclusive postal shipping
+          const isPostalOnly = a.delivery_method === "post" ||
+            a.delivery_method === "shipping" ||
+            (a as any).selected_delivery === "post" ||
+            (a as any).selected_delivery === "shipping" ||
+            (a as any).delivery_option === "shipping_only";
+
+          if (isPostalOnly) continue; // Postal delivery does not have chat
+
+          const otherUserId = isSeller ? winnerId : (a.sellerId || (a as any).seller_id);
+          if (!otherUserId || otherUserId === userId) continue;
+
+          const convId = `conv_${a.id}`;
+          const isPaid = a.payment_status === "paid" || (a as any).post_auction_status === "paid";
+
+          const otherUserData = await fetchUserInfo(otherUserId);
+
+          convMap.set(convId, {
+            id: convId,
+            auction: a,
+            otherUserId,
+            user: otherUserData,
+            isLocked: !isPaid
+          });
+        }
+
+        // 2. Merge conversations from Firestore `conversations` collection
+        for (const fc of firestoreConvs) {
+          const convId = fc.id;
+          const auctionId = fc.auction_id;
+          const otherUserId = fc.participant_one === userId ? fc.participant_two : fc.participant_one;
+
+          if (convMap.has(convId)) {
+            const existing = convMap.get(convId)!;
+            existing.lastMessage = fc.last_message;
+            existing.lastMessageTime = fc.last_message_at?.toDate ? fc.last_message_at.toDate().toISOString() : fc.last_message_at;
+            continue;
+          }
+
+          // If not yet in map, find matching auction or construct fallback
+          let auction = auctions.find(a => a.id === auctionId);
+          if (!auction && auctionId) {
             try {
-              const userDoc = await getDoc(doc(db, "users", otherUserId));
-              if (userDoc.exists()) {
-                user = { id: userDoc.id, ...userDoc.data() };
+              const aSnap = await getDoc(doc(db, "auctions", auctionId));
+              if (aSnap.exists()) {
+                const aData: any = aSnap.data();
+                auction = {
+                  id: aSnap.id,
+                  title: aData.title || { SLO: "Dražba" },
+                  category: aData.category || "Ostalo",
+                  currentBid: aData.current_price || aData.currentBid || 0,
+                  bidCount: aData.bid_count || aData.bidCount || 0,
+                  itemCount: 1,
+                  images: aData.images || [],
+                  endTime: new Date(aData.end_time || aData.endTime || Date.now()),
+                  location: aData.location || {},
+                  region: aData.region || "Osrednjeslovenska",
+                  description: aData.description || {},
+                  condition: aData.condition || {},
+                  specifications: aData.specifications || {},
+                  biddingHistory: aData.biddingHistory || [],
+                  sellerId: aData.seller_id || aData.sellerId || "unknown",
+                  status: aData.status || "completed",
+                  payment_status: aData.payment_status || "unpaid",
+                  post_auction_status: aData.post_auction_status,
+                  delivery_method: aData.delivery_method
+                } as AuctionItem;
               }
             } catch (e) {}
-            enrichedConvs.push({ id: conv.id, auction, otherUserId, user });
           }
-          
-          setConversations(enrichedConvs);
+
+          if (auction) {
+            // Ensure not postal only
+            const isPostalOnly = auction.delivery_method === "post" ||
+              auction.delivery_method === "shipping" ||
+              (auction as any).selected_delivery === "post" ||
+              (auction as any).selected_delivery === "shipping" ||
+              (auction as any).delivery_option === "shipping_only";
+
+            if (isPostalOnly) continue;
+
+            const otherUserData = await fetchUserInfo(otherUserId);
+            const isPaid = auction.payment_status === "paid" || (auction as any).post_auction_status === "paid";
+
+            convMap.set(convId, {
+              id: convId,
+              auction,
+              otherUserId,
+              user: otherUserData,
+              lastMessage: fc.last_message,
+              lastMessageTime: fc.last_message_at?.toDate ? fc.last_message_at.toDate().toISOString() : fc.last_message_at,
+              isLocked: !isPaid
+            });
+          }
+        }
+
+        if (isMounted) {
+          const list = Array.from(convMap.values());
+          setConversations(list);
           setLoadingChats(false);
-        }, (error) => {
-          console.error("Error fetching conversations:", error);
-          setLoadingChats(false);
-        });
+        }
+      } catch (err) {
+        console.error("Error building conversations:", err);
+        if (isMounted) setLoadingChats(false);
+      }
     };
 
-    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
-        if (user) {
-            setupListener();
-        } else {
-            setLoadingChats(false);
-        }
+    // Listen to Firestore conversations
+    const convRef = collection(db, "conversations");
+    const q = query(convRef, or(where("participant_one", "==", userId), where("participant_two", "==", userId)));
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      buildConversations(data);
+    }, (error) => {
+      console.warn("Firestore conversations snapshot warning:", error);
+      buildConversations([]);
     });
 
     return () => {
-        isMounted = false;
-        unsubscribeAuth();
-        unsubscribe();
+      isMounted = false;
+      unsubscribe();
     };
-  }, [userId, auctions.length]);
+  }, [userId, auctions, fetchUserInfo]);
 
+  // Handle activeChat / selection and auto-activate
   useEffect(() => {
-    if (!userId) return;
-    
-    let unsubscribe = () => {};
+    if (!activeChat) {
+      setActiveConversationId(null);
+      return;
+    }
+
+    const convId = activeChat.startsWith("conv_") ? activeChat : `conv_${activeChat}`;
+    const rawAuctionId = activeChat.replace("conv_", "");
+
+    setActiveConversationId(convId);
+
+    // If conversation not in state, try to find the auction and add it
+    const existing = conversations.find(c => c.id === convId || c.auction.id === rawAuctionId);
+    if (!existing) {
+      const matchAuction = auctions.find(a => a.id === rawAuctionId);
+      if (matchAuction && userId) {
+        const isSeller = matchAuction.sellerId === userId || (matchAuction as any).seller_id === userId;
+        const winnerId = matchAuction.winnerId || (matchAuction as any).winner_id || (matchAuction as any).second_highest_bidder_id;
+        const otherUserId = isSeller ? winnerId : (matchAuction.sellerId || (matchAuction as any).seller_id);
+        if (otherUserId) {
+          fetchUserInfo(otherUserId).then(u => {
+            const isPaid = matchAuction.payment_status === "paid" || (matchAuction as any).post_auction_status === "paid";
+            setConversations(prev => {
+              if (prev.some(c => c.id === convId)) return prev;
+              return [
+                {
+                  id: convId,
+                  auction: matchAuction,
+                  otherUserId,
+                  user: u,
+                  isLocked: !isPaid
+                },
+                ...prev
+              ];
+            });
+          });
+        }
+      }
+    }
+  }, [activeChat, conversations, auctions, userId, fetchUserInfo]);
+
+  // Real-time listener for active conversation messages
+  useEffect(() => {
+    if (!activeConversationId) {
+      setMessages([]);
+      return;
+    }
+
+    setLoadingMessages(true);
     let isMounted = true;
 
-    const setupListener = () => {
-        if (!auth.currentUser) return;
-        const msgRef = collection(db, "messages");
-        const q = query(msgRef, orderBy("created_at", "desc"));
-        
-        unsubscribe = onSnapshot(q, (snapshot) => {
-          if (!isMounted) return;
-          let totalUnread = 0;
-          const counts = {};
-          
-          const allMsgs = snapshot.docs.map(doc => {
-            const data = doc.data();
-            return {
-              id: doc.id,
-              ...data,
-              created_at: data.created_at?.toDate ? data.created_at.toDate().toISOString() : (data.created_at || new Date().toISOString())
-            } as Message;
-          });
-          
-          conversations.forEach(conv => {
-            const unread = allMsgs.filter(m => m.conversation_id === conv.id && m.sender_id !== userId && !m.is_read).length;
-            counts[conv.id] = unread;
-            totalUnread += unread;
-          });
-          
-          setUnreadCounts(counts);
-          setUnreadMessageCount(totalUnread);
-          
-          if (activeConversationId) {
-             const activeMsgs = allMsgs.filter(m => m.conversation_id === activeConversationId).reverse();
-             setMessages(activeMsgs);
-          }
-        }, (error) => {
-           console.error("Error fetching unread messages:", error);
-        });
-    };
+    const msgRef = collection(db, "messages");
+    const q = query(
+      msgRef,
+      where("conversation_id", "==", activeConversationId),
+      orderBy("created_at", "asc"),
+      limit(150)
+    );
 
-    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
-        if (user) {
-            setupListener();
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      if (!isMounted) return;
+      const loadedMsgs: Message[] = snapshot.docs.map(d => {
+        const data = d.data();
+        let createdAtStr = new Date().toISOString();
+        if (data.created_at?.toDate) {
+          createdAtStr = data.created_at.toDate().toISOString();
+        } else if (data.created_at) {
+          createdAtStr = data.created_at;
         }
+
+        // Auto mark as read if received by current user
+        if (data.sender_id !== userId && !data.is_read) {
+          updateDoc(doc(db, "messages", d.id), { is_read: true }).catch(() => {});
+        }
+
+        return {
+          id: d.id,
+          conversation_id: data.conversation_id,
+          sender_id: data.sender_id,
+          content: data.content || "",
+          created_at: createdAtStr,
+          is_read: !!data.is_read,
+          status: "sent"
+        };
+      });
+
+      setMessages(loadedMsgs);
+      setLoadingMessages(false);
+    }, (error) => {
+      console.error("Error loading messages:", error);
+      if (isMounted) setLoadingMessages(false);
     });
 
     return () => {
-        isMounted = false;
-        unsubscribeAuth();
-        unsubscribe();
+      isMounted = false;
+      unsubscribe();
     };
-  }, [userId, conversations, activeConversationId]);
+  }, [activeConversationId, userId]);
 
+  // Global unread messages counter listener
   useEffect(() => {
-    const setupActiveChat = async () => {
-      if (!activeChat || !userId || conversations.length === 0) return;
-      
-      setLoadingMessages(true);
-      const existingConv = conversations.find(c => c.auction.id === activeChat);
-      let convId = existingConv?.id;
-      
-      if (!convId) {
-        // Find other user ID from activeChat auction
-        const auction = auctions.find(a => a.id === activeChat);
-        if (auction) {
-           // Fix finding other user
-           let otherUserId = auction.sellerId;
-           if (auction.sellerId === userId) {
-               otherUserId = auction.winnerId || (auction as any).winner_id;
-               if (!otherUserId && auction.post_auction_status === 'offered_2nd') {
-                   otherUserId = (auction as any).second_highest_bidder_id;
-               }
-               if (!otherUserId && (auction as any).top_bids?.length > 0) {
-                   otherUserId = (auction as any).top_bids[0].user_id;
-               }
-           }
-           if (otherUserId) {
-               try {
-                   const res = await addDoc(collection(db, "conversations"), {
-                       auction_id: activeChat,
-                       participant_one: userId,
-                       participant_two: otherUserId,
-                       created_at: serverTimestamp()
-                   });
-                   convId = res.id;
-               } catch (e) { console.error("Error creating conv", e); }
-           }
-        }
-      }
-      
-      if (convId) {
-         setActiveConversationId(convId);
-      }
-      setLoadingMessages(false);
-    };
-    setupActiveChat();
-  }, [activeChat, userId, conversations, auctions]);
+    if (!userId || conversations.length === 0) {
+      setUnreadMessageCount(0);
+      setUnreadCounts({});
+      return;
+    }
 
+    const convIds = conversations.map(c => c.id);
+    const msgRef = collection(db, "messages");
+    const q = query(msgRef, where("is_read", "==", false), limit(200));
+
+    const unsub = onSnapshot(q, (snapshot) => {
+      const counts: Record<string, number> = {};
+      let total = 0;
+
+      snapshot.docs.forEach(d => {
+        const m = d.data();
+        if (m.sender_id !== userId && convIds.includes(m.conversation_id)) {
+          counts[m.conversation_id] = (counts[m.conversation_id] || 0) + 1;
+          total += 1;
+        }
+      });
+
+      setUnreadCounts(counts);
+      setUnreadMessageCount(total);
+    }, (e) => {
+      console.warn("Unread snapshot error:", e);
+    });
+
+    return () => unsub();
+  }, [userId, conversations]);
+
+  // Send message function with locked verification
   const sendMessage = async (content: string, prefix?: string) => {
     if (!activeConversationId || !userId) return;
+
+    // Find current conversation
+    const currentConv = conversations.find(c => c.id === activeConversationId || c.auction.id === activeChat);
+    if (!currentConv) {
+      toast.error("Pogovora ni mogoče najti.");
+      return;
+    }
+
+    // Check payment status lock!
+    const isPaid = currentConv.auction.payment_status === "paid" ||
+      (currentConv.auction as any).post_auction_status === "paid";
+
+    if (!isPaid) {
+      toast.error("Klepet je mogoč, ko je plačilo uspešno izvedeno.");
+      return;
+    }
+
+    const rawContent = (prefix ? prefix + content : content).trim();
+    if (!rawContent) return;
+
     setIsSending(true);
-    const finalContent = prefix ? prefix + content : content;
     try {
-       await addDoc(collection(db, "messages"), {
-         conversation_id: activeConversationId,
-         sender_id: userId,
-         content: finalContent,
-         is_read: false,
-         created_at: serverTimestamp()
-       });
-    } catch (e) {
-       console.error("Error sending message:", e);
+      // 1. Ensure conversation document exists in Firestore
+      await setDoc(doc(db, "conversations", activeConversationId), {
+        id: activeConversationId,
+        auction_id: currentConv.auction.id,
+        participant_one: userId,
+        participant_two: currentConv.otherUserId,
+        last_message: rawContent,
+        last_message_at: serverTimestamp(),
+        updated_at: serverTimestamp()
+      }, { merge: true });
+
+      // 2. Add message document
+      await addDoc(collection(db, "messages"), {
+        conversation_id: activeConversationId,
+        sender_id: userId,
+        content: rawContent,
+        is_read: false,
+        created_at: serverTimestamp()
+      });
+    } catch (e: any) {
+      console.error("Error sending message:", e);
+      toast.error("Napaka pri pošiljanju sporočila: " + (e.message || ""));
     } finally {
-       setIsSending(false);
+      setIsSending(false);
+    }
+  };
+
+  const uploadImage = async (file: File) => {
+    if (!activeConversationId || !userId) return;
+    const currentConv = conversations.find(c => c.id === activeConversationId);
+    const isPaid = currentConv?.auction?.payment_status === "paid" ||
+      (currentConv?.auction as any)?.post_auction_status === "paid";
+
+    if (!isPaid) {
+      toast.error("Klepet je mogoč, ko je plačilo uspešno izvedeno.");
+      return;
+    }
+
+    try {
+      setIsSending(true);
+      // Convert to base64 data url for instant inline image sharing
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const base64 = reader.result as string;
+        if (base64) {
+          await sendMessage(`[IMAGE]${base64}`);
+        }
+      };
+      reader.readAsDataURL(file);
+    } catch (e) {
+      console.error("Error uploading image:", e);
+      toast.error("Napaka pri nalaganju slike.");
+    } finally {
+      setIsSending(false);
     }
   };
 
   const markAsRead = async (convId: string) => {
-    console.log("Marking as read", convId);
-  };
-
-  const uploadImage = async (file: File) => {
-    console.log("Upload image not fully implemented in Firebase mock", file);
+    try {
+      const q = query(
+        collection(db, "messages"),
+        where("conversation_id", "==", convId),
+        where("is_read", "==", false)
+      );
+      const snap = await getDoc(doc(db, "conversations", convId));
+      if (snap.exists()) {
+        // Handled reactively on message snapshot
+      }
+    } catch (e) {}
   };
 
   const retryMessage = async () => {};
-  const setTyping = () => {};
+  const setTyping = (_isTyping: boolean) => {};
   const checkAndRecoverHealth = () => {};
 
   return (
