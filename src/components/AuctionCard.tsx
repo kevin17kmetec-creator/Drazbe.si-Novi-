@@ -76,9 +76,9 @@ export const AuctionCard: React.FC<{
   };
 
   // Border logic
-  let borderClass = "border-white/5";
+  let borderClass = "border-transparent";
   if (hasBid) {
-    borderClass = isWinner ? "border-green-500 border-2 ring-4 ring-green-500/20" : "border-red-500 border-2 ring-4 ring-red-500/20";
+    borderClass = isWinner ? "border-green-500 border-2 ring-2 ring-green-500/20" : "border-red-500 border-2 ring-2 ring-red-500/20";
   }
 
   return (

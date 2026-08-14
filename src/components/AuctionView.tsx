@@ -276,7 +276,7 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                 </div>
                 
                 <div className="text-center border-r border-white/10 pt-4 border-t">
-                  <p className="text-2xl font-black text-green-400">{isWinner ? `€ ${item.hiddenMaxBid || item.hidden_max_bid || '-'}` : '-'}</p>
+                  <p className="text-2xl font-black text-green-400">{isWinner ? `€ ${item.current_proxy_bid?.amount || item.currentProxyBid?.amount || item.hiddenMaxBid || item.hidden_max_bid || '-'}` : '-'}</p>
                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1 flex items-center justify-center gap-1"><Lock size={10}/> {t('myMaxBid')}</p>
                 </div>
                 <div className="text-center pt-4 border-t border-white/10">
@@ -284,6 +284,11 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1">{t('currentBid')}</p>
                 </div>
               </div>
+              {!isSeller && !isEnded && (
+              <p className="text-[10px] font-bold text-slate-400 text-center mb-4 leading-relaxed bg-white/5 p-3 rounded-xl">
+                  Vnesite najvišji znesek, ki ste ga pripravljeni plačati. Vaša maksimalna ponudba ostane skrivnost. Sistem bo samodejno višal ponudbo v vašem imenu.
+              </p>
+              )}
 
               {error && <div className="mb-4 p-3 bg-red-500/10 text-red-400 rounded-xl font-bold text-[10px] uppercase tracking-widest text-center border border-red-500/20">{error}</div>}
               {bidSuccess && <div className="mb-4 p-3 bg-green-500/10 text-green-400 rounded-xl font-bold text-[10px] uppercase tracking-widest text-center border border-green-500/20">{t('bidSuccessMsg')}</div>}
@@ -335,7 +340,7 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
               </div>
             </div>
 
-            {!isEnded && (
+            {isEnded && (isSeller || isWinner) && (
             <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
               <div className="p-4 border-b border-slate-100 bg-slate-50">
                 <h3 className="text-[#0A1128] font-black uppercase tracking-widest text-xs">{t('biddingHistory')}</h3>
@@ -374,7 +379,7 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
             )}
           </div>
 
-          <div className="lg:col-span-4 order-4">
+          <div className="lg:col-span-4 order-4 hidden">
             <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
               <div className="p-4 border-b border-slate-100 bg-slate-50">
                 <h3 className="text-[#0A1128] font-black uppercase tracking-widest text-xs">{t('information')}</h3>

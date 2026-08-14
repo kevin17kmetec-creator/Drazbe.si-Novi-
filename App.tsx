@@ -2620,6 +2620,41 @@ const MainApp: React.FC = () => {
             if (amount <= currentPrice) {
                 throw new Error("Bid must be higher than current price");
             }
+
+            // PROXY BIDDING LOGIC
+            // 'amount' is the max proxy bid from the user.
+            // Check if there is an existing proxy bid.
+            const currentProxy = data.current_proxy_bid;
+            let newCurrentPrice = currentPrice;
+            let newWinnerId = userData.id;
+            let newProxyBid = { user_id: userData.id, amount: amount };
+            
+            // Standard increment (assuming 10 for simplicity, or we can fetch a helper)
+            const increment = 10;
+            
+            if (currentProxy && currentProxy.user_id !== userData.id) {
+                if (amount > currentProxy.amount) {
+                    // New user outbids old proxy
+                    newCurrentPrice = Math.min(amount, currentProxy.amount + increment);
+                } else if (amount === currentProxy.amount) {
+                    // Tie goes to earlier proxy
+                    newCurrentPrice = amount;
+                    newWinnerId = currentProxy.user_id;
+                    newProxyBid = currentProxy;
+                } else {
+                    // New user did not outbid old proxy
+                    newCurrentPrice = Math.min(currentProxy.amount, amount + increment);
+                    newWinnerId = currentProxy.user_id;
+                    newProxyBid = currentProxy;
+                }
+            } else if (currentProxy && currentProxy.user_id === userData.id) {
+                // User is just increasing their proxy max bid, current price doesn't change unless they are outbidding themselves (which is impossible here)
+                newCurrentPrice = currentPrice; 
+                // wait, if they are just updating proxy, we just update it
+            } else {
+                 // No previous proxy, or just starting. New price is current price + increment, or amount if less
+                 newCurrentPrice = Math.min(amount, currentPrice + increment);
+            }
             
             const endTimeStr = data.end_time || data.endTime;
             const endTime = endTimeStr ? new Date(endTimeStr).getTime() : 0;
