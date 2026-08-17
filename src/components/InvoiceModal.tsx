@@ -33,7 +33,8 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
       const canvas = await html2canvas(invoiceRef.current, {
         scale: 2,
         useCORS: true,
-        logging: false
+        logging: false,
+        ignoreElements: (el) => el.tagName === 'IMG' // Prevent CORS issues from images
       });
       const imgData = canvas.toDataURL('image/jpeg', 1.0);
       const pdf = new jsPDF({
@@ -60,8 +61,24 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
   const sellerName = seller.company_name || seller.companyName || `${seller.first_name || seller.firstName || ''} ${seller.last_name || seller.lastName || ''}`.trim() || 'Prodajalec';
   const buyerName = buyer.company_name || buyer.companyName || `${buyer.first_name || buyer.firstName || ''} ${buyer.last_name || buyer.lastName || ''}`.trim() || 'Kupec';
 
-  const sellerAddress = seller.location?.address || seller.location?.city || 'Neznan naslov';
-  const buyerAddress = buyer.location?.address || buyer.location?.city || 'Neznan naslov';
+  const getFullAddress = (user: any) => {
+    if (!user) return 'Neznan naslov';
+    const street = user.address || user.street_address || user.location?.address;
+    const postal = user.postal_code || user.postcode || user.location?.zip;
+    const city = user.city || user.place || user.location?.city;
+    
+    if (street && postal && city) {
+      return `${street}, ${postal} ${city}`;
+    } else if (street && city) {
+      return `${street}, ${city}`;
+    } else if (city) {
+      return city;
+    }
+    return 'Neznan naslov';
+  };
+
+  const sellerAddress = getFullAddress(seller);
+  const buyerAddress = getFullAddress(buyer);
 
   const itemPrice = auction.currentBid || 0;
 
@@ -114,64 +131,66 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
           {/* Actual Invoice HTML to be captured */}
           <div 
             ref={invoiceRef}
-            className="w-full max-w-[210mm] bg-white p-12 shadow-md shrink-0 text-[#0A1128]"
-            style={{ minHeight: '297mm' }}
+            className="w-full max-w-[210mm] p-12 shadow-md shrink-0"
+            style={{ minHeight: '297mm', backgroundColor: '#FFFFFF', color: '#0A1128', fontFamily: 'sans-serif' }}
           >
             {/* Invoice Header */}
             <div className="flex justify-between items-start mb-16">
               <div>
-                <h1 className="text-4xl font-black tracking-tighter mb-2 uppercase">RAČUN</h1>
-                <p className="text-slate-500 font-bold">Številka: {invoiceNumber}</p>
-                <p className="text-slate-500 font-bold">Datum izdaje: {paymentDate}</p>
-                <p className="text-slate-500 font-bold">Datum opravljene storitve/dobave: {paymentDate}</p>
+                <h1 className="text-4xl font-black tracking-tighter mb-2 uppercase" style={{ color: '#0A1128' }}>RAČUN</h1>
+                <p className="font-bold" style={{ color: '#64748B' }}>Številka: {invoiceNumber}</p>
+                <p className="font-bold" style={{ color: '#64748B' }}>Datum izdaje: {paymentDate}</p>
+                <p className="font-bold" style={{ color: '#64748B' }}>Datum opravljene storitve/dobave: {paymentDate}</p>
               </div>
               <div className="text-right">
-                <div className="text-2xl font-black tracking-tighter italic text-slate-300">dražbe.si</div>
-                <p className="text-xs text-slate-400 font-bold mt-1">Platforma za posredovanje</p>
+                <div className="text-2xl font-black tracking-tighter italic" style={{ color: '#CBD5E1' }}>dražbe.si</div>
+                <p className="text-xs font-bold mt-1" style={{ color: '#94A3B8' }}>Platforma za posredovanje</p>
               </div>
             </div>
 
             <div className="flex justify-between mb-16">
               {/* Seller details */}
               <div className="w-1/2 pr-4">
-                <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-2 border-b pb-1">Izdajatelj (Prodajalec)</h3>
-                <p className="font-bold text-lg">{sellerName}</p>
-                <p className="text-slate-600">{sellerAddress}</p>
-                {seller.taxId && <p className="text-slate-600 mt-1">Davčna številka: {seller.taxId}</p>}
+                <h3 className="text-xs font-black uppercase tracking-widest mb-2 border-b pb-1" style={{ color: '#94A3B8', borderColor: '#E2E8F0' }}>Izdajatelj (Prodajalec)</h3>
+                <p className="font-bold text-lg" style={{ color: '#0A1128' }}>{sellerName}</p>
+                <p style={{ color: '#475569' }}>{sellerAddress}</p>
+                {seller.taxId && <p className="mt-1" style={{ color: '#475569' }}>Davčna številka: {seller.taxId}</p>}
+                {seller.vat_id && <p className="mt-1" style={{ color: '#475569' }}>Davčna številka: {seller.vat_id}</p>}
               </div>
 
               {/* Buyer details */}
               <div className="w-1/2 pl-4">
-                <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-2 border-b pb-1">Prejemnik (Kupec)</h3>
-                <p className="font-bold text-lg">{buyerName}</p>
-                <p className="text-slate-600">{buyerAddress}</p>
-                {buyer.taxId && <p className="text-slate-600 mt-1">Davčna številka: {buyer.taxId}</p>}
+                <h3 className="text-xs font-black uppercase tracking-widest mb-2 border-b pb-1" style={{ color: '#94A3B8', borderColor: '#E2E8F0' }}>Prejemnik (Kupec)</h3>
+                <p className="font-bold text-lg" style={{ color: '#0A1128' }}>{buyerName}</p>
+                <p style={{ color: '#475569' }}>{buyerAddress}</p>
+                {buyer.taxId && <p className="mt-1" style={{ color: '#475569' }}>Davčna številka: {buyer.taxId}</p>}
+                {buyer.vat_id && <p className="mt-1" style={{ color: '#475569' }}>Davčna številka: {buyer.vat_id}</p>}
               </div>
             </div>
 
             {/* Items Table */}
             <table className="w-full mb-12 border-collapse">
               <thead>
-                <tr className="border-b-2 border-[#0A1128]">
-                  <th className="text-left py-3 text-sm font-black uppercase tracking-widest">Opis</th>
-                  <th className="text-center py-3 text-sm font-black uppercase tracking-widest w-24">Količina</th>
-                  <th className="text-right py-3 text-sm font-black uppercase tracking-widest w-32">Cena (€)</th>
-                  <th className="text-right py-3 text-sm font-black uppercase tracking-widest w-32">Skupaj (€)</th>
+                <tr style={{ borderBottom: '2px solid #0A1128' }}>
+                  <th className="text-left py-3 text-sm font-black uppercase tracking-widest" style={{ color: '#0A1128' }}>Opis</th>
+                  <th className="text-center py-3 text-sm font-black uppercase tracking-widest w-24" style={{ color: '#0A1128' }}>Količina</th>
+                  <th className="text-right py-3 text-sm font-black uppercase tracking-widest w-32" style={{ color: '#0A1128' }}>Cena (€)</th>
+                  <th className="text-right py-3 text-sm font-black uppercase tracking-widest w-32" style={{ color: '#0A1128' }}>Skupaj (€)</th>
                 </tr>
               </thead>
               <tbody>
-                <tr className="border-b border-slate-200">
+                <tr style={{ borderBottom: '1px solid #E2E8F0' }}>
                   <td className="py-4">
-                    <p className="font-bold">{auction.title?.SLO || auction.title?.EN || 'Dražba'}</p>
-                    <p className="text-sm text-slate-500">ID dražbe: {auction.id}</p>
+                    <p className="font-bold" style={{ color: '#0A1128' }}>{auction.title?.SLO || auction.title?.EN || 'Dražba'}</p>
+                    <p className="text-sm" style={{ color: '#64748B' }}>ID dražbe: {auction.id}</p>
                   </td>
-                  <td className="py-4 text-center">1</td>
-                  <td className="py-4 text-right">{itemPrice.toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                  <td className="py-4 text-right font-bold">{itemPrice.toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                  <td className="py-4 text-center" style={{ color: '#0A1128' }}>1</td>
+                  <td className="py-4 text-right" style={{ color: '#0A1128' }}>{itemPrice.toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                  <td className="py-4 text-right font-bold" style={{ color: '#0A1128' }}>{itemPrice.toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                 </tr>
                 {/* Note about delivery */}
-                <tr className="border-b border-slate-200 bg-slate-50/50">
-                  <td className="py-3 text-sm italic text-slate-500" colSpan={4}>
+                <tr style={{ borderBottom: '1px solid #E2E8F0', backgroundColor: '#F8FAFC' }}>
+                  <td className="py-3 text-sm italic" style={{ color: '#64748B' }} colSpan={4}>
                     Način dostave: {auction.delivery_method === 'post' ? 'Pošiljanje po pošti' : auction.delivery_method === 'pickup' ? 'Osebni prevzem' : 'Po dogovoru'}
                   </td>
                 </tr>
@@ -181,15 +200,15 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
             {/* Totals */}
             <div className="flex justify-end mb-16">
               <div className="w-64">
-                <div className="flex justify-between py-2 border-b border-slate-200 text-sm">
-                  <span className="text-slate-500">Znesek brez DDV:</span>
-                  <span>{itemPrice.toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>
+                <div className="flex justify-between py-2 text-sm" style={{ borderBottom: '1px solid #E2E8F0' }}>
+                  <span style={{ color: '#64748B' }}>Znesek brez DDV:</span>
+                  <span style={{ color: '#0A1128' }}>{itemPrice.toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>
                 </div>
-                <div className="flex justify-between py-2 border-b border-slate-200 text-sm">
-                  <span className="text-slate-500">DDV (0%):</span>
-                  <span>0,00 €</span>
+                <div className="flex justify-between py-2 text-sm" style={{ borderBottom: '1px solid #E2E8F0' }}>
+                  <span style={{ color: '#64748B' }}>DDV (0%):</span>
+                  <span style={{ color: '#0A1128' }}>0,00 €</span>
                 </div>
-                <div className="flex justify-between py-4 text-lg font-black uppercase">
+                <div className="flex justify-between py-4 text-lg font-black uppercase" style={{ color: '#0A1128' }}>
                   <span>Za plačilo:</span>
                   <span>{itemPrice.toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>
                 </div>
@@ -197,8 +216,8 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
             </div>
 
             {/* Legal / Footer notes */}
-            <div className="text-xs text-slate-500 mt-auto pt-8 border-t border-slate-200">
-              <p className="mb-2"><strong>Izjava o DDV:</strong> Vse cene so končne. Razen če je prodajalec pravna oseba in zavezanec za DDV ter je DDV izrecno navedel, se DDV ne obračunava (sistem C2C ali oprostitev).</p>
+            <div className="text-xs mt-auto pt-8" style={{ color: '#64748B', borderTop: '1px solid #E2E8F0' }}>
+              <p className="mb-2"><strong style={{ color: '#475569' }}>Izjava o DDV:</strong> Vse cene so končne. Razen če je prodajalec pravna oseba in zavezanec za DDV ter je DDV izrecno navedel, se DDV ne obračunava (sistem C2C ali oprostitev).</p>
               <p>Platforma dražbe.si nastopa izključno kot tehnološki posrednik in ni stranka v prodajni pogodbi. Ta račun služi kot potrdilo o sklenjenem poslu in plačilu med prodajalcem in kupcem, generirano samodejno s strani sistema po uspešnem zaključku dražbe.</p>
             </div>
 
