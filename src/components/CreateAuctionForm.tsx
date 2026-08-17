@@ -517,22 +517,29 @@ export const CreateAuctionForm: React.FC<{
                             {formData.delivery_option !== 'pickup_only' && (
                                 <div className="mt-4 pt-4 border-t border-slate-200 space-y-4">
                                     <label className="text-[10px] font-black uppercase text-slate-400">Strošek pošiljanja</label>
-                                    <div className="flex flex-col sm:flex-row gap-6">
-                                        <label className="flex items-center gap-2 cursor-pointer">
+                                    <div className="flex flex-col gap-4">
+                                        <label className="flex items-center gap-2 cursor-pointer w-fit">
                                             <input type="radio" name="shipping_fee_type" value="calculated" checked={formData.shipping_fee_type === 'calculated'} onChange={(e) => setFormData({...formData, shipping_fee_type: e.target.value})} className="accent-[#FEBA4F] w-4 h-4" />
                                             <span className="text-xs font-bold text-[#0A1128]">Po obračunu (račun pošte)</span>
                                         </label>
-                                        <label className="flex items-center gap-2 cursor-pointer">
-                                            <input type="radio" name="shipping_fee_type" value="fixed" checked={formData.shipping_fee_type === 'fixed'} onChange={(e) => setFormData({...formData, shipping_fee_type: e.target.value})} className="accent-[#FEBA4F] w-4 h-4" />
-                                            <span className="text-xs font-bold text-[#0A1128]">Fiksna poštnina</span>
-                                        </label>
-                                    </div>
-                                    
-                                    {formData.shipping_fee_type === 'fixed' && (
-                                        <div className="pt-2">
-                                            <input type="number" min="0" step="0.01" value={formData.shipping_cost} onChange={(e) => setFormData({...formData, shipping_cost: e.target.value})} className="w-full sm:w-1/2 bg-white border border-slate-200 rounded-xl py-3 px-4 font-bold focus:ring-2 focus:ring-[#FEBA4F] outline-none" placeholder="Znesek v € (npr. 5.00)" />
+                                        <div className="flex flex-col gap-3">
+                                            <label className="flex items-center gap-2 cursor-pointer w-fit">
+                                                <input type="radio" name="shipping_fee_type" value="fixed" checked={formData.shipping_fee_type === 'fixed'} onChange={(e) => setFormData({...formData, shipping_fee_type: e.target.value})} className="accent-[#FEBA4F] w-4 h-4" />
+                                                <span className="text-xs font-bold text-[#0A1128]">Fiksna poštnina</span>
+                                            </label>
+                                            
+                                            {formData.shipping_fee_type === 'fixed' && (
+                                                <div className="pl-6 w-full sm:w-64 relative">
+                                                    <div className="relative flex items-stretch overflow-hidden rounded-xl border border-slate-200 focus-within:ring-2 focus-within:ring-[#FEBA4F] focus-within:border-[#FEBA4F] transition-all">
+                                                        <input type="number" min="0" step="0.01" value={formData.shipping_cost} onChange={(e) => setFormData({...formData, shipping_cost: e.target.value})} className="w-full bg-white py-2.5 px-4 text-sm font-bold outline-none" placeholder="Znesek (npr. 5.00)" />
+                                                        <div className="bg-slate-100 border-l border-slate-200 px-4 py-2.5 text-slate-500 font-bold text-sm flex items-center select-none pointer-events-none">
+                                                            €
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
                                         </div>
-                                    )}
+                                    </div>
                                 </div>
                             )}
                         </div>

@@ -1463,8 +1463,15 @@ const MainApp: React.FC = () => {
               updateData.profile_picture_url = url;
               console.log("Profile picture uploaded:", url);
             } catch (uploadErr) {
-              console.error("Image upload failed:", uploadErr);
-              throw new Error("IMAGE_UPLOAD_FAILED");
+              console.error("Image upload failed, falling back to base64:", uploadErr);
+              // Fallback: Use the compressed file as base64 string directly in Firestore
+              const compressedBase64 = await new Promise<string>((resolve, reject) => {
+                  const reader = new FileReader();
+                  reader.readAsDataURL(compressedFile);
+                  reader.onloadend = () => resolve(reader.result as string);
+                  reader.onerror = error => reject(error);
+              });
+              updateData.profile_picture_url = compressedBase64;
             }
         } else if (!data.profilePicture) {
           updateData.profile_picture_url = null;
@@ -1885,10 +1892,10 @@ const MainApp: React.FC = () => {
               }}
             >
               {auctions
-                .filter((a) => bidAuctionIds.includes(a.id))
                 .filter(
                   (a) =>
-                    a.status === "active" && new Date(a.endTime) > new Date(),
+                    a.status === "active" && new Date(a.endTime) > new Date() &&
+                    ((a.top_bids && a.top_bids.some((b: any) => b.user_id === userData.id)) || bidAuctionIds.includes(a.id)),
                 )
                 .map((item) => (
                   <AuctionCard
@@ -2471,16 +2478,14 @@ const MainApp: React.FC = () => {
         </div>
       );
       break;
-    case "myArchive":
-      // Filter: seller is current user, auction has ended, NO winner AND it ended less than 30 days ago
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      const currentUserArchive = auctions.filter(
+    case "myUnsold":
+      // Filter: seller is current user, auction has ended AND (no winner OR unpaid/unsold status)
+      const currentUserUnsold = auctions.filter(
         (a) =>
           (a.sellerId === userData.id ||
             (a as any).seller_id === userData.id) &&
           (a.status === "completed" || new Date(a.endTime) <= new Date()) &&
-          (a.post_auction_status === "unsold" || a.post_auction_status === "archived" || a.post_auction_status === "failed_2nd" || a.post_auction_status === "rejected_2nd" || (!a.winnerId && !(a as any).winner_id))
+          (a.post_auction_status === "unsold" || a.post_auction_status === "unpaid" || a.post_auction_status === "failed_2nd" || a.post_auction_status === "rejected_2nd" || (!a.winnerId && !(a as any).winner_id))
       );
       content = (
         <div className="max-w-[1600px] mx-auto py-16 px-6 animate-in">
@@ -2497,24 +2502,23 @@ const MainApp: React.FC = () => {
               </div>
               <div>
                 <h2 className="text-4xl font-black uppercase tracking-tighter text-[#0A1128]">
-                  Arhiv dražb
+                  {t('unsoldAuctions')}
                 </h2>
                 <p className="text-slate-400 font-bold mt-2">
-                  Dražbe, na katere ni bilo ponudb. Po 30 dneh bodo samodejno
-                  izbrisane.
+                  Dražbe, ki se niso uspešno zaključile s prodajo.
                 </p>
               </div>
             </div>
 
             <div className="space-y-6">
-              {currentUserArchive.length === 0 ? (
+              {currentUserUnsold.length === 0 ? (
                 <div className="py-12 text-center">
                   <p className="text-slate-500 font-black uppercase tracking-widest text-lg">
-                    Arhiv je prazen
+                    Seznam je prazen
                   </p>
                 </div>
               ) : (
-                currentUserArchive.map((soldItem) => {
+                currentUserUnsold.map((soldItem) => {
                   return (
                     <div
                       key={soldItem.id}
