@@ -109,11 +109,27 @@ import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 // --- CONFIGURATION ---
 
 import { translations } from "./src/lib/translations";
+import { REGION_ALIAS_MAP } from "./src/components/SloveniaMap";
 import {
   getIncrement,
   formatSeconds,
   calculateMarginalPlatformFee,
 } from "./src/lib/utils";
+
+const matchesSelectedRegion = (itemRegion: string | undefined, selected: string | null): boolean => {
+  if (!selected) return true;
+  if (!itemRegion) return false;
+  if (itemRegion === selected) return true;
+  const itemLower = itemRegion.toLowerCase();
+  const selLower = selected.toLowerCase();
+  if (itemLower === selLower) return true;
+  const itemAlias = REGION_ALIAS_MAP[itemLower];
+  const selAlias = REGION_ALIAS_MAP[selLower];
+  if (itemAlias && itemAlias.enumVal.toLowerCase() === selLower) return true;
+  if (selAlias && selAlias.enumVal.toLowerCase() === itemLower) return true;
+  if (itemAlias && selAlias && itemAlias.enumVal === selAlias.enumVal) return true;
+  return false;
+};
 
 // --- MAIN APP COMPONENT ---
 
@@ -829,6 +845,7 @@ const MainApp: React.FC = () => {
     profile_picture_url: "",
     first_name: "",
     last_name: "",
+    wallet_balance: 0,
   });
 
   const lastSessionCheckRef = useRef(0);
@@ -884,7 +901,8 @@ const MainApp: React.FC = () => {
           stripe_onboarding_complete: false,
           profile_picture_url: "",
           first_name: "",
-          last_name: ""
+          last_name: "",
+          wallet_balance: 0
         } as any);
       }
       setIsAuthLoading(false);
@@ -1480,7 +1498,7 @@ const MainApp: React.FC = () => {
       filtered = filtered.filter((item) => {
         if (item.status === "completed" || new Date(item.endTime) <= now)
           return false;
-        if (selectedRegion && item.region !== selectedRegion) return false;
+        if (selectedRegion && !matchesSelectedRegion(item.region, selectedRegion)) return false;
         if (selectedCategory && item.category !== selectedCategory)
           return false;
         if (searchQuery) {
@@ -2632,7 +2650,7 @@ const MainApp: React.FC = () => {
               ref={auctionsSectionRef}
               className="flex flex-col md:flex-row md:items-center justify-between gap-8 mb-12 scroll-mt-32"
             >
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-4 flex-wrap">
                 <div className="bg-[#FEBA4F] w-2.5 h-10 rounded-full shadow-lg"></div>
                 <h2 className="text-3xl font-black text-[#0A1128] uppercase tracking-tighter italic">
                   {activeView === "lastChance"
@@ -2645,6 +2663,15 @@ const MainApp: React.FC = () => {
                           ? `Rezultati: "${searchQuery}"`
                           : t("activeAuctions")}
                 </h2>
+                {selectedRegion && (
+                  <button
+                    onClick={() => setSelectedRegion(null)}
+                    className="flex items-center gap-1.5 bg-[#0A1128] text-[#FEBA4F] hover:bg-[#FEBA4F] hover:text-[#0A1128] text-xs font-black uppercase px-3 py-1.5 rounded-full transition-all border border-[#FEBA4F]/30"
+                  >
+                    <span>{t("clearFilter") || "Počisti filter"}</span>
+                    <X size={14} />
+                  </button>
+                )}
               </div>
               <div className="flex items-center gap-4">
                 <span className="text-[10px] font-black uppercase text-slate-400">
@@ -3152,6 +3179,7 @@ const MainApp: React.FC = () => {
           userProfilePicture={
             userData.profile_picture_url || userData.profilePicture
           }
+          userWalletBalance={userData.wallet_balance || 0}
         />
         <main>{content}</main>
         {activeView === "grid" && <Footer t={t} onLegal={setActiveLegal} />}
@@ -3428,6 +3456,7 @@ const MainApp: React.FC = () => {
             onClose={() => setIsCheckoutOpen(false)}
             onSuccess={checkoutData.onSuccess}
             metadata={checkoutData.metadata}
+            userWalletBalance={userData.wallet_balance || 0}
           />
         )}
         {showBackToTop && (

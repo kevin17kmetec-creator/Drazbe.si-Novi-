@@ -32,7 +32,7 @@ const AvatarImage: React.FC<{ src?: string; className: string; fallbackSize?: nu
       </div>
     );
   }
-  return <img src={src} className={`${className} flex-shrink-0`} onError={() => setError(true)} alt="Avatar" />;
+  return <img src={src} className={`${className} flex-shrink-0`} onError={() => setError(true)} alt="Avatar" referrerPolicy="no-referrer" />;
 };
 
 export const MessagesView: React.FC<{

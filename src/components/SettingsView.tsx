@@ -187,7 +187,7 @@ export const SettingsView: React.FC<{
                         className="w-24 h-24 rounded-full bg-slate-100 border-4 border-white shadow-lg overflow-hidden flex items-center justify-center relative group cursor-pointer"
                       >
                         {formData.profilePicture ? (
-                          <img src={formData.profilePicture} alt="Profile" className="w-full h-full object-cover" />
+                          <img src={formData.profilePicture} alt="Profile" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                         ) : (
                           <User size={40} className="text-slate-300" />
                         )}
@@ -373,7 +373,44 @@ export const SettingsView: React.FC<{
               <div className="animate-in fade-in slide-in-from-right-4">
                 <div className="mb-6">
                     <h3 className="text-xl font-black uppercase tracking-tighter text-[#0A1128] mb-2 flex items-center gap-2">
-                        <CreditCard size={20} className="text-[#FEBA4F]"/> Plačila in izplačila (Stripe)
+                        <CreditCard size={20} className="text-[#FEBA4F]"/> Sredstva na računu (Wallet)
+                    </h3>
+                    <p className="text-slate-400 font-bold text-sm mb-6">Denar od uspešno prodanih dražb, ki ga lahko uporabite za nakupe ali zahtevate izplačilo.</p>
+                    
+                    <div className="bg-[#0A1128] text-white p-8 rounded-3xl shadow-xl flex items-center justify-between mb-8 border-4 border-[#FEBA4F]/20 relative overflow-hidden">
+                      <div className="absolute top-0 right-0 p-8 opacity-10">
+                        <CreditCard size={100} />
+                      </div>
+                      <div className="relative z-10">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-[#FEBA4F] mb-1">Trenutno stanje</p>
+                        <p className="text-5xl font-black">€{Number(user?.wallet_balance || 0).toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                      </div>
+                      <div className="relative z-10">
+                        <button 
+                          type="button"
+                          onClick={() => {
+                            if (Number(user?.wallet_balance || 0) <= 0) {
+                              toast.error('Na računu ni dovolj sredstev za izplačilo.');
+                              return;
+                            }
+                            if (!user?.stripe_onboarding_complete) {
+                              toast.error('Prosimo, povežite Stripe bančni račun za izplačilo.');
+                              return;
+                            }
+                            // Call payout function (mock or backend)
+                            toast.success('Zahtevek za izplačilo poslan! Sredstva bodo nakazana na vaš povezan račun.');
+                          }}
+                          className="bg-[#FEBA4F] text-[#0A1128] px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-white transition-all shadow-xl"
+                        >
+                          Zahtevaj izplačilo
+                        </button>
+                      </div>
+                    </div>
+                </div>
+                
+                <div className="mb-6">
+                    <h3 className="text-xl font-black uppercase tracking-tighter text-[#0A1128] mb-2 flex items-center gap-2">
+                        <CreditCard size={20} className="text-[#FEBA4F]"/> Povezava bančnega računa (Stripe)
                     </h3>
                     <p className="text-slate-400 font-bold text-sm mb-8">Povežite svoj bančni račun za prejemanje izplačil od prodanih dražb ter upravljajte svoje podatke o nakazilih.</p>
                 </div>

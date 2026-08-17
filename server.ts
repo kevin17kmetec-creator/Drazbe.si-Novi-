@@ -289,12 +289,27 @@ async function startServer() {
         if (txError) throw txError;
 
         // 5. Update Auction Status to mark as paid
-        let auctionUpdateError = null; try { await updateDoc(doc(db, 'auctions', auction_id), { 
+        let auctionUpdateError = null; 
+        let currentPrice = amountTotal;
+        const feePct = Number(fee_percentage) || 0;
+        if (feePct > 0) {
+            currentPrice = amountTotal / (1 + (feePct / 100));
+        }
+
+        try { 
+            await updateDoc(doc(db, 'auctions', auction_id), { 
                 status: 'completed', payment_status: 'paid', post_auction_status: 'paid', paid_at: new Date().toISOString()
-            }); } catch(e) { auctionUpdateError = e; }
+            }); 
+            
+            // Credit seller's wallet
+            const currentWallet = Number(seller.wallet_balance) || 0;
+            await updateDoc(doc(db, 'users', seller_id), {
+                wallet_balance: currentWallet + currentPrice
+            });
+        } catch(e) { auctionUpdateError = e; }
             
         if (auctionUpdateError) {
-            console.error('Error updating auction status:', auctionUpdateError);
+            console.error('Error updating auction status or wallet:', auctionUpdateError);
         }
 
         // Track buyer spending for EU AML (10k annual limit) & purchase history
@@ -1061,9 +1076,26 @@ async function startServer() {
       const amountTotalInCents = Math.round(amount * 100);
       const platformFeeInCents = Math.round(platformFee * 100);
 
-      // Execute internal wallet payment
-      let rpcData = null, rpcError = null; /* RPC call execute_internal_wallet_payment omitted for firebase */
-      if (rpcError) throw rpcError;
+      // Execute internal wallet payment logic manually using Firestore
+      const buyerDocRef = doc(db, 'users', buyer_id);
+      const buyerDocSnapshot = await getDoc(buyerDocRef);
+      const buyerData = buyerDocSnapshot.data();
+      
+      const currentBuyerWallet = Number(buyerData?.wallet_balance) || 0;
+      if (currentBuyerWallet < amount) {
+          return res.status(400).json({ error: "Ni dovolj sredstev na računu." });
+      }
+
+      // Deduct from buyer
+      await updateDoc(buyerDocRef, {
+          wallet_balance: currentBuyerWallet - amount
+      });
+
+      // Credit to seller
+      const sellerWallet = Number(seller?.wallet_balance) || 0;
+      await updateDoc(doc(db, 'users', seller_id), {
+          wallet_balance: sellerWallet + currentPrice
+      });
 
       // Create Transaction Record
       let transaction = null, txError = null;
