@@ -133,6 +133,8 @@ const matchesSelectedRegion = (itemRegion: string | undefined, selected: string 
 
 // --- MAIN APP COMPONENT ---
 
+import { InvoiceModal } from "./src/components/InvoiceModal";
+
 // SignedImg component for fetching Supabase signed URLs
 const SignedImg = ({
   src,
@@ -490,6 +492,17 @@ const MainApp: React.FC = () => {
   const [isHydrating, setIsHydrating] = useState(true);
   const [settingsTab, setSettingsTab] = useState<'profile' | 'personal' | 'stripe'>('profile');
   const [appWakeupTrigger, setAppWakeupTrigger] = useState(0);
+  const [invoiceModalData, setInvoiceModalData] = useState<{
+    isOpen: boolean;
+    auction: AuctionItem | null;
+    seller: any;
+    buyer: any;
+  }>({
+    isOpen: false,
+    auction: null,
+    seller: null,
+    buyer: null
+  });
 
   // URL and Path Preservation Hook
   useEffect(() => {
@@ -2072,6 +2085,20 @@ const MainApp: React.FC = () => {
                                 Potrdi prejem
                               </button>
                             )}
+                            <button
+                              onClick={() => {
+                                const seller = usersMap.get(wonItem.sellerId);
+                                setInvoiceModalData({
+                                  isOpen: true,
+                                  auction: wonItem,
+                                  seller: seller,
+                                  buyer: userData
+                                });
+                              }}
+                              className="mt-2 bg-slate-100 text-[#0A1128] border-2 border-slate-200 px-4 py-2 rounded-xl font-bold text-xs hover:border-slate-400 hover:bg-slate-200 transition-all flex items-center justify-center gap-1.5"
+                            >
+                              <FileText size={14} /> Račun
+                            </button>
                             {wonItem.delivery_method !== "post" && (
                               <button
                                 onClick={() => {
@@ -2344,6 +2371,22 @@ const MainApp: React.FC = () => {
                               Premakni v arhiv
                             </button>
                           </>
+                        )}
+
+                        {soldItem.payment_status === "paid" && (
+                          <button
+                            onClick={() => {
+                              setInvoiceModalData({
+                                isOpen: true,
+                                auction: soldItem,
+                                seller: userData,
+                                buyer: buyer
+                              });
+                            }}
+                            className="bg-slate-100 text-[#0A1128] border-2 border-slate-200 px-8 py-3.5 rounded-2xl font-black uppercase tracking-widest text-sm hover:border-slate-400 hover:bg-slate-200 transition-all flex items-center justify-center gap-2"
+                          >
+                            <FileText size={18} /> Račun
+                          </button>
                         )}
 
                         {/* Sporočila button: ONLY shown for personal pickup, NOT for postal shipping */}
@@ -3130,7 +3173,8 @@ const MainApp: React.FC = () => {
             setActiveView("login");
           }}
           onLogout={handleLogout}
-          onSettings={() => {
+          onSettings={(tab) => {
+            setSettingsTab(tab || 'profile');
             window.scrollTo({ top: 0, behavior: "smooth" });
             setActiveView("settings");
           }}
@@ -3459,6 +3503,15 @@ const MainApp: React.FC = () => {
             userWalletBalance={userData.wallet_balance || 0}
           />
         )}
+
+        <InvoiceModal
+          isOpen={invoiceModalData.isOpen}
+          onClose={() => setInvoiceModalData((prev) => ({ ...prev, isOpen: false }))}
+          auction={invoiceModalData.auction}
+          seller={invoiceModalData.seller}
+          buyer={invoiceModalData.buyer}
+        />
+
         {showBackToTop && (
           <button
             onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}

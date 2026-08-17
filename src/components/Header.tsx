@@ -12,7 +12,7 @@ export const Header: React.FC<{
   onLastChance: () => void;
   onLogin: () => void;
   onLogout: () => void;
-  onSettings: () => void;
+  onSettings: (tab?: 'profile' | 'personal' | 'stripe') => void;
   onSubscriptions: () => void;
   onCreateAuction: () => void;
   onMyWinnings: () => void;
@@ -133,14 +133,13 @@ export const Header: React.FC<{
                 <div className="flex items-center gap-3">
                   <button
                     onClick={() => {
-                      onSettings();
+                      onSettings('stripe');
                       setIsUserMenuOpen(false);
-                      // Let's assume we can somehow navigate to the stripe tab, or the user just finds it there.
                     }}
-                    className="flex items-center gap-2 bg-[#0A1128] text-white px-5 py-2.5 rounded-2xl font-black text-sm shadow-xl hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-colors border border-slate-700/50"
+                    className="group flex items-center gap-2 bg-[#0A1128] text-white px-5 py-2.5 rounded-2xl font-black text-sm shadow-xl hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all border border-slate-700/50"
                   >
-                    <Wallet size={16} className="text-[#FEBA4F] group-hover:text-[#0A1128]"/>
-                    <span>€{(userWalletBalance || 0).toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    <Wallet size={16} className="text-[#FEBA4F] group-hover:text-[#0A1128] transition-colors"/>
+                    <span className="group-hover:text-[#0A1128] transition-colors">€{(userWalletBalance || 0).toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </button>
 
                   <div className="relative" ref={userMenuRef}>
