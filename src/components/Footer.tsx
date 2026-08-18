@@ -1,7 +1,11 @@
 import React from 'react';
-import { Globe, MessageSquare, Camera, Mail, Phone, MapPin, CreditCard as CardIcon, CreditCard, ShieldCheck } from 'lucide-react';
+import { Globe, MessageSquare, Camera, Mail, Phone, MapPin, CreditCard as CardIcon, CreditCard, ShieldCheck, FlaskConical } from 'lucide-react';
 
-export const Footer: React.FC<{ t: any; onLegal: (type: 'terms' | 'privacy' | 'how') => void }> = ({ t, onLegal }) => (
+export const Footer: React.FC<{ 
+    t: any; 
+    onLegal: (type: 'terms' | 'privacy' | 'how') => void;
+    onTestSandbox?: () => void;
+}> = ({ t, onLegal, onTestSandbox }) => (
     <footer className="bg-[#0A1128] text-white pt-24 pb-12 border-t border-white/10">
         <div className="max-w-[1600px] mx-auto px-6 grid grid-cols-1 md:grid-cols-4 gap-16 mb-24">
             <div className="col-span-1 md:col-span-2">
@@ -25,6 +29,14 @@ export const Footer: React.FC<{ t: any; onLegal: (type: 'terms' | 'privacy' | 'h
                     <li onClick={() => onLegal('terms')} className="hover:text-white cursor-pointer transition-colors">{t('terms')}</li>
                     <li onClick={() => onLegal('privacy')} className="hover:text-white cursor-pointer transition-colors">{t('privacy')}</li>
                     <li onClick={() => onLegal('how')} className="hover:text-white cursor-pointer transition-colors">{t('howItWorks')}</li>
+                    {onTestSandbox && (
+                        <li 
+                            onClick={onTestSandbox} 
+                            className="text-[#FEBA4F] hover:text-white cursor-pointer transition-colors flex items-center gap-2 font-black pt-2"
+                        >
+                            <FlaskConical size={16} /> 🧪 Testni laboratorij (Sandbox)
+                        </li>
+                    )}
                 </ul>
             </div>
             <div>
@@ -37,7 +49,17 @@ export const Footer: React.FC<{ t: any; onLegal: (type: 'terms' | 'privacy' | 'h
             </div>
         </div>
         <div className="max-w-[1600px] mx-auto px-6 pt-12 border-t border-white/5 flex flex-col md:flex-row justify-between items-center gap-6 text-center md:text-left">
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">© {new Date().getFullYear()} {t('rights')}</p>
+            <div className="flex flex-col sm:flex-row items-center gap-4">
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">© {new Date().getFullYear()} {t('rights')}</p>
+                {onTestSandbox && (
+                    <button
+                        onClick={onTestSandbox}
+                        className="text-xs bg-[#FEBA4F]/10 hover:bg-[#FEBA4F] hover:text-[#0A1128] text-[#FEBA4F] px-3.5 py-1.5 rounded-xl font-black uppercase tracking-wider transition-all flex items-center gap-1.5 border border-[#FEBA4F]/30 shadow-sm"
+                    >
+                        <FlaskConical size={14} /> 🧪 Testni kotiček
+                    </button>
+                )}
+            </div>
             <div className="flex gap-6 grayscale opacity-40">
                 <CardIcon size={24} />
                 <CreditCard size={24} />

@@ -45,6 +45,7 @@ export const SettingsView: React.FC<{
   onSave: (data: any) => Promise<void>; 
   onVerify: () => void; 
   onStripeVerified: () => void;
+  onRefreshUser?: () => Promise<void>;
   activeTab?: 'profile' | 'personal' | 'stripe';
   setActiveTab?: (tab: 'profile' | 'personal' | 'stripe') => void;
 }> = ({ 
@@ -54,10 +55,12 @@ export const SettingsView: React.FC<{
   onSave, 
   onVerify, 
   onStripeVerified,
+  onRefreshUser,
   activeTab: propActiveTab,
   setActiveTab: propSetActiveTab
 }) => {
   const [localActiveTab, setLocalActiveTab] = useState<'profile' | 'personal' | 'stripe'>('profile');
+  const [isWithdrawing, setIsWithdrawing] = useState(false);
   const activeTab = propActiveTab !== undefined ? propActiveTab : localActiveTab;
   const setActiveTab = propSetActiveTab !== undefined ? propSetActiveTab : setLocalActiveTab;
   const [isSaving, setIsSaving] = useState(false);
@@ -428,21 +431,54 @@ export const SettingsView: React.FC<{
                       <div className="relative z-10">
                         <button 
                           type="button"
-                          onClick={() => {
-                            if (Number(user?.wallet_balance || 0) <= 0) {
-                              toast.error(t('insufficientFunds'));
+                          disabled={isWithdrawing}
+                          onClick={async () => {
+                            const balance = Number(user?.wallet_balance || 0);
+                            if (balance <= 0) {
+                              toast.error(t('insufficientFunds') || "Ni zadostnih sredstev za izplačilo.");
                               return;
                             }
                             if (!user?.stripe_onboarding_complete) {
-                              toast.error(t('connectStripeForPayout'));
+                              toast.error(t('connectStripeForPayout') || "Najprej povežite Stripe račun za prejem izplačil.");
                               return;
                             }
-                            // Call payout function (mock or backend)
-                            toast.success(t('payoutRequestSuccess'));
+                            setIsWithdrawing(true);
+                            try {
+                              const res = await fetch("/api/payouts/withdraw", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({
+                                  user_id: user?.id,
+                                  amount: balance,
+                                }),
+                              });
+                              const data = await res.json();
+                              if (!res.ok || data.error) {
+                                throw new Error(data.error || "Napaka pri izplačilu");
+                              }
+                              toast.success(t('payoutRequestSuccess') || "Zahtevek za izplačilo je bil uspešno izveden.");
+                              if (onRefreshUser) {
+                                await onRefreshUser();
+                              } else if (onStripeVerified) {
+                                onStripeVerified();
+                              }
+                            } catch (err: any) {
+                              console.error("Payout error:", err);
+                              toast.error(err.message || "Napaka pri izplačilu.");
+                            } finally {
+                              setIsWithdrawing(false);
+                            }
                           }}
-                          className="bg-[#FEBA4F] text-[#0A1128] px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-white transition-all shadow-xl"
+                          className={`bg-[#FEBA4F] text-[#0A1128] px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm transition-all shadow-xl flex items-center gap-2 ${isWithdrawing ? 'opacity-70 cursor-not-allowed' : 'hover:bg-white'}`}
                         >
-                          {t('requestPayout')}
+                          {isWithdrawing ? (
+                            <>
+                              <div className="w-4 h-4 border-2 border-[#0A1128]/30 border-t-[#0A1128] rounded-full animate-spin" />
+                              <span>{t('loading') || 'Nalaganje...'}</span>
+                            </>
+                          ) : (
+                            t('requestPayout')
+                          )}
                         </button>
                       </div>
                     </div>

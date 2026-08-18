@@ -259,7 +259,7 @@ export const translations: Record<string, any> = {
     register: "Registracija",
     loggedOut: "Odjavljeni ste.",
     loginRequired: "Za to dejanje se prijavite.",
-    bidOutbid: "Vaša ponudba je bila takoj presezena.",
+    bidOutbid: "Ponudba je bila že presežena.",
     bidError: "Napaka pri oddaji ponudbe.",
     fetchError: "Napaka pri pridobivanju podatkov.",
     bidTooLow: "Vaša ponudba je prenizka.",

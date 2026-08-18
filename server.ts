@@ -1,6 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { db } from './src/lib/firebase';
-import { collection, doc, getDoc, getDocs, updateDoc, setDoc, addDoc, query, where, limit, writeBatch } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, updateDoc, setDoc, addDoc, query, where, limit, writeBatch, runTransaction } from 'firebase/firestore';
 import { storage } from './src/lib/firebase';
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import express from "express";
@@ -10,6 +10,8 @@ import path from "path";
 
 import { Resend } from 'resend';
 import { generateInvoicePDF, generateCertificatePDF } from './src/lib/pdfGenerator';
+import { sendOutbidNotification, sendEndingSoonNotification, sendAuctionWonNotification, sendPaymentReminderNotification } from './src/server/emailService';
+import { processAuctionCrons } from './src/server/cronProcessor';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -244,7 +246,21 @@ async function startServer() {
         // 3. Calculate Fee and VAT dynamically based on active subscription tier and closing price
         const amountTotalInCents = isSession ? (sessionObj?.amount_total || 0) : paymentIntent!.amount;
         const amountTotal = amountTotalInCents / 100;
-        const platformFee = calculateMarginalPlatformFee(amountTotal, seller.subscription_tier);
+        
+        // Fetch auction to get exact price instead of estimating it
+        const auctionDoc = await getDoc(doc(db, 'auctions', auction_id));
+        const auction = auctionDoc.data();
+        let currentPrice = amountTotal;
+        if (auction && (auction.current_price || auction.currentBid)) {
+            currentPrice = Number(auction.current_price || auction.currentBid);
+        } else {
+            const feePct = Number(fee_percentage) || 0;
+            if (feePct > 0) {
+                currentPrice = amountTotal / (1 + (feePct / 100));
+            }
+        }
+
+        const platformFee = calculateMarginalPlatformFee(currentPrice, seller.subscription_tier);
         const platformFeeInCents = Math.round(platformFee * 100);
         
         let vatRate = 0;
@@ -290,12 +306,6 @@ async function startServer() {
 
         // 5. Update Auction Status to mark as paid
         let auctionUpdateError = null; 
-        let currentPrice = amountTotal;
-        const feePct = Number(fee_percentage) || 0;
-        if (feePct > 0) {
-            currentPrice = amountTotal / (1 + (feePct / 100));
-        }
-
         try { 
             await updateDoc(doc(db, 'auctions', auction_id), { 
                 status: 'completed', payment_status: 'paid', post_auction_status: 'paid', paid_at: new Date().toISOString()
@@ -343,7 +353,9 @@ async function startServer() {
 
         // Generate Invoice for Platform Fee
         try {
-            const invoicePdfBuffer = await generateInvoicePDF(transaction, buyer, seller);
+            const auctionDocPdf = await getDoc(doc(db, 'auctions', auction_id));
+            const auctionDataPdf = auctionDocPdf.data();
+            const invoicePdfBuffer = await generateInvoicePDF(transaction, buyer, seller, auctionDataPdf);
             const invoiceFileName = `racun_${transaction.id.substring(0,8)}.pdf`;
             
             // Upload to Supabase Storage
@@ -434,96 +446,261 @@ async function startServer() {
 
   // API routes FIRST
   
-  app.post("/api/cron-auctions", async (req, res) => {
+  function getBidIncrement(price: number): number {
+    if (price < 50) return 1;
+    if (price < 500) return 5;
+    if (price < 2000) return 20;
+    if (price < 5000) return 50;
+    return 100;
+  }
+
+  // Unified Cron handler for Vercel Cron and external schedulers
+  const handleCronCheck = async (req: express.Request, res: express.Response) => {
     try {
-      const now = new Date();
+      const authHeader = req.headers.authorization || '';
+      const secretHeader = req.headers['x-cron-secret'];
+      const querySecret = req.query?.secret;
+      const cronSecret = process.env.CRON_SECRET;
 
-      // 1. Process active auctions that have ended
-      const activeSnap = await getDocs(query(collection(db, 'auctions'), where('status', '==', 'active')));
-      const endedDocs = activeSnap.docs.filter(docSnap => {
-        const data = docSnap.data();
-        const endTime = data.end_time || data.endTime;
-        return endTime && new Date(endTime).getTime() <= now.getTime();
-      });
+      if (cronSecret) {
+        const isBearerMatch = authHeader === `Bearer ${cronSecret}`;
+        const isSecretHeaderMatch = secretHeader === cronSecret;
+        const isQueryMatch = querySecret === cronSecret;
 
-      for (let auctionDocItem of endedDocs) {
-        const data = auctionDocItem.data();
-        let hasBids = (data.bid_count > 0) || (data.bidCount > 0);
-        if (hasBids) {
-          const paymentDeadline = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
-          await updateDoc(doc(db, 'auctions', auctionDocItem.id), {
-            status: 'completed',
-            post_auction_status: 'awaiting_payment_1st',
-            payment_deadline: paymentDeadline
-          });
-        } else {
-          // Unsold
-          await updateDoc(doc(db, 'auctions', auctionDocItem.id), {
-            status: 'completed',
-            post_auction_status: 'unsold'
-          });
+        if (!isBearerMatch && !isSecretHeaderMatch && !isQueryMatch) {
+          console.warn('[CRON AUTH] Unauthorized cron request attempt');
+          return res.status(401).json({ error: 'Unauthorized: Invalid CRON_SECRET' });
         }
       }
 
-      // 2. Process awaiting_payment_1st that expired
-      const awaiting1stSnap = await getDocs(query(collection(db, 'auctions'), where('post_auction_status', '==', 'awaiting_payment_1st')));
-      const expired1st = awaiting1stSnap.docs.filter(docSnap => {
-        const data = docSnap.data();
-        return data.payment_deadline && new Date(data.payment_deadline).getTime() <= now.getTime();
-      });
+      console.log('[CRON] Executing auction check...');
+      const results = await processAuctionCrons();
+      res.json(results);
+    } catch (e: any) {
+      console.error('[CRON ERROR]', e);
+      res.status(500).json({ error: e.message || 'Internal server error in cron' });
+    }
+  };
 
-      for (let auctionDocItem of expired1st) {
-        const data = auctionDocItem.data();
-        const winnerId = data.winner_id || data.winnerId;
+  app.get("/api/cron/check-auctions", handleCronCheck);
+  app.post("/api/cron/check-auctions", handleCronCheck);
+  app.get("/api/cron-auctions", handleCronCheck);
+  app.post("/api/cron-auctions", handleCronCheck);
 
-        if (winnerId) {
-          const userRef = doc(db, 'users', winnerId);
-          const userDoc = await getDoc(userRef);
-          if (userDoc.exists()) {
-            const udata = userDoc.data();
-            const newStrikes = (udata.unpaidStrikes || 0) + 1;
-            const updates: any = { unpaidStrikes: newStrikes };
-            if (newStrikes >= 3) {
-              updates.isBlocked = true;
-            }
-            await updateDoc(userRef, updates);
+  // Dedicated endpoint for placing bids with instant outbid email triggers
+  app.post("/api/place-bid", async (req, res) => {
+    try {
+      const { auction_id, user_id, amount } = req.body;
+      if (!auction_id || !user_id || typeof amount !== 'number' || amount <= 0) {
+        return res.status(400).json({ error: "Manjkajoči ali neveljavni podatki za ponudbo." });
+      }
+
+      const auctionRef = doc(db, 'auctions', auction_id);
+      const userRef = doc(db, 'users', user_id);
+
+      // Verify user existence and state
+      const userSnap = await getDoc(userRef);
+      if (!userSnap.exists()) {
+        return res.status(404).json({ error: "Uporabnik ne obstaja." });
+      }
+      const userData = userSnap.data();
+      if (userData.isBlocked) {
+        return res.status(403).json({ error: "Vaš račun je začasno blokiran." });
+      }
+
+      let outbidUserToNotify: { userId: string; newPrice: number; auctionTitle: string; auctionImageUrl?: string } | null = null;
+      let finalWinnerId = user_id;
+      let finalPrice = amount;
+
+      await runTransaction(db, async (transaction) => {
+        const auctionDoc = await transaction.get(auctionRef);
+        if (!auctionDoc.exists()) {
+          throw new Error("Dražba ne obstaja.");
+        }
+        const data = auctionDoc.data();
+        const currentPrice = Number(data.current_price ?? data.currentBid ?? 0);
+        const prevWinnerId = data.winner_id || data.winnerId;
+        const isCurrentWinner = prevWinnerId === user_id;
+
+        if (amount <= currentPrice) {
+          throw new Error("Ponudba mora biti višja od trenutne cene.");
+        }
+
+        const currentProxy = data.current_proxy_bid || data.currentProxyBid;
+        let newCurrentPrice = currentPrice;
+        let newWinnerId = user_id;
+        let newProxyBid = { user_id, amount };
+
+        const increment = getBidIncrement(currentPrice);
+
+        if (currentProxy && currentProxy.user_id !== user_id) {
+          if (amount > currentProxy.amount) {
+            newCurrentPrice = Math.min(amount, currentProxy.amount + increment);
+            newWinnerId = user_id;
+            newProxyBid = { user_id, amount };
+          } else if (amount === currentProxy.amount) {
+            newCurrentPrice = amount;
+            newWinnerId = currentProxy.user_id;
+            newProxyBid = currentProxy;
+          } else {
+            newCurrentPrice = Math.min(currentProxy.amount, amount + increment);
+            newWinnerId = currentProxy.user_id;
+            newProxyBid = currentProxy;
+          }
+        } else if (isCurrentWinner || (currentProxy && currentProxy.user_id === user_id)) {
+          newCurrentPrice = currentPrice;
+          newWinnerId = user_id;
+          newProxyBid = { user_id, amount };
+        } else {
+          newCurrentPrice = Math.min(amount, currentPrice + increment);
+          newWinnerId = user_id;
+          newProxyBid = { user_id, amount };
+        }
+
+        const endTimeStr = data.end_time || data.endTime;
+        const endTime = endTimeStr ? new Date(endTimeStr).getTime() : 0;
+        const now = Date.now();
+        let newEndTimeStr = endTimeStr;
+
+        if (endTime > now && endTime - now < 60 * 1000) {
+          newEndTimeStr = new Date(now + 60 * 1000).toISOString();
+        }
+
+        let topBids = data.top_bids || [];
+        topBids.push({ user_id, amount, timestamp: new Date().toISOString() });
+        topBids.sort((a: any, b: any) => b.amount - a.amount);
+
+        let uniqueTopBids: any[] = [];
+        let seenUsers = new Set();
+        for (let bid of topBids) {
+          if (!seenUsers.has(bid.user_id)) {
+            uniqueTopBids.push(bid);
+            seenUsers.add(bid.user_id);
           }
         }
+        uniqueTopBids = uniqueTopBids.slice(0, 3);
 
-        await updateDoc(doc(db, 'auctions', auctionDocItem.id), {
-          post_auction_status: 'failed_1st'
+        const existingHistory = data.bidding_history || data.biddingHistory || [];
+        const newHistoryItem = {
+          user_id,
+          userId: user_id,
+          username: userData.username || userData.first_name || userData.email?.split('@')[0] || 'Uporabnik',
+          amount,
+          created_at: new Date().toISOString(),
+          createdAt: new Date().toISOString()
+        };
+
+        transaction.update(auctionRef, {
+          current_price: newCurrentPrice,
+          currentBid: newCurrentPrice,
+          winner_id: newWinnerId,
+          winnerId: newWinnerId,
+          current_proxy_bid: newProxyBid,
+          currentProxyBid: newProxyBid,
+          hidden_max_bid: newProxyBid.amount,
+          hiddenMaxBid: newProxyBid.amount,
+          bid_count: (data.bid_count || data.bidCount || 0) + 1,
+          bidCount: (data.bid_count || data.bidCount || 0) + 1,
+          top_bids: uniqueTopBids,
+          end_time: newEndTimeStr,
+          endTime: newEndTimeStr,
+          bidding_history: [...existingHistory, newHistoryItem],
+          biddingHistory: [...existingHistory, newHistoryItem]
         });
-      }
 
-      // 3. Process offered_2nd that expired (48h)
-      const offered2ndSnap = await getDocs(query(collection(db, 'auctions'), where('post_auction_status', '==', 'offered_2nd')));
-      const expiredOffers = offered2ndSnap.docs.filter(docSnap => {
-        const data = docSnap.data();
-        return data.second_chance_deadline && new Date(data.second_chance_deadline).getTime() <= now.getTime();
+        finalWinnerId = newWinnerId;
+        finalPrice = newCurrentPrice;
+
+        // Check if previous leader was outbid
+        if (prevWinnerId && prevWinnerId !== user_id && newWinnerId === user_id) {
+          const title = data.title?.SLO || data.title?.EN || (typeof data.title === 'string' ? data.title : 'Predmet dražbe');
+          const imageUrl = Array.isArray(data.images) && data.images.length > 0 ? data.images[0] : undefined;
+          outbidUserToNotify = {
+            userId: prevWinnerId,
+            newPrice: newCurrentPrice,
+            auctionTitle: title,
+            auctionImageUrl: imageUrl,
+          };
+        }
       });
 
-      for (let auctionDocItem of expiredOffers) {
-        await updateDoc(doc(db, 'auctions', auctionDocItem.id), {
-          post_auction_status: 'archived'
-        });
+      // Send outbid notification email asynchronously
+      if (outbidUserToNotify) {
+        (async () => {
+          try {
+            const prevUserDoc = await getDoc(doc(db, 'users', outbidUserToNotify!.userId));
+            if (prevUserDoc.exists()) {
+              const prevUserData = prevUserDoc.data();
+              if (prevUserData.email) {
+                await sendOutbidNotification({
+                  toEmail: prevUserData.email,
+                  recipientName: prevUserData.first_name || prevUserData.name || 'Uporabnik',
+                  auctionId: auction_id,
+                  auctionTitle: outbidUserToNotify!.auctionTitle,
+                  auctionImageUrl: outbidUserToNotify!.auctionImageUrl,
+                  newPrice: outbidUserToNotify!.newPrice,
+                });
+              }
+            }
+          } catch (emailErr) {
+            console.error('[OUTBID EMAIL ERROR]', emailErr);
+          }
+        })();
       }
 
-      // 4. Process awaiting_payment_2nd that expired (24h)
-      const awaiting2ndSnap = await getDocs(query(collection(db, 'auctions'), where('post_auction_status', '==', 'awaiting_payment_2nd')));
-      const expired2nd = awaiting2ndSnap.docs.filter(docSnap => {
-        const data = docSnap.data();
-        return data.payment_deadline && new Date(data.payment_deadline).getTime() <= now.getTime();
+      const resultStatus = finalWinnerId === user_id ? "ok" : "outbid";
+      res.json({
+        success: true,
+        resultStatus,
+        newWinnerId: finalWinnerId,
+        currentPrice: finalPrice,
       });
-
-      for (let auctionDocItem of expired2nd) {
-        await updateDoc(doc(db, 'auctions', auctionDocItem.id), {
-          post_auction_status: 'archived'
-        });
-      }
-
-      res.json({ success: true, processed: true });
     } catch (e: any) {
-      console.error("Cron error:", e);
+      console.error("[PLACE BID ERROR]", e);
+      res.status(400).json({ error: e.message || "Napaka pri oddaji ponudbe" });
+    }
+  });
+
+  // Direct helper endpoint to trigger outbid notifications
+  app.post("/api/notify-outbid", async (req, res) => {
+    try {
+      const { auction_id, outbid_user_id, new_price } = req.body;
+      if (!auction_id || !outbid_user_id) {
+        return res.status(400).json({ error: "Manjkajoči podatki" });
+      }
+
+      const [auctionSnap, userSnap] = await Promise.all([
+        getDoc(doc(db, 'auctions', auction_id)),
+        getDoc(doc(db, 'users', outbid_user_id)),
+      ]);
+
+      if (!auctionSnap.exists() || !userSnap.exists()) {
+        return res.status(404).json({ error: "Dražba ali uporabnik ne obstaja" });
+      }
+
+      const auctionData = auctionSnap.data();
+      const userData = userSnap.data();
+
+      if (!userData.email) {
+        return res.json({ success: false, reason: "No email on user" });
+      }
+
+      const title = auctionData.title?.SLO || auctionData.title?.EN || (typeof auctionData.title === 'string' ? auctionData.title : 'Predmet dražbe');
+      const imageUrl = Array.isArray(auctionData.images) && auctionData.images.length > 0 ? auctionData.images[0] : undefined;
+      const price = typeof new_price === 'number' ? new_price : Number(auctionData.current_price || 0);
+
+      await sendOutbidNotification({
+        toEmail: userData.email,
+        recipientName: userData.first_name || userData.name || 'Uporabnik',
+        auctionId: auction_id,
+        auctionTitle: title,
+        auctionImageUrl: imageUrl,
+        newPrice: price,
+      });
+
+      res.json({ success: true });
+    } catch (e: any) {
+      console.error("[NOTIFY OUTBID ERROR]", e);
       res.status(500).json({ error: e.message });
     }
   });
@@ -1064,14 +1241,25 @@ async function startServer() {
           return res.status(400).json({ error: "Manjkajoči podatki" });
       }
 
-      // Re-fetch auction price
       const auctionDoc = await getDoc(doc(db, 'auctions', auction_id));
-    const auction = auctionDoc.data();
-      const currentPrice = auction?.current_price || (amount / 1.122);
+      const auction = auctionDoc.data();
+
+      // Get exact currentPrice from auction
+      let currentPrice = amount;
+      if (auction && (auction.current_price || auction.currentBid)) {
+          currentPrice = Number(auction.current_price || auction.currentBid);
+      } else {
+          const feePct = Number(fee_percentage) || 0;
+          if (feePct > 0) {
+              currentPrice = amount / (1 + (feePct / 100));
+          }
+      }
       
       const sellerDoc = await getDoc(doc(db, 'users', seller_id));
     const seller = sellerDoc.data();
-      const platformFee = calculateMarginalPlatformFee(currentPrice, seller?.subscription_tier);
+
+      // Ensure platform fee calculation uses the buyer's fee rate since they pay the fee
+      const platformFee = amount - currentPrice;
       
       const amountTotalInCents = Math.round(amount * 100);
       const platformFeeInCents = Math.round(platformFee * 100);
@@ -1131,7 +1319,7 @@ async function startServer() {
              const attachments = [];
              
              try {
-                 const invoicePdfBuffer = await generateInvoicePDF(transaction, buyer, seller);
+                 const invoicePdfBuffer = await generateInvoicePDF(transaction, buyer, seller, auction);
                  const invoiceFileName = `racun_${transaction.id.substring(0,8)}.pdf`;
                  
                  const fileRef = storageRef(storage, `${buyer_id}/${invoiceFileName}`);
@@ -1209,18 +1397,22 @@ async function startServer() {
   app.post("/api/payouts/withdraw", async (req, res) => {
     try {
       const { user_id, amount, return_url, refresh_url } = req.body;
-      const amountInCents = Math.round(amount * 100);
       const stripe = getStripe();
+      
+      const withdrawalAmount = Number(amount);
+      const amountInCents = Math.round(withdrawalAmount * 100);
 
       // Check balance and connected account
       const userDocRef = doc(db, 'users', user_id);
       const userDoc = await getDoc(userDocRef);
       const user = userDoc.data() || {};
-      const balanceDataSnap = await getDocs(query(collection(db, 'user_balances'), where('user_id', '==', user_id), limit(1)));
-      const balanceData = balanceDataSnap.empty ? null : balanceDataSnap.docs[0].data();
-      if (!balanceData || balanceData.available_balance < amountInCents) {
+      
+      const currentBalance = Number(user.wallet_balance) || 0;
+
+      if (currentBalance < withdrawalAmount) {
           return res.status(400).json({ error: "Stanje na računu je prenizko." });
       }
+
       let accountId = user.stripeAccountId || user.stripe_account_id;
       if (!accountId) {
           // IF NO: Create connected account
@@ -1251,8 +1443,9 @@ async function startServer() {
       }
 
       // IF YES: Deduct balance and transfer funds
-      let rpcError = null; /* RPC call debit_user_balance omitted for firebase */
-      if (rpcError) throw rpcError;
+      await updateDoc(userDocRef, {
+          wallet_balance: currentBalance - withdrawalAmount
+      });
 
       // Transfer to connected account
       const transfer = await stripe.transfers.create({
@@ -1361,24 +1554,373 @@ async function startServer() {
     }
   });
 
-  // Vite middleware for development
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*all', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
-  }
+  // ==========================================
+  // TEST SANDBOX / DIAGNOSTIC ENDPOINTS
+  // ==========================================
 
-  
-  app.use(express.json());
-  
+  // 1. Test Email Sender
+  app.post("/api/test/send-email", async (req, res) => {
+    try {
+      const {
+        toEmail,
+        type, // 'outbid' | 'ending_soon' | 'won' | 'payment_reminder' | 'receipt_invoice'
+        recipientName = "Testni Uporabnik",
+        auctionId = "test-auction-123",
+        auctionTitle = "Industrijski CNC obdelovalni center Haas VF-2",
+        currentPrice = 1250,
+        auctionImageUrl = "https://images.unsplash.com/photo-1581092335397-9583fe92d232?w=800&auto=format&fit=crop&q=60",
+      } = req.body;
+
+      if (!toEmail) {
+        return res.status(400).json({ error: "E-poštni naslov prejemnika je obvezen." });
+      }
+
+      const resendApiKey = process.env.RESEND_API_KEY;
+      let sendResult: any = null;
+
+      if (type === 'outbid') {
+        sendResult = await sendOutbidNotification({
+          toEmail,
+          recipientName,
+          auctionId,
+          auctionTitle,
+          newPrice: currentPrice,
+          auctionImageUrl,
+        });
+      } else if (type === 'ending_soon') {
+        sendResult = await sendEndingSoonNotification({
+          toEmail,
+          recipientName,
+          auctionId,
+          auctionTitle,
+          currentPrice,
+          auctionImageUrl,
+          endTimeFormatted: "čez 28 minut (danes ob 18:00)",
+        });
+      } else if (type === 'won') {
+        sendResult = await sendAuctionWonNotification({
+          toEmail,
+          recipientName,
+          auctionId,
+          auctionTitle,
+          winningPrice: currentPrice,
+          paymentDeadlineFormatted: "24 ur (do jutri ob 18:00)",
+          auctionImageUrl,
+        });
+      } else if (type === 'payment_reminder') {
+        sendResult = await sendPaymentReminderNotification({
+          toEmail,
+          recipientName,
+          auctionId,
+          auctionTitle,
+          amount: currentPrice,
+          paymentDeadlineFormatted: "čez 2 uri (danes ob 18:00)",
+          auctionImageUrl,
+        });
+      } else if (type === 'receipt_invoice') {
+        // Generate mock transaction + documents + send with attachments
+        const mockTransaction = {
+          id: `TX-${Date.now().toString().substring(6)}`,
+          amount_total: currentPrice,
+          platform_fee: Math.round(currentPrice * 0.05 * 100) / 100,
+          vat_amount: Math.round(currentPrice * 0.05 * 0.22 * 100) / 100,
+          vat_rate: 22,
+          is_reverse_charge: false,
+          status: 'completed'
+        };
+        const mockBuyer = {
+          first_name: recipientName.split(' ')[0] || 'Janez',
+          last_name: recipientName.split(' ')[1] || 'Novak',
+          email: toEmail,
+          address: 'Dunajska cesta 156, 1000 Ljubljana',
+          user_type: 'individual'
+        };
+        const mockSeller = {
+          company_name: 'Dizain d.o.o. (Testni prodajalec)',
+          address: 'Karantanska ulica 28, 2000 Maribor',
+          tax_id: 'SI57008060',
+          company_status: 'company'
+        };
+        const mockAuction = {
+          id: auctionId,
+          title: { SLO: auctionTitle, EN: auctionTitle },
+          currentBid: currentPrice
+        };
+
+        const invoiceBuffer = await generateInvoicePDF(mockTransaction, mockBuyer, mockSeller, mockAuction);
+        const certBuffer = await generateCertificatePDF(mockTransaction, mockBuyer, mockSeller);
+
+        const attachments = [
+          { filename: `racun_${mockTransaction.id}.pdf`, content: invoiceBuffer },
+          { filename: `potrdilo_${mockTransaction.id}.pdf`, content: certBuffer }
+        ];
+
+        if (resendApiKey) {
+          const resendClient = new Resend(resendApiKey);
+          const emailResponse = await resendClient.emails.send({
+            from: process.env.EMAIL_FROM || 'dražbe.si <obvestila@drazba.si>',
+            to: toEmail,
+            subject: `🧾 Potrdilo o plačilu in račun: ${auctionTitle} - dražbe.si`,
+            html: `
+              <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; background-color: #0A1128; color: #FFFFFF; border-radius: 16px;">
+                <div style="text-align: center; margin-bottom: 24px;">
+                  <h1 style="color: #FEBA4F; font-size: 28px; margin: 0;">dražbe.si</h1>
+                  <p style="color: #94A3B8; font-size: 13px;">Uradno potrdilo o plačilu in račun</p>
+                </div>
+                <div style="background-color: rgba(255,255,255,0.05); padding: 20px; border-radius: 12px; margin-bottom: 20px;">
+                  <h2 style="color: #FFFFFF; font-size: 18px; margin-top: 0;">Pozdravljeni, ${recipientName}!</h2>
+                  <p style="color: #CBD5E1; line-height: 1.6;">Vaše plačilo za dražbo <strong>${auctionTitle}</strong> v znesku <strong>${currentPrice.toFixed(2)} €</strong> je bilo uspešno evidentirano.</p>
+                  <p style="color: #CBD5E1; line-height: 1.6;">V priponki tega sporočila vam prilagamo <strong>uradni PDF račun</strong> ter <strong>potrdilo o nakupu (certifikat)</strong>.</p>
+                </div>
+                <div style="text-align: center; font-size: 11px; color: #64748B;">
+                  <p>© ${new Date().getFullYear()} dražbe.si. Vse pravice pridržane.</p>
+                </div>
+              </div>
+            `,
+            attachments
+          });
+          sendResult = { success: true, messageId: emailResponse.data?.id };
+        } else {
+          sendResult = { success: false, error: "RESEND_API_KEY ni nastavljen v .env" };
+        }
+      } else {
+        return res.status(400).json({ error: "Neznan tip e-poštnega obvestila." });
+      }
+
+      res.json({
+        success: sendResult?.success ?? true,
+        type,
+        toEmail,
+        timestamp: new Date().toISOString(),
+        details: sendResult,
+        resendConfigured: !!resendApiKey
+      });
+    } catch (err: any) {
+      console.error("Test send-email error:", err);
+      res.status(500).json({ error: err.message || "Napaka pri pošiljanju testnega e-maila" });
+    }
+  });
+
+  // 2. Test PDF Generator
+  app.post("/api/test/generate-pdf", async (req, res) => {
+    try {
+      const {
+        relationshipType = "individual_individual", // 'individual_individual' | 'company_individual' | 'individual_company' | 'company_company'
+        sellerData = {},
+        buyerData = {},
+        itemTitle = "Industrijski CNC obdelovalni center Haas VF-2",
+        itemPrice = 1250,
+        docType = "invoice" // 'invoice' | 'certificate'
+      } = req.body;
+
+      const mockTx = {
+        id: `TX-${Date.now().toString().substring(5)}`,
+        amount_total: Number(itemPrice),
+        platform_fee: Math.round(Number(itemPrice) * 0.05 * 100) / 100,
+        vat_amount: Math.round(Number(itemPrice) * 0.05 * 0.22 * 100) / 100,
+        vat_rate: 22,
+        is_reverse_charge: relationshipType === 'company_company',
+        status: 'completed'
+      };
+
+      const mockAuction = {
+        id: `AUC-${Date.now().toString().substring(6)}`,
+        title: { SLO: itemTitle, EN: itemTitle },
+        currentBid: Number(itemPrice),
+        delivery_method: 'pickup'
+      };
+
+      // Construct seller & buyer based on relationship type
+      let seller: any = { ...sellerData };
+      let buyer: any = { ...buyerData };
+
+      if (relationshipType === 'individual_individual') {
+        seller = {
+          first_name: sellerData.first_name || 'Marko',
+          last_name: sellerData.last_name || 'Horvat',
+          address: sellerData.address || 'Celjska cesta 42, 3000 Celje',
+          company_status: 'individual',
+          user_type: 'individual'
+        };
+        buyer = {
+          first_name: buyerData.first_name || 'Luka',
+          last_name: buyerData.last_name || 'Kovačič',
+          address: buyerData.address || 'Tržaška cesta 12, 1000 Ljubljana',
+          company_status: 'individual',
+          user_type: 'individual'
+        };
+      } else if (relationshipType === 'company_individual') {
+        seller = {
+          company_name: sellerData.company_name || 'Strojegradnja d.o.o.',
+          tax_id: sellerData.tax_id || 'SI12345678',
+          registration_number: '8876543000',
+          address: sellerData.address || 'Industrijska cona 5, 2000 Maribor',
+          company_status: 'company',
+          user_type: 'business'
+        };
+        buyer = {
+          first_name: buyerData.first_name || 'Ana',
+          last_name: buyerData.last_name || 'Novak',
+          address: buyerData.address || 'Titova cesta 8, 2000 Maribor',
+          company_status: 'individual',
+          user_type: 'individual'
+        };
+      } else if (relationshipType === 'individual_company') {
+        seller = {
+          first_name: sellerData.first_name || 'Janez',
+          last_name: sellerData.last_name || 'Kranjc',
+          address: sellerData.address || 'Cesta v Gorice 14, 1000 Ljubljana',
+          company_status: 'individual',
+          user_type: 'individual'
+        };
+        buyer = {
+          company_name: buyerData.company_name || 'TechTrade d.o.o.',
+          tax_id: buyerData.tax_id || 'SI87654321',
+          registration_number: '9988776000',
+          address: buyerData.address || 'Letališka cesta 33, 1000 Ljubljana',
+          company_status: 'company',
+          user_type: 'business'
+        };
+      } else { // company_company
+        seller = {
+          company_name: sellerData.company_name || 'MetalOpus d.o.o.',
+          tax_id: sellerData.tax_id || 'SI98765432',
+          registration_number: '7766554000',
+          address: sellerData.address || 'Obrtna cona 12, 4000 Kranj',
+          company_status: 'company',
+          user_type: 'business'
+        };
+        buyer = {
+          company_name: buyerData.company_name || 'AvtoTech Solutions d.o.o.',
+          tax_id: buyerData.tax_id || 'SI45678901',
+          registration_number: '5544332000',
+          address: buyerData.address || 'Šmartinska cesta 152, 1000 Ljubljana',
+          company_status: 'company',
+          user_type: 'business'
+        };
+      }
+
+      let pdfBuffer: Buffer;
+      let filename: string;
+
+      if (docType === 'certificate') {
+        pdfBuffer = await generateCertificatePDF(mockTx, buyer, seller);
+        filename = `Potrdilo_${mockTx.id}.pdf`;
+      } else {
+        pdfBuffer = await generateInvoicePDF(mockTx, buyer, seller, mockAuction);
+        filename = `Racun_${mockTx.id}.pdf`;
+      }
+
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(pdfBuffer);
+    } catch (err: any) {
+      console.error("Test generate-pdf error:", err);
+      res.status(500).json({ error: err.message || "Napaka pri generiranju testnega PDF" });
+    }
+  });
+
+  // 3. Test Wallet Payout Simulation & Diagnostics
+  app.post("/api/test/test-payout", async (req, res) => {
+    try {
+      const { user_id, amount = 50, executeReal = false } = req.body;
+      const withdrawalAmount = Number(amount);
+
+      if (!user_id) {
+        return res.status(400).json({ error: "Manjka user_id." });
+      }
+
+      const userDocRef = doc(db, 'users', user_id);
+      const userDoc = await getDoc(userDocRef);
+      if (!userDoc.exists()) {
+        return res.status(404).json({ error: "Uporabnik ne obstaja v bazi." });
+      }
+      const userData = userDoc.data() || {};
+      const currentBalance = Number(userData.wallet_balance) || 0;
+
+      const logs: string[] = [];
+      logs.push(`[1] Preverjanje uporabnika: ${userData.first_name || ''} ${userData.last_name || userData.username || user_id} (Tip: ${userData.user_type || 'individual'})`);
+      logs.push(`[2] Trenutno stanje v denarnici: ${currentBalance.toFixed(2)} €`);
+      logs.push(`[3] Zahtevan znesek izplačila: ${withdrawalAmount.toFixed(2)} €`);
+
+      const hasSufficientBalance = currentBalance >= withdrawalAmount;
+      logs.push(`[4] Zadostno stanje: ${hasSufficientBalance ? 'DA (Odobreno)' : 'NE (Nezadostno dobroimetje)'}`);
+
+      const stripeAccountId = userData.stripeAccountId || userData.stripe_account_id;
+      const stripeOnboardingComplete = userData.stripe_onboarding_complete;
+      logs.push(`[5] Stripe Connect račun: ${stripeAccountId ? `Povezan (${stripeAccountId})` : 'NI povezan (potrebna registracija izplačilnega računa)'}`);
+      logs.push(`[6] Stripe Onboarding zaključen: ${stripeOnboardingComplete ? 'DA' : 'NE'}`);
+
+      let newBalance = currentBalance;
+      let transactionId = `TEST-PAYOUT-${Date.now().toString().substring(6)}`;
+
+      if (executeReal) {
+        if (!hasSufficientBalance) {
+          return res.status(400).json({
+            success: false,
+            error: "Nezadostno stanje v denarnici za izvedbo izplačila.",
+            logs
+          });
+        }
+
+        newBalance = currentBalance - withdrawalAmount;
+        await updateDoc(userDocRef, {
+          wallet_balance: newBalance
+        });
+
+        await addDoc(collection(db, 'wallet_transactions'), {
+          user_id,
+          amount: -withdrawalAmount,
+          type: 'payout',
+          status: 'completed',
+          description: `Testno izplačilo na bančni račun`,
+          created_at: new Date().toISOString()
+        });
+
+        logs.push(`[7] Baza posodobljena: Novo stanje denarnice je ${newBalance.toFixed(2)} €`);
+        logs.push(`[8] Zgodovina transakcij zabeležena.`);
+      } else {
+        logs.push(`[7] Način simulacije: Denarnica ni bila zmanjšana (za dejansko zmanjšanje vklopi 'Izvedi pravo izplačilo').`);
+      }
+
+      res.json({
+        success: true,
+        simulation: !executeReal,
+        requestedAmount: withdrawalAmount,
+        previousBalance: currentBalance,
+        newBalance: executeReal ? newBalance : currentBalance,
+        stripeAccountStatus: stripeAccountId ? (stripeOnboardingComplete ? 'ready' : 'onboarding_required') : 'missing',
+        logs
+      });
+    } catch (err: any) {
+      console.error("Test payout error:", err);
+      res.status(500).json({ error: err.message || "Napaka pri testnem izplačilu" });
+    }
+  });
+
+  // 4. Add test funds helper
+  app.post("/api/test/add-test-funds", async (req, res) => {
+    try {
+      const { user_id, amount = 100 } = req.body;
+      if (!user_id) return res.status(400).json({ error: "Manjka user_id" });
+
+      const userDocRef = doc(db, 'users', user_id);
+      const userDoc = await getDoc(userDocRef);
+      if (!userDoc.exists()) return res.status(404).json({ error: "Uporabnik ne obstaja" });
+
+      const currentBalance = Number(userDoc.data()?.wallet_balance) || 0;
+      const newBalance = currentBalance + Number(amount);
+
+      await updateDoc(userDocRef, { wallet_balance: newBalance });
+
+      res.json({ success: true, previousBalance: currentBalance, newBalance });
+    } catch (err: any) {
+      console.error("Add test funds error:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 5. Post Analyze Receipt
   app.post("/api/analyze-receipt", async (req, res) => {
     try {
         const { imageUrl } = req.body;
@@ -1413,6 +1955,21 @@ async function startServer() {
         res.status(500).json({ error: e.message });
     }
   });
+
+  // Vite middleware for development
+  if (process.env.NODE_ENV !== "production") {
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: "spa",
+    });
+    app.use(vite.middlewares);
+  } else {
+    const distPath = path.join(process.cwd(), 'dist');
+    app.use(express.static(distPath));
+    app.get('*all', (req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  }
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);

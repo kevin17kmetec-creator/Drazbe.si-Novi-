@@ -134,6 +134,7 @@ const matchesSelectedRegion = (itemRegion: string | undefined, selected: string 
 // --- MAIN APP COMPONENT ---
 
 import { InvoiceModal } from "./src/components/InvoiceModal";
+import { TestSandboxView } from "./src/components/TestSandboxView";
 
 // SignedImg component for fetching Supabase signed URLs
 const SignedImg = ({
@@ -873,6 +874,7 @@ const MainApp: React.FC = () => {
   const isCheckingSessionRef = useRef(false);
 
   useEffect(() => {
+    let unsubscribeSnap: (() => void) | null = null;
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
         if (!user.emailVerified && user.providerData.some(p => p.providerId === "password")) {
@@ -880,34 +882,34 @@ const MainApp: React.FC = () => {
           return;
         }
         setIsLoggedIn(true);
-        const snap = await getDoc(doc(db, "users", user.uid));
-        const data: any = snap.exists() ? { id: snap.id, ...snap.data() } : null;
-        const error = null;
+        unsubscribeSnap = onSnapshot(doc(db, "users", user.uid), async (snap) => {
+          const data: any = snap.exists() ? { id: snap.id, ...snap.data() } : null;
 
-        if (data) {
-          setUserData((prev) => ({
-            ...prev,
-            ...data,
-            id: user.uid,
-            email: user.email,
-          }));
-          setIsVerified(data.is_verified || false);
-          setUserType(data.user_type || data.userType || null);
-        } else {
-          await setDoc(doc(db, 'users', user.uid), {
-            id: user.uid,
-            email: user.email,
-            is_verified: false,
-            subscription: 'FREE'
-          }, { merge: true });
-          
-          setUserData((prev) => ({
-            ...prev,
-            id: user.uid,
-            email: user.email,
-          }));
-          setIsVerified(false);
-        }
+          if (data) {
+            setUserData((prev) => ({
+              ...prev,
+              ...data,
+              id: user.uid,
+              email: user.email,
+            }));
+            setIsVerified(data.is_verified || false);
+            setUserType(data.user_type || data.userType || null);
+          } else {
+            await setDoc(doc(db, 'users', user.uid), {
+              id: user.uid,
+              email: user.email,
+              is_verified: false,
+              subscription: 'FREE'
+            }, { merge: true });
+            
+            setUserData((prev) => ({
+              ...prev,
+              id: user.uid,
+              email: user.email,
+            }));
+            setIsVerified(false);
+          }
+        });
       } else {
         setIsLoggedIn(false);
         setIsVerified(false);
@@ -925,11 +927,15 @@ const MainApp: React.FC = () => {
           last_name: "",
           wallet_balance: 0
         } as any);
+        if (unsubscribeSnap) { unsubscribeSnap(); unsubscribeSnap = null; }
       }
       setIsAuthLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      if (unsubscribeSnap) unsubscribeSnap();
+    };
   }, []);
 
   const currentUserWinnings = useMemo(() => {
@@ -1843,6 +1849,7 @@ const MainApp: React.FC = () => {
           onSave={handleSaveSettings}
           onVerify={() => setActiveView("verification")}
           onStripeVerified={handleStripeVerified}
+          onRefreshUser={() => refreshUserData(userData.id)}
           activeTab={settingsTab}
           setActiveTab={setSettingsTab}
         />
@@ -2710,6 +2717,24 @@ const MainApp: React.FC = () => {
         </div>
       );
       break;
+    case "testSandbox":
+      content = (
+        <TestSandboxView
+          onBack={() => setActiveView("grid")}
+          userData={userData}
+          onRefreshUserData={fetchAuctions}
+          onOpenInvoiceModal={(auction, seller, buyer) => {
+            setInvoiceModalData({
+              isOpen: true,
+              auction,
+              seller,
+              buyer
+            });
+          }}
+          t={t}
+        />
+      );
+      break;
     default:
       content = (
         <div className="animate-in">
@@ -2928,6 +2953,9 @@ const MainApp: React.FC = () => {
     setShowConfirmBidModal(false);
     try {
         const auctionRef = doc(db, 'auctions', item.id);
+        let previousLeaderId: string | null = null;
+        let finalCalculatedPrice = amount;
+
         const finalWinnerId = await runTransaction(db, async (transaction) => {
             const auctionDoc = await transaction.get(auctionRef);
             if (!auctionDoc.exists()) {
@@ -2936,6 +2964,7 @@ const MainApp: React.FC = () => {
             const data = auctionDoc.data();
             const currentPrice = Number(data.current_price ?? data.currentBid ?? 0);
             const currentWinner = data.winner_id || data.winnerId;
+            previousLeaderId = currentWinner || null;
             const isCurrentWinner = currentWinner === userData.id;
 
             if (amount <= currentPrice) {
@@ -2978,6 +3007,8 @@ const MainApp: React.FC = () => {
                  newWinnerId = userData.id;
                  newProxyBid = { user_id: userData.id, amount: amount };
             }
+            
+            finalCalculatedPrice = newCurrentPrice;
             
             const endTimeStr = data.end_time || data.endTime;
             const endTime = endTimeStr ? new Date(endTimeStr).getTime() : 0;
@@ -3041,6 +3072,19 @@ const MainApp: React.FC = () => {
             toast.error(t('bidOutbid') || "Ponudba je bila že presežena.");
         } else {
             toast.success("Ponudba uspešno oddana!");
+
+            // If we took the lead and replaced a previous bidder, trigger outbid email notification
+            if (previousLeaderId && previousLeaderId !== userData.id) {
+                fetch('/api/notify-outbid', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        auction_id: item.id,
+                        outbid_user_id: previousLeaderId,
+                        new_price: finalCalculatedPrice
+                    })
+                }).catch(err => console.error("Outbid notify email error:", err));
+            }
         }
 
         if (bidResolverRef.current) bidResolverRef.current(resultStatus);
@@ -3312,7 +3356,16 @@ const MainApp: React.FC = () => {
           userWalletBalance={userData.wallet_balance || 0}
         />
         <main>{content}</main>
-        {activeView === "grid" && <Footer t={t} onLegal={setActiveLegal} />}
+        {(activeView === "grid" || activeView === "testSandbox") && (
+          <Footer
+            t={t}
+            onLegal={setActiveLegal}
+            onTestSandbox={() => {
+              window.scrollTo({ top: 0, behavior: "smooth" });
+              setActiveView("testSandbox");
+            }}
+          />
+        )}
         {showTermsModal && (
           <div className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-6 animate-in">
             <div className="bg-white w-full max-w-xl rounded-[3rem] p-10 lg:p-14 shadow-2xl relative">
