@@ -1,6 +1,7 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { User, Camera, CheckCircle2, AlertCircle, Shield, CreditCard, Building, MapPin, Key } from 'lucide-react';
 import { toast } from 'sonner';
+import imageCompression from 'browser-image-compression';
 import { StripeConnectOnboarding } from './StripeConnectOnboarding';
 import { PhoneInput } from './PhoneInput';
 
@@ -106,17 +107,56 @@ export const SettingsView: React.FC<{
   });
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+    if (user) {
+      setFormData(prev => ({
+        ...prev,
+        username: user.username !== undefined ? user.username : prev.username,
+        firstName: (user.first_name || user.firstName) !== undefined ? (user.first_name || user.firstName) : prev.firstName,
+        lastName: (user.last_name || user.lastName) !== undefined ? (user.last_name || user.lastName) : prev.lastName,
+        email: user.email !== undefined ? user.email : prev.email,
+        profilePicture: (user.profile_picture_url || user.profilePicture) !== undefined ? (user.profile_picture_url || user.profilePicture) : prev.profilePicture,
+        phone: user.phone !== undefined ? user.phone : prev.phone,
+        street: user.street !== undefined ? user.street : prev.street,
+        city: user.city !== undefined ? user.city : prev.city,
+        postalCode: user.postal_code !== undefined ? user.postal_code : prev.postalCode,
+        companyName: user.company_name !== undefined ? user.company_name : prev.companyName,
+        taxNumber: (user.tax_number || user.tax_id) !== undefined ? (user.tax_number || user.tax_id) : prev.taxNumber,
+        companyStreet: user.company_street !== undefined ? user.company_street : prev.companyStreet,
+        companyCity: user.company_city !== undefined ? user.company_city : prev.companyCity,
+        companyPostalCode: user.company_postal_code !== undefined ? user.company_postal_code : prev.companyPostalCode,
+        representative: user.representative !== undefined ? user.representative : prev.representative,
+        countryCode: user.country_code !== undefined ? user.country_code : prev.countryCode,
+        autoInvoiceGeneration: user.auto_invoice_generation !== undefined ? user.auto_invoice_generation !== false : prev.autoInvoiceGeneration,
+      }));
+    }
+  }, [user]);
+
   const isVerified = user?.is_verified || user?.isVerified;
   const userType = user?.user_type || user?.userType || 'individual';
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setFormData({ ...formData, profilePicture: reader.result as string });
-      };
-      reader.readAsDataURL(file);
+      try {
+        const compressed = await imageCompression(file, {
+          maxSizeMB: 0.07,
+          maxWidthOrHeight: 600,
+          useWebWorker: true,
+          initialQuality: 0.6
+        });
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setFormData(prev => ({ ...prev, profilePicture: reader.result as string }));
+        };
+        reader.readAsDataURL(compressed);
+      } catch (err) {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setFormData(prev => ({ ...prev, profilePicture: reader.result as string }));
+        };
+        reader.readAsDataURL(file);
+      }
     }
   };
 
@@ -151,19 +191,19 @@ export const SettingsView: React.FC<{
                 onClick={() => setActiveTab('profile')}
                 className={`flex items-center gap-4 px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-xs transition-all w-full text-left ${activeTab === 'profile' ? 'bg-[#0A1128] text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50 hover:text-[#0A1128]'}`}
             >
-                <User size={18} /> Profil in Varnost
+                <User size={18} /> {t('tabProfileSecurity')}
             </button>
             <button 
                 onClick={() => setActiveTab('personal')}
                 className={`flex items-center gap-4 px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-xs transition-all w-full text-left ${activeTab === 'personal' ? 'bg-[#0A1128] text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50 hover:text-[#0A1128]'}`}
             >
-                <MapPin size={18} /> Osebni Podatki
+                <MapPin size={18} /> {t('tabPersonalData')}
             </button>
             <button 
                 onClick={() => setActiveTab('stripe')}
                 className={`flex items-center gap-4 px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-xs transition-all w-full text-left ${activeTab === 'stripe' ? 'bg-[#0A1128] text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50 hover:text-[#0A1128]'}`}
             >
-                <CreditCard size={18} /> Plačila in Izplačila
+                <CreditCard size={18} /> {t('tabPaymentsPayouts')}
             </button>
           </div>
         </div>
@@ -229,16 +269,16 @@ export const SettingsView: React.FC<{
                   <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                     <div>
                       <h4 className="text-xs font-black uppercase tracking-widest text-[#0A1128] mb-1">
-                        Letni limit nakupov (Zakonodaja EU / AML)
+                        {t('annualPurchaseLimitTitle')}
                       </h4>
                       <p className="text-xs text-slate-500 font-bold max-w-md">
                         {isVerified 
-                          ? "Vaš profil je verificiran. Nakupovanje je neomejeno." 
-                          : "Uporabniki lahko brez dodatne verifikacije nemoteno opravijo do 10.000 € nakupov na koledarsko leto."}
+                          ? t('annualLimitVerified')
+                          : t('annualLimitUnverified')}
                       </p>
                     </div>
                     <div className="bg-white px-5 py-3 rounded-2xl border border-slate-200 text-left sm:text-right w-full sm:w-auto">
-                      <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-0.5">Poraba v {new Date().getFullYear()}</p>
+                      <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-0.5">{t('spendingInYear')} {new Date().getFullYear()}</p>
                       <p className="text-base font-black text-[#0A1128]">
                         €{((user?.yearly_spent_by_year && user.yearly_spent_by_year[new Date().getFullYear()]) || (user?.yearly_spent_year === new Date().getFullYear() ? user?.yearly_spent : 0) || 0).toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         <span className="text-slate-400 text-xs font-normal"> / {isVerified ? '∞' : '€10.000,00'}</span>
@@ -300,7 +340,7 @@ export const SettingsView: React.FC<{
                             <AlertCircle size={32} />
                         </div>
                         <h3 className="text-xl font-black uppercase tracking-tighter text-[#0A1128] mb-2">{t('notVerified')}</h3>
-                        <p className="text-slate-500 font-bold max-w-sm mx-auto mb-8">Vaši osebni podatki se bodo prikazali, ko boste verificirali svoj profil v zgornjem zavitku.</p>
+                        <p className="text-slate-500 font-bold max-w-sm mx-auto mb-8">{t('personalDataVerificationNotice')}</p>
                         <button 
                             type="button" 
                             onClick={onVerify}
@@ -325,31 +365,31 @@ export const SettingsView: React.FC<{
                                     <div><label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{t('postalCode')}</label><input type="text" value={formData.postalCode} onChange={e => setFormData({...formData, postalCode: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 font-bold outline-none focus:border-[#FEBA4F]" /></div>
                                     <div className="md:col-span-2"><label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{t('taxNumber')}</label><input type="text" value={formData.taxNumber} onChange={e => setFormData({...formData, taxNumber: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 font-bold outline-none focus:border-[#FEBA4F]" /></div>
                                     <div>
-                                        <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Država / Country</label>
+                                        <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{t('country')}</label>
                                         <select value={formData.countryCode} onChange={e => setFormData({...formData, countryCode: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 font-bold outline-none focus:border-[#FEBA4F] cursor-pointer">
                                             {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.name}</option>)}
                                         </select>
                                     </div>
-                                    <div className="md:col-span-2"><label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Telefonska številka / Phone number</label><PhoneInput value={formData.phone} onChange={val => setFormData({...formData, phone: val})} /></div>
+                                    <div className="md:col-span-2"><label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{t('phoneNumber')}</label><PhoneInput value={formData.phone} onChange={val => setFormData({...formData, phone: val})} /></div>
                                 </>
                             ) : (
                                 <>
                                     <div className="md:col-span-2"><label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{t('companyName')}</label><input type="text" value={formData.companyName} onChange={e => setFormData({...formData, companyName: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 font-bold outline-none focus:border-[#FEBA4F]" /></div>
                                     <div className="md:col-span-2"><label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{t('taxNumber')}</label><input type="text" value={formData.taxNumber} onChange={e => setFormData({...formData, taxNumber: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 font-bold outline-none focus:border-[#FEBA4F]" /></div>
                                     <div>
-                                        <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Država / Country</label>
+                                        <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{t('country')}</label>
                                         <select value={formData.countryCode} onChange={e => setFormData({...formData, countryCode: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 font-bold outline-none focus:border-[#FEBA4F] cursor-pointer">
                                             {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.name}</option>)}
                                         </select>
                                     </div>
-                                    <div className="md:col-span-2"><label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Telefonska številka / Phone number</label><PhoneInput value={formData.phone} onChange={val => setFormData({...formData, phone: val})} /></div>
+                                    <div className="md:col-span-2"><label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{t('phoneNumber')}</label><PhoneInput value={formData.phone} onChange={val => setFormData({...formData, phone: val})} /></div>
                                     <div className="md:col-span-2"><label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{t('companyStreet')}</label><input type="text" value={formData.companyStreet} onChange={e => setFormData({...formData, companyStreet: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 font-bold outline-none focus:border-[#FEBA4F]" /></div>
                                     <div><label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{t('companyCity')}</label><input type="text" value={formData.companyCity} onChange={e => setFormData({...formData, companyCity: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 font-bold outline-none focus:border-[#FEBA4F]" /></div>
                                     <div><label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{t('companyPostalCode')}</label><input type="text" value={formData.companyPostalCode} onChange={e => setFormData({...formData, companyPostalCode: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 font-bold outline-none focus:border-[#FEBA4F]" /></div>
                                     <div className="md:col-span-2"><label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{t('representative')}</label><input type="text" value={formData.representative} onChange={e => setFormData({...formData, representative: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 font-bold outline-none focus:border-[#FEBA4F]" /></div>
                                     <div className="md:col-span-2 flex items-center gap-2 mt-4 pt-4 border-t border-slate-200">
                                         <input type="checkbox" id="autoInvoice" checked={formData.autoInvoiceGeneration} onChange={e => setFormData({...formData, autoInvoiceGeneration: e.target.checked})} className="w-4 h-4 text-[#FEBA4F] bg-white border-slate-200 rounded focus:ring-[#FEBA4F] cursor-pointer" />
-                                        <label htmlFor="autoInvoice" className="text-xs font-bold text-slate-500 cursor-pointer">Samodejno generiranje računov za provizije / Auto-generate commission invoices</label>
+                                        <label htmlFor="autoInvoice" className="text-xs font-bold text-slate-500 cursor-pointer">{t('autoInvoiceGeneration')}</label>
                                     </div>
                                 </>
                             )}
@@ -373,16 +413,16 @@ export const SettingsView: React.FC<{
               <div className="animate-in fade-in slide-in-from-right-4">
                 <div className="mb-6">
                     <h3 className="text-xl font-black uppercase tracking-tighter text-[#0A1128] mb-2 flex items-center gap-2">
-                        <CreditCard size={20} className="text-[#FEBA4F]"/> Sredstva na računu (Wallet)
+                        <CreditCard size={20} className="text-[#FEBA4F]"/> {t('walletFunds')}
                     </h3>
-                    <p className="text-slate-400 font-bold text-sm mb-6">Denar od uspešno prodanih dražb, ki ga lahko uporabite za nakupe ali zahtevate izplačilo.</p>
+                    <p className="text-slate-400 font-bold text-sm mb-6">{t('walletDesc')}</p>
                     
                     <div className="bg-[#0A1128] text-white p-8 rounded-3xl shadow-xl flex items-center justify-between mb-8 border-4 border-[#FEBA4F]/20 relative overflow-hidden">
                       <div className="absolute top-0 right-0 p-8 opacity-10">
                         <CreditCard size={100} />
                       </div>
                       <div className="relative z-10">
-                        <p className="text-[10px] font-black uppercase tracking-widest text-[#FEBA4F] mb-1">Trenutno stanje</p>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-[#FEBA4F] mb-1">{t('currentBalance')}</p>
                         <p className="text-5xl font-black">€{Number(user?.wallet_balance || 0).toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                       </div>
                       <div className="relative z-10">
@@ -390,19 +430,19 @@ export const SettingsView: React.FC<{
                           type="button"
                           onClick={() => {
                             if (Number(user?.wallet_balance || 0) <= 0) {
-                              toast.error('Na računu ni dovolj sredstev za izplačilo.');
+                              toast.error(t('insufficientFunds'));
                               return;
                             }
                             if (!user?.stripe_onboarding_complete) {
-                              toast.error('Prosimo, povežite Stripe bančni račun za izplačilo.');
+                              toast.error(t('connectStripeForPayout'));
                               return;
                             }
                             // Call payout function (mock or backend)
-                            toast.success('Zahtevek za izplačilo poslan! Sredstva bodo nakazana na vaš povezan račun.');
+                            toast.success(t('payoutRequestSuccess'));
                           }}
                           className="bg-[#FEBA4F] text-[#0A1128] px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-white transition-all shadow-xl"
                         >
-                          Zahtevaj izplačilo
+                          {t('requestPayout')}
                         </button>
                       </div>
                     </div>
@@ -410,9 +450,9 @@ export const SettingsView: React.FC<{
                 
                 <div className="mb-6">
                     <h3 className="text-xl font-black uppercase tracking-tighter text-[#0A1128] mb-2 flex items-center gap-2">
-                        <CreditCard size={20} className="text-[#FEBA4F]"/> Povezava bančnega računa (Stripe)
+                        <CreditCard size={20} className="text-[#FEBA4F]"/> {t('stripeBankConnection')}
                     </h3>
-                    <p className="text-slate-400 font-bold text-sm mb-8">Povežite svoj bančni račun za prejemanje izplačil od prodanih dražb ter upravljajte svoje podatke o nakazilih.</p>
+                    <p className="text-slate-400 font-bold text-sm mb-8">{t('stripeBankConnectionDesc')}</p>
                 </div>
                 <StripeConnectOnboarding 
                   userId={user?.id || ''} 

@@ -53,23 +53,14 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
   }, [item?.images]);
 
   const [timeLeft, setTimeLeft] = useState<number>(() => {
-    const end = endTime.getTime();
+    const end = (item?.endTime ? new Date(item.endTime) : new Date()).getTime();
     const now = new Date().getTime();
     return Math.max(0, Math.floor((end - now) / 1000));
   });
-  const [bidAmount, setBidAmount] = useState<string>(String((item?.currentBid || 0) + getIncrement(item?.currentBid || 0)));
+  const [bidAmount, setBidAmount] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [currentUser, setCurrentUser] = useState<any>(null);
   const [bidSuccess, setBidSuccess] = useState(false);
-
-  useEffect(() => {
-    try {
-      
-    } catch (err) {
-      console.error("Supabase auth error in AuctionView:", err);
-    }
-  }, []);
 
   useEffect(() => {
     if (!item || item.status !== 'active') return;
@@ -87,11 +78,34 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
     };
   }, [endTime, item?.status]);
 
+  const isWinner = currentUserId && (item.winnerId === currentUserId || item.winner_id === currentUserId);
+  const isSeller = currentUserId && (item.sellerId === currentUserId || item.seller_id === currentUserId);
+  const isEnded = item.status === 'completed' || item.status === 'cancelled' || timeLeft === 0;
+
+  const currentLeadingAmount = isWinner 
+    ? Math.max(currentBid, Number(item?.current_proxy_bid?.amount || item?.currentProxyBid?.amount || item?.hiddenMaxBid || item?.hidden_max_bid || currentBid))
+    : currentBid;
+  const minNextBid = currentLeadingAmount + getIncrement(currentLeadingAmount);
+
   useEffect(() => {
-    if (Number(bidAmount) < currentBid + getIncrement(currentBid)) {
-      setBidAmount(String(currentBid + getIncrement(currentBid)));
+    const baseline = isWinner 
+      ? Math.max(currentBid, Number(item?.current_proxy_bid?.amount || item?.currentProxyBid?.amount || item?.hiddenMaxBid || item?.hidden_max_bid || currentBid))
+      : currentBid;
+    const requiredMin = baseline + getIncrement(baseline);
+    if (!bidAmount || Number(bidAmount) < requiredMin) {
+      setBidAmount(String(requiredMin));
     }
-  }, [currentBid]);
+  }, [currentBid, isWinner, item]);
+
+  const handleAdjustBid = (dir: 'up' | 'down') => {
+    const currentNum = Number(bidAmount) || minNextBid;
+    const step = getIncrement(currentNum);
+    if (dir === 'up') {
+      setBidAmount(String(Math.max(currentNum + step, minNextBid)));
+    } else {
+      setBidAmount(String(Math.max(currentNum - step, minNextBid)));
+    }
+  };
 
   const handlePlaceBid = async () => {
     if (!bidAmount || isNaN(Number(bidAmount))) return;
@@ -102,7 +116,6 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
     try {
       const result = await onBidSubmit(item, Number(bidAmount));
       if (result === 'ok') {
-          setBidAmount('');
           setBidSuccess(true);
           setTimeout(() => setBidSuccess(false), 3000);
       } else if (result === 'outbid') {
@@ -121,10 +134,6 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
   };
 
   if (!item) return <div className="p-10 text-center font-bold text-slate-500 animate-pulse">{t('loading')}...</div>;
-
-  const isWinner = currentUserId && (item.winnerId === currentUserId || item.winner_id === currentUserId);
-  const isSeller = currentUserId && (item.sellerId === currentUserId || item.seller_id === currentUserId);
-  const isEnded = item.status === 'completed' || item.status === 'cancelled' || timeLeft === 0;
 
   const d = Math.floor(timeLeft / (3600 * 24));
   const h = Math.floor((timeLeft % (3600 * 24)) / 3600);
@@ -276,7 +285,9 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                 </div>
                 
                 <div className="text-center border-r border-white/10 pt-4 border-t">
-                  <p className="text-2xl font-black text-green-400">{isWinner ? `€ ${item.current_proxy_bid?.amount || item.currentProxyBid?.amount || item.hiddenMaxBid || item.hidden_max_bid || '-'}` : '-'}</p>
+                  <p className="text-2xl font-black text-green-400">
+                    {isWinner ? `€ ${item.current_proxy_bid?.amount || item.currentProxyBid?.amount || item.hiddenMaxBid || item.hidden_max_bid || item.currentBid || item.current_price || '-'}` : '-'}
+                  </p>
                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1 flex items-center justify-center gap-1"><Lock size={10}/> {t('myMaxBid')}</p>
                 </div>
                 <div className="text-center pt-4 border-t border-white/10">
@@ -284,20 +295,22 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1">{t('currentBid')}</p>
                 </div>
               </div>
-              {!isSeller && !isEnded && (
+              {!isEnded && (
               <p className="text-[10px] font-bold text-slate-400 text-center mb-4 leading-relaxed bg-white/5 p-3 rounded-xl">
-                  Vnesite najvišji znesek, ki ste ga pripravljeni plačati. Vaša maksimalna ponudba ostane skrivnost. Sistem bo samodejno višal ponudbo v vašem imenu.
+                  {isWinner 
+                    ? (t('proxyBidLeadingTip') || 'Ste vodilni ponudnik! Vnesite višji znesek, če želite povišati vašo maksimalno ponudbo.')
+                    : (t('proxyBidTip') || 'Vnesite najvišji znesek, ki ste ga pripravljeni plačati. Vaša maksimalna ponudba ostane skrivnost. Sistem bo samodejno višal ponudbo v vašem imenu.')}
               </p>
               )}
 
               {error && <div className="mb-4 p-3 bg-red-500/10 text-red-400 rounded-xl font-bold text-[10px] uppercase tracking-widest text-center border border-red-500/20">{error}</div>}
               {bidSuccess && <div className="mb-4 p-3 bg-green-500/10 text-green-400 rounded-xl font-bold text-[10px] uppercase tracking-widest text-center border border-green-500/20">{t('bidSuccessMsg')}</div>}
 
-              {!isSeller && !isEnded && (
+              {!isEnded && (
                 <div className="flex flex-col gap-3 w-full mt-auto">
                   <div className="relative flex-1">
                     <button 
-                      onClick={() => setBidAmount(String(Math.max(Number(bidAmount || item.currentBid) - 10, item.currentBid + 10)))}
+                      onClick={() => handleAdjustBid('down')}
                       className="absolute left-2 top-2 bottom-2 aspect-square bg-white/10 border border-white/10 rounded-lg flex items-center justify-center hover:border-[#FEBA4F] hover:text-[#FEBA4F] text-slate-400 transition-colors"
                     >
                       <Minus size={20} />
@@ -309,7 +322,7 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                       className="w-full h-14 bg-white/5 border-2 border-white/10 rounded-xl px-14 font-black text-xl text-white outline-none focus:border-[#FEBA4F] text-center transition-colors"
                     />
                     <button 
-                      onClick={() => setBidAmount(String(Math.max(Number(bidAmount || item.currentBid), item.currentBid) + 10))}
+                      onClick={() => handleAdjustBid('up')}
                       className="absolute right-2 top-2 bottom-2 aspect-square bg-white/10 border border-white/10 rounded-lg flex items-center justify-center hover:border-[#FEBA4F] hover:text-[#FEBA4F] text-slate-400 transition-colors"
                     >
                       <Plus size={20} />
@@ -318,9 +331,9 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                   <button 
                     onClick={handlePlaceBid}
                     disabled={loading}
-                    className="h-14 px-8 bg-[#FEBA4F] text-[#0A1128] rounded-xl font-black uppercase tracking-widest hover:bg-white transition-all shadow-lg disabled:opacity-50 w-full"
+                    className="h-14 px-8 bg-[#FEBA4F] text-[#0A1128] rounded-xl font-black uppercase tracking-widest hover:bg-white transition-all shadow-lg disabled:opacity-50 w-full flex items-center justify-center gap-2"
                   >
-                    {loading ? '...' : t('placeBid')}
+                    {loading ? '...' : isWinner ? (t('increaseBid') || 'Zvišaj ponudbo') : t('placeBid')}
                   </button>
                 </div>
               )}
@@ -391,7 +404,7 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                     onClick={() => item.sellerId && onSellerClick?.(item.sellerId)}
                     className="text-sm font-black text-[#FEBA4F] hover:underline"
                   >
-                    {item.sellerName || t('unknown')}
+                    {item.sellerName && item.sellerName !== "Neznan prodajalec" && item.sellerName !== "Neznan Prodajalec" ? item.sellerName : (t('unknownSeller') || t('unknown'))}
                   </button>
                 </div>
                 <div>

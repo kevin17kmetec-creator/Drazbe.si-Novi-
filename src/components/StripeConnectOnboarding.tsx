@@ -126,10 +126,10 @@ export const StripeConnectOnboarding: React.FC<Props> = ({ userId, isComplete, o
           </div>
           <div>
             <h4 className={`text-sm font-black uppercase tracking-widest ${isComplete ? 'text-green-800' : 'text-[#0A1128]'}`}>
-                {isComplete ? 'Stripe račun in izplačila' : 'Stripe preverjanje in izplačila'}
+                {isComplete ? t('stripeAccountAndPayouts') : t('stripeVerificationAndPayouts')}
             </h4>
             <p className="text-xs font-bold text-slate-500 mt-2 max-w-sm">
-                {isComplete ? 'Vaš račun je povezan. Lahko preglejte in posodobite svoje bančne podatke ter nastavitve izplačil.' : 'Za objavo dražb in prejemanje sredstev morate overiti in povezati bančni račun. Preverjanje poteka varno na naši platformi preko sistema Stripe.'}
+                {isComplete ? t('stripeConnectedDesc') : t('stripeUnconnectedDesc')}
             </p>
           </div>
         </div>
@@ -139,7 +139,7 @@ export const StripeConnectOnboarding: React.FC<Props> = ({ userId, isComplete, o
           onClick={handleStartOnboarding}
           className="shrink-0 bg-[#0A1128] text-white px-6 py-3 rounded-xl font-black uppercase tracking-widest text-xs hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-colors shadow-lg disabled:opacity-50"
         >
-          {loading ? 'Nalaganje...' : isComplete ? 'Upravljaj bančni račun' : 'Začni preverjanje'}
+          {loading ? (t('loading') || 'Nalaganje...') : isComplete ? t('manageBankAccount') : t('startVerification')}
         </button>
       </div>
     </div>

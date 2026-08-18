@@ -20,12 +20,15 @@ export const AuctionCard: React.FC<{
   const [timeLeftStr, setTimeLeftStr] = useState('');
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [signedImages, setSignedImages] = useState<string[]>([]);
-  const seller = undefined;
-  const minNextBid = item.currentBid + getIncrement(item.currentBid);
+  const seller = (item as any).seller;
+  const isWinner = currentUserId && (item.winnerId === currentUserId || (item as any).winner_id === currentUserId);
+  const userMax = isWinner 
+    ? Math.max(item.currentBid, Number(item.hiddenMaxBid || (item as any).hidden_max_bid || (item as any).current_proxy_bid?.amount || (item as any).currentProxyBid?.amount || item.currentBid))
+    : item.currentBid;
+  const minNextBid = userMax + getIncrement(userMax);
   const [bidValue, setBidValue] = useState(minNextBid);
   const [bidStatus, setBidStatus] = useState<'ok' | 'outbid' | 'error' | null>(null);
   const [isBidding, setIsBidding] = useState(false);
-  const isWinner = currentUserId && (item.winnerId === currentUserId || (item as any).winner_id === currentUserId);
   const hasEndedFiredRef = useRef(false);
 
   useEffect(() => {
@@ -37,7 +40,12 @@ export const AuctionCard: React.FC<{
     setSignedImages(urls);
   }, [item?.images]);
 
-  useEffect(() => { setBidValue(item.currentBid + getIncrement(item.currentBid)); }, [item.currentBid]);
+  useEffect(() => { 
+    const baseline = isWinner 
+      ? Math.max(item.currentBid, Number(item.hiddenMaxBid || (item as any).hidden_max_bid || (item as any).current_proxy_bid?.amount || (item as any).currentProxyBid?.amount || item.currentBid))
+      : item.currentBid;
+    setBidValue(baseline + getIncrement(baseline)); 
+  }, [item.currentBid, isWinner, item.hiddenMaxBid, (item as any).hidden_max_bid, (item as any).current_proxy_bid]);
   useEffect(() => {
     const update = () => {
       const diff = Math.max(0, Math.floor((item.endTime.getTime() - Date.now()) / 1000));
@@ -131,7 +139,7 @@ export const AuctionCard: React.FC<{
         <div className="mb-3 flex justify-between items-center">
             {(seller || item.sellerName) && (
                 <button onClick={(e) => { e.stopPropagation(); if (seller) onSellerClick?.(seller); }} className="text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-[#FEBA4F] transition-colors flex items-center gap-1.5">
-                    <Building2 size={12} /> {seller ? (seller.name[language] || seller.name['SLO']) : item.sellerName}
+                    <Building2 size={12} /> {seller ? (seller.name[language] || seller.name['SLO'] || t('unknownSeller')) : (item.sellerName && item.sellerName !== "Neznan prodajalec" ? item.sellerName : t('unknownSeller'))}
                 </button>
             )}
         </div>
@@ -178,7 +186,7 @@ export const AuctionCard: React.FC<{
                 ) : !isVerified ? (
                     <Lock size={14} />
                 ) : (
-                    t('placeBid')
+                    isWinner ? (t('increaseBid') || 'Zvišaj') : t('placeBid')
                 )}
              </button>
              

@@ -89,7 +89,7 @@ const SellerView: React.FC<SellerViewProps> = ({
           <div className="flex-1">
             <div className="flex flex-wrap items-center gap-4 mb-4">
               <h1 className="text-4xl lg:text-5xl font-black uppercase tracking-tighter text-[#0A1128] italic">
-                {seller?.name?.[language] || seller?.name?.['SLO'] || 'Neznan prodajalec'}
+                {seller?.name?.[language] || seller?.name?.['SLO'] || t('unknownSeller') || 'Neznan prodajalec'}
               </h1>
               <div className="bg-[#FEBA4F]/10 text-[#FEBA4F] px-4 py-1.5 rounded-xl font-black uppercase text-[10px] tracking-widest border border-[#FEBA4F]/20">
                 {seller.type === 'business' ? t('businessSeller') : t('individualSeller')}

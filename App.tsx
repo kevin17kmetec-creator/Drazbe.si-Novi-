@@ -108,7 +108,7 @@ import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 // --- CONFIGURATION ---
 
-import { translations } from "./src/lib/translations";
+import { translations, getCategoryTranslation } from "./src/lib/translations";
 import { REGION_ALIAS_MAP } from "./src/components/SloveniaMap";
 import {
   getIncrement,
@@ -691,7 +691,7 @@ const MainApp: React.FC = () => {
                 winner_id: data.winner_id || data.winnerId,
                 payment_status: data.payment_status || "unpaid",
                 paid_at: data.paid_at,
-                sellerName: data.sellerName || "Neznan Prodajalec",
+                sellerName: data.sellerName || "",
                 delivery_method: data.delivery_method,
                 buyer_received: data.buyer_received,
               };
@@ -1032,7 +1032,7 @@ const MainApp: React.FC = () => {
       const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       const fetchedData: AuctionItem[] = data.map((d: any) => {
         const seller = usersMap.get(d.seller_id) || {};
-        let sellerName = "Neznan prodajalec";
+        let sellerName = "";
         if (seller.user_type === "business" && seller.company_name) {
           sellerName = seller.company_name;
         } else if (seller.username) {
@@ -1077,7 +1077,7 @@ const MainApp: React.FC = () => {
       const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       const fetchedData: AuctionItem[] = data.map((d: any) => {
         const seller = usersMap.get(d.seller_id) || {};
-        let sellerName = "Neznan prodajalec";
+        let sellerName = "";
         if (seller.user_type === "business" && seller.company_name) {
           sellerName = seller.company_name;
         } else if (seller.username) {
@@ -1429,52 +1429,50 @@ const MainApp: React.FC = () => {
           data.profilePicture.startsWith("data:image")
         ) {
             console.log("Processing profile picture...");
-
-            // Manual base64 to Blob conversion to avoid CSP fetch issues
-            const base64Parts = data.profilePicture.split(",");
-            const mimeType =
-              base64Parts[0].match(/:(.*?);/)?.[1] || "image/jpeg";
-            const base64Data = base64Parts[1];
-            const byteCharacters = atob(base64Data);
-            const byteNumbers = new Array(byteCharacters.length);
-            for (let i = 0; i < byteCharacters.length; i++) {
-              byteNumbers[i] = byteCharacters.charCodeAt(i);
-            }
-            const byteArray = new Uint8Array(byteNumbers);
-            const blob = new Blob([byteArray], { type: mimeType });
-            const file = new File([blob], "profile.jpg", { type: mimeType });
-
-            // Compress image
-            const options = {
-              maxSizeMB: 0.2,
-              maxWidthOrHeight: 800,
-              useWebWorker: true,
-            };
-
-            const compressedFile = await imageCompression(file, options);
-            console.log("Image compressed successfully");
-
-            const fileName = `${userData.id}-${Date.now()}.jpg`;
-
-            const storageRef = ref(storage, `profiles/${fileName}`);
             try {
-              await uploadBytes(storageRef, compressedFile, { contentType: "image/jpeg" });
-              const url = await getDownloadURL(storageRef);
-              updateData.profile_picture_url = url;
-              console.log("Profile picture uploaded:", url);
-            } catch (uploadErr) {
-              console.error("Image upload failed, falling back to base64:", uploadErr);
-              // Fallback: Use the compressed file as base64 string directly in Firestore
+              // Manual base64 to Blob conversion to avoid CSP fetch issues
+              const base64Parts = data.profilePicture.split(",");
+              const mimeType =
+                base64Parts[0].match(/:(.*?);/)?.[1] || "image/jpeg";
+              const base64Data = base64Parts[1];
+              const byteCharacters = atob(base64Data);
+              const byteNumbers = new Array(byteCharacters.length);
+              for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+              }
+              const byteArray = new Uint8Array(byteNumbers);
+              const blob = new Blob([byteArray], { type: mimeType });
+              const file = new File([blob], "profile.jpg", { type: mimeType });
+
+              // Compress image to small footprint (<60KB) for instant, reliable Firestore storage
+              const options = {
+                maxSizeMB: 0.06,
+                maxWidthOrHeight: 500,
+                useWebWorker: true,
+                initialQuality: 0.6,
+              };
+
+              const superCompressed = await imageCompression(file, options);
               const compressedBase64 = await new Promise<string>((resolve, reject) => {
                   const reader = new FileReader();
-                  reader.readAsDataURL(compressedFile);
                   reader.onloadend = () => resolve(reader.result as string);
                   reader.onerror = error => reject(error);
+                  reader.readAsDataURL(superCompressed);
               });
               updateData.profile_picture_url = compressedBase64;
+              updateData.profilePicture = compressedBase64;
+              console.log("Profile picture processed successfully");
+            } catch (compErr) {
+              console.warn("Using direct data url fallback:", compErr);
+              updateData.profile_picture_url = data.profilePicture;
+              updateData.profilePicture = data.profilePicture;
             }
-        } else if (!data.profilePicture) {
+        } else if (data.profilePicture) {
+          updateData.profile_picture_url = data.profilePicture;
+          updateData.profilePicture = data.profilePicture;
+        } else {
           updateData.profile_picture_url = null;
+          updateData.profilePicture = null;
         }
 
         console.log("Updating database with:", updateData);
@@ -2736,9 +2734,9 @@ const MainApp: React.FC = () => {
                     : selectedRegion
                       ? `${t("regions")}: ${selectedRegion}`
                       : selectedCategory
-                        ? `${t("category")}: ${selectedCategory}`
+                        ? `${t("category")}: ${getCategoryTranslation(selectedCategory, t)}`
                         : searchQuery
-                          ? `Rezultati: "${searchQuery}"`
+                          ? `${t("searchResults") || 'Rezultati'}: "${searchQuery}"`
                           : t("activeAuctions")}
                 </h2>
                 {selectedRegion && (
@@ -2763,10 +2761,10 @@ const MainApp: React.FC = () => {
                     setCurrentPage(1);
                   }}
                 >
-                  <option value="12">Prikaži ~12</option>
-                  <option value="24">Prikaži ~24</option>
-                  <option value="48">Prikaži ~48</option>
-                  <option value="96">Prikaži ~96</option>
+                  <option value="12">{t("showCount")?.replace("{n}", "12") || `${t("show") || "Prikaži"} ~12`}</option>
+                  <option value="24">{t("showCount")?.replace("{n}", "24") || `${t("show") || "Prikaži"} ~24`}</option>
+                  <option value="48">{t("showCount")?.replace("{n}", "48") || `${t("show") || "Prikaži"} ~48`}</option>
+                  <option value="96">{t("showCount")?.replace("{n}", "96") || `${t("show") || "Prikaži"} ~96`}</option>
                 </select>
               </div>
             </div>
@@ -2907,9 +2905,12 @@ const MainApp: React.FC = () => {
     setPendingBid(null);
   };
 
-  async function handleConfirmBid() {
+  async function handleConfirmBid(confirmedAmount?: number) {
     if (!pendingBid) return;
-    const { item, amount } = pendingBid;
+    const item = pendingBid.item;
+    const amount = confirmedAmount !== undefined && !isNaN(confirmedAmount) && confirmedAmount > 0 
+      ? confirmedAmount 
+      : pendingBid.amount;
     
     setShowConfirmBidModal(false);
     try {
@@ -2920,26 +2921,28 @@ const MainApp: React.FC = () => {
                 throw new Error("Auction does not exist");
             }
             const data = auctionDoc.data();
-            const currentPrice = data.current_price || data.currentBid || 0;
+            const currentPrice = Number(data.current_price ?? data.currentBid ?? 0);
+            const currentWinner = data.winner_id || data.winnerId;
+            const isCurrentWinner = currentWinner === userData.id;
+
             if (amount <= currentPrice) {
                 throw new Error("Bid must be higher than current price");
             }
 
             // PROXY BIDDING LOGIC
-            // 'amount' is the max proxy bid from the user.
-            // Check if there is an existing proxy bid.
-            const currentProxy = data.current_proxy_bid;
+            const currentProxy = data.current_proxy_bid || data.currentProxyBid;
             let newCurrentPrice = currentPrice;
             let newWinnerId = userData.id;
             let newProxyBid = { user_id: userData.id, amount: amount };
             
-            // Standard increment (assuming 10 for simplicity, or we can fetch a helper)
-            const increment = 10;
+            const increment = getIncrement(currentPrice);
             
             if (currentProxy && currentProxy.user_id !== userData.id) {
                 if (amount > currentProxy.amount) {
                     // New user outbids old proxy
                     newCurrentPrice = Math.min(amount, currentProxy.amount + increment);
+                    newWinnerId = userData.id;
+                    newProxyBid = { user_id: userData.id, amount: amount };
                 } else if (amount === currentProxy.amount) {
                     // Tie goes to earlier proxy
                     newCurrentPrice = amount;
@@ -2951,13 +2954,16 @@ const MainApp: React.FC = () => {
                     newWinnerId = currentProxy.user_id;
                     newProxyBid = currentProxy;
                 }
-            } else if (currentProxy && currentProxy.user_id === userData.id) {
-                // User is just increasing their proxy max bid, current price doesn't change unless they are outbidding themselves (which is impossible here)
+            } else if (isCurrentWinner || (currentProxy && currentProxy.user_id === userData.id)) {
+                // User is leading and increasing their max proxy bid; price stays current price unless this is their initial bid
                 newCurrentPrice = currentPrice; 
-                // wait, if they are just updating proxy, we just update it
+                newWinnerId = userData.id;
+                newProxyBid = { user_id: userData.id, amount: amount };
             } else {
-                 // No previous proxy, or just starting. New price is current price + increment, or amount if less
+                 // No previous proxy, or starting fresh
                  newCurrentPrice = Math.min(amount, currentPrice + increment);
+                 newWinnerId = userData.id;
+                 newProxyBid = { user_id: userData.id, amount: amount };
             }
             
             const endTimeStr = data.end_time || data.endTime;
@@ -2966,17 +2972,16 @@ const MainApp: React.FC = () => {
             let newEndTimeStr = endTimeStr;
             
             if (endTime > now && endTime - now < 60 * 1000) {
-                // Extend by 1 minute
+                // Extend by 1 minute if bid is in final 60 seconds
                 newEndTimeStr = new Date(now + 60 * 1000).toISOString();
             }
 
-            // Update top bids to keep track of 2nd highest
+            // Update top bids to keep track of highest unique bidders
             let topBids = data.top_bids || [];
             topBids.push({ user_id: userData.id, amount, timestamp: new Date().toISOString() });
-            // Sort by amount desc
-            topBids.sort((a, b) => b.amount - a.amount);
-            // Keep only unique users (highest bid per user) to find the true 2nd highest bidder
-            let uniqueTopBids = [];
+            topBids.sort((a: any, b: any) => b.amount - a.amount);
+            
+            let uniqueTopBids: any[] = [];
             let seenUsers = new Set();
             for (let bid of topBids) {
                 if (!seenUsers.has(bid.user_id)) {
@@ -2984,19 +2989,40 @@ const MainApp: React.FC = () => {
                     seenUsers.add(bid.user_id);
                 }
             }
-            // Keep top 3 just in case
             uniqueTopBids = uniqueTopBids.slice(0, 3);
             
+            const existingHistory = data.bidding_history || data.biddingHistory || [];
+            const newHistoryItem = {
+              user_id: userData.id,
+              userId: userData.id,
+              username: userData.username || userData.first_name || userData.email?.split('@')[0] || 'Uporabnik',
+              amount: amount,
+              created_at: new Date().toISOString(),
+              createdAt: new Date().toISOString()
+            };
+
             transaction.update(auctionRef, { 
-                 current_price: amount, 
-                 bid_count: (data.bid_count || 0) + 1, 
-                 winner_id: userData.id,
+                 current_price: newCurrentPrice, 
+                 currentBid: newCurrentPrice,
+                 winner_id: newWinnerId,
+                 winnerId: newWinnerId,
+                 current_proxy_bid: newProxyBid,
+                 currentProxyBid: newProxyBid,
+                 hidden_max_bid: newProxyBid.amount,
+                 hiddenMaxBid: newProxyBid.amount,
+                 bid_count: (data.bid_count || data.bidCount || 0) + 1, 
+                 bidCount: (data.bid_count || data.bidCount || 0) + 1,
                  top_bids: uniqueTopBids,
-                 end_time: newEndTimeStr
+                 end_time: newEndTimeStr,
+                 endTime: newEndTimeStr,
+                 bidding_history: [...existingHistory, newHistoryItem],
+                 biddingHistory: [...existingHistory, newHistoryItem]
             });
         });
         toast.success("Ponudba uspešno oddana!");
+        fetchAuctions();
     } catch (e: any) {
+        console.error("Bid submission error:", e);
         toast.error(e.message || "Error submitting bid");
     }
     setPendingBid(null);

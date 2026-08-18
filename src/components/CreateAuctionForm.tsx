@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, FileUp, Trash2, Gavel, Wand2, X, Eye, ChevronLeft, ChevronRight, GripHorizontal } from 'lucide-react';
 import { Category, Region, AuctionItem } from '../../types.ts';
+import { getCategoryTranslation } from '../lib/translations';
 import { storage } from '../lib/firebase';
 import { ref, uploadBytesResumable, getDownloadURL, deleteObject, UploadTask } from 'firebase/storage';
 import { toast } from 'sonner';
@@ -548,7 +549,7 @@ export const CreateAuctionForm: React.FC<{
                     <div className="space-y-4">
                             <label className="text-[10px] font-black uppercase text-slate-400 ml-2">{t('category')}</label>
                             <select className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-5 px-6 font-bold focus:ring-4 focus:ring-[#FEBA4F]/20 focus:border-[#FEBA4F] transition-all outline-none appearance-none cursor-pointer" onChange={e => setFormData({...formData, category: e.target.value as Category})}>
-                                {Object.values(Category).map(c => <option key={c} value={c}>{c}</option>)}
+                                {Object.values(Category).map(c => <option key={c} value={c}>{getCategoryTranslation(c, t)}</option>)}
                             </select>
                         </div>
                     </div>
