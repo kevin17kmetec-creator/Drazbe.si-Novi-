@@ -460,7 +460,29 @@ const MainApp: React.FC = () => {
   const [republishData, setRepublishData] = useState<any>(null);
   const [quickRepublishItem, setQuickRepublishItem] = useState<any>(null);
   const [quickRepublishDuration, setQuickRepublishDuration] = useState<number>(3); // days
-  const [bidAuctionIds, setBidAuctionIds] = useState<string[]>([]);
+  const [userData, setUserData] = useState({
+    id: "",
+    firstName: "",
+    lastName: "",
+    username: "",
+    email: "",
+    profilePicture: "",
+    is_verified: false,
+    stripe_onboarding_complete: false,
+    profile_picture_url: "",
+    first_name: "",
+    last_name: "",
+    wallet_balance: 0,
+  });
+  const bidAuctionIds = useMemo(() => {
+    if (!userData?.id) return [];
+    return auctions.filter((a: any) => {
+      const history = a.bidding_history || a.biddingHistory || [];
+      const topBids = a.top_bids || [];
+      return history.some((h: any) => h.userId === userData.id || h.user_id === userData.id) ||
+             topBids.some((b: any) => b.user_id === userData.id);
+    }).map(a => a.id);
+  }, [auctions, userData?.id]);
   const [hasAcceptedTerms, setHasAcceptedTerms] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
   const [showConfirmBidModal, setShowConfirmBidModal] = useState(false);
@@ -846,20 +868,6 @@ const MainApp: React.FC = () => {
     rating: number;
     comment: string;
   }>({ isOpen: false, auctionId: "", sellerId: "", rating: 0, comment: "" });
-  const [userData, setUserData] = useState({
-    id: "",
-    firstName: "",
-    lastName: "",
-    username: "",
-    email: "",
-    profilePicture: "",
-    is_verified: false,
-    stripe_onboarding_complete: false,
-    profile_picture_url: "",
-    first_name: "",
-    last_name: "",
-    wallet_balance: 0,
-  });
 
   const lastSessionCheckRef = useRef(0);
   const isCheckingSessionRef = useRef(false);
@@ -1303,7 +1311,6 @@ const MainApp: React.FC = () => {
       profilePicture: "",
     } as any);
     setHasAcceptedTerms(false);
-    setBidAuctionIds([]);
     setActiveView("grid");
 
     try {
@@ -2868,7 +2875,7 @@ const MainApp: React.FC = () => {
 
   const [dontShowTermsAgain, setDontShowTermsAgain] = useState(false);
 
-  async function handleBidSubmit(item: any, amount: number) {
+  async function handleBidSubmit(item: any, amount: number): Promise<"ok" | "outbid" | "error" | "login_required" | "cancelled"> {
     if (!isLoggedIn) {
       toast.error(t("login")); setActiveView("login"); return "login_required";
     }
@@ -2877,17 +2884,20 @@ const MainApp: React.FC = () => {
       return "error";
     }
     setPendingBid({ item, amount });
-    if (!hasAcceptedTerms && !localStorage.getItem("dontShowTermsAgain")) {
-      setShowTermsModal(true);
-    } else {
-      setShowConfirmBidModal(true);
-    return "ok";
-  }
+    return new Promise((resolve) => {
+      bidResolverRef.current = resolve;
+      if (!hasAcceptedTerms && !localStorage.getItem("dontShowTermsAgain")) {
+        setShowTermsModal(true);
+      } else {
+        setShowConfirmBidModal(true);
+      }
+    });
   };
 
   function handleCancelTerms() {
     setShowTermsModal(false);
     setPendingBid(null);
+    if (bidResolverRef.current) bidResolverRef.current("cancelled");
   };
 
   function handleAcceptTerms() {
@@ -2897,16 +2907,19 @@ const MainApp: React.FC = () => {
     }
     setShowTermsModal(false);
     setShowConfirmBidModal(true);
-    return "ok";
   }
 
   function handleCancelConfirmBid() {
     setShowConfirmBidModal(false);
     setPendingBid(null);
+    if (bidResolverRef.current) bidResolverRef.current("cancelled");
   };
 
   async function handleConfirmBid(confirmedAmount?: number) {
-    if (!pendingBid) return;
+    if (!pendingBid) {
+      if (bidResolverRef.current) bidResolverRef.current("error");
+      return;
+    }
     const item = pendingBid.item;
     const amount = confirmedAmount !== undefined && !isNaN(confirmedAmount) && confirmedAmount > 0 
       ? confirmedAmount 
@@ -2915,7 +2928,7 @@ const MainApp: React.FC = () => {
     setShowConfirmBidModal(false);
     try {
         const auctionRef = doc(db, 'auctions', item.id);
-        await runTransaction(db, async (transaction) => {
+        const finalWinnerId = await runTransaction(db, async (transaction) => {
             const auctionDoc = await transaction.get(auctionRef);
             if (!auctionDoc.exists()) {
                 throw new Error("Auction does not exist");
@@ -3018,12 +3031,24 @@ const MainApp: React.FC = () => {
                  bidding_history: [...existingHistory, newHistoryItem],
                  biddingHistory: [...existingHistory, newHistoryItem]
             });
+            
+            return newWinnerId;
         });
-        toast.success("Ponudba uspešno oddana!");
+        
+        let resultStatus: "ok" | "outbid" = "ok";
+        if (finalWinnerId !== userData.id) {
+            resultStatus = "outbid";
+            toast.error(t('bidOutbid') || "Ponudba je bila že presežena.");
+        } else {
+            toast.success("Ponudba uspešno oddana!");
+        }
+
+        if (bidResolverRef.current) bidResolverRef.current(resultStatus);
         fetchAuctions();
     } catch (e: any) {
         console.error("Bid submission error:", e);
         toast.error(e.message || "Error submitting bid");
+        if (bidResolverRef.current) bidResolverRef.current("error");
     }
     setPendingBid(null);
   };

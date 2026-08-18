@@ -116,14 +116,24 @@ export const Header: React.FC<{
                    ref={langMenuRef}
                    onMouseEnter={() => setIsLangOpen(true)}
                    onMouseLeave={() => setIsLangOpen(false)}>
-                  <button className="bg-white/5 px-4 py-2.5 rounded-xl border border-white/10 hover:bg-white/10 transition-all font-black text-xs flex items-center gap-2">
-                    <Globe size={14} /> {language} <ChevronDown size={12} />
+                  <button 
+                    onClick={() => setIsLangOpen(!isLangOpen)}
+                    className="bg-white/5 px-3.5 py-2.5 rounded-xl border border-white/10 hover:bg-white/10 transition-all font-black text-xs uppercase tracking-wider flex items-center gap-1.5 text-slate-200 hover:text-white"
+                  >
+                    <Globe size={15} className="text-[#FEBA4F]" /> 
+                    <span>{language}</span> 
+                    <ChevronDown size={13} className={`transition-transform duration-200 ${isLangOpen ? 'rotate-180 text-[#FEBA4F]' : ''}`} />
                   </button>
                   {isLangOpen && (
-                      <div className="absolute top-full right-0 w-44 bg-[#0A1128] border border-white/10 rounded-b-2xl shadow-2xl py-3 z-[1000] animate-in">
+                      <div className="absolute top-full right-0 mt-1 w-56 bg-[#0A1128] border border-white/10 rounded-2xl shadow-2xl py-3 z-[1000] animate-in overflow-hidden">
                         {languages.map(l => (
-                            <button key={l.code} onClick={() => { onLanguageChange(l.code); setIsLangOpen(false); }} className={`w-full text-left px-6 py-3 text-[10px] font-black tracking-widest transition-all ${language === l.code ? 'text-[#FEBA4F] bg-white/5' : 'text-slate-300 hover:text-white'}`}>
-                                {l.label}
+                            <button 
+                              key={l.code} 
+                              onClick={() => { onLanguageChange(l.code); setIsLangOpen(false); }} 
+                              className={`w-full text-left px-6 py-3.5 hover:bg-white/5 text-xs font-black uppercase tracking-widest transition-all flex items-center justify-between ${language === l.code ? 'text-[#FEBA4F] bg-white/5' : 'text-slate-300 hover:text-white'}`}
+                            >
+                                <span>{l.label}</span>
+                                <span className={`text-[10px] px-2 py-0.5 rounded font-black ${language === l.code ? 'bg-[#FEBA4F]/20 text-[#FEBA4F]' : 'bg-white/5 text-slate-400'}`}>{l.code}</span>
                             </button>
                         ))}
                       </div>
@@ -196,14 +206,32 @@ export const Header: React.FC<{
               )}
             </div>
       </div>
-      <div className="max-w-[1600px] mx-auto px-6 h-12 flex items-center gap-10 text-[11px] font-black uppercase tracking-widest border-t border-white/5">
-            <button onClick={onHome} className={`hover:text-[#FEBA4F] transition-colors ${activeView === 'grid' && !selectedRegion && !selectedCategory ? 'text-[#FEBA4F]' : ''}`}>{t('allAuctions')}</button>
+      <div className="max-w-[1600px] mx-auto px-6 h-14 flex items-center gap-8 md:gap-12 text-xs md:text-sm font-black uppercase tracking-wider md:tracking-widest border-t border-white/10">
+            <button 
+                onClick={onHome} 
+                className={`flex items-center gap-2 h-full py-3 hover:text-[#FEBA4F] transition-all relative ${
+                    activeView === 'grid' && !selectedRegion && !selectedCategory ? 'text-[#FEBA4F]' : 'text-slate-200'
+                }`}
+            >
+                <span>{t('allAuctions')}</span>
+                {activeView === 'grid' && !selectedRegion && !selectedCategory && (
+                    <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#FEBA4F] rounded-full shadow-[0_0_8px_#FEBA4F]" />
+                )}
+            </button>
             
             <div className="relative h-full flex items-center" 
                  ref={regMenuRef}
                  onMouseEnter={() => setIsRegOpen(true)}
                  onMouseLeave={() => setIsRegOpen(false)}>
-                <button className={`flex items-center gap-1.5 h-full hover:text-[#FEBA4F] transition-colors ${selectedRegion ? 'text-[#FEBA4F]' : ''}`}>{t('regions')} <ChevronDown size={12}/></button>
+                <button className={`flex items-center gap-2 h-full py-3 hover:text-[#FEBA4F] transition-all relative ${
+                    selectedRegion ? 'text-[#FEBA4F]' : 'text-slate-200'
+                }`}>
+                    <span>{t('regions')}</span> 
+                    <ChevronDown size={14} className={`transition-transform duration-200 ${isRegOpen ? 'rotate-180 text-[#FEBA4F]' : ''}`}/>
+                    {selectedRegion && (
+                        <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#FEBA4F] rounded-full shadow-[0_0_8px_#FEBA4F]" />
+                    )}
+                </button>
                 {isRegOpen && (
                     <div className="absolute top-full left-0 w-[840px] max-w-[95vw] z-[1000] animate-in fade-in zoom-in-95 duration-200 shadow-2xl">
                         <SloveniaMap
@@ -224,18 +252,32 @@ export const Header: React.FC<{
                  ref={catMenuRef}
                  onMouseEnter={() => setIsCatOpen(true)}
                  onMouseLeave={() => setIsCatOpen(false)}>
-                <button className={`flex items-center gap-1.5 h-full hover:text-[#FEBA4F] transition-colors ${selectedCategory ? 'text-[#FEBA4F]' : ''}`}>{t('categories')} <ChevronDown size={12}/></button>
+                <button className={`flex items-center gap-2 h-full py-3 hover:text-[#FEBA4F] transition-all relative ${
+                    selectedCategory ? 'text-[#FEBA4F]' : 'text-slate-200'
+                }`}>
+                    <span>{t('categories')}</span> 
+                    <ChevronDown size={14} className={`transition-transform duration-200 ${isCatOpen ? 'rotate-180 text-[#FEBA4F]' : ''}`}/>
+                    {selectedCategory && (
+                        <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#FEBA4F] rounded-full shadow-[0_0_8px_#FEBA4F]" />
+                    )}
+                </button>
                 {isCatOpen && (
-                    <div className="absolute top-full left-0 w-64 bg-[#0A1128] border border-white/10 rounded-b-2xl shadow-2xl py-3 z-[1000] animate-in grid grid-cols-1 max-h-[400px] overflow-y-auto">
-                        <button onClick={() => { onCategorySelect(null); setIsCatOpen(false); }} className={`w-full text-left px-6 py-4 hover:bg-white/5 text-xs font-black uppercase tracking-widest transition-all ${!selectedCategory ? 'text-[#FEBA4F]' : 'text-slate-300'}`}>{t('allCategories')}</button>
+                    <div className="absolute top-full left-0 w-72 bg-[#0A1128] border border-white/10 rounded-b-2xl shadow-2xl py-3 z-[1000] animate-in grid grid-cols-1 max-h-[420px] overflow-y-auto">
+                        <button onClick={() => { onCategorySelect(null); setIsCatOpen(false); }} className={`w-full text-left px-6 py-4 hover:bg-white/5 text-xs font-black uppercase tracking-widest transition-all ${!selectedCategory ? 'text-[#FEBA4F] bg-white/5' : 'text-slate-300 hover:text-white'}`}>{t('allCategories')}</button>
                         {Object.values(Category).map(c => (
-                            <button key={c} onClick={() => { onCategorySelect(c); setIsCatOpen(false); }} className={`w-full text-left px-6 py-4 hover:bg-white/5 text-xs font-black uppercase tracking-widest transition-all ${selectedCategory === c ? 'text-[#FEBA4F]' : 'text-slate-300 hover:text-white'}`}>{getCategoryTranslation(c, t)}</button>
+                            <button key={c} onClick={() => { onCategorySelect(c); setIsCatOpen(false); }} className={`w-full text-left px-6 py-4 hover:bg-white/5 text-xs font-black uppercase tracking-widest transition-all ${selectedCategory === c ? 'text-[#FEBA4F] bg-white/5' : 'text-slate-300 hover:text-white'}`}>{getCategoryTranslation(c, t)}</button>
                         ))}
                     </div>
                 )}
             </div>
 
-            <button onClick={onLastChance} className={`ml-auto flex items-center gap-1.5 hover:text-[#FEBA4F] transition-colors text-[#FEBA4F] underline underline-offset-4`}>{t('lastChance')} <ChevronRight size={14}/></button>
+            <button 
+                onClick={onLastChance} 
+                className="ml-auto flex items-center gap-2 px-4 py-2 rounded-xl bg-[#FEBA4F]/10 border border-[#FEBA4F]/30 hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all text-[#FEBA4F] font-black group shadow-sm text-xs md:text-sm uppercase tracking-wider md:tracking-widest"
+            >
+                <span>{t('lastChance')}</span> 
+                <ChevronRight size={16} className="group-hover:translate-x-1 transition-transform" />
+            </button>
       </div>
     </header>
   );
