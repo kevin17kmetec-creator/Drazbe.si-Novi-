@@ -20,60 +20,153 @@ export async function generateInvoicePDF(transaction: any, buyer: any, seller: a
     // PAGE 1: INVOICE FOR THE ITEM (Seller -> Buyer)
     // ==========================================
     
-    // Determine Document Title based on seller type
-    const isSellerBusiness = seller.company_status === 'company';
-    const documentTitle = isSellerBusiness ? 'RAČUN / INVOICE' : 'KUPOPRODAJNA POGODBA / PURCHASE AGREEMENT';
+    // Determine Document Title based on seller and buyer type
+    const isSellerBusiness = seller.company_status === 'company' || seller.user_type === 'business' || seller.isCompany;
+    const isBuyerBusiness = buyer.company_status === 'company' || buyer.user_type === 'business' || buyer.isCompany;
+    const isB2C = isSellerBusiness && !isBuyerBusiness;
+    const isB2B = isSellerBusiness && isBuyerBusiness;
+    const isC2B = !isSellerBusiness && isBuyerBusiness;
+    const isC2C = !isSellerBusiness && !isBuyerBusiness;
 
-    doc.fontSize(20).text(documentTitle, { align: 'center' });
-    doc.moveDown();
+    const documentTitle = isSellerBusiness 
+      ? 'RAČUN / INVOICE' 
+      : isC2B 
+      ? 'KUPOPRODAJNA POGODBA' 
+      : 'KUPOPRODAJNA POGODBA / PURCHASE AGREEMENT';
+
+    doc.fontSize(18).text(documentTitle, { align: 'center' });
+    doc.moveDown(0.5);
+
+    const sellerTaxId = seller.tax_id || seller.taxId || seller.vat_id || seller.vatId;
+    const buyerTaxId = buyer.tax_id || buyer.taxId || buyer.vat_id || buyer.vatId;
 
     // IZDajatelj (Seller)
-    doc.fontSize(12).text('Izdajatelj (Prodajalec) / Issuer (Seller):', { underline: true });
-    doc.fontSize(10);
+    doc.fontSize(11).text('Izdajatelj (Prodajalec) / Issuer (Seller):', { underline: true });
+    doc.fontSize(9);
     if (isSellerBusiness) {
       doc.text(`${seller.company_name || 'N/A'}`);
       doc.text(`${seller.address || 'Naslov ni na voljo'}`);
-      doc.text(`Davčna številka / VAT ID: ${seller.tax_id || 'N/A'}`);
-      if (seller.registration_number) doc.text(`Matična številka / Reg No: ${seller.registration_number}`);
+      if (sellerTaxId) doc.text(`Davčna številka / VAT ID: ${sellerTaxId}`);
+      if (seller.registration_number || seller.regNo) doc.text(`Matična številka / Reg No: ${seller.registration_number || seller.regNo}`);
     } else {
-      doc.text(`${seller.first_name || ''} ${seller.last_name || ''}`.trim() || seller.name || 'Neznan');
+      const sellerName = `${seller.first_name || ''} ${seller.last_name || ''}`.trim() || seller.name || 'Prodajalec';
+      doc.text(sellerName);
       if (seller.address) doc.text(seller.address);
+      if (isC2B) {
+        doc.text(`Davčna številka: ${sellerTaxId || '[Davčna številka prodajalca]'}`);
+      } else if (sellerTaxId) {
+        doc.text(`Davčna številka: ${sellerTaxId}`);
+      }
     }
-    doc.moveDown();
+    doc.moveDown(0.5);
 
     // Prejemnik (Buyer)
-    doc.fontSize(12).text('Prejemnik (Kupec) / Recipient (Buyer):', { underline: true });
-    doc.fontSize(10);
-    if (buyer.company_status === 'company') {
+    doc.fontSize(11).text('Prejemnik (Kupec) / Recipient (Buyer):', { underline: true });
+    doc.fontSize(9);
+    if (isBuyerBusiness) {
       doc.text(`${buyer.company_name || 'N/A'}`);
       doc.text(`${buyer.first_name || ''} ${buyer.last_name || ''}`.trim());
       doc.text(`${buyer.address || 'Naslov ni na voljo'}`);
-      doc.text(`Davčna številka / VAT ID: ${buyer.tax_id || 'N/A'}`);
+      if (buyerTaxId) doc.text(`Davčna številka / VAT ID: ${buyerTaxId}`);
+      if (buyer.registration_number || buyer.regNo) doc.text(`Matična številka / Reg No: ${buyer.registration_number || buyer.regNo}`);
     } else {
-      doc.text(`${buyer.first_name || ''} ${buyer.last_name || ''}`.trim() || buyer.name || 'Neznan');
+      const buyerName = `${buyer.first_name || ''} ${buyer.last_name || ''}`.trim() || buyer.name || 'Kupec';
+      doc.text(buyerName);
       if (buyer.address) doc.text(buyer.address);
+      if (buyerTaxId) doc.text(`Davčna številka: ${buyerTaxId}`);
     }
-    doc.moveDown();
+    doc.moveDown(0.5);
+
+    // Party Electronic Identification note if tax IDs are not present/public
+    if (!sellerTaxId || !buyerTaxId) {
+      doc.fontSize(8).text('Opomba o identifikaciji: Stranki sta elektronsko identificirani znotraj platforme dražbe.si.', { italic: true });
+      doc.moveDown(0.5);
+    }
 
     // Invoice Meta
+    const getPlaceFromUser = (user: any): string => {
+      if (!user) return 'Slovenija';
+      let raw = user.city || user.place || user.location?.city || '';
+      if (!raw && (user.address || user.street_address || user.location?.address)) {
+        const addr = user.address || user.street_address || user.location?.address;
+        const parts = addr.split(',');
+        if (parts.length > 1) {
+          raw = parts[parts.length - 1].trim();
+          if (raw.toLowerCase() === 'slovenija' && parts.length > 2) {
+            raw = parts[parts.length - 2].trim();
+          }
+        } else {
+          raw = addr;
+        }
+      }
+      let cleaned = (raw || 'Ljubljana')
+        .replace(/SI-?\s*\d{4}/gi, '')
+        .replace(/\b\d{4}\b/g, '')
+        .trim()
+        .replace(/^,\s*|,\s*$/g, '');
+
+      if (!cleaned) cleaned = 'Ljubljana';
+      if (!cleaned.toLowerCase().includes('slovenija')) {
+        cleaned = `${cleaned}, Slovenija`;
+      }
+      return cleaned;
+    };
+
+    const sellerPlace = getPlaceFromUser(seller);
+
+    doc.fontSize(9);
     doc.text(`Številka dokumenta / Document No: ITEM-${transactionIdShort}`);
-    doc.text(`Datum izdaje in opravljene storitve / Date of issue & service: ${todayStr}`);
-    doc.moveDown();
+    doc.text(`Kraj izdaje / Place of issue: ${sellerPlace}`);
+    doc.text(`Datum izdaje in sklenitve / Date of agreement: ${todayStr}`);
+    doc.moveDown(0.5);
 
     // Items
-    doc.fontSize(12).text('Postavke / Items:', { underline: true });
-    doc.fontSize(10);
+    doc.fontSize(11).text('Postavke / Items:', { underline: true });
+    doc.fontSize(9);
+    const itemAmount = Number(transaction.amount_total - (transaction.platform_fee || 0) - (transaction.vat_amount || 0));
+    const isVatApplicable = isB2C || isB2B;
+    const vatRate = 0.22;
+    const vatBase = isVatApplicable ? itemAmount / (1 + vatRate) : itemAmount;
+    const vatVal = isVatApplicable ? itemAmount - vatBase : 0;
+
     doc.text(`Predmet / Item: ${auction?.title?.SLO || auction?.title?.EN || 'Dražbeni predmet'}`);
     doc.text(`Količina / Quantity: 1`);
-    doc.text(`Znesek / Amount: €${Number(transaction.amount_total - (transaction.platform_fee || 0) - (transaction.vat_amount || 0)).toFixed(2)}`);
+
+    if (isB2C || isB2B) {
+      doc.text(`Cena z DDV / Price (incl. VAT): €${itemAmount.toFixed(2)}`);
+      doc.text(`Osnova za DDV (22%) / Tax base (22%): €${vatBase.toFixed(2)}`);
+      doc.text(`Znesek DDV (22%) / VAT (22%): €${vatVal.toFixed(2)}`);
+    } else {
+      doc.text(`Kupnina / Price: €${itemAmount.toFixed(2)}`);
+      doc.text(`DDV: Ni obračunan (prodajalec je fizična oseba in ni davčni zavezanec po ZDDV-1)`);
+    }
+    doc.moveDown(0.5);
+
+    doc.fontSize(12).text(`SKUPAJ ZA PLAČILO / TOTAL: €${itemAmount.toFixed(2)}`, { align: 'right' });
     doc.moveDown();
 
-    doc.fontSize(14).text(`SKUPAJ ZA PLAČILO / TOTAL: €${Number(transaction.amount_total - (transaction.platform_fee || 0) - (transaction.vat_amount || 0)).toFixed(2)}`, { align: 'right' });
+    // Clauses and Legal Notes
+    doc.fontSize(8);
+    doc.text('Kupoprodajne klavzule in pravne opombe:', { underline: true });
+    doc.moveDown(0.3);
 
-    if (!isSellerBusiness) {
-      doc.moveDown();
-      doc.fontSize(9).text('Prodajalec je fizična oseba. Dokument služi kot kupoprodajna pogodba med fizično osebo in kupcem po uspešno zaključeni dražbi.', { italic: true });
+    if (isB2C) {
+      doc.text('• Jamstvo za neskladnost blaga (ZVPot-1): Za blago veljajo zakonska jamstva za neskladnost blaga v skladu z ZVPot-1.');
+      doc.text('• Prenos lastništva: Lastninska pravica in nevarnost naključnega uničenja preideta na kupca ob celotnem plačilu kupnine in prevzemu predmeta.');
+      doc.text('• DDV izjava: V ceno je vključen 22% DDV v skladu z Zakonom o davku na dodano vrednost (ZDDV-1).');
+    } else if (isB2B) {
+      doc.text('• Izjava o DDV in stanje opreme: V ceno je vključen 22% DDV v skladu z ZDDV-1. Za rabljeno opremo velja dogovorjeno stanje ob prevzemu (videno-kupljeno).');
+      doc.text('• Prenos lastništva: Lastninska pravica in nevarnost naključnega uničenja preideta na kupca ob celotnem plačilu kupnine in prevzemu predmeta.');
+    } else if (isC2B) {
+      doc.text('• Videno-kupljeno: Predmet se prodaja po načelu "videno-kupljeno". Prodajalec ne odgovarja za stvarne napake predmeta po njegovem prevzemu.');
+      doc.text('• Prenos lastništva: Lastninska pravica in nevarnost naključnega uničenja preideta na kupca ob celotnem plačilu kupnine in prevzemu predmeta.');
+      doc.text('• Pravna opomba in DDV: Prodajalec je fizična oseba (C2B). DDV se v skladu z ZDDV-1 ne obračunava. Dokument služi kot kupoprodajna pogodba in dokazilo o plačilu.');
+    } else {
+      doc.text('• Videno-kupljeno: Predmet se prodaja po načelu "videno-kupljeno". Prodajalec ne odgovarja za stvarne napake predmeta po njegovem prevzemu.');
+      doc.text('• Prenos lastništva: Lastninska pravica in nevarnost naključnega uničenja preideta na kupca ob celotnem plačilu kupnine in prevzemu predmeta.');
+      doc.text('• DDV izjava: Prodajalec je fizična oseba (C2C). DDV se v skladu z ZDDV-1 ne obračunava. Dokument služi kot dokazilo o sklenjeni pogodbi in plačilu.');
     }
+    doc.text('• Posredovanje: Platforma dražbe.si nastopa izključno kot tehnološki posrednik in ni pogodbena stranka prodajne pogodbe.');
 
     // ==========================================
     // PAGE 2: INVOICE FOR PLATFORM FEE (Platform -> Buyer)

@@ -1242,8 +1242,8 @@ const MainApp: React.FC = () => {
         }
       };
 
-      const newDocRef = itemData.id ? doc(db, 'auctions', itemData.id) : doc(collection(db, 'auctions'));
-      const insertPromise = setDoc(newDocRef, { id: newDocRef.id,
+      const auctionPayload = {
+        id: itemData.id,
         title: simulatedTitle,
         description: simulatedDescription,
         current_price: parseInt(itemData.startingPrice),
@@ -1267,32 +1267,18 @@ const MainApp: React.FC = () => {
         winnerId: null,
         payment_status: 'unpaid',
         post_auction_status: null,
-        seller_id: userData.id,
-        status: "active",
         images: itemData.images,
+      };
+
+      const res = await fetch('/api/auctions/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itemData: auctionPayload, user_id: userData.id })
       });
 
-      const timeoutPromise = new Promise<{ data: any; error: any }>((resolve) =>
-        setTimeout(
-          () =>
-            resolve({
-              data: null,
-              error: {
-                message: "Povezava s strežnikom je potekla (Timeout 30s).",
-              },
-            }),
-          30000,
-        ),
-      );
-
-      const { error } = (await Promise.race([
-        insertPromise.then(() => ({ data: true, error: null })).catch((e: any) => ({ data: null, error: e })),
-        timeoutPromise,
-      ])) as any;
-
-      if (error) {
-        console.error("Publish Error:", error);
-        toast.error(t("publishError"));
+      if (!res.ok) {
+        const errorData = await res.json();
+        toast.error(errorData.error || t("publishError"));
         return;
       }
 
@@ -2492,13 +2478,22 @@ const MainApp: React.FC = () => {
       break;
     case "myUnsold":
       // Filter: seller is current user, auction has ended AND (no winner OR unpaid/unsold status)
+      // Keep only those whose status is not 'archived'/'deleted'
+      const nowMs = Date.now();
       const currentUserUnsold = auctions.filter(
         (a) =>
           (a.sellerId === userData.id ||
             (a as any).seller_id === userData.id) &&
           (a.status === "completed" || new Date(a.endTime) <= new Date()) &&
-          (a.post_auction_status === "unsold" || a.post_auction_status === "unpaid" || a.post_auction_status === "failed_2nd" || a.post_auction_status === "rejected_2nd" || (!a.winnerId && !(a as any).winner_id))
-      );
+          (a.post_auction_status === "unsold" || a.post_auction_status === "unpaid" || a.post_auction_status === "failed_2nd" || a.post_auction_status === "rejected_2nd" || (!a.winnerId && !(a as any).winner_id)) &&
+          a.status !== "archived" && a.status !== "deleted"
+      ).filter(a => {
+        // Must be within 1 month from end time to be shown here
+        const endMs = new Date(a.endTime || (a as any).end_time).getTime();
+        const oneMonthMs = 30 * 24 * 60 * 60 * 1000;
+        return (nowMs - endMs) <= oneMonthMs;
+      });
+
       content = (
         <div className="max-w-[1600px] mx-auto py-16 px-6 animate-in">
           <button
@@ -2507,6 +2502,7 @@ const MainApp: React.FC = () => {
           >
             <ArrowLeft size={16} /> Nazaj
           </button>
+
           <div className="bg-white rounded-[4rem] p-12 shadow-2xl border border-slate-100 min-h-[500px]">
             <div className="flex items-center gap-6 mb-12">
               <div className="bg-slate-100 p-4 rounded-3xl shadow-lg">
@@ -2517,7 +2513,7 @@ const MainApp: React.FC = () => {
                   {t('unsoldAuctions')}
                 </h2>
                 <p className="text-slate-400 font-bold mt-2">
-                  Dražbe, ki se niso uspešno zaključile s prodajo.
+                  Dražbe, ki se niso uspešno zaključile s prodajo. Na voljo za ponovno objavo 1 mesec od zaključka.
                 </p>
               </div>
             </div>
@@ -2531,11 +2527,33 @@ const MainApp: React.FC = () => {
                 </div>
               ) : (
                 currentUserUnsold.map((soldItem) => {
+                  const endMs = new Date(soldItem.endTime || (soldItem as any).end_time).getTime();
+                  const expireMs = endMs + 30 * 24 * 60 * 60 * 1000;
+                  const daysLeft = Math.max(0, Math.ceil((expireMs - nowMs) / (24 * 60 * 60 * 1000)));
+
                   return (
                     <div
                       key={soldItem.id}
-                      className="flex flex-col md:flex-row items-center gap-8 p-6 rounded-[2.5rem] border-2 border-slate-100 hover:border-slate-300 transition-colors group"
+                      className="flex flex-col md:flex-row items-center gap-8 p-6 rounded-[2.5rem] border-2 border-slate-100 hover:border-slate-300 transition-colors group relative"
                     >
+                      <button 
+                        onClick={async () => {
+                          if (window.confirm("Ste prepričani, da želite dokončno izbrisati to dražbo? Te akcije ni mogoče razveljaviti.")) {
+                            try {
+                              await updateDoc(doc(db, 'auctions', soldItem.id), { status: 'deleted' });
+                              toast.success("Dražba uspešno izbrisana.");
+                              fetchAuctions();
+                            } catch (e: any) {
+                              toast.error("Napaka pri brisanju: " + e.message);
+                            }
+                          }
+                        }}
+                        className="absolute top-4 right-4 p-2 text-slate-300 hover:text-red-500 transition-colors"
+                        title="Dokončno izbriši dražbo"
+                      >
+                        <Trash2 size={24} />
+                      </button>
+
                       <SignedImg
                         src={soldItem.images[0]}
                         alt="Item"
@@ -2546,6 +2564,7 @@ const MainApp: React.FC = () => {
                           window.scrollTo({ top: 0, behavior: "instant" });
                         }}
                       />
+
                       <div className="flex-1 text-center md:text-left">
                         <h3
                           className="text-2xl font-black uppercase tracking-tighter text-slate-500 mb-2 cursor-pointer hover:text-[#0A1128] transition-colors"
@@ -2566,9 +2585,13 @@ const MainApp: React.FC = () => {
                               "sl-SI",
                             )}
                           </span>
+                          <span className={`flex items-center gap-1.5 ${daysLeft <= 3 ? 'text-red-500' : 'text-[#FEBA4F]'}`}>
+                            <Clock size={16} /> Poteče čez: {daysLeft} dni
+                          </span>
                         </div>
                       </div>
-                      <div className="flex flex-col gap-3 w-full md:w-auto">
+
+                      <div className="flex flex-col gap-3 w-full md:w-auto mt-4 md:mt-0">
                         <button
     onClick={() => setQuickRepublishItem(soldItem)}
     className="bg-[#FEBA4F] text-[#0A1128] px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#0A1128] hover:text-[#FEBA4F] transition-all shadow-xl flex items-center justify-center gap-2"

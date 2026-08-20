@@ -1956,6 +1956,320 @@ async function startServer() {
     }
   });
 
+  // =====================================
+  // ESCROW, DISPUTES & STRIKES (dražbe.si)
+  // =====================================
+
+  // Helper for Penalties
+  async function checkAndApplySellerPenalties(seller_id: string) {
+    try {
+      const sixMonthsAgo = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString();
+      const strikesQuery = query(
+        collection(db, 'seller_strikes'),
+        where('user_id', '==', seller_id)
+      );
+      
+      const snapshot = await getDocs(strikesQuery);
+      const recentStrikes = snapshot.docs.filter(d => {
+        const data = d.data();
+        return data.created_at >= sixMonthsAgo;
+      });
+
+      if (recentStrikes.length >= 3) {
+        const blockedUntil = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+        const sellerRef = doc(db, 'users', seller_id);
+        await updateDoc(sellerRef, {
+          auction_blocked_until: blockedUntil
+        });
+        console.log(`Seller ${seller_id} penalized: auctions blocked until ${blockedUntil} due to 3+ strikes.`);
+      }
+    } catch (e) {
+      console.error("Error applying seller penalties:", e);
+    }
+  }
+
+  // CREATE AUCTION ENDPOINT (Checks for block status)
+  app.post("/api/auctions/create", async (req, res) => {
+    try {
+      const { itemData, user_id } = req.body;
+      
+      const userRef = doc(db, 'users', user_id);
+      const userDoc = await getDoc(userRef);
+      if (!userDoc.exists()) return res.status(404).json({ error: "Uporabnik ne obstaja" });
+      
+      const userData = userDoc.data();
+      if (userData.auction_blocked_until) {
+        const blockedUntil = new Date(userData.auction_blocked_until);
+        if (blockedUntil > new Date()) {
+          return res.status(403).json({ error: `Objavljanje novih dražb vam je onemogočeno do ${blockedUntil.toLocaleDateString()} zaradi večkratnih kršitev roka za odpošiljanje predmeta.` });
+        }
+      }
+      
+      const newDocRef = itemData.id ? doc(db, 'auctions', itemData.id) : doc(collection(db, 'auctions'));
+      
+      await setDoc(newDocRef, { 
+        ...itemData,
+        id: newDocRef.id,
+        seller_id: user_id,
+        status: "active" 
+      });
+      
+      res.json({ success: true, id: newDocRef.id });
+    } catch (e: any) {
+      console.error(e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // CRON: 7-day shipping deadlines
+  app.post("/api/cron/process-shipping-deadlines", async (req, res) => {
+    try {
+      const now = new Date().toISOString();
+      const txQuery = query(
+        collection(db, 'transactions'),
+        where('status', '==', 'HELD_IN_ESCROW')
+      );
+
+      const snapshot = await getDocs(txQuery);
+      let processed = 0;
+
+      for (const docSnap of snapshot.docs) {
+        const tx = docSnap.data();
+        if (tx.delivery_method !== 'POSTAL_DELIVERY') continue;
+        
+        let deadline = tx.shipping_deadline;
+        if (!deadline && tx.paid_at) {
+          deadline = new Date(new Date(tx.paid_at).getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
+        }
+        
+        if (deadline && now >= deadline) {
+          // Cancel order
+          await updateDoc(docSnap.ref, {
+            status: 'CANCELLED',
+            cancelled_reason: 'SELLER_NO_SHIPMENT',
+            updated_at: now
+          });
+          
+          // Refund buyer
+          const buyerRef = doc(db, 'users', tx.buyer_id);
+          const buyerDoc = await getDoc(buyerRef);
+          if (buyerDoc.exists()) {
+            const currentBalance = Number(buyerDoc.data().wallet_balance) || 0;
+            await updateDoc(buyerRef, { wallet_balance: currentBalance + Number(tx.amount_total || tx.amount) });
+          }
+          
+          // Add seller strike
+          await addDoc(collection(db, 'seller_strikes'), {
+            user_id: tx.seller_id,
+            order_id: docSnap.id,
+            reason: 'NO_SHIPMENT_IN_7_DAYS',
+            created_at: now
+          });
+          
+          // Zapiši sistemsko opombo na profil prodajalca
+          const sellerRef = doc(db, 'users', tx.seller_id);
+          const sellerDocInfo = await getDoc(sellerRef);
+          if (sellerDocInfo.exists()) {
+             const existingNotes = sellerDocInfo.data().system_notes || [];
+             await updateDoc(sellerRef, {
+                 system_notes: [...existingNotes, `Naročilo preklicano – predmet ni bil poslan v 7 dneh (Naročilo: ${docSnap.id})`]
+             });
+          }
+          
+          // Check penalties
+          await checkAndApplySellerPenalties(tx.seller_id);
+          
+          processed++;
+        }
+      }
+
+      res.json({ success: true, processed });
+    } catch (e: any) {
+      console.error(e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // A) OSEBNI PREVZEM (Verify PIN)
+  app.post("/api/orders/:id/verify-pickup-pin", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { pin, seller_id } = req.body;
+      if (!pin || !seller_id) return res.status(400).json({ error: "Manjka PIN ali seller_id." });
+
+      const txRef = doc(db, 'transactions', id);
+      const txDoc = await getDoc(txRef);
+      if (!txDoc.exists()) return res.status(404).json({ error: "Naročilo ne obstaja." });
+
+      const tx = txDoc.data();
+      if (tx.seller_id !== seller_id) return res.status(403).json({ error: "Nimate pravic za to naročilo." });
+      if (tx.status !== 'HELD_IN_ESCROW') return res.status(400).json({ error: "Naročilo ni v stanju HELD_IN_ESCROW." });
+      if (tx.pickup_pin !== pin) return res.status(400).json({ error: "Napačen PIN." });
+
+      // PIN is correct, complete the order
+      await updateDoc(txRef, {
+        status: 'COMPLETED',
+        completed_at: new Date().toISOString()
+      });
+
+      // Release funds to seller
+      const sellerDocRef = doc(db, 'users', seller_id);
+      const sellerDoc = await getDoc(sellerDocRef);
+      if (sellerDoc.exists()) {
+        const currentBalance = Number(sellerDoc.data()?.wallet_balance) || 0;
+        await updateDoc(sellerDocRef, { wallet_balance: currentBalance + Number(tx.amount_total || tx.amount) });
+      }
+
+      res.json({ success: true, message: "Prevzem potrjen, sredstva so bila sproščena." });
+    } catch (e: any) {
+      console.error(e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // B) POŠTNO POŠILJANJE
+  app.post("/api/orders/:id/mark-as-shipped", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { carrier_name, tracking_number, seller_id } = req.body;
+      
+      const txRef = doc(db, 'transactions', id);
+      const txDoc = await getDoc(txRef);
+      if (!txDoc.exists()) return res.status(404).json({ error: "Naročilo ne obstaja." });
+      
+      const tx = txDoc.data();
+      if (tx.seller_id !== seller_id) return res.status(403).json({ error: "Nimate pravic." });
+      if (tx.status !== 'HELD_IN_ESCROW') return res.status(400).json({ error: "Napačno stanje naročila." });
+
+      const amount = Number(tx.amount_total || tx.amount);
+      if (amount > 15 && !tracking_number) {
+        return res.status(400).json({ error: "Za zneske nad 15 € je obvezen vnos sledilne številke." });
+      }
+
+      await updateDoc(txRef, {
+        status: 'SHIPPED',
+        carrier_name: carrier_name || 'Neznano',
+        tracking_number: tracking_number || null,
+        shipped_at: new Date().toISOString()
+      });
+
+      res.json({ success: true, message: "Označeno kot poslano." });
+    } catch (e: any) {
+      console.error(e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/orders/:id/mark-as-delivered", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { user_id } = req.body;
+      
+      const txRef = doc(db, 'transactions', id);
+      const txDoc = await getDoc(txRef);
+      if (!txDoc.exists()) return res.status(404).json({ error: "Naročilo ne obstaja." });
+      
+      const tx = txDoc.data();
+      // Allow buyer or seller to mark delivered (often buyer does it, or integration)
+      if (tx.buyer_id !== user_id && tx.seller_id !== user_id) return res.status(403).json({ error: "Nimate pravic." });
+      if (tx.status !== 'SHIPPED') return res.status(400).json({ error: "Naročilo mora biti poslano." });
+
+      const now = new Date();
+      const autoCompleteDate = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000); // + 3 days
+
+      await updateDoc(txRef, {
+        status: 'DELIVERED',
+        delivered_at: now.toISOString(),
+        auto_complete_at: autoCompleteDate.toISOString()
+      });
+
+      res.json({ success: true, message: "Označeno kot dostavljeno. Samodejna potrditev nastavljena na " + autoCompleteDate.toLocaleString() });
+    } catch (e: any) {
+      console.error(e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // C) SAMODEJNA SPROSTITEV
+  app.post("/api/cron/process-escrow-completions", async (req, res) => {
+    try {
+      // In production, secure this endpoint with a secret key
+      const now = new Date().toISOString();
+      const txQuery = query(
+        collection(db, 'transactions'),
+        where('status', '==', 'DELIVERED'),
+        where('auto_complete_at', '<=', now)
+      );
+
+      const snapshot = await getDocs(txQuery);
+      let processed = 0;
+
+      for (const docSnap of snapshot.docs) {
+        const tx = docSnap.data();
+        if (tx.status === 'DISPUTED') continue;
+
+        await updateDoc(docSnap.ref, {
+          status: 'COMPLETED',
+          completed_at: now
+        });
+
+        const sellerDocRef = doc(db, 'users', tx.seller_id);
+        const sellerDoc = await getDoc(sellerDocRef);
+        if (sellerDoc.exists()) {
+          const currentBalance = Number(sellerDoc.data()?.wallet_balance) || 0;
+          await updateDoc(sellerDocRef, { wallet_balance: currentBalance + Number(tx.amount_total || tx.amount) });
+        }
+        processed++;
+      }
+
+      res.json({ success: true, processed });
+    } catch (e: any) {
+      console.error(e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // D) LOGIKA SPOROV (Dispute System)
+  app.post("/api/orders/:id/open-dispute", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { user_id, reason } = req.body;
+      
+      const txRef = doc(db, 'transactions', id);
+      const txDoc = await getDoc(txRef);
+      if (!txDoc.exists()) return res.status(404).json({ error: "Naročilo ne obstaja." });
+      
+      const tx = txDoc.data();
+      if (tx.buyer_id !== user_id && tx.seller_id !== user_id) return res.status(403).json({ error: "Nimate pravic." });
+      if (tx.status !== 'SHIPPED' && tx.status !== 'DELIVERED') {
+        return res.status(400).json({ error: "Spor lahko odprete samo po tem, ko je izdelek poslan ali dostavljen." });
+      }
+
+      // Check if past 3 days after delivery
+      if (tx.status === 'DELIVERED' && tx.auto_complete_at && new Date(tx.auto_complete_at) < new Date()) {
+          return res.status(400).json({ error: "Rok za odprtje spora je potekel (3 dni po dostavi)." });
+      }
+
+      await updateDoc(txRef, {
+        status: 'DISPUTED'
+      });
+
+      await addDoc(collection(db, 'disputes'), {
+        order_id: id,
+        opened_by_user_id: user_id,
+        reason: reason || 'Neznan razlog',
+        status: 'OPEN',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      });
+
+      res.json({ success: true, message: "Spor uspešno odprt." });
+    } catch (e: any) {
+      console.error(e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

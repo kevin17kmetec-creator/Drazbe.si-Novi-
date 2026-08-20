@@ -105,7 +105,7 @@ export const TestSandboxView: React.FC<TestSandboxViewProps> = ({
       setSellerData({
         name: 'Janez Kranjc',
         address: 'Cesta v Gorice 14, 1000 Ljubljana',
-        taxId: '',
+        taxId: '54892147',
         regNo: '',
         isCompany: false
       });
@@ -372,7 +372,36 @@ export const TestSandboxView: React.FC<TestSandboxViewProps> = ({
   };
 
   const isB2B = relationshipType === 'company_company';
+  const isB2C = relationshipType === 'company_individual' || (sellerData.isCompany && !buyerData.isCompany);
+  const isC2B = relationshipType === 'individual_company' || (!sellerData.isCompany && buyerData.isCompany);
+  const isC2C = relationshipType === 'individual_individual' || (!sellerData.isCompany && !buyerData.isCompany);
   const isSellerIndividual = !sellerData.isCompany;
+  const isSellerVatPayer = sellerData.isCompany;
+
+  const vatRate = 0.22;
+  const isVatApplicable = (isB2C || isB2B) && isSellerVatPayer;
+  const vatBase = isVatApplicable ? itemPrice / (1 + vatRate) : itemPrice;
+  const vatAmount = isVatApplicable ? itemPrice - vatBase : 0;
+
+  const getCleanSellerPlace = (addressStr: string) => {
+    if (!addressStr) return 'Slovenija';
+    const parts = addressStr.split(',');
+    let raw = parts.length > 1 ? parts[parts.length - 1].trim() : addressStr;
+    if (raw.toLowerCase() === 'slovenija' && parts.length > 2) {
+      raw = parts[parts.length - 2].trim();
+    }
+    let cleaned = (raw || 'Ljubljana')
+      .replace(/SI-?\s*\d{4}/gi, '')
+      .replace(/\b\d{4}\b/g, '')
+      .trim()
+      .replace(/^,\s*|,\s*$/g, '');
+
+    if (!cleaned) cleaned = 'Ljubljana';
+    if (!cleaned.toLowerCase().includes('slovenija')) {
+      cleaned = `${cleaned}, Slovenija`;
+    }
+    return cleaned;
+  };
 
   return (
     <div className="max-w-[1600px] mx-auto py-12 px-4 sm:px-6 lg:px-8 animate-in">
@@ -515,7 +544,7 @@ export const TestSandboxView: React.FC<TestSandboxViewProps> = ({
                     className="w-full mt-1 bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-[#0A1128]"
                   />
                 </div>
-                {sellerData.isCompany && (
+                {sellerData.isCompany ? (
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="text-slate-400 uppercase text-[10px]">ID za DDV:</label>
@@ -536,7 +565,18 @@ export const TestSandboxView: React.FC<TestSandboxViewProps> = ({
                       />
                     </div>
                   </div>
-                )}
+                ) : isC2B ? (
+                  <div>
+                    <label className="text-slate-400 uppercase text-[10px]">Davčna številka prodajalca (obvezno za C2B):</label>
+                    <input
+                      type="text"
+                      value={sellerData.taxId}
+                      placeholder="npr. 54892147"
+                      onChange={(e) => setSellerData(prev => ({ ...prev, taxId: e.target.value }))}
+                      className="w-full mt-1 bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-[#0A1128]"
+                    />
+                  </div>
+                ) : null}
               </div>
             </div>
 
@@ -668,11 +708,14 @@ export const TestSandboxView: React.FC<TestSandboxViewProps> = ({
               <div className="flex justify-between items-start mb-12">
                 <div>
                   <h1 className="text-3xl font-black tracking-tight mb-2 uppercase" style={{ color: '#0A1128' }}>
-                    {isSellerIndividual ? 'KUPOPRODAJNA POGODBA / RAČUN' : 'RAČUN / INVOICE'}
+                    {isC2B ? 'KUPOPRODAJNA POGODBA' : isSellerIndividual ? 'KUPOPRODAJNA POGODBA / RAČUN' : 'RAČUN / INVOICE'}
                   </h1>
                   <p className="font-bold text-sm text-slate-500">Številka: INV-TEST-{relationshipType.substring(0, 4).toUpperCase()}-2026</p>
-                  <p className="font-bold text-sm text-slate-500">Datum izdaje: {new Date().toLocaleDateString('sl-SI')}</p>
-                  <p className="font-bold text-sm text-slate-500">Kraj: Ljubljana, Slovenija</p>
+                  <p className="font-bold text-sm text-slate-500">
+                    Kraj izdaje: {getCleanSellerPlace(sellerData.address)}
+                  </p>
+                  <p className="font-bold text-sm text-slate-500">Datum izdaje / sklenitve: {new Date().toLocaleDateString('sl-SI')}</p>
+                  <p className="font-bold text-sm text-slate-500">Datum opravljene storitve/dobave: {new Date().toLocaleDateString('sl-SI')}</p>
                 </div>
                 <div className="text-right">
                   <div className="text-2xl font-black tracking-tight italic text-slate-400">dražbe.si</div>
@@ -689,7 +732,11 @@ export const TestSandboxView: React.FC<TestSandboxViewProps> = ({
                   </h3>
                   <p className="font-black text-base text-[#0A1128]">{sellerData.name}</p>
                   <p className="text-sm text-slate-600">{sellerData.address}</p>
-                  {sellerData.taxId && <p className="text-xs text-slate-600 mt-1">ID za DDV: <strong>{sellerData.taxId}</strong></p>}
+                  {isC2B ? (
+                    <p className="text-xs text-slate-600 mt-1">Davčna številka: <strong>{sellerData.taxId || '[Davčna številka prodajalca]'}</strong></p>
+                  ) : sellerData.taxId ? (
+                    <p className="text-xs text-slate-600 mt-1">Davčna številka: <strong>{sellerData.taxId}</strong></p>
+                  ) : null}
                   {sellerData.regNo && <p className="text-xs text-slate-600">Matična številka: {sellerData.regNo}</p>}
                 </div>
 
@@ -700,10 +747,18 @@ export const TestSandboxView: React.FC<TestSandboxViewProps> = ({
                   </h3>
                   <p className="font-black text-base text-[#0A1128]">{buyerData.name}</p>
                   <p className="text-sm text-slate-600">{buyerData.address}</p>
-                  {buyerData.taxId && <p className="text-xs text-slate-600 mt-1">ID za DDV: <strong>{buyerData.taxId}</strong></p>}
+                  {buyerData.taxId && <p className="text-xs text-slate-600 mt-1">Davčna številka: <strong>{buyerData.taxId}</strong></p>}
                   {buyerData.regNo && <p className="text-xs text-slate-600">Matična številka: {buyerData.regNo}</p>}
                 </div>
               </div>
+
+              {/* Electronic Identification Note if tax numbers are not public/available */}
+              {(!sellerData.taxId || !buyerData.taxId) && (
+                <div className="mb-8 p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600 flex items-center gap-2">
+                  <span className="text-[#FEBA4F] font-bold">ℹ</span>
+                  <span><strong>Identifikacija:</strong> Stranki sta elektronsko identificirani znotraj platforme dražbe.si.</span>
+                </div>
+              )}
 
               {/* Items Table */}
               <table className="w-full mb-8 border-collapse">
@@ -722,8 +777,8 @@ export const TestSandboxView: React.FC<TestSandboxViewProps> = ({
                       <p className="text-xs text-slate-400">ID dražbe: AUC-TEST-{Date.now().toString().substring(8)}</p>
                     </td>
                     <td className="py-4 text-center font-bold text-sm">1</td>
-                    <td className="py-4 text-right font-bold text-sm">{itemPrice.toLocaleString('sl-SI', { minimumFractionDigits: 2 })}</td>
-                    <td className="py-4 text-right font-black text-sm">{itemPrice.toLocaleString('sl-SI', { minimumFractionDigits: 2 })}</td>
+                    <td className="py-4 text-right font-bold text-sm">{itemPrice.toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td className="py-4 text-right font-black text-sm">{itemPrice.toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                   </tr>
                   <tr className="bg-slate-50 border-b border-slate-200">
                     <td colSpan={4} className="py-2.5 px-2 text-xs italic text-slate-500">
@@ -736,31 +791,88 @@ export const TestSandboxView: React.FC<TestSandboxViewProps> = ({
               {/* Totals */}
               <div className="flex justify-end mb-10">
                 <div className="w-72 space-y-2">
-                  <div className="flex justify-between py-1.5 text-xs text-slate-600 border-b border-slate-100">
-                    <span>Osnova za obračun:</span>
-                    <span className="font-bold">{itemPrice.toLocaleString('sl-SI', { minimumFractionDigits: 2 })} €</span>
-                  </div>
-                  <div className="flex justify-between py-1.5 text-xs text-slate-600 border-b border-slate-100">
-                    <span>DDV ({isB2B ? '0% - Obrnjena davčna obv.' : '0%'}):</span>
-                    <span className="font-bold">0,00 €</span>
-                  </div>
-                  <div className="flex justify-between py-3 text-base font-black uppercase border-t-2 border-[#0A1128] text-[#0A1128]">
-                    <span>Za plačilo:</span>
-                    <span>{itemPrice.toLocaleString('sl-SI', { minimumFractionDigits: 2 })} €</span>
-                  </div>
+                  {isVatApplicable ? (
+                    <>
+                      <div className="flex justify-between py-1.5 text-xs text-slate-600 border-b border-slate-100">
+                        <span>Osnova za DDV (22%):</span>
+                        <span className="font-bold">{vatBase.toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>
+                      </div>
+                      <div className="flex justify-between py-1.5 text-xs text-slate-600 border-b border-slate-100">
+                        <span>Znesek DDV (22%):</span>
+                        <span className="font-bold">{vatAmount.toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>
+                      </div>
+                      <div className="flex justify-between py-3 text-base font-black uppercase border-t-2 border-[#0A1128] text-[#0A1128]">
+                        <span>Skupaj za plačilo:</span>
+                        <span>{itemPrice.toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex justify-between py-1.5 text-xs text-slate-600 border-b border-slate-100">
+                        <span>Kupnina / Znesek:</span>
+                        <span className="font-bold">{itemPrice.toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>
+                      </div>
+                      <div className="flex justify-between py-1.5 text-xs text-slate-600 border-b border-slate-100">
+                        <span>DDV:</span>
+                        <span className="font-bold">Ni obračunan</span>
+                      </div>
+                      <div className="flex justify-between py-3 text-base font-black uppercase border-t-2 border-[#0A1128] text-[#0A1128]">
+                        <span>Za plačilo:</span>
+                        <span>{itemPrice.toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
 
               {/* Legal Notes */}
-              <div className="text-[11px] text-slate-500 pt-6 border-t border-slate-200 space-y-1.5">
-                <p>
-                  <strong>Pravna opomba in DDV:</strong>{' '}
-                  {isSellerIndividual
-                    ? 'Prodajalec je fizična oseba (C2C). DDV se v skladu z ZDDV-1 ne obračunava. Dokument služi kot dokazilo o sklenjeni pogodbi in plačilu.'
-                    : isB2B
-                    ? 'Obrnjena davčna obveznost v skladu z 1. točko 25. člena ZDDV-1 (Reverse charge mechanism med pravnima osebama).'
-                    : 'Cene so končne. Dokument je generiran samodejno prek platforme dražbe.si po potrjenem zaključku dražbe.'}
-                </p>
+              <div className="text-[11px] text-slate-600 pt-6 border-t border-slate-200 space-y-2">
+                {isB2C ? (
+                  <>
+                    <p>
+                      <strong>Jamstvo za neskladnost blaga (ZVPot-1):</strong> Za blago veljajo zakonska jamstva za neskladnost blaga v skladu z ZVPot-1.
+                    </p>
+                    <p>
+                      <strong>Prenos lastništva:</strong> Lastninska pravica in nevarnost naključnega uničenja preideta na kupca ob celotnem plačilu kupnine in prevzemu predmeta.
+                    </p>
+                    <p>
+                      <strong>Pravna opomba in DDV:</strong> V ceno je vključen 22% DDV v skladu z Zakonom o davku na dodano vrednost (ZDDV-1).
+                    </p>
+                  </>
+                ) : isB2B ? (
+                  <>
+                    <p>
+                      <strong>Izjava o DDV in stanje opreme:</strong> V ceno je vključen 22% DDV v skladu z ZDDV-1. Za rabljeno opremo velja dogovorjeno stanje ob prevzemu (videno-kupljeno).
+                    </p>
+                    <p>
+                      <strong>Prenos lastništva:</strong> Lastninska pravica in nevarnost naključnega uničenja preideta na kupca ob celotnem plačilu kupnine in prevzemu predmeta.
+                    </p>
+                  </>
+                ) : isC2B ? (
+                  <>
+                    <p>
+                      <strong>Videno-kupljeno:</strong> Predmet se prodaja po načelu "videno-kupljeno". Prodajalec ne odgovarja za stvarne napake predmeta po njegovem prevzemu.
+                    </p>
+                    <p>
+                      <strong>Prenos lastništva:</strong> Lastninska pravica in nevarnost naključnega uničenja preideta na kupca ob celotnem plačilu kupnine in prevzemu predmeta.
+                    </p>
+                    <p>
+                      <strong>Pravna opomba in DDV:</strong> Prodajalec je fizična oseba (C2B). DDV se v skladu z ZDDV-1 ne obračunava. Dokument služi kot kupoprodajna pogodba in dokazilo o plačilu.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p>
+                      <strong>Videno-kupljeno:</strong> Predmet se prodaja po načelu "videno-kupljeno". Prodajalec ne odgovarja za stvarne napake predmeta po njegovem prevzemu.
+                    </p>
+                    <p>
+                      <strong>Prenos lastništva:</strong> Lastninska pravica in nevarnost naključnega uničenja preideta na kupca ob celotnem plačilu kupnine in prevzemu predmeta.
+                    </p>
+                    <p>
+                      <strong>Pravna opomba in DDV:</strong> Prodajalec je fizična oseba (C2C). DDV se v skladu z ZDDV-1 ne obračunava. Dokument služi kot dokazilo o sklenjeni pogodbi in plačilu.
+                    </p>
+                  </>
+                )}
                 <p className="text-[10px] text-slate-400">
                   Platforma dražbe.si nastopa izključno kot tehnološki posrednik. Dokument je pravno veljaven brez žiga ali podpisa v skladu z ZZEPA.
                 </p>
