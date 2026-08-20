@@ -5,6 +5,7 @@ import {
   getDoc,
   getDocs,
   updateDoc,
+  deleteDoc,
   query,
   where,
 } from 'firebase/firestore';
@@ -325,6 +326,39 @@ export async function processAuctionCrons(): Promise<CronRunResult> {
         }
 
         result.actions.expired1stProcessed++;
+      }
+    }
+
+    // -------------------------------------------------------------
+    // 5. CLEANUP OLD EXPIRED AUCTIONS (> 30 DAYS AFTER END)
+    // -------------------------------------------------------------
+    const completedAuctionsSnap = await getDocs(
+      query(collection(db, 'auctions'), where('status', '==', 'completed'))
+    );
+    const thirtyDaysAgo = now.getTime() - 30 * 24 * 60 * 60 * 1000;
+
+    for (const auctionDoc of completedAuctionsSnap.docs) {
+      const data = auctionDoc.data();
+      const endTimeStr = data.end_time || data.endTime;
+      if (!endTimeStr) continue;
+
+      const endTime = new Date(endTimeStr).getTime();
+      if (endTime < thirtyDaysAgo) {
+        // Only completely delete if it wasn't successfully paid/sold
+        if (
+          data.post_auction_status === 'unsold' ||
+          data.post_auction_status === 'failed_1st' ||
+          data.post_auction_status === 'failed_2nd' ||
+          data.post_auction_status === 'rejected_2nd'
+        ) {
+          const auctionId = auctionDoc.id;
+          try {
+            await deleteDoc(doc(db, 'auctions', auctionId));
+            details.push(`Auction ${auctionId} permanently deleted from DB (expired > 30 days)`);
+          } catch (delErr: any) {
+            console.error(`[CRON] Error deleting old auction ${auctionId}:`, delErr);
+          }
+        }
       }
     }
 

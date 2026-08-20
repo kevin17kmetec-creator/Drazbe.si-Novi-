@@ -2,7 +2,7 @@ import PDFDocument from 'pdfkit';
 import fs from 'fs';
 import path from 'path';
 
-export async function generateInvoicePDF(transaction: any, buyer: any, seller: any, auction?: any): Promise<Buffer> {
+export async function generateInvoicePDF(transaction: any, buyer: any, seller: any, auction?: any, salesInvoiceNo?: string, commissionInvoiceNo?: string): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ margin: 50 });
     const buffers: Buffer[] = [];
@@ -30,9 +30,7 @@ export async function generateInvoicePDF(transaction: any, buyer: any, seller: a
 
     const documentTitle = isSellerBusiness 
       ? 'RAČUN / INVOICE' 
-      : isC2B 
-      ? 'KUPOPRODAJNA POGODBA' 
-      : 'KUPOPRODAJNA POGODBA / PURCHASE AGREEMENT';
+      : 'KUPOPRODAJNA POGODBA';
 
     doc.fontSize(18).text(documentTitle, { align: 'center' });
     doc.moveDown(0.5);
@@ -52,11 +50,7 @@ export async function generateInvoicePDF(transaction: any, buyer: any, seller: a
       const sellerName = `${seller.first_name || ''} ${seller.last_name || ''}`.trim() || seller.name || 'Prodajalec';
       doc.text(sellerName);
       if (seller.address) doc.text(seller.address);
-      if (isC2B) {
-        doc.text(`Davčna številka: ${sellerTaxId || '[Davčna številka prodajalca]'}`);
-      } else if (sellerTaxId) {
-        doc.text(`Davčna številka: ${sellerTaxId}`);
-      }
+      doc.text(`Davčna številka: ${sellerTaxId || 'Ni navedena'}`);
     }
     doc.moveDown(0.5);
 
@@ -73,7 +67,7 @@ export async function generateInvoicePDF(transaction: any, buyer: any, seller: a
       const buyerName = `${buyer.first_name || ''} ${buyer.last_name || ''}`.trim() || buyer.name || 'Kupec';
       doc.text(buyerName);
       if (buyer.address) doc.text(buyer.address);
-      if (buyerTaxId) doc.text(`Davčna številka: ${buyerTaxId}`);
+      doc.text(`Davčna številka: ${buyerTaxId || 'Ni navedena'}`);
     }
     doc.moveDown(0.5);
 
@@ -115,7 +109,8 @@ export async function generateInvoicePDF(transaction: any, buyer: any, seller: a
     const sellerPlace = getPlaceFromUser(seller);
 
     doc.fontSize(9);
-    doc.text(`Številka dokumenta / Document No: ITEM-${transactionIdShort}`);
+    const docNo = salesInvoiceNo || `ITEM-${transactionIdShort}`;
+    doc.text(`Številka dokumenta / Document No: ${docNo}`);
     doc.text(`Kraj izdaje / Place of issue: ${sellerPlace}`);
     doc.text(`Datum izdaje in sklenitve / Date of agreement: ${todayStr}`);
     doc.moveDown(0.5);
@@ -201,8 +196,15 @@ export async function generateInvoicePDF(transaction: any, buyer: any, seller: a
     doc.moveDown();
 
     // Invoice Meta
-    doc.text(`Številka računa / Invoice No: FEE-${transactionIdShort}`);
+    const feeDocNo = commissionInvoiceNo || `FEE-${transactionIdShort}`;
+    doc.text(`Številka računa / Invoice No: ${feeDocNo}`);
     doc.text(`Datum izdaje in opravljene storitve / Date of issue & service: ${todayStr}`);
+    
+    const paymentMethodText = transaction.payment_method === 'wallet' ? 'Sredstva na dražbe.si (Wallet)' : 'Spletno plačilo / Kartica';
+    const paidAtDateStr = transaction.paid_at ? new Date(transaction.paid_at).toLocaleDateString('sl-SI') : todayStr;
+    doc.text(`Način plačila / Payment Method: ${paymentMethodText}`);
+    doc.text(`Status plačila / Payment Status: PLAČANO (${paidAtDateStr})`);
+    
     doc.moveDown();
 
     // Items

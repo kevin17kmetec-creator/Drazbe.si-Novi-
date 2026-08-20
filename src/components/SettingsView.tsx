@@ -101,6 +101,7 @@ export const SettingsView: React.FC<{
     // Business data
     companyName: user?.company_name || '',
     taxNumber: user?.tax_number || user?.tax_id || '',
+    regNumber: user?.registration_number || '',
     companyStreet: user?.company_street || '',
     companyCity: user?.company_city || '',
     companyPostalCode: user?.company_postal_code || '',
@@ -125,6 +126,7 @@ export const SettingsView: React.FC<{
         postalCode: user.postal_code !== undefined ? user.postal_code : prev.postalCode,
         companyName: user.company_name !== undefined ? user.company_name : prev.companyName,
         taxNumber: (user.tax_number || user.tax_id) !== undefined ? (user.tax_number || user.tax_id) : prev.taxNumber,
+        regNumber: user.registration_number !== undefined ? user.registration_number : prev.regNumber,
         companyStreet: user.company_street !== undefined ? user.company_street : prev.companyStreet,
         companyCity: user.company_city !== undefined ? user.company_city : prev.companyCity,
         companyPostalCode: user.company_postal_code !== undefined ? user.company_postal_code : prev.companyPostalCode,
@@ -378,7 +380,8 @@ export const SettingsView: React.FC<{
                             ) : (
                                 <>
                                     <div className="md:col-span-2"><label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{t('companyName')}</label><input type="text" value={formData.companyName} onChange={e => setFormData({...formData, companyName: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 font-bold outline-none focus:border-[#FEBA4F]" /></div>
-                                    <div className="md:col-span-2"><label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{t('taxNumber')}</label><input type="text" value={formData.taxNumber} onChange={e => setFormData({...formData, taxNumber: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 font-bold outline-none focus:border-[#FEBA4F]" /></div>
+                                    <div><label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{t('taxNumber')}</label><input type="text" value={formData.taxNumber} onChange={e => setFormData({...formData, taxNumber: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 font-bold outline-none focus:border-[#FEBA4F]" /></div>
+                                    <div><label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Matična številka</label><input type="text" value={formData.regNumber} onChange={e => setFormData({...formData, regNumber: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 font-bold outline-none focus:border-[#FEBA4F]" /></div>
                                     <div>
                                         <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{t('country')}</label>
                                         <select value={formData.countryCode} onChange={e => setFormData({...formData, countryCode: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 font-bold outline-none focus:border-[#FEBA4F] cursor-pointer">

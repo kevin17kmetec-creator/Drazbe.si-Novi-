@@ -16,6 +16,28 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+async function generateInvoiceNumber(type: 'SALES' | 'COMMISSION'): Promise<string> {
+    const year = new Date().getFullYear();
+    const docId = `${type}_${year}`;
+    const counterRef = doc(db, 'invoice_counters', docId);
+
+    return await runTransaction(db, async (transaction) => {
+        const counterDoc = await transaction.get(counterRef);
+        let currentNumber = 1;
+
+        if (counterDoc.exists()) {
+            currentNumber = (counterDoc.data().current_number || 0) + 1;
+            transaction.update(counterRef, { current_number: currentNumber });
+        } else {
+            transaction.set(counterRef, { type, year, current_number: 1 });
+        }
+
+        const prefix = type === 'SALES' ? 'RAC' : 'PROV';
+        const formattedNum = String(currentNumber).padStart(6, '0');
+        return `${prefix}-${year}-${formattedNum}`;
+    });
+}
+
 function calculateMarginalPlatformFee(currentPrice: number, subscriptionTier: string | null | undefined): number {
     let bracket1Rate = 8;
     let bracket2Rate = 5;
@@ -347,7 +369,21 @@ async function startServer() {
             console.error('Error updating buyer spending records in server webhook:', spentErr);
         }
 
-        // 6. Generate Documents
+        // 6. Generate Invoice Numbers
+        let salesInvoiceNo = `ITEM-${transaction.id.substring(0,8)}`;
+        let commissionInvoiceNo = `FEE-${transaction.id.substring(0,8)}`;
+        try {
+            salesInvoiceNo = await generateInvoiceNumber('SALES');
+            commissionInvoiceNo = await generateInvoiceNumber('COMMISSION');
+            await updateDoc(doc(db, 'transactions', transaction.id), {
+                sales_invoice_no: salesInvoiceNo,
+                commission_invoice_no: commissionInvoiceNo
+            });
+        } catch (e) {
+            console.error('Error generating invoice numbers:', e);
+        }
+
+        // 7. Generate Documents
         const documentsToInsert = [];
         const attachments = [];
 
@@ -355,8 +391,8 @@ async function startServer() {
         try {
             const auctionDocPdf = await getDoc(doc(db, 'auctions', auction_id));
             const auctionDataPdf = auctionDocPdf.data();
-            const invoicePdfBuffer = await generateInvoicePDF(transaction, buyer, seller, auctionDataPdf);
-            const invoiceFileName = `racun_${transaction.id.substring(0,8)}.pdf`;
+            const invoicePdfBuffer = await generateInvoicePDF(transaction, buyer, seller, auctionDataPdf, salesInvoiceNo, commissionInvoiceNo);
+            const invoiceFileName = `racun_${salesInvoiceNo}.pdf`;
             
             // Upload to Supabase Storage
             const fileRef = storageRef(storage, `${buyer_id}/${invoiceFileName}`);
@@ -1315,12 +1351,26 @@ async function startServer() {
       
       if (buyer && seller && transaction) {
           (async () => {
+             // Generate Invoice Numbers
+             let salesInvoiceNo = `ITEM-${transaction.id.substring(0,8)}`;
+             let commissionInvoiceNo = `FEE-${transaction.id.substring(0,8)}`;
+             try {
+                 salesInvoiceNo = await generateInvoiceNumber('SALES');
+                 commissionInvoiceNo = await generateInvoiceNumber('COMMISSION');
+                 await updateDoc(doc(db, 'transactions', transaction.id), {
+                     sales_invoice_no: salesInvoiceNo,
+                     commission_invoice_no: commissionInvoiceNo
+                 });
+             } catch (e) {
+                 console.error('Error generating invoice numbers for wallet:', e);
+             }
+
              const documentsToInsert = [];
              const attachments = [];
              
              try {
-                 const invoicePdfBuffer = await generateInvoicePDF(transaction, buyer, seller, auction);
-                 const invoiceFileName = `racun_${transaction.id.substring(0,8)}.pdf`;
+                 const invoicePdfBuffer = await generateInvoicePDF(transaction, buyer, seller, auction, salesInvoiceNo, commissionInvoiceNo);
+                 const invoiceFileName = `racun_${salesInvoiceNo}.pdf`;
                  
                  const fileRef = storageRef(storage, `${buyer_id}/${invoiceFileName}`);
             await uploadBytes(fileRef, invoicePdfBuffer);
@@ -1647,7 +1697,7 @@ async function startServer() {
           currentBid: currentPrice
         };
 
-        const invoiceBuffer = await generateInvoicePDF(mockTransaction, mockBuyer, mockSeller, mockAuction);
+        const invoiceBuffer = await generateInvoicePDF(mockTransaction, mockBuyer, mockSeller, mockAuction, 'RAC-TEST-000001', 'PROV-TEST-000001');
         const certBuffer = await generateCertificatePDF(mockTransaction, mockBuyer, mockSeller);
 
         const attachments = [
@@ -1807,7 +1857,7 @@ async function startServer() {
         pdfBuffer = await generateCertificatePDF(mockTx, buyer, seller);
         filename = `Potrdilo_${mockTx.id}.pdf`;
       } else {
-        pdfBuffer = await generateInvoicePDF(mockTx, buyer, seller, mockAuction);
+        pdfBuffer = await generateInvoicePDF(mockTx, buyer, seller, mockAuction, 'RAC-TEST-000001', 'PROV-TEST-000001');
         filename = `Racun_${mockTx.id}.pdf`;
       }
 

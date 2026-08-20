@@ -708,9 +708,9 @@ export const TestSandboxView: React.FC<TestSandboxViewProps> = ({
               <div className="flex justify-between items-start mb-12">
                 <div>
                   <h1 className="text-3xl font-black tracking-tight mb-2 uppercase" style={{ color: '#0A1128' }}>
-                    {isC2B ? 'KUPOPRODAJNA POGODBA' : isSellerIndividual ? 'KUPOPRODAJNA POGODBA / RAČUN' : 'RAČUN / INVOICE'}
+                    {isSellerIndividual ? 'KUPOPRODAJNA POGODBA' : 'RAČUN / INVOICE'}
                   </h1>
-                  <p className="font-bold text-sm text-slate-500">Številka: INV-TEST-{relationshipType.substring(0, 4).toUpperCase()}-2026</p>
+                  <p className="font-bold text-sm text-slate-500">Številka dokumenta: RAC-TEST-000001</p>
                   <p className="font-bold text-sm text-slate-500">
                     Kraj izdaje: {getCleanSellerPlace(sellerData.address)}
                   </p>
@@ -732,11 +732,7 @@ export const TestSandboxView: React.FC<TestSandboxViewProps> = ({
                   </h3>
                   <p className="font-black text-base text-[#0A1128]">{sellerData.name}</p>
                   <p className="text-sm text-slate-600">{sellerData.address}</p>
-                  {isC2B ? (
-                    <p className="text-xs text-slate-600 mt-1">Davčna številka: <strong>{sellerData.taxId || '[Davčna številka prodajalca]'}</strong></p>
-                  ) : sellerData.taxId ? (
-                    <p className="text-xs text-slate-600 mt-1">Davčna številka: <strong>{sellerData.taxId}</strong></p>
-                  ) : null}
+                  <p className="text-xs text-slate-600 mt-1">Davčna številka: <strong>{sellerData.taxId || 'Ni navedena'}</strong></p>
                   {sellerData.regNo && <p className="text-xs text-slate-600">Matična številka: {sellerData.regNo}</p>}
                 </div>
 
@@ -747,7 +743,7 @@ export const TestSandboxView: React.FC<TestSandboxViewProps> = ({
                   </h3>
                   <p className="font-black text-base text-[#0A1128]">{buyerData.name}</p>
                   <p className="text-sm text-slate-600">{buyerData.address}</p>
-                  {buyerData.taxId && <p className="text-xs text-slate-600 mt-1">Davčna številka: <strong>{buyerData.taxId}</strong></p>}
+                  <p className="text-xs text-slate-600 mt-1">Davčna številka: <strong>{buyerData.taxId || 'Ni navedena'}</strong></p>
                   {buyerData.regNo && <p className="text-xs text-slate-600">Matična številka: {buyerData.regNo}</p>}
                 </div>
               </div>
@@ -876,6 +872,102 @@ export const TestSandboxView: React.FC<TestSandboxViewProps> = ({
                 <p className="text-[10px] text-slate-400">
                   Platforma dražbe.si nastopa izključno kot tehnološki posrednik. Dokument je pravno veljaven brez žiga ali podpisa v skladu z ZZEPA.
                 </p>
+              </div>
+            </div>
+            
+            {/* PAGE 2: PLATFORM FEE INVOICE PREVIEW */}
+            <div
+              className="w-full max-w-[210mm] p-10 bg-white shadow-xl text-[#0A1128] font-sans ml-8 border-l-4 border-dashed border-slate-300"
+              style={{ minHeight: '297mm', color: '#0A1128', backgroundColor: '#FFFFFF' }}
+            >
+              {/* Header */}
+              <div className="flex justify-between items-start mb-12">
+                <div className="w-full text-center">
+                  <h1 className="text-3xl font-black tracking-tight mb-2 uppercase" style={{ color: '#0A1128' }}>
+                    RAČUN ZA STORITEV / SERVICE INVOICE
+                  </h1>
+                </div>
+              </div>
+
+              {/* Parties */}
+              <div className="flex justify-between mb-12 gap-8 border-y border-slate-200 py-6">
+                {/* Platform (Dizain) */}
+                <div className="w-1/2">
+                  <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-2">
+                    Izdajatelj (Platforma)
+                  </h3>
+                  <p className="font-black text-base text-[#0A1128]">Dizain d.o.o.</p>
+                  <p className="text-sm text-slate-600">Karantanska ulica 28, 2000 Maribor</p>
+                  <p className="text-xs text-slate-600 mt-1">Davčna številka: <strong>SI57008060</strong></p>
+                  <p className="text-xs text-slate-600">Matična številka: 9093494000</p>
+                </div>
+
+                {/* Buyer */}
+                <div className="w-1/2">
+                  <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-2">
+                    Prejemnik storitve (Kupec)
+                  </h3>
+                  <p className="font-black text-base text-[#0A1128]">{buyerData.name}</p>
+                  <p className="text-sm text-slate-600">{buyerData.address}</p>
+                  {buyerData.taxId && <p className="text-xs text-slate-600 mt-1">Davčna številka: <strong>{buyerData.taxId}</strong></p>}
+                  {buyerData.regNo && <p className="text-xs text-slate-600">Matična številka: {buyerData.regNo}</p>}
+                </div>
+              </div>
+
+              <div className="mb-12">
+                <p className="font-bold text-sm text-slate-500">Številka računa: PROV-TEST-000001</p>
+                <p className="font-bold text-sm text-slate-500">Datum izdaje in opravljene storitve: {new Date().toLocaleDateString('sl-SI')}</p>
+                <p className="font-bold text-sm text-slate-500">Način plačila: Spletno plačilo / Kartica</p>
+                <p className="font-bold text-sm text-slate-500">Status plačila: PLAČANO ({new Date().toLocaleDateString('sl-SI')})</p>
+              </div>
+
+              {/* Items Table */}
+              <table className="w-full mb-8 border-collapse">
+                <thead>
+                  <tr className="border-b-2 border-[#0A1128]">
+                    <th className="text-left py-3 text-xs font-black uppercase tracking-wider">Opis</th>
+                    <th className="text-right py-3 text-xs font-black uppercase tracking-wider w-32">Osnova (€)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="border-b border-slate-200">
+                    <td className="py-4">
+                      <p className="font-bold text-sm">Provizija platforme za uporabo sistema</p>
+                      <p className="text-xs text-slate-400">Dražba: {itemTitle}</p>
+                    </td>
+                    <td className="py-4 text-right font-bold text-sm">{(itemPrice * 0.05).toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                  </tr>
+                </tbody>
+              </table>
+
+              {/* Totals */}
+              <div className="flex justify-end mb-10">
+                <div className="w-72 space-y-2">
+                  <div className="flex justify-between py-1.5 text-xs text-slate-600 border-b border-slate-100">
+                    <span>Osnova / Base:</span>
+                    <span className="font-bold">{(itemPrice * 0.05).toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>
+                  </div>
+                  {relationshipType === 'company_company' ? (
+                    <>
+                      <div className="flex justify-between py-1.5 text-xs text-slate-600 border-b border-slate-100">
+                        <span>DDV / VAT (0% - Reverse Charge):</span>
+                        <span className="font-bold">0,00 €</span>
+                      </div>
+                      <div className="py-1.5 text-[10px] text-slate-500 italic">
+                        Obrnjena davčna obveznost v skladu z 1. točko 25. člena ZDDV-1.
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex justify-between py-1.5 text-xs text-slate-600 border-b border-slate-100">
+                      <span>DDV / VAT (22%):</span>
+                      <span className="font-bold">{(itemPrice * 0.05 * 0.22).toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between py-3 text-base font-black uppercase border-t-2 border-[#0A1128] text-[#0A1128]">
+                    <span>Skupaj Provizija:</span>
+                    <span>{(relationshipType === 'company_company' ? itemPrice * 0.05 : itemPrice * 0.05 * 1.22).toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

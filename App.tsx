@@ -101,7 +101,7 @@ import {
 import { Toaster, toast } from "sonner";
 
 import { ChatProvider } from "./src/context/ChatContext";
-import { collection, onSnapshot, setDoc, doc, getDocs, getDoc, updateDoc, addDoc, query, where, runTransaction } from "firebase/firestore";
+import { collection, onSnapshot, setDoc, doc, getDocs, getDoc, updateDoc, addDoc, deleteDoc, query, where, runTransaction } from "firebase/firestore";
 import { db, auth, storage } from "./src/lib/firebase";
 import { onAuthStateChanged, signOut, updatePassword } from "firebase/auth";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
@@ -1415,12 +1415,16 @@ const MainApp: React.FC = () => {
           company_name: data.companyName,
           tax_number: data.taxNumber,
           tax_id: data.taxNumber, // Save to both for compatibility
+          registration_number: data.regNumber,
           company_street: data.companyStreet,
           company_city: data.companyCity,
           company_postal_code: data.companyPostalCode,
           representative: data.representative,
           country_code: data.countryCode,
           auto_invoice_generation: data.autoInvoiceGeneration,
+          address: userData?.user_type === 'individual' || (!data.companyName && !data.companyStreet)
+            ? `${data.street || ''}, ${data.postalCode || ''} ${data.city || ''}`.trim().replace(/^,|,$/g, '').trim()
+            : `${data.companyStreet || ''}, ${data.companyPostalCode || ''} ${data.companyCity || ''}`.trim().replace(/^,|,$/g, '').trim(),
         };
 
         if (
@@ -1755,11 +1759,15 @@ const MainApp: React.FC = () => {
                 city: data.city || null,
                 postal_code: data.postalCode || null,
                 tax_number: data.taxNumber || null,
+                registration_number: data.regNumber || null,
                 company_name: data.companyName || null,
                 company_street: data.companyStreet || null,
                 company_city: data.companyCity || null,
                 company_postal_code: data.companyPostalCode || null,
                 representative: data.representative || null,
+                address: type === 'individual' 
+                  ? `${data.street || ''}, ${data.postalCode || ''} ${data.city || ''}`.trim().replace(/^,|,$/g, '').trim()
+                  : `${data.companyStreet || ''}, ${data.companyPostalCode || ''} ${data.companyCity || ''}`.trim().replace(/^,|,$/g, '').trim(),
               };
 
               console.log("Updating verification data:", updateData);
@@ -2540,8 +2548,8 @@ const MainApp: React.FC = () => {
                         onClick={async () => {
                           if (window.confirm("Ste prepričani, da želite dokončno izbrisati to dražbo? Te akcije ni mogoče razveljaviti.")) {
                             try {
-                              await updateDoc(doc(db, 'auctions', soldItem.id), { status: 'deleted' });
-                              toast.success("Dražba uspešno izbrisana.");
+                              await deleteDoc(doc(db, 'auctions', soldItem.id));
+                              toast.success("Dražba uspešno in trajno izbrisana.");
                               fetchAuctions();
                             } catch (e: any) {
                               toast.error("Napaka pri brisanju: " + e.message);
