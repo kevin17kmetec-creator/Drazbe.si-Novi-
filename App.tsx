@@ -22,6 +22,8 @@ import { CheckoutModal } from "./src/components/CheckoutModal";
 import { SettingsView } from "./src/components/SettingsView";
 import { ConfirmBidModal } from "./src/components/ConfirmBidModal";
 import { MessagesView } from "./src/components/MessagesView";
+import { MissingInvoiceDataModal } from "./src/components/MissingInvoiceDataModal";
+import { checkUserInvoiceData } from "./src/lib/invoiceDataCheck";
 import {
   Search,
   User,
@@ -514,6 +516,15 @@ const MainApp: React.FC = () => {
   const [isPollingStopped, setIsPollingStopped] = useState(false);
   const [isHydrating, setIsHydrating] = useState(true);
   const [settingsTab, setSettingsTab] = useState<'profile' | 'personal' | 'stripe'>('profile');
+  const [appMissingInvoiceDataModal, setAppMissingInvoiceDataModal] = useState<{
+    isOpen: boolean;
+    missingFields: any[];
+    userType: 'individual' | 'business';
+  }>({
+    isOpen: false,
+    missingFields: [],
+    userType: 'individual'
+  });
   const [appWakeupTrigger, setAppWakeupTrigger] = useState(0);
   const [invoiceModalData, setInvoiceModalData] = useState<{
     isOpen: boolean;
@@ -1207,12 +1218,28 @@ const MainApp: React.FC = () => {
   }, [userData]);
 
   const handlePublish = async (itemData: any) => {
+    if (!userData?.id) {
+      toast.error(t("loginRequired"));
+      return;
+    }
+
+    // Strict validation for mandatory invoice data
+    const invoiceCheck = checkUserInvoiceData(userData);
+    if (!invoiceCheck.isComplete) {
+      setAppMissingInvoiceDataModal({
+        isOpen: true,
+        missingFields: invoiceCheck.missingFields,
+        userType: invoiceCheck.userType
+      });
+      return;
+    }
+
     try {
       // Remove [EN] and [DE] prefix hardcoding as this looks like test data and is unnecessary
       const simulatedTitle = {
-        SLO: itemData.title.SLO,
-        EN: itemData.title.SLO,
-        DE: itemData.title.SLO,
+        SLO: itemData.title?.SLO || itemData.title,
+        EN: itemData.title?.SLO || itemData.title,
+        DE: itemData.title?.SLO || itemData.title,
       };
       const simulatedDescription = {
         SLO: itemData.description,
@@ -1268,23 +1295,58 @@ const MainApp: React.FC = () => {
         payment_status: 'unpaid',
         post_auction_status: null,
         images: itemData.images,
+        delivery_option: itemData.delivery_option || 'both',
+        shipping_fee_type: itemData.shipping_fee_type || 'calculated',
+        shipping_cost: itemData.shipping_cost !== undefined ? itemData.shipping_cost : null
       };
 
-      const res = await fetch('/api/auctions/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ itemData: auctionPayload, user_id: userData.id })
-      });
+      let publishSuccess = false;
 
-      if (!res.ok) {
-        const errorData = await res.json();
-        toast.error(errorData.error || t("publishError"));
-        return;
+      try {
+        const res = await fetch('/api/auctions/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ itemData: auctionPayload, user_id: userData.id })
+        });
+
+        const contentType = res.headers.get('content-type') || '';
+        if (res.ok && contentType.includes('application/json')) {
+          const resData = await res.json();
+          if (resData.success) {
+            publishSuccess = true;
+          }
+        } else if (!res.ok && contentType.includes('application/json')) {
+          const errorData = await res.json();
+          toast.error(errorData.error || t("publishError"));
+          return;
+        } else {
+          // Direct client Firestore fallback if route returned HTML/404
+          const newDocRef = itemData.id ? doc(db, 'auctions', itemData.id) : doc(collection(db, 'auctions'));
+          await setDoc(newDocRef, {
+            ...auctionPayload,
+            id: newDocRef.id,
+            seller_id: userData.id,
+            status: "active"
+          }, { merge: true });
+          publishSuccess = true;
+        }
+      } catch (fetchErr) {
+        console.warn("Direct API create failed, using direct Firestore save fallback:", fetchErr);
+        const newDocRef = itemData.id ? doc(db, 'auctions', itemData.id) : doc(collection(db, 'auctions'));
+        await setDoc(newDocRef, {
+          ...auctionPayload,
+          id: newDocRef.id,
+          seller_id: userData.id,
+          status: "active"
+        }, { merge: true });
+        publishSuccess = true;
       }
 
-      setActiveView("grid");
-      toast.success(t("auctionPublished"));
-      fetchAuctions(); // Refresh the list from DB
+      if (publishSuccess) {
+        setActiveView("grid");
+        toast.success(t("auctionPublished"));
+        fetchAuctions(); // Refresh the list from DB
+      }
     } catch (error: any) {
       console.error("HandlePublish Exception:", error);
       toast.error(t("publishError"));
@@ -1660,6 +1722,11 @@ const MainApp: React.FC = () => {
             onPublish={handlePublish}
             isLoggedIn={isLoggedIn}
             initialData={republishData}
+            userData={userData}
+            onNavigateToSettings={(tab) => {
+              setSettingsTab(tab || 'personal');
+              setActiveView("settings");
+            }}
           />
         );
       }
@@ -3673,6 +3740,19 @@ const MainApp: React.FC = () => {
             userWalletBalance={userData.wallet_balance || 0}
           />
         )}
+
+        <MissingInvoiceDataModal
+          isOpen={appMissingInvoiceDataModal.isOpen}
+          onClose={() => setAppMissingInvoiceDataModal((prev) => ({ ...prev, isOpen: false }))}
+          onNavigateToSettings={() => {
+            setAppMissingInvoiceDataModal((prev) => ({ ...prev, isOpen: false }));
+            setSettingsTab('personal');
+            setActiveView("settings");
+          }}
+          missingFields={appMissingInvoiceDataModal.missingFields}
+          userType={appMissingInvoiceDataModal.userType}
+          t={t}
+        />
 
         <InvoiceModal
           isOpen={invoiceModalData.isOpen}

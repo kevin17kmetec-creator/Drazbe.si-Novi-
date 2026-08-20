@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, FileUp, Trash2, Gavel, Wand2, X, Eye, ChevronLeft, ChevronRight, GripHorizontal } from 'lucide-react';
+import { ArrowLeft, FileUp, Trash2, Gavel, Wand2, X, Eye, ChevronLeft, ChevronRight, GripHorizontal, AlertCircle } from 'lucide-react';
 import { Category, Region, AuctionItem } from '../../types.ts';
 import { getCategoryTranslation } from '../lib/translations';
 import { storage } from '../lib/firebase';
@@ -9,6 +9,8 @@ import { GoogleGenAI } from '@google/genai';
 import imageCompression from 'browser-image-compression';
 import { AuctionCard } from './AuctionCard';
 import AuctionView from './AuctionView';
+import { checkUserInvoiceData, InvoiceDataCheckResult } from '../lib/invoiceDataCheck';
+import { MissingInvoiceDataModal } from './MissingInvoiceDataModal';
 
 const REGION_LOCATIONS: Record<Region, string[]> = {
     [Region.Prekmurje]: ['Murska Sobota', 'Lendava', 'Ljutomer', 'Beltinci', 'Gornja Radgona'],
@@ -40,7 +42,11 @@ export const CreateAuctionForm: React.FC<{
     onPublish: (item: any) => void; 
     isLoggedIn: boolean;
     initialData?: any;
-}> = ({ onBack, t, language = 'SLO', onPublish, isLoggedIn, initialData }) => {
+    userData?: any;
+    onNavigateToSettings?: (tab?: 'profile' | 'personal' | 'stripe') => void;
+}> = ({ onBack, t, language = 'SLO', onPublish, isLoggedIn, initialData, userData, onNavigateToSettings }) => {
+    const [isInvoiceDataModalOpen, setIsInvoiceDataModalOpen] = useState(false);
+    const [invoiceCheckResult, setInvoiceCheckResult] = useState<InvoiceDataCheckResult | null>(null);
     const getLocalDateStr = (date: Date) => {
         const year = date.getFullYear();
         const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -301,6 +307,15 @@ export const CreateAuctionForm: React.FC<{
     }, []);
 
     const handlePublish = async () => {
+        if (isLoggedIn && userData) {
+            const invoiceCheck = checkUserInvoiceData(userData);
+            if (!invoiceCheck.isComplete) {
+                setInvoiceCheckResult(invoiceCheck);
+                setIsInvoiceDataModalOpen(true);
+                return;
+            }
+        }
+
         if (!formData.title || !formData.description) return toast.error(t('enterAllData'));
         if (existingImages.length + imageFiles.length < 3) return toast.error(t('minImagesError'));
         if (existingImages.length + imageFiles.length > 10) return toast.error(t('maxImagesError'));
@@ -810,6 +825,20 @@ export const CreateAuctionForm: React.FC<{
                     </div>
                 </div>
             )}
+
+            <MissingInvoiceDataModal
+                isOpen={isInvoiceDataModalOpen}
+                onClose={() => setIsInvoiceDataModalOpen(false)}
+                onNavigateToSettings={() => {
+                    setIsInvoiceDataModalOpen(false);
+                    if (onNavigateToSettings) {
+                        onNavigateToSettings('personal');
+                    }
+                }}
+                missingFields={invoiceCheckResult?.missingFields || []}
+                userType={invoiceCheckResult?.userType || 'individual'}
+                t={t}
+            />
         </div>
     );
 };
