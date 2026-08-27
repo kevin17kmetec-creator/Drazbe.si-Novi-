@@ -1034,9 +1034,9 @@ const MainApp: React.FC = () => {
   // Private stream: Users
   useEffect(() => {
     // Fire cron job on mount and every 5 minutes
-    fetch('/api/cron-auctions', { method: 'POST' }).catch(console.error);
+    fetch('/api/cron/check-auctions', { method: 'POST' }).catch(console.error);
     const cronInterval = setInterval(() => {
-       fetch('/api/cron-auctions', { method: 'POST' }).catch(console.error);
+       fetch('/api/cron/check-auctions', { method: 'POST' }).catch(console.error);
     }, 5 * 60 * 1000);
     return () => clearInterval(cronInterval);
   }, []);
