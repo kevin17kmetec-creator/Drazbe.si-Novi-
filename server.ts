@@ -9,9 +9,9 @@ import Stripe from "stripe";
 import path from "path";
 
 import { Resend } from 'resend';
-import { generateInvoicePDF, generateCertificatePDF } from './src/lib/pdfGenerator';
-import { sendOutbidNotification, sendEndingSoonNotification, sendAuctionWonNotification, sendPaymentReminderNotification } from './src/server/emailService';
-import { processAuctionCrons } from './src/server/cronProcessor';
+import { generateInvoicePDF, generateCertificatePDF } from './src/lib/pdfGenerator.js';
+import { sendOutbidNotification, sendEndingSoonNotification, sendAuctionWonNotification, sendPaymentReminderNotification } from './src/server/emailService.js';
+import { processAuctionCrons } from './src/server/cronProcessor.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -191,7 +191,18 @@ async function getOrCreateStripeCustomer(stripe: Stripe, userId: string, user: a
 // Initialize Resend
 const resend = new Resend(process.env.RESEND_API_KEY);
 
+
 const app = express();
+
+app.use((req, res, next) => {
+  if (process.env.VERCEL) {
+    if (!req.url.startsWith('/api') && !req.url.startsWith('/webhook')) {
+      req.url = '/api' + (req.url.startsWith('/') ? req.url : '/' + req.url);
+    }
+  }
+  next();
+});
+
 export default app;
   const PORT = 3000;
 
