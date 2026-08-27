@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { db } from '../../src/lib/firebase-admin.js';
-import { sendOutbidNotification } from '../../src/server/emailService.js';
+import { db } from '../src/lib/firebase-admin.js';
+import { sendOutbidNotification } from '../src/server/emailService.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'OPTIONS') {

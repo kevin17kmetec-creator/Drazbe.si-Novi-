@@ -5,7 +5,7 @@ import {
   sendAuctionWonNotification, 
   sendPaymentReminderNotification 
 } from '../../src/server/emailService.js';
-import { generateInvoicePDF, generateCertificatePDF } from '../../src/server/pdfGenerator.js';
+import { generateInvoicePDF, generateCertificatePDF } from '../../src/lib/pdfGenerator.js';
 import { Resend } from 'resend';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {

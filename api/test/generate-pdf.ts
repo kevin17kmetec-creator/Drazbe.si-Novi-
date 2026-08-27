@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { generateInvoicePDF, generateCertificatePDF } from '../../src/server/pdfGenerator.js';
+import { generateInvoicePDF, generateCertificatePDF } from '../../src/lib/pdfGenerator.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'OPTIONS') {
