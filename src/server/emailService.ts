@@ -1,7 +1,7 @@
 import React from 'react';
 import { Resend } from 'resend';
 import { render } from '@react-email/render';
-import { AuctionEmailTemplate, AuctionEmailProps, EmailType } from '../../emails/AuctionEmailTemplate';
+import { AuctionEmailTemplate, AuctionEmailProps, EmailType } from '../../emails/AuctionEmailTemplate.js';
 
 let resendClient: Resend | null = null;
 

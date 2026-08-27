@@ -249,7 +249,15 @@ export const TestSandboxView: React.FC<TestSandboxViewProps> = ({
         })
       });
 
-      const data = await response.json();
+      let data: any;
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        data = await response.json();
+      } else {
+        const text = await response.text();
+        throw new Error(`Strežnik je vrnil neveljaven odgovor (${response.status}): ${text.slice(0, 150)}`);
+      }
+
       if (!response.ok || !data.success) {
         throw new Error(data.error || 'Napaka pri pošiljanju.');
       }
@@ -313,7 +321,15 @@ export const TestSandboxView: React.FC<TestSandboxViewProps> = ({
         })
       });
 
-      const data = await response.json();
+      let data: any;
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        data = await response.json();
+      } else {
+        const text = await response.text();
+        throw new Error(`Strežnik (${response.status}): ${text.slice(0, 150)}`);
+      }
+
       if (!response.ok || !data.success) {
         setPayoutLogs(data.logs || [data.error || 'Neznana napaka']);
         throw new Error(data.error || 'Izplačilo ni uspelo');
@@ -339,7 +355,14 @@ export const TestSandboxView: React.FC<TestSandboxViewProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_id: userData.id, amount: 100 })
       });
-      const data = await res.json();
+      let data: any;
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        data = await res.json();
+      } else {
+        const text = await res.text();
+        throw new Error(`Strežnik (${res.status}): ${text.slice(0, 150)}`);
+      }
       if (!res.ok) throw new Error(data.error || 'Napaka');
       toast.success('Uspešno dodano +100,00 € testnega dobroimetja!');
       if (onRefreshUserData) onRefreshUserData();
@@ -360,7 +383,14 @@ export const TestSandboxView: React.FC<TestSandboxViewProps> = ({
       const res = await fetch('/api/cron/check-auctions', {
         method: 'GET'
       });
-      const data = await res.json();
+      let data: any;
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        data = await res.json();
+      } else {
+        const text = await res.text();
+        throw new Error(`Strežnik (${res.status}): ${text.slice(0, 150)}`);
+      }
       setCronReport(data);
       toast.success('Cron opravila uspešno izvedena!');
     } catch (e: any) {

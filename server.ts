@@ -1,17 +1,18 @@
 import { GoogleGenAI } from '@google/genai';
-import { db } from './src/lib/firebase';
+import { db } from './src/lib/firebase.js';
 import { collection, doc, getDoc, getDocs, updateDoc, setDoc, addDoc, query, where, limit, writeBatch, runTransaction } from 'firebase/firestore';
-import { storage } from './src/lib/firebase';
+import { storage } from './src/lib/firebase.js';
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import express from "express";
+import cors from "cors";
 import Stripe from "stripe";
 
 import path from "path";
 
 import { Resend } from 'resend';
-import { generateInvoicePDF, generateCertificatePDF } from './src/lib/pdfGenerator';
-import { sendOutbidNotification, sendEndingSoonNotification, sendAuctionWonNotification, sendPaymentReminderNotification } from './src/server/emailService';
-import { processAuctionCrons } from './src/server/cronProcessor';
+import { generateInvoicePDF, generateCertificatePDF } from './src/lib/pdfGenerator.js';
+import { sendOutbidNotification, sendEndingSoonNotification, sendAuctionWonNotification, sendPaymentReminderNotification } from './src/server/emailService.js';
+import { processAuctionCrons } from './src/server/cronProcessor.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -193,6 +194,8 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 
 
 const app = express();
+
+app.use(cors());
 
 app.use((req, res, next) => {
   if (process.env.VERCEL) {
@@ -2373,7 +2376,15 @@ export default app;
     res.status(404).json({ error: 'API route not found on Vercel backend', url: req.url, originalUrl: req.originalUrl });
   });
 
+
+  // Global error handler
+  app.use((err, req, res, next) => {
+    console.error('Unhandled error:', err);
+    res.status(500).json({ error: 'Internal Server Error', message: err.message, stack: err.stack });
+  });
+
 async function startLocalServer() {
+
 
   const PORT = 3000;
   // Vite middleware for development

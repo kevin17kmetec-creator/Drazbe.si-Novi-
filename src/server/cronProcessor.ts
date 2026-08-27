@@ -1,4 +1,4 @@
-import { db } from '../lib/firebase';
+import { db } from '../lib/firebase.js';
 import {
   collection,
   doc,
@@ -13,7 +13,7 @@ import {
   sendEndingSoonNotification,
   sendAuctionWonNotification,
   sendPaymentReminderNotification,
-} from './emailService';
+} from './emailService.js';
 
 export interface CronRunResult {
   success: boolean;

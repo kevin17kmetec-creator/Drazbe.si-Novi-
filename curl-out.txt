@@ -1,0 +1,1 @@
+{"error":"E-poštni naslov prejemnika je obvezen."}
