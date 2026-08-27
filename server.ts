@@ -9,9 +9,9 @@ import Stripe from "stripe";
 import path from "path";
 
 import { Resend } from 'resend';
-import { generateInvoicePDF, generateCertificatePDF } from './src/lib/pdfGenerator.js';
-import { sendOutbidNotification, sendEndingSoonNotification, sendAuctionWonNotification, sendPaymentReminderNotification } from './src/server/emailService.js';
-import { processAuctionCrons } from './src/server/cronProcessor.js';
+import { generateInvoicePDF, generateCertificatePDF } from './src/lib/pdfGenerator';
+import { sendOutbidNotification, sendEndingSoonNotification, sendAuctionWonNotification, sendPaymentReminderNotification } from './src/server/emailService';
+import { processAuctionCrons } from './src/server/cronProcessor';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -2367,7 +2367,14 @@ export default app;
     }
   });
 
-  async function startLocalServer() {
+  
+  // Catch-all for API routes to prevent HTML 404s
+  app.use('/api', (req, res) => {
+    res.status(404).json({ error: 'API route not found on Vercel backend', url: req.url, originalUrl: req.originalUrl });
+  });
+
+async function startLocalServer() {
+
   const PORT = 3000;
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {

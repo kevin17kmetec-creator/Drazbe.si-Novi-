@@ -1484,7 +1484,7 @@ const MainApp: React.FC = () => {
           representative: data.representative,
           country_code: data.countryCode,
           auto_invoice_generation: data.autoInvoiceGeneration,
-          address: userData?.user_type === 'individual' || (!data.companyName && !data.companyStreet)
+          address: (userData as any)?.user_type === 'individual' || (!data.companyName && !data.companyStreet)
             ? `${data.street || ''}, ${data.postalCode || ''} ${data.city || ''}`.trim().replace(/^,|,$/g, '').trim()
             : `${data.companyStreet || ''}, ${data.companyPostalCode || ''} ${data.companyCity || ''}`.trim().replace(/^,|,$/g, '').trim(),
         };
@@ -2561,7 +2561,7 @@ const MainApp: React.FC = () => {
             (a as any).seller_id === userData.id) &&
           (a.status === "completed" || new Date(a.endTime) <= new Date()) &&
           (a.post_auction_status === "unsold" || a.post_auction_status === "unpaid" || a.post_auction_status === "failed_2nd" || a.post_auction_status === "rejected_2nd" || (!a.winnerId && !(a as any).winner_id)) &&
-          a.status !== "archived" && a.status !== "deleted"
+          (a as any).status !== "archived" && (a as any).status !== "deleted"
       ).filter(a => {
         // Must be within 1 month from end time to be shown here
         const endMs = new Date(a.endTime || (a as any).end_time).getTime();
