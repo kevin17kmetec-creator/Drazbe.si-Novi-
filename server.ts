@@ -5,7 +5,7 @@ import { storage } from './src/lib/firebase';
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import express from "express";
 import Stripe from "stripe";
-import { createServer as createViteServer } from "vite";
+
 import path from "path";
 
 import { Resend } from 'resend';
@@ -191,8 +191,8 @@ async function getOrCreateStripeCustomer(stripe: Stripe, userId: string, user: a
 // Initialize Resend
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-async function startServer() {
-  const app = express();
+const app = express();
+export default app;
   const PORT = 3000;
 
   let stripeClient: Stripe | null = null;
@@ -1109,6 +1109,42 @@ async function startServer() {
       res.json({ clientSecret: paymentIntent.client_secret });
     } catch (error: any) {
       console.error("Stripe error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+
+  app.post("/api/stripe-account-session", async (req, res) => {
+    try {
+      const { user_id } = req.body;
+      const stripe = getStripe();
+
+      const userDoc = await getDoc(doc(db, 'users', user_id));
+      const user = userDoc.data();
+      let accountId = user?.stripe_account_id;
+
+      if (!accountId) {
+        const account = await stripe.accounts.create({
+          type: 'express',
+          capabilities: {
+            transfers: { requested: true },
+            card_payments: { requested: true }
+          }
+        });
+        accountId = account.id;
+        await updateDoc(doc(db, 'users', user_id), { stripe_account_id: accountId });
+      }
+
+      const accountSession = await stripe.accountSessions.create({
+        account: accountId,
+        components: {
+          account_onboarding: { enabled: true },
+        },
+      });
+
+      res.status(200).json({ client_secret: accountSession.client_secret });
+    } catch (error: any) {
+      console.error("Stripe Account Session Error:", error);
       res.status(500).json({ error: error.message });
     }
   });
@@ -2320,8 +2356,11 @@ async function startServer() {
     }
   });
 
+  async function startLocalServer() {
+  const PORT = 3000;
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
@@ -2340,4 +2379,6 @@ async function startServer() {
   });
 }
 
-startServer();
+if (!process.env.VERCEL && process.env.NODE_ENV !== 'test') {
+  startLocalServer();
+}
