@@ -259,7 +259,8 @@ export const TestSandboxView: React.FC<TestSandboxViewProps> = ({
       }
 
       if (!response.ok || !data.success) {
-        throw new Error(data.error || 'Napaka pri pošiljanju.');
+        const errorMsg = data.error || data.details?.error || data.message || 'Napaka pri pošiljanju.';
+        throw new Error(errorMsg);
       }
 
       setEmailStatus(prev => ({ ...prev, [type]: 'success' }));
