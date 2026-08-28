@@ -498,6 +498,16 @@ export default app;
   });
 
   app.use(express.json());
+  app.use((req, res, next) => {
+    if (typeof req.body === 'string' && req.body.trim().startsWith('{')) {
+      try {
+        req.body = JSON.parse(req.body);
+      } catch (e) {
+        // ignore malformed strings
+      }
+    }
+    next();
+  });
 
   // API routes FIRST
   
@@ -1666,21 +1676,33 @@ export default app;
   // 1. Test Email Sender
   app.post("/api/test/send-email", async (req, res) => {
     try {
+      // 3. Environment Variable Check
+      const resendApiKey = process.env.RESEND_API_KEY;
+      if (!resendApiKey) {
+        console.error("Email send error: RESEND_API_KEY is missing");
+        return res.status(500).json({
+          error: "RESEND_API_KEY is missing",
+          message: "RESEND_API_KEY environment variable is not defined in the server environment.",
+          resendConfigured: false
+        });
+      }
+
+      // Safe body extraction
+      const body = (typeof req.body === 'string' ? JSON.parse(req.body) : req.body) || {};
       const {
         toEmail,
-        type, // 'outbid' | 'ending_soon' | 'won' | 'payment_reminder' | 'receipt_invoice'
+        type = 'outbid', // 'outbid' | 'ending_soon' | 'won' | 'payment_reminder' | 'receipt_invoice'
         recipientName = "Testni Uporabnik",
         auctionId = "test-auction-123",
         auctionTitle = "Industrijski CNC obdelovalni center Haas VF-2",
         currentPrice = 1250,
         auctionImageUrl = "https://images.unsplash.com/photo-1581092335397-9583fe92d232?w=800&auto=format&fit=crop&q=60",
-      } = req.body;
+      } = body;
 
       if (!toEmail) {
-        return res.status(400).json({ error: "E-poštni naslov prejemnika je obvezen." });
+        return res.status(400).json({ error: "E-poštni naslov prejemnika (toEmail) je obvezen." });
       }
 
-      const resendApiKey = process.env.RESEND_API_KEY;
       let sendResult: any = null;
 
       if (type === 'outbid') {
@@ -1760,49 +1782,64 @@ export default app;
           { filename: `potrdilo_${mockTransaction.id}.pdf`, content: certBuffer }
         ];
 
-        if (resendApiKey) {
-          const resendClient = new Resend(resendApiKey);
-          const emailResponse = await resendClient.emails.send({
-            from: process.env.EMAIL_FROM || 'dražbe.si <obvestila@drazba.si>',
-            to: toEmail,
-            subject: `🧾 Potrdilo o plačilu in račun: ${auctionTitle} - dražbe.si`,
-            html: `
-              <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; background-color: #0A1128; color: #FFFFFF; border-radius: 16px;">
-                <div style="text-align: center; margin-bottom: 24px;">
-                  <h1 style="color: #FEBA4F; font-size: 28px; margin: 0;">dražbe.si</h1>
-                  <p style="color: #94A3B8; font-size: 13px;">Uradno potrdilo o plačilu in račun</p>
-                </div>
-                <div style="background-color: rgba(255,255,255,0.05); padding: 20px; border-radius: 12px; margin-bottom: 20px;">
-                  <h2 style="color: #FFFFFF; font-size: 18px; margin-top: 0;">Pozdravljeni, ${recipientName}!</h2>
-                  <p style="color: #CBD5E1; line-height: 1.6;">Vaše plačilo za dražbo <strong>${auctionTitle}</strong> v znesku <strong>${currentPrice.toFixed(2)} €</strong> je bilo uspešno evidentirano.</p>
-                  <p style="color: #CBD5E1; line-height: 1.6;">V priponki tega sporočila vam prilagamo <strong>uradni PDF račun</strong> ter <strong>potrdilo o nakupu (certifikat)</strong>.</p>
-                </div>
-                <div style="text-align: center; font-size: 11px; color: #64748B;">
-                  <p>© ${new Date().getFullYear()} dražbe.si. Vse pravice pridržane.</p>
-                </div>
+        const resendClient = new Resend(resendApiKey);
+        const emailResponse = await resendClient.emails.send({
+          from: process.env.EMAIL_FROM || 'dražbe.si <obvestila@drazba.si>',
+          to: toEmail,
+          subject: `🧾 Potrdilo o plačilu in račun: ${auctionTitle} - dražbe.si`,
+          html: `
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; background-color: #0A1128; color: #FFFFFF; border-radius: 16px;">
+              <div style="text-align: center; margin-bottom: 24px;">
+                <h1 style="color: #FEBA4F; font-size: 28px; margin: 0;">dražbe.si</h1>
+                <p style="color: #94A3B8; font-size: 13px;">Uradno potrdilo o plačilu in račun</p>
               </div>
-            `,
-            attachments
-          });
-          sendResult = { success: true, messageId: emailResponse.data?.id };
+              <div style="background-color: rgba(255,255,255,0.05); padding: 20px; border-radius: 12px; margin-bottom: 20px;">
+                <h2 style="color: #FFFFFF; font-size: 18px; margin-top: 0;">Pozdravljeni, ${recipientName}!</h2>
+                <p style="color: #CBD5E1; line-height: 1.6;">Vaše plačilo za dražbo <strong>${auctionTitle}</strong> v znesku <strong>${currentPrice.toFixed(2)} €</strong> je bilo uspešno evidentirano.</p>
+                <p style="color: #CBD5E1; line-height: 1.6;">V priponki tega sporočila vam prilagamo <strong>uradni PDF račun</strong> ter <strong>potrdilo o nakupu (certifikat)</strong>.</p>
+              </div>
+              <div style="text-align: center; font-size: 11px; color: #64748B;">
+                <p>© ${new Date().getFullYear()} dražbe.si. Vse pravice pridržane.</p>
+              </div>
+            </div>
+          `,
+          attachments
+        });
+
+        if (emailResponse.error) {
+          sendResult = { success: false, error: emailResponse.error.message };
         } else {
-          sendResult = { success: false, error: "RESEND_API_KEY ni nastavljen v .env" };
+          sendResult = { success: true, messageId: emailResponse.data?.id };
         }
       } else {
         return res.status(400).json({ error: "Neznan tip e-poštnega obvestila." });
       }
 
-      res.json({
-        success: sendResult?.success ?? true,
+      if (sendResult && sendResult.success === false) {
+        return res.status(400).json({
+          success: false,
+          error: sendResult.error || "Napaka pri pošiljanju e-pošte preko Resend API.",
+          type,
+          toEmail,
+          details: sendResult,
+          resendConfigured: true
+        });
+      }
+
+      return res.json({
+        success: true,
         type,
         toEmail,
         timestamp: new Date().toISOString(),
         details: sendResult,
-        resendConfigured: !!resendApiKey
+        resendConfigured: true
       });
-    } catch (err: any) {
-      console.error("Test send-email error:", err);
-      res.status(500).json({ error: err.message || "Napaka pri pošiljanju testnega e-maila" });
+    } catch (error: any) {
+      console.error("Email send error:", error);
+      return res.status(500).json({
+        error: error.message || "Nepričakovana napaka pri pošiljanju e-maila",
+        stack: error.stack
+      });
     }
   });
 
