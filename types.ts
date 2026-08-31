@@ -85,6 +85,18 @@ export interface AuctionItem {
   delivery_option?: 'both' | 'pickup_only' | 'shipping_only' | string;
   selected_delivery?: 'pickup' | 'post' | 'shipping' | string;
   buyer_received?: boolean;
+  is_package?: boolean;
+  package_id?: string;
+}
+
+export interface AuctionPackage {
+  id: string;
+  title: string;
+  seller_id: string;
+  status: 'active' | 'ended' | 'paid';
+  created_at: number | string;
+  end_time?: number | string;
+  auction_ids: string[];
 }
 
 export interface BidHistory {
@@ -122,4 +134,4 @@ export enum Region {
   Osrednjeslovenska = 'Osrednjeslovenska'
 }
 
-export type ViewState = 'grid' | 'detail' | 'login' | 'sellerProfile' | 'createAuction' | 'settings' | 'verification' | 'winnings' | 'lastChance' | 'subscriptions' | 'watchlist' | 'myBids' | 'mySold' | 'messages' | 'myUnsold' | 'myArchive' | 'testSandbox';
+export type ViewState = 'grid' | 'detail' | 'login' | 'sellerProfile' | 'createAuction' | 'settings' | 'verification' | 'winnings' | 'lastChance' | 'subscriptions' | 'watchlist' | 'myBids' | 'mySold' | 'messages' | 'myUnsold' | 'myArchive' | 'testSandbox' | 'package';

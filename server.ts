@@ -10,7 +10,7 @@ import Stripe from "stripe";
 import path from "path";
 
 import { Resend } from 'resend';
-import { generateInvoicePDF, generateCertificatePDF } from './src/lib/pdfGenerator.js';
+import { generateInvoicePDF } from './src/lib/pdfGenerator.js';
 import { sendOutbidNotification, sendEndingSoonNotification, sendAuctionWonNotification, sendPaymentReminderNotification } from './src/server/emailService.js';
 import { processAuctionCrons } from './src/server/cronProcessor.js';
 import dotenv from 'dotenv';
@@ -417,7 +417,6 @@ export default app;
             const fileRef = storageRef(storage, `${buyer_id}/${invoiceFileName}`);
             await uploadBytes(fileRef, invoicePdfBuffer);
             const publicUrl = await getDownloadURL(fileRef);
-            
             documentsToInsert.push({
                 transaction_id: transaction.id,
                 user_id: buyer_id,
@@ -433,44 +432,11 @@ export default app;
             console.error('Error generating/uploading invoice PDF:', pdfErr);
         }
 
-        // Generate Certificate for Individuals
-        if (buyer.user_type !== 'business') {
-            try {
-                const certPdfBuffer = await generateCertificatePDF(transaction, buyer, seller);
-                const certFileName = `potrdilo_${transaction.id.substring(0,8)}.pdf`;
-                
-                const fileRef = storageRef(storage, `${buyer_id}/${certFileName}`);
-                await uploadBytes(fileRef, certPdfBuffer);
-                const publicUrl = await getDownloadURL(fileRef);
-                
-                documentsToInsert.push({
-                    transaction_id: transaction.id,
-                    user_id: buyer_id,
-                    type: 'certificate',
-                    file_url: publicUrl
-                });
-                
-                attachments.push({
-                    filename: certFileName,
-                    content: certPdfBuffer
-                });
-            } catch (certErr) {
-                console.error('Error generating/uploading certificate PDF:', certErr);
-            }
-        }
-
-        // Save document records
-        if (documentsToInsert.length > 0) {
-            const batch = writeBatch(db); documentsToInsert.forEach(doc => { const ref = doc(collection(db, 'documents')); batch.set(ref, doc); }); await batch.commit();
-        }
-
-        // 7. Send Real Email via Resend
-        const buyerEmail = buyer.email;
-        if (buyerEmail && process.env.RESEND_API_KEY) {
+        if (buyer.email && process.env.RESEND_API_KEY) {
             try {
                 await resend.emails.send({
                     from: 'Drazba.si <obvestila@drazba.si>',
-                    to: buyerEmail,
+                    to: buyer.email,
                     subject: 'Potrdilo o plačilu in dokumenti - Drazba.si',
                     html: `
                         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
@@ -483,7 +449,7 @@ export default app;
                     `,
                     attachments: attachments
                 });
-                console.log(`Email sent successfully to ${buyerEmail}`);
+                console.log(`Email sent successfully to ${buyer.email}`);
             } catch (emailErr) {
                 console.error('Error sending success email:', emailErr);
             }
@@ -1440,24 +1406,12 @@ export default app;
                  const fileRef = storageRef(storage, `${buyer_id}/${invoiceFileName}`);
             await uploadBytes(fileRef, invoicePdfBuffer);
             const publicUrl = await getDownloadURL(fileRef);
+            
                  
                  documentsToInsert.push({ transaction_id: transaction.id, user_id: buyer_id, type: 'invoice', file_url: publicUrl });
                  attachments.push({ filename: invoiceFileName, content: invoicePdfBuffer });
              } catch(e) { console.error('Invoice error:', e); }
- 
-             if (buyer.user_type !== 'business') {
-                 try {
-                     const certPdfBuffer = await generateCertificatePDF(transaction, buyer, seller);
-                     const certFileName = `potrdilo_${transaction.id.substring(0,8)}.pdf`;
-                     
-                     const fileRef = storageRef(storage, `${buyer_id}/${certFileName}`);
-                await uploadBytes(fileRef, certPdfBuffer);
-                const publicUrl = await getDownloadURL(fileRef);
-                     
-                     documentsToInsert.push({ transaction_id: transaction.id, user_id: buyer_id, type: 'certificate', file_url: publicUrl });
-                     attachments.push({ filename: certFileName, content: certPdfBuffer });
-                 } catch(e) { console.error('Cert error:', e); }
-             }
+
 
              if (documentsToInsert.length > 0) {
                  const batch = writeBatch(db); documentsToInsert.forEach(doc => { const ref = doc(collection(db, 'documents')); batch.set(ref, doc); }); await batch.commit();
@@ -1745,12 +1699,13 @@ export default app;
           auctionImageUrl,
         });
       } else if (type === 'receipt_invoice') {
+        const fee = calculateMarginalPlatformFee(currentPrice, 'PRO');
         // Generate mock transaction + documents + send with attachments
         const mockTransaction = {
           id: `TX-${Date.now().toString().substring(6)}`,
           amount_total: currentPrice,
-          platform_fee: Math.round(currentPrice * 0.05 * 100) / 100,
-          vat_amount: Math.round(currentPrice * 0.05 * 0.22 * 100) / 100,
+          platform_fee: fee,
+          vat_amount: Math.round(fee * 0.22 * 100) / 100,
           vat_rate: 22,
           is_reverse_charge: false,
           status: 'completed'
@@ -1775,11 +1730,10 @@ export default app;
         };
 
         const invoiceBuffer = await generateInvoicePDF(mockTransaction, mockBuyer, mockSeller, mockAuction, 'RAC-TEST-000001', 'PROV-TEST-000001');
-        const certBuffer = await generateCertificatePDF(mockTransaction, mockBuyer, mockSeller);
 
         const attachments = [
           { filename: `racun_${mockTransaction.id}.pdf`, content: invoiceBuffer },
-          { filename: `potrdilo_${mockTransaction.id}.pdf`, content: certBuffer }
+          
         ];
 
         const resendClient = new Resend(resendApiKey);
@@ -1946,7 +1900,7 @@ export default app;
       let filename: string;
 
       if (docType === 'certificate') {
-        pdfBuffer = await generateCertificatePDF(mockTx, buyer, seller);
+        pdfBuffer = Buffer.from('');
         filename = `Potrdilo_${mockTx.id}.pdf`;
       } else {
         pdfBuffer = await generateInvoicePDF(mockTx, buyer, seller, mockAuction, 'RAC-TEST-000001', 'PROV-TEST-000001');

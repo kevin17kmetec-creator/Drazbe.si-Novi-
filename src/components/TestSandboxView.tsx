@@ -18,11 +18,28 @@ import {
   AlertTriangle, 
   ExternalLink,
   Receipt,
-  FileCheck
+  FileCheck,
+  Package,
+  Layers,
+  LayoutGrid,
+  Sliders,
+  Sparkles,
+  ChevronRight,
+  Gavel,
+  ShieldCheck,
+  Globe
 } from 'lucide-react';
 import { toast } from 'sonner';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
+import { PackageCard } from './PackageCard';
+import { AuctionCard } from './AuctionCard';
+import { AuctionItem } from '../../types';
+import { 
+  mockSandboxPackageId, 
+  mockSandboxPackageItems, 
+  mockSandboxStandaloneItems 
+} from '../data/mockSandboxData';
 
 interface TestSandboxViewProps {
   onBack: () => void;
@@ -30,6 +47,14 @@ interface TestSandboxViewProps {
   onRefreshUserData?: () => void;
   onOpenInvoiceModal?: (auction: any, seller: any, buyer: any) => void;
   t: (key: string) => string;
+  language?: string;
+  isVerified?: boolean;
+  onAuctionClick?: (item: any) => void;
+  onSelectPackage?: (packageId: string) => void;
+  watchlist?: string[];
+  onWatchToggle?: (id: string) => void;
+  onBidSubmit?: (item: any, amount: number) => Promise<any> | void;
+  onSellerClick?: (seller: any) => void;
 }
 
 type RelationshipType = 'individual_individual' | 'company_individual' | 'individual_company' | 'company_company';
@@ -39,8 +64,91 @@ export const TestSandboxView: React.FC<TestSandboxViewProps> = ({
   userData,
   onRefreshUserData,
   onOpenInvoiceModal,
-  t
+  t,
+  language = 'SLO',
+  isVerified = true,
+  onAuctionClick,
+  onSelectPackage,
+  watchlist = [],
+  onWatchToggle,
+  onBidSubmit,
+  onSellerClick
 }) => {
+  // --- SECTION 0: SANDBOX TABS & VISUAL PLAYGROUND STATE ---
+  const [activeTab, setActiveTab] = useState<'auctions' | 'invoices' | 'emails' | 'wallet' | 'cron' | 'all'>('auctions');
+  const [filterMode, setFilterMode] = useState<'all' | 'package' | 'standalone'>('all');
+  const [columnMode, setColumnMode] = useState<'auto' | '3cols' | '4cols'>('auto');
+  const [testLanguage, setTestLanguage] = useState<string>(language);
+  const [testIsVerified, setTestIsVerified] = useState<boolean>(isVerified);
+  const [showPackageInspector, setShowPackageInspector] = useState<boolean>(true);
+
+  // Live state for interactive preview
+  const [packageItems, setPackageItems] = useState<AuctionItem[]>(mockSandboxPackageItems);
+  const [standaloneItems, setStandaloneItems] = useState<AuctionItem[]>(mockSandboxStandaloneItems);
+  const [localWatchlist, setLocalWatchlist] = useState<string[]>(watchlist);
+
+  const handleLocalWatchToggle = (id: string) => {
+    setLocalWatchlist(prev => 
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+    if (onWatchToggle) onWatchToggle(id);
+  };
+
+  const handleLocalBidSubmit = async (item: AuctionItem, amount: number) => {
+    if (onBidSubmit) {
+      const res = await onBidSubmit(item, amount);
+      if (res === 'ok') {
+        // Also update local copy for immediate reactivity
+        if (item.is_package) {
+          setPackageItems(prev => prev.map(a => a.id === item.id ? {
+            ...a,
+            currentBid: amount,
+            bidCount: (a.bidCount || 0) + 1,
+            biddingHistory: [
+              { id: 'b_new_' + Date.now(), bidderId: userData?.id || 'usr_me', bidderName: userData?.first_name || 'Vi (Kupec)', amount, timestamp: new Date() },
+              ...a.biddingHistory
+            ]
+          } : a));
+        } else {
+          setStandaloneItems(prev => prev.map(a => a.id === item.id ? {
+            ...a,
+            currentBid: amount,
+            bidCount: (a.bidCount || 0) + 1,
+            biddingHistory: [
+              { id: 'b_new_' + Date.now(), bidderId: userData?.id || 'usr_me', bidderName: userData?.first_name || 'Vi (Kupec)', amount, timestamp: new Date() },
+              ...a.biddingHistory
+            ]
+          } : a));
+        }
+      }
+      return res;
+    }
+    // Fallback local update
+    if (item.is_package) {
+      setPackageItems(prev => prev.map(a => a.id === item.id ? {
+        ...a,
+        currentBid: amount,
+        bidCount: (a.bidCount || 0) + 1,
+        biddingHistory: [
+          { id: 'b_new_' + Date.now(), bidderId: userData?.id || 'usr_me', bidderName: userData?.first_name || 'Vi (Kupec)', amount, timestamp: new Date() },
+          ...a.biddingHistory
+        ]
+      } : a));
+    } else {
+      setStandaloneItems(prev => prev.map(a => a.id === item.id ? {
+        ...a,
+        currentBid: amount,
+        bidCount: (a.bidCount || 0) + 1,
+        biddingHistory: [
+          { id: 'b_new_' + Date.now(), bidderId: userData?.id || 'usr_me', bidderName: userData?.first_name || 'Vi (Kupec)', amount, timestamp: new Date() },
+          ...a.biddingHistory
+        ]
+      } : a));
+    }
+    toast.success(`Testna ponudba ${amount} € uspešno oddana!`);
+    return 'ok';
+  };
+
   // --- SECTION 1: PDF INVOICE STATE ---
   const [relationshipType, setRelationshipType] = useState<RelationshipType>('company_individual');
   const [itemTitle, setItemTitle] = useState('Industrijski CNC obdelovalni center Haas VF-2');
@@ -469,10 +577,396 @@ export const TestSandboxView: React.FC<TestSandboxViewProps> = ({
         </div>
       </div>
 
+      {/* Top Tabs Navigation */}
+      <div className="flex items-center gap-2 overflow-x-auto pb-4 mb-8 border-b border-slate-200 scrollbar-none">
+        <button
+          onClick={() => setActiveTab('auctions')}
+          className={`flex items-center gap-2 px-5 py-3 rounded-2xl font-black uppercase text-xs tracking-wider transition-all whitespace-nowrap ${
+            activeTab === 'auctions'
+              ? 'bg-[#0A1128] text-[#FEBA4F] shadow-lg scale-102'
+              : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+          }`}
+        >
+          <LayoutGrid size={16} />
+          <span>1. Predogled dražb & Zbirk (7 v zbirki)</span>
+          <span className="bg-[#FEBA4F] text-[#0A1128] text-[10px] px-2 py-0.5 rounded-full font-black">NOVO</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('invoices')}
+          className={`flex items-center gap-2 px-5 py-3 rounded-2xl font-black uppercase text-xs tracking-wider transition-all whitespace-nowrap ${
+            activeTab === 'invoices'
+              ? 'bg-[#0A1128] text-[#FEBA4F] shadow-lg scale-102'
+              : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+          }`}
+        >
+          <Receipt size={16} />
+          <span>2. PDF Računi & Pogodbe</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('emails')}
+          className={`flex items-center gap-2 px-5 py-3 rounded-2xl font-black uppercase text-xs tracking-wider transition-all whitespace-nowrap ${
+            activeTab === 'emails'
+              ? 'bg-[#0A1128] text-[#FEBA4F] shadow-lg scale-102'
+              : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+          }`}
+        >
+          <Mail size={16} />
+          <span>3. E-poštna obvestila</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('wallet')}
+          className={`flex items-center gap-2 px-5 py-3 rounded-2xl font-black uppercase text-xs tracking-wider transition-all whitespace-nowrap ${
+            activeTab === 'wallet'
+              ? 'bg-[#0A1128] text-[#FEBA4F] shadow-lg scale-102'
+              : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+          }`}
+        >
+          <Wallet size={16} />
+          <span>4. Izplačila denarnice</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('cron')}
+          className={`flex items-center gap-2 px-5 py-3 rounded-2xl font-black uppercase text-xs tracking-wider transition-all whitespace-nowrap ${
+            activeTab === 'cron'
+              ? 'bg-[#0A1128] text-[#FEBA4F] shadow-lg scale-102'
+              : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+          }`}
+        >
+          <Clock size={16} />
+          <span>5. Cron opravila</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('all')}
+          className={`flex items-center gap-2 px-5 py-3 rounded-2xl font-black uppercase text-xs tracking-wider transition-all whitespace-nowrap ${
+            activeTab === 'all'
+              ? 'bg-[#0A1128] text-[#FEBA4F] shadow-lg scale-102'
+              : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+          }`}
+        >
+          <Layers size={16} />
+          <span>Vsi moduli skupaj</span>
+        </button>
+      </div>
+
       <div className="space-y-16">
+        {/* ========================================================================= */}
+        {/* MODUL 0: VIZUALNI PREDOGLED DRAŽB & 7-DELNEGA PAKETA (PLAYGROUND) */}
+        {/* ========================================================================= */}
+        {(activeTab === 'auctions' || activeTab === 'all') && (
+          <section className="bg-white rounded-[3rem] p-6 sm:p-10 border border-slate-200 shadow-xl">
+            {/* Header */}
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 mb-8 pb-6 border-b border-slate-100">
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center">
+                  <LayoutGrid size={28} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="bg-blue-100 text-blue-800 text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full">
+                      Vizualni laboratorij
+                    </span>
+                    <span className="text-xs text-slate-400 font-bold">
+                      1 zbirka s 7 artikli + 3 samostojne dražbe
+                    </span>
+                  </div>
+                  <h2 className="text-2xl font-black uppercase tracking-tight text-[#0A1128] mt-1">
+                    Predogled postavitve dražb (Posamične & Zbirke dražb)
+                  </h2>
+                  <p className="text-slate-500 text-sm font-medium">
+                    Preverite enoten izgled kartic, testirajte odpiranje podstrani z enim klikom ter preizkušajte različne postavitve in nastavitve.
+                  </p>
+                </div>
+              </div>
+
+              {/* Action summary badge */}
+              <div className="flex items-center gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-200 shrink-0">
+                <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-black text-xs">
+                  ✓
+                </div>
+                <div>
+                  <div className="text-[10px] font-black uppercase text-slate-400">Interaktivno testiranje</div>
+                  <div className="text-xs font-black text-[#0A1128]">Klik na dražbo odpre pravo podstran</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Layout Controls & Toolbar */}
+            <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 mb-10 space-y-6">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                {/* Filter Mode */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-black uppercase text-slate-500 mr-2 flex items-center gap-1.5">
+                    <Sliders size={14} /> Prikaz:
+                  </span>
+                  <button
+                    onClick={() => setFilterMode('all')}
+                    className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
+                      filterMode === 'all'
+                        ? 'bg-[#0A1128] text-white shadow-sm'
+                        : 'bg-white text-slate-700 hover:bg-slate-200 border border-slate-200'
+                    }`}
+                  >
+                    Vse dražbe (Zbirka + Posamične)
+                  </button>
+                  <button
+                    onClick={() => setFilterMode('package')}
+                    className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
+                      filterMode === 'package'
+                        ? 'bg-[#0A1128] text-[#FEBA4F] shadow-sm'
+                        : 'bg-white text-slate-700 hover:bg-slate-200 border border-slate-200'
+                    }`}
+                  >
+                    Samo Zbirka (7 artiklov)
+                  </button>
+                  <button
+                    onClick={() => setFilterMode('standalone')}
+                    className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
+                      filterMode === 'standalone'
+                        ? 'bg-[#FEBA4F] text-[#0A1128] shadow-sm'
+                        : 'bg-white text-slate-700 hover:bg-slate-200 border border-slate-200'
+                    }`}
+                  >
+                    Samo Posamične dražbe
+                  </button>
+                </div>
+
+                {/* Column Layout Selector */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-black uppercase text-slate-500 mr-1">Mreža:</span>
+                  <button
+                    onClick={() => setColumnMode('auto')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                      columnMode === 'auto'
+                        ? 'bg-[#0A1128] text-white'
+                        : 'bg-white text-slate-600 border border-slate-200'
+                    }`}
+                  >
+                    Auto (320px)
+                  </button>
+                  <button
+                    onClick={() => setColumnMode('3cols')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                      columnMode === '3cols'
+                        ? 'bg-[#0A1128] text-white'
+                        : 'bg-white text-slate-600 border border-slate-200'
+                    }`}
+                  >
+                    3 stolpci
+                  </button>
+                  <button
+                    onClick={() => setColumnMode('4cols')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                      columnMode === '4cols'
+                        ? 'bg-[#0A1128] text-white'
+                        : 'bg-white text-slate-600 border border-slate-200'
+                    }`}
+                  >
+                    4 stolpci
+                  </button>
+                </div>
+              </div>
+
+              {/* Secondary Controls: Language & Verification Status */}
+              <div className="flex flex-wrap items-center justify-between gap-4 pt-4 border-t border-slate-200/70 text-xs">
+                <div className="flex items-center gap-4">
+                  {/* Language */}
+                  <div className="flex items-center gap-2">
+                    <Globe size={14} className="text-slate-400" />
+                    <span className="font-bold text-slate-500 uppercase text-[10px]">Testni jezik:</span>
+                    <div className="flex rounded-lg overflow-hidden border border-slate-300">
+                      {['SLO', 'EN', 'DE'].map((lang) => (
+                        <button
+                          key={lang}
+                          onClick={() => setTestLanguage(lang)}
+                          className={`px-2.5 py-1 text-xs font-bold ${
+                            testLanguage === lang
+                              ? 'bg-[#0A1128] text-white'
+                              : 'bg-white text-slate-600 hover:bg-slate-100'
+                          }`}
+                        >
+                          {lang}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Verification Toggle */}
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck size={14} className="text-slate-400" />
+                    <span className="font-bold text-slate-500 uppercase text-[10px]">Stanje uporabnika:</span>
+                    <button
+                      onClick={() => setTestIsVerified(!testIsVerified)}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold border transition-colors flex items-center gap-1.5 ${
+                        testIsVerified
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                          : 'bg-amber-50 text-amber-800 border-amber-300'
+                      }`}
+                    >
+                      {testIsVerified ? 'Overjen račun (Verified)' : 'Neoverjen račun'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Toggle 7 items drawer */}
+                <button
+                  onClick={() => setShowPackageInspector(!showPackageInspector)}
+                  className="flex items-center gap-1.5 text-xs font-black uppercase tracking-wider text-[#0A1128] hover:text-[#FEBA4F] transition-colors"
+                >
+                  <Layers size={14} className="text-[#FEBA4F]" />
+                  <span>{showPackageInspector ? 'Skrij vseh 7 artiklov zbirke' : 'Prikaži vseh 7 artiklov v zbirki (Standardne kartice)'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* LIVE PREVIEW CANVAS */}
+            <div className="space-y-12">
+              {/* 1. PACKAGE AUCTION PREVIEW */}
+              {(filterMode === 'all' || filterMode === 'package') && (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="w-3 h-3 rounded-full bg-[#FEBA4F] animate-pulse" />
+                      <h3 className="text-lg font-black uppercase tracking-tight text-[#0A1128]">
+                        Zbirka dražb (Poenotena tematska kartica)
+                      </h3>
+                    </div>
+                    <span className="text-xs text-slate-400 font-bold">
+                      7 povezanih artiklov istega prodajalca
+                    </span>
+                  </div>
+
+                  <PackageCard
+                    packageId={mockSandboxPackageId}
+                    title="Zbirka delavniške opreme in strojev (7 artiklov)"
+                    sellerName="Orodje & Stroji Pro d.o.o."
+                    items={packageItems}
+                    t={t}
+                    language={testLanguage}
+                    isVerified={testIsVerified}
+                    onSelectPackage={(pkgId) => {
+                      if (onSelectPackage) {
+                        onSelectPackage(pkgId);
+                      } else {
+                        toast.info(`Odpri zbirko: ${pkgId}`);
+                      }
+                    }}
+                    onAuctionClick={(item) => {
+                      if (onAuctionClick) {
+                        onAuctionClick(item);
+                      } else {
+                        toast.info(`Odpri dražbo: ${typeof item.title === 'object' ? item.title[testLanguage] || item.title.SLO : item.title}`);
+                      }
+                    }}
+                  />
+                </div>
+              )}
+
+              {/* 2. DETAILED 7-ITEM PACKAGE INSPECTOR (ALL 7 ITEMS DISPLAYED AS STANDARD AUCTION CARDS) */}
+              {showPackageInspector && (filterMode === 'all' || filterMode === 'package') && (
+                <div className="bg-slate-50 border border-slate-200 rounded-[2.5rem] p-6 sm:p-8 shadow-xl">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-200">
+                    <div>
+                      <div className="flex items-center gap-2 text-[#0A1128] text-xs font-black uppercase tracking-wider">
+                        <Layers size={16} className="text-[#FEBA4F]" />
+                        <span>Celotna zbirka &bull; Vseh 7 artiklov (Identifikacija in kartice)</span>
+                      </div>
+                      <h4 className="text-xl font-black text-[#0A1128] mt-1">
+                        Zbirka: Delavniška oprema in stroji (Orodje & Stroji Pro d.o.o.)
+                      </h4>
+                    </div>
+                    <button
+                      onClick={() => onSelectPackage && onSelectPackage(mockSandboxPackageId)}
+                      className="bg-[#0A1128] hover:bg-[#FEBA4F] hover:text-[#0A1128] text-[#FEBA4F] font-black uppercase text-xs tracking-wider px-5 py-3 rounded-2xl transition-all shadow-lg flex items-center gap-2"
+                    >
+                      <span>Odpri namenski pogled zbirke (PackageView)</span>
+                      <ChevronRight size={16} />
+                    </button>
+                  </div>
+
+                  <div 
+                    className="grid gap-8 justify-center mt-8"
+                    style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 320px))' }}
+                  >
+                    {packageItems.map((item) => (
+                      <AuctionCard
+                        key={item.id}
+                        item={item}
+                        t={t}
+                        language={testLanguage}
+                        isVerified={testIsVerified}
+                        currentUserId={userData?.id}
+                        hasBid={false}
+                        isWatched={localWatchlist.includes(item.id)}
+                        onWatchToggle={() => handleLocalWatchToggle(item.id)}
+                        onClick={() => {
+                          if (onAuctionClick) onAuctionClick(item);
+                          else toast.info(`Odpri dražbo: ${typeof item.title === 'object' ? item.title[testLanguage] || item.title.SLO : item.title}`);
+                        }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 3. STANDALONE AUCTIONS PREVIEW */}
+              {(filterMode === 'all' || filterMode === 'standalone') && (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="w-3 h-3 rounded-full bg-[#FEBA4F] animate-pulse" />
+                      <h3 className="text-lg font-black uppercase tracking-tight text-[#0A1128]">
+                        Posamične / Samostojne dražbe (Standardne kartice)
+                      </h3>
+                    </div>
+                    <span className="text-xs text-slate-400 font-bold">
+                      Standardni prikaz posameznih dražb
+                    </span>
+                  </div>
+
+                  <div
+                    className={
+                      columnMode === '3cols'
+                        ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 justify-center'
+                        : columnMode === '4cols'
+                        ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 justify-center'
+                        : 'grid gap-8 justify-center'
+                    }
+                    style={columnMode === 'auto' ? { gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 320px))' } : undefined}
+                  >
+                    {standaloneItems.map((item) => (
+                      <AuctionCard
+                        key={item.id}
+                        item={item}
+                        t={t}
+                        language={testLanguage}
+                        isVerified={testIsVerified}
+                        currentUserId={userData?.id}
+                        hasBid={false}
+                        isWatched={localWatchlist.includes(item.id)}
+                        onWatchToggle={() => handleLocalWatchToggle(item.id)}
+                        onClick={() => {
+                          if (onAuctionClick) onAuctionClick(item);
+                        }}
+                        onBidSubmit={handleLocalBidSubmit}
+                        onSellerClick={onSellerClick}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </section>
+        )}
+
         {/* ========================================================================= */}
         {/* MODUL 1: TESTNI PDF RAČUN IN POGODBE */}
         {/* ========================================================================= */}
+        {(activeTab === 'invoices' || activeTab === 'all') && (
         <section className="bg-white rounded-[3rem] p-6 sm:p-10 border border-slate-200 shadow-xl">
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 mb-8 pb-6 border-b border-slate-100">
             <div className="flex items-center gap-4">
@@ -1003,10 +1497,12 @@ export const TestSandboxView: React.FC<TestSandboxViewProps> = ({
             </div>
           </div>
         </section>
+        )}
 
         {/* ========================================================================= */}
         {/* MODUL 2: TESTIRANJE E-POŠTNIH OBVESTIL */}
         {/* ========================================================================= */}
+        {(activeTab === 'emails' || activeTab === 'all') && (
         <section className="bg-white rounded-[3rem] p-6 sm:p-10 border border-slate-200 shadow-xl">
           <div className="flex items-center gap-4 mb-6 pb-6 border-b border-slate-100">
             <div className="w-14 h-14 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center">
@@ -1194,10 +1690,12 @@ export const TestSandboxView: React.FC<TestSandboxViewProps> = ({
             </div>
           )}
         </section>
+        )}
 
         {/* ========================================================================= */}
         {/* MODUL 3: TEST IZPLAČILA IZ DENARNICE (WALLET PAYOUT) */}
         {/* ========================================================================= */}
+        {(activeTab === 'wallet' || activeTab === 'all') && (
         <section className="bg-white rounded-[3rem] p-6 sm:p-10 border border-slate-200 shadow-xl">
           <div className="flex items-center gap-4 mb-6 pb-6 border-b border-slate-100">
             <div className="w-14 h-14 bg-amber-50 text-[#FEBA4F] rounded-2xl flex items-center justify-center">
@@ -1293,10 +1791,12 @@ export const TestSandboxView: React.FC<TestSandboxViewProps> = ({
             </div>
           )}
         </section>
+        )}
 
         {/* ========================================================================= */}
         {/* MODUL 4: TEST CRON OPRAVIL (MANUAL CRON TRIGGER) */}
         {/* ========================================================================= */}
+        {(activeTab === 'cron' || activeTab === 'all') && (
         <section className="bg-white rounded-[3rem] p-6 sm:p-10 border border-slate-200 shadow-xl">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 mb-6 pb-6 border-b border-slate-100">
             <div className="flex items-center gap-4">
@@ -1365,6 +1865,7 @@ export const TestSandboxView: React.FC<TestSandboxViewProps> = ({
             </div>
           )}
         </section>
+        )}
       </div>
     </div>
   );

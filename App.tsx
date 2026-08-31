@@ -10,6 +10,9 @@ import SellerView from "./src/components/SellerView";
 import { SubscriptionsView } from "./src/components/SubscriptionsView";
 import { VerificationView } from "./src/components/VerificationView";
 import { CreateAuctionForm } from "./src/components/CreateAuctionForm";
+import { CreatePackageForm } from "./src/components/CreatePackageForm";
+import { PackageCard } from "./src/components/PackageCard";
+import { PackageView } from "./src/components/PackageView";
 import { AuthView } from "./src/components/AuthView";
 import { LegalModal } from "./src/components/LegalModal";
 import { VerificationBanner } from "./src/components/VerificationBanner";
@@ -137,6 +140,10 @@ const matchesSelectedRegion = (itemRegion: string | undefined, selected: string 
 
 import { InvoiceModal } from "./src/components/InvoiceModal";
 import { TestSandboxView } from "./src/components/TestSandboxView";
+import { 
+  mockSandboxPackageId, 
+  mockSandboxPackageItems 
+} from "./src/data/mockSandboxData";
 
 // SignedImg component for fetching Supabase signed URLs
 const SignedImg = ({
@@ -463,6 +470,7 @@ const MainApp: React.FC = () => {
   const [republishData, setRepublishData] = useState<any>(null);
   const [quickRepublishItem, setQuickRepublishItem] = useState<any>(null);
   const [quickRepublishDuration, setQuickRepublishDuration] = useState<number>(3); // days
+  const [selectedPackageId, setSelectedPackageId] = useState<string | null>(null);
   const [userData, setUserData] = useState({
     id: "",
     firstName: "",
@@ -515,6 +523,7 @@ const MainApp: React.FC = () => {
   const [watchedIds, setWatchedIds] = useState<string[]>([]);
   const [isPollingStopped, setIsPollingStopped] = useState(false);
   const [isHydrating, setIsHydrating] = useState(true);
+  const [createMode, setCreateMode] = useState<"choice" | "single" | "package">("choice");
   const [settingsTab, setSettingsTab] = useState<'profile' | 'personal' | 'stripe'>('profile');
   const [appMissingInvoiceDataModal, setAppMissingInvoiceDataModal] = useState<{
     isOpen: boolean;
@@ -1217,6 +1226,71 @@ const MainApp: React.FC = () => {
     }
   }, [userData]);
 
+  
+  const handlePublishPackage = async (pkg: {title: string, items: any[]}) => {
+    if (!userData?.id) {
+      toast.error(t("loginRequired"));
+      return;
+    }
+    
+    // Simulate formatting items just like single publish
+    const formattedItems = pkg.items.map((itemData: any) => {
+      const getConditionTranslations = (cond: string) => {
+        switch (cond) {
+          case "Novo": return { SLO: "Novo", EN: "New", DE: "Neu" };
+          case "Kot novo": return { SLO: "Kot novo", EN: "Like New", DE: "Wie Neu" };
+          case "Rabljeno": return { SLO: "Rabljeno", EN: "Used", DE: "Gebraucht" };
+          case "Potrebno obnove": return { SLO: "Potrebno obnove", EN: "Needs Restoration", DE: "Restaurierungsbedürftig" };
+          case "Za dele": return { SLO: "Za dele", EN: "For Parts", DE: "Für Ersatzteile" };
+          default: return { SLO: cond, EN: cond, DE: cond };
+        }
+      };
+
+      return {
+        id: itemData.id,
+        title: { SLO: itemData.title?.SLO || itemData.title, EN: itemData.title?.SLO || itemData.title, DE: itemData.title?.SLO || itemData.title },
+        description: { SLO: itemData.description, EN: itemData.description, DE: itemData.description },
+        current_price: parseInt(itemData.startingPrice),
+        bid_count: 0,
+        item_count: 1,
+        end_time: itemData.endTime || new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString(),
+        location: itemData.location || { SLO: "Neznano", EN: "Unknown", DE: "Unbekannt" },
+        region: itemData.region || "Osrednjeslovenska",
+        category: itemData.category || "Ostalo",
+        condition: getConditionTranslations(itemData.condition || "Rabljeno"),
+        specifications: {},
+        bidding_history: [],
+        top_bids: [],
+        winner_id: null,
+        winnerId: null,
+        payment_status: 'unpaid',
+        post_auction_status: null,
+        images: itemData.images,
+        delivery_option: itemData.delivery_option || 'both',
+        shipping_fee_type: itemData.shipping_fee_type || 'calculated',
+        shipping_cost: itemData.shipping_cost !== undefined ? itemData.shipping_cost : null
+      };
+    });
+
+    try {
+      const res = await fetch('/api/packages/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: pkg.title, items: formattedItems, user_id: userData.id })
+      });
+      if (res.ok) {
+        toast.success("Paket je uspešno objavljen!");
+        setActiveView("grid");
+        setCreateMode("choice");
+        fetchAuctions();
+      } else {
+        toast.error("Napaka pri objavi paketa");
+      }
+    } catch (e) {
+      toast.error("Napaka pri povezavi");
+    }
+  };
+
   const handlePublish = async (itemData: any) => {
     if (!userData?.id) {
       toast.error(t("loginRequired"));
@@ -1659,6 +1733,34 @@ const MainApp: React.FC = () => {
 
   let content;
   switch (activeView) {
+    case "package": {
+      const packageAuctions = auctions.filter(a => a.package_id === selectedPackageId || (a as any).packageId === selectedPackageId);
+      const pkgTitle = (packageAuctions[0] as any)?.package_title || 
+        (typeof packageAuctions[0]?.title === 'object' ? packageAuctions[0]?.title[language] || packageAuctions[0]?.title['SLO'] : packageAuctions[0]?.title) || 
+        "Paket dražb";
+      content = (
+        <PackageView
+          packageId={selectedPackageId || ""}
+          packageTitle={pkgTitle}
+          items={packageAuctions}
+          t={t}
+          language={language}
+          isVerified={isVerified}
+          watchlist={watchedIds}
+          onWatchToggle={toggleWatch}
+          onAuctionClick={(item) => {
+            window.scrollTo({ top: 0, behavior: "instant" });
+            setSelectedItem(item);
+            setActiveView("detail");
+          }}
+          onBack={() => {
+            setSelectedPackageId(null);
+            setActiveView("grid");
+          }}
+        />
+      );
+      break;
+    }
     case "login":
       content = (
         <AuthView
@@ -1711,24 +1813,80 @@ const MainApp: React.FC = () => {
           </div>
         );
       } else {
-        content = (
-          <CreateAuctionForm
-            onBack={() => {
-              setActiveView("grid");
-              setRepublishData(null);
-            }}
-            t={t}
-            language={language}
-            onPublish={handlePublish}
-            isLoggedIn={isLoggedIn}
-            initialData={republishData}
-            userData={userData}
-            onNavigateToSettings={(tab) => {
-              setSettingsTab(tab || 'personal');
-              setActiveView("settings");
-            }}
-          />
-        );
+        if (createMode === "choice") {
+          content = (
+            <div className="max-w-5xl mx-auto p-4 md:p-8 animate-in fade-in">
+              <h1 className="text-3xl font-black mb-8 text-center text-[#0A1128]">Kaj želite ustvariti?</h1>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div 
+                  onClick={() => setCreateMode("single")}
+                  className="bg-white p-8 rounded-3xl shadow-lg border-2 border-transparent hover:border-blue-500 cursor-pointer transition-all hover:-translate-y-1 group"
+                >
+                  <div className="bg-blue-50 w-20 h-20 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                    <span className="text-4xl">📄</span>
+                  </div>
+                  <h2 className="text-2xl font-bold mb-4">Enojna dražba</h2>
+                  <p className="text-gray-500 line-height-relaxed">
+                    Objavite en posamezen predmet. Idealno za večino prodajalcev, ki želijo prodati določen artikel.
+                  </p>
+                </div>
+                
+                <div 
+                  onClick={() => setCreateMode("package")}
+                  className="bg-white p-8 rounded-3xl shadow-lg border-2 border-transparent hover:border-blue-500 cursor-pointer transition-all hover:-translate-y-1 group relative overflow-hidden"
+                >
+                  <div className="absolute top-6 right-6 bg-blue-600 text-white text-xs font-bold px-3 py-1 rounded-full">NOVO</div>
+                  <div className="bg-blue-50 w-20 h-20 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                    <span className="text-4xl">📦</span>
+                  </div>
+                  <h2 className="text-2xl font-bold mb-4">Paket dražb</h2>
+                  <p className="text-gray-500 line-height-relaxed">
+                    Združite več artiklov v en paket. Račun za provizijo se obračuna šele, ko poteče ZADNJA dražba v paketu. Vsi zmagani artikli istega kupca se združijo na 1 račun.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-8 text-center">
+                <button onClick={() => { setActiveView("grid"); setCreateMode("choice"); }} className="text-gray-500 hover:text-black font-bold">
+                  Nazaj na domačo stran
+                </button>
+              </div>
+            </div>
+          );
+        } else if (createMode === "single") {
+          content = (
+            <CreateAuctionForm
+              onBack={() => {
+                setCreateMode("choice");
+                setRepublishData(null);
+              }}
+              t={t}
+              language={language}
+              onPublish={handlePublish}
+              isLoggedIn={isLoggedIn}
+              initialData={republishData}
+              userData={userData}
+              onNavigateToSettings={(tab) => {
+                setSettingsTab(tab || 'personal');
+                setActiveView("settings");
+              }}
+            />
+          );
+        } else {
+          content = (
+            <CreatePackageForm
+              onBack={() => setCreateMode("choice")}
+              t={t}
+              language={language}
+              onPublishPackage={handlePublishPackage}
+              isLoggedIn={isLoggedIn}
+              userData={userData}
+              onNavigateToSettings={(tab) => {
+                setSettingsTab(tab || 'personal');
+                setActiveView("settings");
+              }}
+            />
+          );
+        }
       }
       break;
     case "detail":
@@ -1782,6 +1940,44 @@ const MainApp: React.FC = () => {
         );
       }
       break;
+    case "package": {
+      const allAvailablePackageItems = [...auctions, ...mockSandboxPackageItems];
+      const packageAuctions = allAvailablePackageItems.filter(
+        (a) => (a.is_package && a.package_id === selectedPackageId) || a.id === selectedPackageId || (a as any).packageId === selectedPackageId
+      );
+      const pkgTitle =
+        (packageAuctions[0] as any)?.package_title ||
+        (selectedPackageId === mockSandboxPackageId
+          ? "Paket delavniške opreme in strojev (7 artiklov)"
+          : null) ||
+        (typeof packageAuctions[0]?.title === "object"
+          ? packageAuctions[0]?.title[language] || packageAuctions[0]?.title["SLO"]
+          : packageAuctions[0]?.title) ||
+        "Paket dražb";
+
+      content = (
+        <PackageView
+          packageId={selectedPackageId || ""}
+          packageTitle={pkgTitle}
+          items={packageAuctions}
+          t={t}
+          language={language}
+          isVerified={isVerified}
+          watchlist={watchedIds}
+          onWatchToggle={toggleWatch}
+          onAuctionClick={(item) => {
+            window.scrollTo({ top: 0, behavior: "instant" });
+            setSelectedItem(item);
+            setActiveView("detail");
+          }}
+          onBack={() => {
+            setSelectedPackageId(null);
+            setActiveView("grid");
+          }}
+        />
+      );
+      break;
+    }
     case "verification":
       content = (
         <VerificationView
@@ -2830,6 +3026,25 @@ const MainApp: React.FC = () => {
             });
           }}
           t={t}
+          language={language}
+          isVerified={isVerified}
+          onAuctionClick={(item) => {
+            window.scrollTo({ top: 0, behavior: "instant" });
+            setSelectedItem(item);
+            setActiveView("detail");
+          }}
+          onSelectPackage={(packageId) => {
+            window.scrollTo({ top: 0, behavior: "instant" });
+            setSelectedPackageId(packageId);
+            setActiveView("package");
+          }}
+          watchlist={watchedIds}
+          onWatchToggle={toggleWatch}
+          onBidSubmit={handleBidSubmit}
+          onSellerClick={(seller) => {
+            setSelectedSeller(seller);
+            setActiveView("sellerProfile");
+          }}
         />
       );
       break;
@@ -2898,41 +3113,92 @@ const MainApp: React.FC = () => {
                 </select>
               </div>
             </div>
-            <div
-              className="grid gap-8 justify-center"
-              style={{
-                gridTemplateColumns: "repeat(auto-fit, minmax(320px, 320px))",
-              }}
-            >
-              {currentAuctions.map((item) => (
-                <AuctionCard
-                  key={item.id}
-                  item={item}
-                  t={t}
-                  language={language}
-                  isVerified={isVerified}
-                  currentUserId={userData.id}
-                  hasBid={bidAuctionIds.includes(item.id)}
-                  isWatched={watchedIds.includes(item.id)}
-                  onWatchToggle={() => toggleWatch(item.id)}
-                  onClick={() => {
-                    window.scrollTo({ top: 0, behavior: "instant" });
-                    setSelectedItem(item);
-                    setActiveView("detail");
-                  }}
-                  onBidSubmit={handleBidSubmit}
-                  onSellerClick={(seller) => {
-                    setSelectedSeller(seller);
-                    setActiveView("sellerProfile");
-                    window.scrollTo({ top: 0, behavior: "instant" });
-                  }}
-                  onTimeUp={(auctionId) => {
-                    // Force a re-render so activeAuctions filter recalculates and removes this item
-                    setAuctions((prev) => [...prev]);
-                  }}
-                />
-              ))}
-            </div>
+            {(() => {
+              const packageMap = new Map<string, { title: string; items: AuctionItem[] }>();
+              const standaloneItems: AuctionItem[] = [];
+
+              currentAuctions.forEach(item => {
+                if (item.is_package && item.package_id) {
+                  if (!packageMap.has(item.package_id)) {
+                    const pkgTitle = (item as any).package_title || 
+                      (typeof item.title === 'object' ? item.title[language] || item.title['SLO'] : item.title) || 
+                      "Paket dražb";
+                    const allPkgItems = auctions.filter(a => a.package_id === item.package_id && a.status === 'active');
+                    packageMap.set(item.package_id, {
+                      title: pkgTitle,
+                      items: allPkgItems.length > 0 ? allPkgItems : [item]
+                    });
+                  }
+                } else {
+                  standaloneItems.push(item);
+                }
+              });
+
+              return (
+                <div className="space-y-10">
+                  {/* Render Packages */}
+                  {Array.from(packageMap.entries()).map(([pkgId, pkgData]) => (
+                    <PackageCard
+                      key={pkgId}
+                      packageId={pkgId}
+                      title={pkgData.title}
+                      sellerName={pkgData.items[0]?.sellerName}
+                      items={pkgData.items}
+                      t={t}
+                      language={language}
+                      isVerified={isVerified}
+                      onSelectPackage={(id) => {
+                        window.scrollTo({ top: 0, behavior: "instant" });
+                        setSelectedPackageId(id);
+                        setActiveView("package");
+                      }}
+                      onAuctionClick={(item) => {
+                        window.scrollTo({ top: 0, behavior: "instant" });
+                        setSelectedItem(item);
+                        setActiveView("detail");
+                      }}
+                    />
+                  ))}
+
+                  {/* Render Standalone Auctions */}
+                  <div
+                    className="grid gap-8 justify-center"
+                    style={{
+                      gridTemplateColumns: "repeat(auto-fit, minmax(320px, 320px))",
+                    }}
+                  >
+                    {standaloneItems.map((item) => (
+                      <AuctionCard
+                        key={item.id}
+                        item={item}
+                        t={t}
+                        language={language}
+                        isVerified={isVerified}
+                        currentUserId={userData.id}
+                        hasBid={bidAuctionIds.includes(item.id)}
+                        isWatched={watchedIds.includes(item.id)}
+                        onWatchToggle={() => toggleWatch(item.id)}
+                        onClick={() => {
+                          window.scrollTo({ top: 0, behavior: "instant" });
+                          setSelectedItem(item);
+                          setActiveView("detail");
+                        }}
+                        onBidSubmit={handleBidSubmit}
+                        onSellerClick={(seller) => {
+                          setSelectedSeller(seller);
+                          setActiveView("sellerProfile");
+                          window.scrollTo({ top: 0, behavior: "instant" });
+                        }}
+                        onTimeUp={(auctionId) => {
+                          // Force a re-render so activeAuctions filter recalculates and removes this item
+                          setAuctions((prev) => [...prev]);
+                        }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
             {totalPages > 1 && (
               <div className="mt-20 flex flex-col md:flex-row items-center justify-between gap-8 border-t-2 border-slate-100 pt-12">
                 <div className="flex flex-col gap-2">
