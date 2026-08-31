@@ -84,7 +84,7 @@ export async function sendOutbidNotification(params: {
 
   const subject = `⚠️ Presežena ponudba: ${params.auctionTitle} - dražbe.si`;
 
-  return sendAuctionEmail(params.toEmail, subject, {
+  return await sendAuctionEmail(params.toEmail, subject, {
     type: 'outbid',
     recipientName: params.recipientName || 'Spoštovani uporabnik',
     auctionTitle: params.auctionTitle,
@@ -112,7 +112,7 @@ export async function sendEndingSoonNotification(params: {
 
   const subject = `⏳ Kmalu se izteče: ${params.auctionTitle} - dražbe.si`;
 
-  return sendAuctionEmail(params.toEmail, subject, {
+  return await sendAuctionEmail(params.toEmail, subject, {
     type: 'ending_soon',
     recipientName: params.recipientName || 'Spoštovani uporabnik',
     auctionTitle: params.auctionTitle,
@@ -142,7 +142,7 @@ export async function sendAuctionWonNotification(params: {
 
   const subject = `🏆 Čestitamo! Zmagali ste na dražbi: ${params.auctionTitle} - dražbe.si`;
 
-  return sendAuctionEmail(params.toEmail, subject, {
+  return await sendAuctionEmail(params.toEmail, subject, {
     type: 'won',
     recipientName: params.recipientName || 'Zmagovalec',
     auctionTitle: params.auctionTitle,
@@ -173,7 +173,7 @@ export async function sendPaymentReminderNotification(params: {
 
   const subject = `⏰ Zadnji opomnik za plačilo: ${params.auctionTitle} - dražbe.si`;
 
-  return sendAuctionEmail(params.toEmail, subject, {
+  return await sendAuctionEmail(params.toEmail, subject, {
     type: 'payment_reminder',
     recipientName: params.recipientName || 'Spoštovani kupec',
     auctionTitle: params.auctionTitle,

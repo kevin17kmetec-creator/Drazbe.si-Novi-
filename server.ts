@@ -1774,8 +1774,10 @@ export default app;
           currentBid: currentPrice
         };
 
-        const invoiceBuffer = await generateInvoicePDF(mockTransaction, mockBuyer, mockSeller, mockAuction, 'RAC-TEST-000001', 'PROV-TEST-000001');
-        const certBuffer = await generateCertificatePDF(mockTransaction, mockBuyer, mockSeller);
+        const [invoiceBuffer, certBuffer] = await Promise.all([
+          generateInvoicePDF(mockTransaction, mockBuyer, mockSeller, mockAuction, 'RAC-TEST-000001', 'PROV-TEST-000001'),
+          generateCertificatePDF(mockTransaction, mockBuyer, mockSeller)
+        ]);
 
         const attachments = [
           { filename: `racun_${mockTransaction.id}.pdf`, content: invoiceBuffer },
