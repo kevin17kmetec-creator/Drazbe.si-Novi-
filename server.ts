@@ -3,6 +3,7 @@ import { getFirestore as getAdminFirestore } from 'firebase-admin/firestore';
 import { GoogleGenAI } from '@google/genai';
 
 import { getFirestore, collection, doc, getDoc, getDocs, updateDoc, setDoc, addDoc, query, where, limit, writeBatch, runTransaction } from 'firebase/firestore';
+import { db, storage } from './src/lib/firebase.js';
 
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import express from "express";

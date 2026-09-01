@@ -906,13 +906,49 @@ const MainApp: React.FC = () => {
           const data: any = snap.exists() ? { id: snap.id, ...snap.data() } : null;
 
           if (data) {
-            setUserData((prev) => ({
+            setUserData((prev: any) => ({
               ...prev,
               ...data,
               id: user.uid,
-              email: user.email,
+              email: user.email || data.email || prev.email || '',
+              username: data.username || data.userName || prev.username || '',
+              userName: data.username || data.userName || prev.username || '',
+              first_name: data.first_name || data.firstName || prev.first_name || prev.firstName || '',
+              firstName: data.firstName || data.first_name || prev.firstName || prev.first_name || '',
+              last_name: data.last_name || data.lastName || prev.last_name || prev.lastName || '',
+              lastName: data.lastName || data.last_name || prev.lastName || prev.last_name || '',
+              profile_picture_url: data.profile_picture_url || data.profilePicture || prev.profile_picture_url || prev.profilePicture || '',
+              profilePicture: data.profilePicture || data.profile_picture_url || prev.profilePicture || prev.profile_picture_url || '',
+              phone: data.phone || data.phoneNumber || prev.phone || '',
+              street: data.street || prev.street || '',
+              city: data.city || prev.city || '',
+              postal_code: data.postal_code || data.postalCode || prev.postal_code || prev.postalCode || '',
+              postalCode: data.postalCode || data.postal_code || prev.postalCode || prev.postal_code || '',
+              company_name: data.company_name || data.companyName || prev.company_name || prev.companyName || '',
+              companyName: data.companyName || data.company_name || prev.companyName || prev.company_name || '',
+              tax_number: data.tax_number || data.tax_id || data.taxNumber || data.taxId || prev.tax_number || '',
+              taxNumber: data.taxNumber || data.tax_number || data.tax_id || data.taxId || prev.taxNumber || '',
+              tax_id: data.tax_id || data.tax_number || data.taxId || data.taxNumber || prev.tax_id || '',
+              taxId: data.taxId || data.tax_id || data.tax_number || data.taxNumber || prev.taxId || '',
+              registration_number: data.registration_number || data.regNumber || prev.registration_number || '',
+              regNumber: data.regNumber || data.registration_number || prev.regNumber || '',
+              company_street: data.company_street || data.companyStreet || prev.company_street || '',
+              companyStreet: data.companyStreet || data.company_street || prev.companyStreet || '',
+              company_city: data.company_city || data.companyCity || prev.company_city || '',
+              companyCity: data.companyCity || data.company_city || prev.companyCity || '',
+              company_postal_code: data.company_postal_code || data.companyPostalCode || prev.company_postal_code || '',
+              companyPostalCode: data.companyPostalCode || data.company_postal_code || prev.companyPostalCode || '',
+              representative: data.representative || prev.representative || '',
+              country_code: data.country_code || data.countryCode || prev.country_code || 'SI',
+              countryCode: data.countryCode || data.country_code || prev.countryCode || 'SI',
+              is_verified: data.is_verified ?? data.isVerified ?? false,
+              isVerified: data.is_verified ?? data.isVerified ?? false,
+              user_type: data.user_type || data.userType || null,
+              userType: data.userType || data.user_type || null,
+              stripe_onboarding_complete: data.stripe_onboarding_complete ?? data.stripeOnboardingComplete ?? false,
+              wallet_balance: data.wallet_balance ?? data.walletBalance ?? 0,
             }));
-            setIsVerified(data.is_verified || false);
+            setIsVerified(data.is_verified || data.isVerified || false);
             setUserType(data.user_type || data.userType || null);
           } else {
             await setDoc(doc(db, 'users', user.uid), {
@@ -1152,10 +1188,47 @@ const MainApp: React.FC = () => {
       const snap = await getDoc(doc(db, 'users', id));
       if (snap.exists()) {
         const data = snap.data();
-        setUserData((prev) => ({
+        setUserData((prev: any) => ({
           ...prev,
           ...data,
           id,
+          email: data.email || prev.email || '',
+          username: data.username || data.userName || prev.username || '',
+          userName: data.username || data.userName || prev.username || '',
+          first_name: data.first_name || data.firstName || prev.first_name || prev.firstName || '',
+          firstName: data.firstName || data.first_name || prev.firstName || prev.first_name || '',
+          last_name: data.last_name || data.lastName || prev.last_name || prev.lastName || '',
+          lastName: data.lastName || data.last_name || prev.lastName || prev.last_name || '',
+          profile_picture_url: data.profile_picture_url || data.profilePicture || prev.profile_picture_url || prev.profilePicture || '',
+          profilePicture: data.profilePicture || data.profile_picture_url || prev.profilePicture || prev.profile_picture_url || '',
+          phone: data.phone || data.phoneNumber || prev.phone || '',
+          street: data.street || prev.street || '',
+          city: data.city || prev.city || '',
+          postal_code: data.postal_code || data.postalCode || prev.postal_code || prev.postalCode || '',
+          postalCode: data.postalCode || data.postal_code || prev.postalCode || prev.postal_code || '',
+          company_name: data.company_name || data.companyName || prev.company_name || prev.companyName || '',
+          companyName: data.companyName || data.company_name || prev.companyName || prev.company_name || '',
+          tax_number: data.tax_number || data.tax_id || data.taxNumber || data.taxId || prev.tax_number || '',
+          taxNumber: data.taxNumber || data.tax_number || data.tax_id || data.taxId || prev.taxNumber || '',
+          tax_id: data.tax_id || data.tax_number || data.taxId || data.taxNumber || prev.tax_id || '',
+          taxId: data.taxId || data.tax_id || data.tax_number || data.taxNumber || prev.taxId || '',
+          registration_number: data.registration_number || data.regNumber || prev.registration_number || '',
+          regNumber: data.regNumber || data.registration_number || prev.regNumber || '',
+          company_street: data.company_street || data.companyStreet || prev.company_street || '',
+          companyStreet: data.companyStreet || data.company_street || prev.companyStreet || '',
+          company_city: data.company_city || data.companyCity || prev.company_city || '',
+          companyCity: data.companyCity || data.company_city || prev.companyCity || '',
+          company_postal_code: data.company_postal_code || data.companyPostalCode || prev.company_postal_code || '',
+          companyPostalCode: data.companyPostalCode || data.company_postal_code || prev.companyPostalCode || '',
+          representative: data.representative || prev.representative || '',
+          country_code: data.country_code || data.countryCode || prev.country_code || 'SI',
+          countryCode: data.countryCode || data.country_code || prev.countryCode || 'SI',
+          is_verified: data.is_verified ?? data.isVerified ?? false,
+          isVerified: data.is_verified ?? data.isVerified ?? false,
+          user_type: data.user_type || data.userType || null,
+          userType: data.userType || data.user_type || null,
+          stripe_onboarding_complete: data.stripe_onboarding_complete ?? data.stripeOnboardingComplete ?? false,
+          wallet_balance: data.wallet_balance ?? data.walletBalance ?? 0,
         }));
       }
     } catch (e) {
@@ -1562,24 +1635,40 @@ const MainApp: React.FC = () => {
         }
 
         // Update user profile data
+        const currentEmail = userData?.email || auth.currentUser?.email || '';
         const updateData: any = {
-          phone: data.phone,
-          username: data.username,
-          first_name: data.firstName,
-          last_name: data.lastName,
-          street: data.street,
-          city: data.city,
-          postal_code: data.postalCode,
-          company_name: data.companyName,
-          tax_number: data.taxNumber,
-          tax_id: data.taxNumber, // Save to both for compatibility
-          registration_number: data.regNumber,
-          company_street: data.companyStreet,
-          company_city: data.companyCity,
-          company_postal_code: data.companyPostalCode,
-          representative: data.representative,
-          country_code: data.countryCode,
-          auto_invoice_generation: data.autoInvoiceGeneration,
+          email: currentEmail,
+          phone: data.phone ?? '',
+          phoneNumber: data.phone ?? '',
+          username: data.username ?? '',
+          userName: data.username ?? '',
+          first_name: data.firstName ?? '',
+          firstName: data.firstName ?? '',
+          last_name: data.lastName ?? '',
+          lastName: data.lastName ?? '',
+          street: data.street ?? '',
+          city: data.city ?? '',
+          postal_code: data.postalCode ?? '',
+          postalCode: data.postalCode ?? '',
+          company_name: data.companyName ?? '',
+          companyName: data.companyName ?? '',
+          tax_number: data.taxNumber ?? '',
+          taxNumber: data.taxNumber ?? '',
+          tax_id: data.taxNumber ?? '',
+          taxId: data.taxNumber ?? '',
+          registration_number: data.regNumber ?? '',
+          regNumber: data.regNumber ?? '',
+          company_street: data.companyStreet ?? '',
+          companyStreet: data.companyStreet ?? '',
+          company_city: data.companyCity ?? '',
+          companyCity: data.companyCity ?? '',
+          company_postal_code: data.companyPostalCode ?? '',
+          companyPostalCode: data.companyPostalCode ?? '',
+          representative: data.representative ?? '',
+          country_code: data.countryCode || 'SI',
+          countryCode: data.countryCode || 'SI',
+          auto_invoice_generation: data.autoInvoiceGeneration !== false,
+          autoInvoiceGeneration: data.autoInvoiceGeneration !== false,
           address: (userData as any)?.user_type === 'individual' || (!data.companyName && !data.companyStreet)
             ? `${data.street || ''}, ${data.postalCode || ''} ${data.city || ''}`.trim().replace(/^,|,$/g, '').trim()
             : `${data.companyStreet || ''}, ${data.companyPostalCode || ''} ${data.companyCity || ''}`.trim().replace(/^,|,$/g, '').trim(),
@@ -1631,18 +1720,18 @@ const MainApp: React.FC = () => {
         } else if (data.profilePicture) {
           updateData.profile_picture_url = data.profilePicture;
           updateData.profilePicture = data.profilePicture;
+        } else if ((userData as any)?.profile_picture_url || (userData as any)?.profilePicture) {
+          updateData.profile_picture_url = (userData as any)?.profile_picture_url || (userData as any)?.profilePicture;
+          updateData.profilePicture = updateData.profile_picture_url;
         } else {
           updateData.profile_picture_url = null;
           updateData.profilePicture = null;
         }
 
         console.log("Updating database with:", updateData);
-        await setDoc(doc(db, "users", uid), {
-          email: userData.email,
-          ...updateData,
-        }, { merge: true });
+        await setDoc(doc(db, "users", uid), updateData, { merge: true });
 
-        const updatedUser = { id: uid, email: userData.email, ...updateData };
+        const updatedUser = { id: uid, ...updateData };
 
         if (updatedUser) {
           console.log("User updated successfully:", updatedUser);
@@ -2053,19 +2142,32 @@ const MainApp: React.FC = () => {
                 id: userId,
                 email: data.email,
                 is_verified: true,
+                isVerified: true,
                 user_type: type,
-                first_name: data.firstName || null,
-                last_name: data.lastName || null,
-                street: data.street || null,
-                city: data.city || null,
-                postal_code: data.postalCode || null,
-                tax_number: data.taxNumber || null,
-                registration_number: data.regNumber || null,
-                company_name: data.companyName || null,
-                company_street: data.companyStreet || null,
-                company_city: data.companyCity || null,
-                company_postal_code: data.companyPostalCode || null,
-                representative: data.representative || null,
+                userType: type,
+                first_name: data.firstName || '',
+                firstName: data.firstName || '',
+                last_name: data.lastName || '',
+                lastName: data.lastName || '',
+                street: data.street || '',
+                city: data.city || '',
+                postal_code: data.postalCode || '',
+                postalCode: data.postalCode || '',
+                tax_number: data.taxNumber || '',
+                taxNumber: data.taxNumber || '',
+                tax_id: data.taxNumber || '',
+                taxId: data.taxNumber || '',
+                registration_number: data.regNumber || '',
+                regNumber: data.regNumber || '',
+                company_name: data.companyName || '',
+                companyName: data.companyName || '',
+                company_street: data.companyStreet || '',
+                companyStreet: data.companyStreet || '',
+                company_city: data.companyCity || '',
+                companyCity: data.companyCity || '',
+                company_postal_code: data.companyPostalCode || '',
+                companyPostalCode: data.companyPostalCode || '',
+                representative: data.representative || '',
                 address: type === 'individual' 
                   ? `${data.street || ''}, ${data.postalCode || ''} ${data.city || ''}`.trim().replace(/^,|,$/g, '').trim()
                   : `${data.companyStreet || ''}, ${data.companyPostalCode || ''} ${data.companyCity || ''}`.trim().replace(/^,|,$/g, '').trim(),

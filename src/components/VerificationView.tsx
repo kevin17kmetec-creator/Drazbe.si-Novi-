@@ -8,25 +8,58 @@ export const VerificationView: React.FC<{ onBack: () => void; t: any; onVerify: 
     const [error, setError] = useState<string | null>(null);
     
     const [individualData, setIndividualData] = useState({
-        firstName: initialData?.first_name || '',
-        lastName: initialData?.last_name || '',
+        firstName: initialData?.first_name || initialData?.firstName || '',
+        lastName: initialData?.last_name || initialData?.lastName || '',
         email: initialData?.email || '',
         street: initialData?.street || '',
         city: initialData?.city || '',
-        postalCode: initialData?.postal_code || '',
-        taxNumber: initialData?.tax_number || ''
+        postalCode: initialData?.postal_code || initialData?.postalCode || '',
+        taxNumber: initialData?.tax_number || initialData?.tax_id || initialData?.taxNumber || initialData?.taxId || ''
     });
 
     const [businessData, setBusinessData] = useState({
-        companyName: initialData?.company_name || '',
+        companyName: initialData?.company_name || initialData?.companyName || '',
         email: initialData?.email || '',
-        taxNumber: initialData?.tax_number || '',
-        regNumber: initialData?.registration_number || '',
-        companyStreet: initialData?.company_street || '',
-        companyCity: initialData?.company_city || '',
-        companyPostalCode: initialData?.company_postal_code || '',
+        taxNumber: initialData?.tax_number || initialData?.tax_id || initialData?.taxNumber || initialData?.taxId || '',
+        regNumber: initialData?.registration_number || initialData?.regNumber || '',
+        companyStreet: initialData?.company_street || initialData?.companyStreet || '',
+        companyCity: initialData?.company_city || initialData?.companyCity || '',
+        companyPostalCode: initialData?.company_postal_code || initialData?.companyPostalCode || '',
         representative: initialData?.representative || ''
     });
+
+    useEffect(() => {
+        if (userType) {
+            setType(userType);
+        }
+        if (isVerified) {
+            setStep(2);
+        }
+    }, [userType, isVerified]);
+
+    useEffect(() => {
+        if (initialData) {
+            setIndividualData(prev => ({
+                firstName: prev.firstName || initialData.first_name || initialData.firstName || '',
+                lastName: prev.lastName || initialData.last_name || initialData.lastName || '',
+                email: prev.email || initialData.email || '',
+                street: prev.street || initialData.street || '',
+                city: prev.city || initialData.city || '',
+                postalCode: prev.postalCode || initialData.postal_code || initialData.postalCode || '',
+                taxNumber: prev.taxNumber || initialData.tax_number || initialData.tax_id || initialData.taxNumber || initialData.taxId || ''
+            }));
+            setBusinessData(prev => ({
+                companyName: prev.companyName || initialData.company_name || initialData.companyName || '',
+                email: prev.email || initialData.email || '',
+                taxNumber: prev.taxNumber || initialData.tax_number || initialData.tax_id || initialData.taxNumber || initialData.taxId || '',
+                regNumber: prev.regNumber || initialData.registration_number || initialData.regNumber || '',
+                companyStreet: prev.companyStreet || initialData.company_street || initialData.companyStreet || '',
+                companyCity: prev.companyCity || initialData.company_city || initialData.companyCity || '',
+                companyPostalCode: prev.companyPostalCode || initialData.company_postal_code || initialData.companyPostalCode || '',
+                representative: prev.representative || initialData.representative || ''
+            }));
+        }
+    }, [initialData]);
 
     const validateEmail = (email: string) => {
         return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);

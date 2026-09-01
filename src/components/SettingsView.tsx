@@ -83,7 +83,7 @@ export const SettingsView: React.FC<{
   }, [user?.id, activeTab, stripeStatusChecked, user?.stripe_onboarding_complete, onStripeVerified]);
 
   const [formData, setFormData] = useState({
-    username: user?.username || '',
+    username: user?.username || user?.userName || '',
     firstName: user?.first_name || user?.firstName || '',
     lastName: user?.last_name || user?.lastName || '',
     email: user?.email || '',
@@ -91,49 +91,78 @@ export const SettingsView: React.FC<{
     newPassword: '',
     confirmPassword: '',
     profilePicture: user?.profile_picture_url || user?.profilePicture || '',
-    phone: user?.phone || '',
+    phone: user?.phone || user?.phoneNumber || '',
     
     // Individual data
     street: user?.street || '',
     city: user?.city || '',
-    postalCode: user?.postal_code || '',
+    postalCode: user?.postal_code || user?.postalCode || '',
 
     // Business data
-    companyName: user?.company_name || '',
-    taxNumber: user?.tax_number || user?.tax_id || '',
-    regNumber: user?.registration_number || '',
-    companyStreet: user?.company_street || '',
-    companyCity: user?.company_city || '',
-    companyPostalCode: user?.company_postal_code || '',
+    companyName: user?.company_name || user?.companyName || '',
+    taxNumber: user?.tax_number || user?.tax_id || user?.taxNumber || user?.taxId || '',
+    regNumber: user?.registration_number || user?.regNumber || '',
+    companyStreet: user?.company_street || user?.companyStreet || '',
+    companyCity: user?.company_city || user?.companyCity || '',
+    companyPostalCode: user?.company_postal_code || user?.companyPostalCode || '',
     representative: user?.representative || '',
-    countryCode: user?.country_code || 'SI',
+    countryCode: user?.country_code || user?.countryCode || 'SI',
     autoInvoiceGeneration: user?.auto_invoice_generation !== false, // default true
   });
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const isFormDirtyRef = useRef(false);
 
   useEffect(() => {
-    if (user) {
-      setFormData(prev => ({
-        ...prev,
-        username: user.username !== undefined ? user.username : prev.username,
-        firstName: (user.first_name || user.firstName) !== undefined ? (user.first_name || user.firstName) : prev.firstName,
-        lastName: (user.last_name || user.lastName) !== undefined ? (user.last_name || user.lastName) : prev.lastName,
-        email: user.email !== undefined ? user.email : prev.email,
-        profilePicture: (user.profile_picture_url || user.profilePicture) !== undefined ? (user.profile_picture_url || user.profilePicture) : prev.profilePicture,
-        phone: user.phone !== undefined ? user.phone : prev.phone,
-        street: user.street !== undefined ? user.street : prev.street,
-        city: user.city !== undefined ? user.city : prev.city,
-        postalCode: user.postal_code !== undefined ? user.postal_code : prev.postalCode,
-        companyName: user.company_name !== undefined ? user.company_name : prev.companyName,
-        taxNumber: (user.tax_number || user.tax_id) !== undefined ? (user.tax_number || user.tax_id) : prev.taxNumber,
-        regNumber: user.registration_number !== undefined ? user.registration_number : prev.regNumber,
-        companyStreet: user.company_street !== undefined ? user.company_street : prev.companyStreet,
-        companyCity: user.company_city !== undefined ? user.company_city : prev.companyCity,
-        companyPostalCode: user.company_postal_code !== undefined ? user.company_postal_code : prev.companyPostalCode,
-        representative: user.representative !== undefined ? user.representative : prev.representative,
-        countryCode: user.country_code !== undefined ? user.country_code : prev.countryCode,
-        autoInvoiceGeneration: user.auto_invoice_generation !== undefined ? user.auto_invoice_generation !== false : prev.autoInvoiceGeneration,
-      }));
+    if (user && user.id) {
+      setFormData(prev => {
+        if (!isFormDirtyRef.current) {
+          return {
+            username: user.username || user.userName || '',
+            firstName: user.first_name || user.firstName || '',
+            lastName: user.last_name || user.lastName || '',
+            email: user.email || prev.email || '',
+            oldPassword: prev.oldPassword,
+            newPassword: prev.newPassword,
+            confirmPassword: prev.confirmPassword,
+            profilePicture: user.profile_picture_url || user.profilePicture || '',
+            phone: user.phone || user.phoneNumber || '',
+            street: user.street || '',
+            city: user.city || '',
+            postalCode: user.postal_code || user.postalCode || '',
+            companyName: user.company_name || user.companyName || '',
+            taxNumber: user.tax_number || user.tax_id || user.taxNumber || user.taxId || '',
+            regNumber: user.registration_number || user.regNumber || '',
+            companyStreet: user.company_street || user.companyStreet || '',
+            companyCity: user.company_city || user.companyCity || '',
+            companyPostalCode: user.company_postal_code || user.companyPostalCode || '',
+            representative: user.representative || '',
+            countryCode: user.country_code || user.countryCode || 'SI',
+            autoInvoiceGeneration: user.auto_invoice_generation ?? user.autoInvoiceGeneration ?? true,
+          };
+        } else {
+          return {
+            ...prev,
+            username: prev.username || user.username || user.userName || '',
+            firstName: prev.firstName || user.first_name || user.firstName || '',
+            lastName: prev.lastName || user.last_name || user.lastName || '',
+            email: prev.email || user.email || '',
+            profilePicture: prev.profilePicture || user.profile_picture_url || user.profilePicture || '',
+            phone: prev.phone || user.phone || user.phoneNumber || '',
+            street: prev.street || user.street || '',
+            city: prev.city || user.city || '',
+            postalCode: prev.postalCode || user.postal_code || user.postalCode || '',
+            companyName: prev.companyName || user.company_name || user.companyName || '',
+            taxNumber: prev.taxNumber || user.tax_number || user.tax_id || user.taxNumber || user.taxId || '',
+            regNumber: prev.regNumber || user.registration_number || user.regNumber || '',
+            companyStreet: prev.companyStreet || user.company_street || user.companyStreet || '',
+            companyCity: prev.companyCity || user.company_city || user.companyCity || '',
+            companyPostalCode: prev.companyPostalCode || user.company_postal_code || user.companyPostalCode || '',
+            representative: prev.representative || user.representative || '',
+            countryCode: prev.countryCode || user.country_code || user.countryCode || 'SI',
+            autoInvoiceGeneration: prev.autoInvoiceGeneration ?? user.auto_invoice_generation ?? user.autoInvoiceGeneration ?? true,
+          };
+        }
+      });
     }
   }, [user]);
 
@@ -143,6 +172,7 @@ export const SettingsView: React.FC<{
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      isFormDirtyRef.current = true;
       try {
         const compressed = await imageCompression(file, {
           maxSizeMB: 0.07,
@@ -176,9 +206,11 @@ export const SettingsView: React.FC<{
       toast.error(t('oldPasswordRequired'));
       return;
     }
+
     setIsSaving(true);
     try {
       await onSave(formData);
+      isFormDirtyRef.current = false;
     } finally {
       setIsSaving(false);
     }
