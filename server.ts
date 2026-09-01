@@ -1,7 +1,9 @@
+import { initializeApp as initAdminApp, cert } from 'firebase-admin/app';
+import { getFirestore as getAdminFirestore } from 'firebase-admin/firestore';
 import { GoogleGenAI } from '@google/genai';
-import { db } from './src/lib/firebase.js';
-import { collection, doc, getDoc, getDocs, updateDoc, setDoc, addDoc, query, where, limit, writeBatch, runTransaction } from 'firebase/firestore';
-import { storage } from './src/lib/firebase.js';
+
+import { getFirestore, collection, doc, getDoc, getDocs, updateDoc, setDoc, addDoc, query, where, limit, writeBatch, runTransaction } from 'firebase/firestore';
+
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import express from "express";
 import cors from "cors";

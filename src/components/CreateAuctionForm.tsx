@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, FileUp, Trash2, Gavel, Wand2, X, Eye, ChevronLeft, ChevronRight, GripHorizontal, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Layers, FileUp, Trash2, Gavel, Wand2, X, Eye, ChevronLeft, ChevronRight, GripHorizontal, AlertCircle } from 'lucide-react';
 import { Category, Region, AuctionItem } from '../../types.ts';
 import { getCategoryTranslation } from '../lib/translations';
 import { storage } from '../lib/firebase';
@@ -44,7 +44,9 @@ export const CreateAuctionForm: React.FC<{
     initialData?: any;
     userData?: any;
     onNavigateToSettings?: (tab?: 'profile' | 'personal' | 'stripe') => void;
-}> = ({ onBack, t, language = 'SLO', onPublish, isLoggedIn, initialData, userData, onNavigateToSettings }) => {
+    onSaveDraft?: (data: any) => Promise<void>;
+    isPackageMode?: boolean;
+}> = ({ onBack, t, language = 'SLO', onPublish, isLoggedIn, initialData, userData, onNavigateToSettings, onSaveDraft, isPackageMode }) => {
     const [isInvoiceDataModalOpen, setIsInvoiceDataModalOpen] = useState(false);
     const [invoiceCheckResult, setInvoiceCheckResult] = useState<InvoiceDataCheckResult | null>(null);
     const getLocalDateStr = (date: Date) => {
@@ -306,7 +308,7 @@ export const CreateAuctionForm: React.FC<{
         };
     }, []);
 
-    const handlePublish = async () => {
+    const handlePublish = async (e?: any, asDraft = false) => {
         if (isLoggedIn && userData) {
             const invoiceCheck = checkUserInvoiceData(userData);
             if (!invoiceCheck.isComplete) {
@@ -408,7 +410,7 @@ export const CreateAuctionForm: React.FC<{
                 }
             }
             
-            await onPublish({ 
+            const payload = { 
                 id: initialData?.id,
                 title: { SLO: formData.title },
                 startingPrice: formData.startingPrice,
@@ -422,7 +424,12 @@ export const CreateAuctionForm: React.FC<{
                 delivery_option: formData.delivery_option,
                 shipping_fee_type: formData.shipping_fee_type,
                 shipping_cost: formData.shipping_fee_type === 'fixed' ? Number(formData.shipping_cost || 0) : null
-            });
+            };
+            if (asDraft && onSaveDraft) {
+                await onSaveDraft(payload);
+            } else {
+                await onPublish(payload);
+            }
         } catch (error: any) { 
             if (cancelRef.current || error?.message === 'CANCELED' || error?.code === 'storage/canceled') {
                 if (uploadedFilesRef.current.length > 0) {
@@ -493,21 +500,21 @@ export const CreateAuctionForm: React.FC<{
                 <h2 className="text-4xl font-black text-[#0A1128] mb-8 uppercase tracking-tighter">{t('newAuction')}</h2>
                 <div className="space-y-8">
                     <div className="space-y-4">
-                        <label className="text-[10px] font-black uppercase text-slate-400 ml-2">{t('auctionTitle')}</label>
-                        <input type="text" placeholder={t('enterTitle')} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-5 px-6 font-bold focus:ring-4 focus:ring-[#FEBA4F]/20 focus:border-[#FEBA4F] transition-all outline-none" onChange={e => setFormData({...formData, title: e.target.value})} />
+                        <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">{t('auctionTitle')}</label>
+                        <input type="text" placeholder={t('enterTitle')} className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl py-4 px-6 font-bold text-lg text-[#0A1128] focus:ring-0 focus:border-[#FEBA4F] transition-all outline-none shadow-inner" onChange={e => setFormData({...formData, title: e.target.value})} />
                     </div>
                     <div className="space-y-4">
-                        <label className="text-[10px] font-black uppercase text-slate-400 ml-2">{t('itemDescription')}</label>
-                        <textarea placeholder={t('describeItem')} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-5 px-6 font-bold h-40 focus:ring-4 focus:ring-[#FEBA4F]/20 focus:border-[#FEBA4F] transition-all outline-none resize-none" onChange={e => setFormData({...formData, description: e.target.value})} />
+                        <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">{t('itemDescription')}</label>
+                        <textarea placeholder={t('describeItem')} className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl py-4 px-6 font-bold text-lg text-[#0A1128] h-40 focus:ring-0 focus:border-[#FEBA4F] transition-all outline-none resize-none shadow-inner" onChange={e => setFormData({...formData, description: e.target.value})} />
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                         <div className="space-y-4">
-                            <label className="text-[10px] font-black uppercase text-slate-400 ml-2">{t('startingPriceEur')}</label>
+                            <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">{t('startingPriceEur')}</label>
                             <div className="relative flex items-center">
                                 <input 
                                     type="text" 
                                     inputMode="numeric"
-                                    className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-5 pl-6 pr-12 font-bold focus:ring-4 focus:ring-[#FEBA4F]/20 focus:border-[#FEBA4F] transition-all outline-none" 
+                                    className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl py-4 pl-6 pr-12 font-bold text-lg text-[#0A1128] focus:ring-0 focus:border-[#FEBA4F] transition-all outline-none shadow-inner" 
                                     value={formData.startingPrice}
                                     onChange={e => handleNumericChange('startingPrice', e.target.value)} 
                                     onBlur={handleStartingPriceBlur}
@@ -560,18 +567,18 @@ export const CreateAuctionForm: React.FC<{
                             )}
                         </div>
                     </div>
+                    </div>
                     
-                    <div className="space-y-4">
-                            <label className="text-[10px] font-black uppercase text-slate-400 ml-2">{t('category')}</label>
-                            <select className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-5 px-6 font-bold focus:ring-4 focus:ring-[#FEBA4F]/20 focus:border-[#FEBA4F] transition-all outline-none appearance-none cursor-pointer" onChange={e => setFormData({...formData, category: e.target.value as Category})}>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <div className="space-y-4">
+                            <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">{t('category')}</label>
+                            <select className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl py-4 px-6 font-bold text-lg text-[#0A1128] focus:ring-0 focus:border-[#FEBA4F] transition-all outline-none appearance-none cursor-pointer shadow-inner" onChange={e => setFormData({...formData, category: e.target.value as Category})}>
                                 {Object.values(Category).map(c => <option key={c} value={c}>{getCategoryTranslation(c, t)}</option>)}
                             </select>
                         </div>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                         <div className="space-y-4">
-                            <label className="text-[10px] font-black uppercase text-slate-400 ml-2">{t('itemCondition')}</label>
-                            <select value={formData.condition} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-5 px-6 font-bold focus:ring-4 focus:ring-[#FEBA4F]/20 focus:border-[#FEBA4F] transition-all outline-none appearance-none cursor-pointer" onChange={e => setFormData({...formData, condition: e.target.value})}>
+                            <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">{t('itemCondition')}</label>
+                            <select value={formData.condition} className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl py-4 px-6 font-bold text-lg text-[#0A1128] focus:ring-0 focus:border-[#FEBA4F] transition-all outline-none appearance-none cursor-pointer shadow-inner" onChange={e => setFormData({...formData, condition: e.target.value})}>
                                 <option value="Novo">{t('cond_new')}</option>
                                 <option value="Kot novo">{t('cond_likeNew')}</option>
                                 <option value="Rabljeno">{t('cond_used')}</option>
@@ -579,25 +586,28 @@ export const CreateAuctionForm: React.FC<{
                                 <option value="Za dele">{t('cond_parts')}</option>
                             </select>
                         </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                         <div className="space-y-4">
-                            <label className="text-[10px] font-black uppercase text-slate-400 ml-2">{t('region')}</label>
-                            <select value={formData.region} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-5 px-6 font-bold focus:ring-4 focus:ring-[#FEBA4F]/20 focus:border-[#FEBA4F] transition-all outline-none appearance-none cursor-pointer" onChange={e => setFormData({...formData, region: e.target.value as Region})}>
+                            <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">{t('region')}</label>
+                            <select value={formData.region} className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl py-4 px-6 font-bold text-lg text-[#0A1128] focus:ring-0 focus:border-[#FEBA4F] transition-all outline-none appearance-none cursor-pointer shadow-inner" onChange={e => setFormData({...formData, region: e.target.value as Region})}>
                                 {Object.values(Region).map(r => <option key={r} value={r}>{r}</option>)}
                             </select>
                         </div>
                         <div className="space-y-4">
-                            <label className="text-[10px] font-black uppercase text-slate-400 ml-2">{t('city')}</label>
-                            <select value={formData.location} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-5 px-6 font-bold focus:ring-4 focus:ring-[#FEBA4F]/20 focus:border-[#FEBA4F] transition-all outline-none appearance-none cursor-pointer" onChange={e => setFormData({...formData, location: e.target.value})}>
+                            <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">{t('city')}</label>
+                            <select value={formData.location} className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl py-4 px-6 font-bold text-lg text-[#0A1128] focus:ring-0 focus:border-[#FEBA4F] transition-all outline-none appearance-none cursor-pointer shadow-inner" onChange={e => setFormData({...formData, location: e.target.value})}>
                                 {REGION_LOCATIONS[formData.region].map(loc => <option key={loc} value={loc}>{loc}</option>)}
                             </select>
                         </div>
                     </div>
 
                     <div className="space-y-4">
-                        <label className="text-[10px] font-black uppercase text-slate-400 ml-2">{t('auctionEndTime')}</label>
+                        <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">{t('auctionEndTime')}</label>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                             <div className="space-y-2">
-                                <label className="text-[9px] font-black uppercase text-slate-400 ml-2">{t('endDate')}</label>
+                                <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">{t('endDate')}</label>
                                 <CustomDatePicker 
                                     value={formData.endDate}
                                     onChange={(val) => setFormData({...formData, endDate: val})}
@@ -606,7 +616,7 @@ export const CreateAuctionForm: React.FC<{
                                 />
                             </div>
                             <div className="space-y-2">
-                                <label className="text-[9px] font-black uppercase text-slate-400 ml-2">{t('endTime')}</label>
+                                <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">{t('endTime')}</label>
                                 <CustomTimePicker 
                                     value={formData.endTime}
                                     onChange={(val) => setFormData({...formData, endTime: val})}
@@ -616,7 +626,7 @@ export const CreateAuctionForm: React.FC<{
                     </div>
                     
                     <div className="space-y-4">
-                        <label className="text-[10px] font-black uppercase text-slate-400 ml-2">{t('itemImages')}</label>
+                        <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">{t('itemImages')}</label>
                         <div 
                             onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
                             onDragLeave={() => setIsDragging(false)}
@@ -708,19 +718,35 @@ export const CreateAuctionForm: React.FC<{
                         </button>
                     )}
 
-                    <button onClick={handlePublish} disabled={uploading} className="w-full bg-[#0A1128] text-white py-8 rounded-[2rem] font-black uppercase tracking-widest text-lg hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-2xl flex items-center justify-center gap-3 active:scale-[0.98]">
-                        {uploading ? (
-                            <>
-                                <div className="w-6 h-6 border-4 border-white/20 border-t-white rounded-full animate-spin"></div>
-                                {t('processing')}
-                            </>
-                        ) : (
-                            <>
-                                <Gavel size={24} />
-                                {t('publishAuction')}
-                            </>
+                    
+                    <div className={isPackageMode ? "grid grid-cols-1 md:grid-cols-2 gap-4" : ""}>
+                        {isPackageMode && onSaveDraft && (
+                            <button onClick={(e) => handlePublish(e, true)} disabled={uploading} className="w-full bg-white border-2 border-slate-200 text-[#0A1128] py-6 md:py-8 rounded-[2rem] font-black uppercase tracking-widest text-sm md:text-lg hover:border-[#FEBA4F] transition-all shadow-sm flex items-center justify-center gap-3 active:scale-[0.98]">
+                                {uploading ? (
+                                    <div className="w-6 h-6 border-4 border-[#0A1128]/20 border-t-[#0A1128] rounded-full animate-spin"></div>
+                                ) : (
+                                    <>
+                                        <Layers size={24} className="text-slate-400" />
+                                        Shrani v zbirko (Osnutek)
+                                    </>
+                                )}
+                            </button>
                         )}
-                    </button>
+                        <button onClick={(e) => handlePublish(e, false)} disabled={uploading} className="w-full bg-[#0A1128] text-white py-6 md:py-8 rounded-[2rem] font-black uppercase tracking-widest text-sm md:text-lg hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-2xl flex items-center justify-center gap-3 active:scale-[0.98]">
+                            {uploading ? (
+                                <>
+                                    <div className="w-6 h-6 border-4 border-white/20 border-t-white rounded-full animate-spin"></div>
+                                    {t('processing')}
+                                </>
+                            ) : (
+                                <>
+                                    <Gavel size={24} />
+                                    {isPackageMode ? 'Objavi zdaj v živo' : t('publishAuction')}
+                                </>
+                            )}
+                        </button>
+                    </div>
+
 
                     {uploading && (
                         <button onClick={handleCancelUpload} className="mt-4 w-full bg-red-500 text-white py-4 rounded-[1.5rem] font-black uppercase tracking-widest text-sm hover:bg-red-600 transition-all shadow-sm flex items-center justify-center gap-2 lg:mb-4 relative overflow-hidden group">

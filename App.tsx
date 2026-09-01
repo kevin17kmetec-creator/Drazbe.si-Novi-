@@ -1227,15 +1227,13 @@ const MainApp: React.FC = () => {
   }, [userData]);
 
   
-  const handlePublishPackage = async (pkg: {title: string, items: any[]}) => {
+  const handlePublishPackage = async (pkg: {title: string, items: any[], packageId: string}) => {
     if (!userData?.id) {
       toast.error(t("loginRequired"));
       return;
     }
     
-    // Simulate formatting items just like single publish
-    const formattedItems = pkg.items.map((itemData: any) => {
-      const getConditionTranslations = (cond: string) => {
+    const getConditionTranslations = (cond: string) => {
         switch (cond) {
           case "Novo": return { SLO: "Novo", EN: "New", DE: "Neu" };
           case "Kot novo": return { SLO: "Kot novo", EN: "Like New", DE: "Wie Neu" };
@@ -1246,46 +1244,70 @@ const MainApp: React.FC = () => {
         }
       };
 
-      return {
-        id: itemData.id,
-        title: { SLO: itemData.title?.SLO || itemData.title, EN: itemData.title?.SLO || itemData.title, DE: itemData.title?.SLO || itemData.title },
-        description: { SLO: itemData.description, EN: itemData.description, DE: itemData.description },
-        current_price: parseInt(itemData.startingPrice),
-        bid_count: 0,
-        item_count: 1,
-        end_time: itemData.endTime || new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString(),
-        location: itemData.location || { SLO: "Neznano", EN: "Unknown", DE: "Unbekannt" },
-        region: itemData.region || "Osrednjeslovenska",
-        category: itemData.category || "Ostalo",
-        condition: getConditionTranslations(itemData.condition || "Rabljeno"),
-        specifications: {},
-        bidding_history: [],
-        top_bids: [],
-        winner_id: null,
-        winnerId: null,
-        payment_status: 'unpaid',
-        post_auction_status: null,
-        images: itemData.images,
-        delivery_option: itemData.delivery_option || 'both',
-        shipping_fee_type: itemData.shipping_fee_type || 'calculated',
-        shipping_cost: itemData.shipping_cost !== undefined ? itemData.shipping_cost : null
-      };
-    });
-
     try {
-      const res = await fetch('/api/packages/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: pkg.title, items: formattedItems, user_id: userData.id })
-      });
-      if (res.ok) {
-        toast.success("Paket je uspešno objavljen!");
-        setActiveView("grid");
-        setCreateMode("choice");
-        fetchAuctions();
-      } else {
-        toast.error("Napaka pri objavi paketa");
+      const auctionIds = [];
+      for (const itemData of pkg.items) {
+          // Skip already published items, but collect their IDs
+          if (itemData.is_published && itemData.id) {
+              auctionIds.push(itemData.id);
+              continue;
+          }
+          
+          const payload = {
+            title: { SLO: itemData.title?.SLO || itemData.title, EN: itemData.title?.SLO || itemData.title, DE: itemData.title?.SLO || itemData.title },
+            description: { SLO: itemData.description, EN: itemData.description, DE: itemData.description },
+            current_price: parseInt(itemData.startingPrice),
+            bid_count: 0,
+            item_count: 1,
+            end_time: itemData.endTime || new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString(),
+            location: itemData.location || { SLO: "Neznano", EN: "Unknown", DE: "Unbekannt" },
+            region: itemData.region || "Osrednjeslovenska",
+            category: itemData.category || "Ostalo",
+            condition: getConditionTranslations(itemData.condition || "Rabljeno"),
+            specifications: {},
+            bidding_history: [],
+            top_bids: [],
+            winner_id: null,
+            winnerId: null,
+            payment_status: 'unpaid',
+            post_auction_status: null,
+            images: itemData.images,
+            delivery_option: itemData.delivery_option || 'both',
+            shipping_fee_type: itemData.shipping_fee_type || 'calculated',
+            shipping_cost: itemData.shipping_cost !== undefined ? itemData.shipping_cost : null,
+            is_package: true,
+            package_id: pkg.packageId,
+            package_title: pkg.title
+          };
+          
+          const res = await fetch('/api/auctions/create', {
+             method: 'POST',
+             headers: { 'Content-Type': 'application/json' },
+             body: JSON.stringify({ itemData: payload, user_id: userData.id })
+          });
+          if (res.ok) {
+             const data = await res.json();
+             auctionIds.push(data.id || itemData.id || crypto.randomUUID());
+          }
       }
+      
+      // Upsert package document
+      const { doc, setDoc } = await import('firebase/firestore');
+      const { db } = await import('./src/lib/firebase');
+      const pkgRef = doc(db, 'packages', pkg.packageId);
+      await setDoc(pkgRef, {
+          id: pkg.packageId,
+          title: pkg.title,
+          seller_id: userData.id,
+          auction_ids: auctionIds,
+          status: 'active',
+          created_at: new Date().toISOString()
+      }, { merge: true });
+
+      toast.success("Zbirka je uspešno objavljena!");
+      setActiveView("grid");
+      setCreateMode("choice");
+      fetchAuctions();
     } catch (e) {
       toast.error("Napaka pri povezavi");
     }
@@ -1734,7 +1756,14 @@ const MainApp: React.FC = () => {
   let content;
   switch (activeView) {
     case "package": {
-      const packageAuctions = auctions.filter(a => a.package_id === selectedPackageId || (a as any).packageId === selectedPackageId);
+      
+
+      // Allow Sandbox preview package to render properly by intercepting the ID
+      const isSandboxPackage = selectedPackageId === mockSandboxPackageId;
+      const packageAuctions = isSandboxPackage 
+          ? mockSandboxPackageItems 
+          : auctions.filter(a => a.package_id === selectedPackageId || (a as any).packageId === selectedPackageId);
+
       const pkgTitle = (packageAuctions[0] as any)?.package_title || 
         (typeof packageAuctions[0]?.title === 'object' ? packageAuctions[0]?.title[language] || packageAuctions[0]?.title['SLO'] : packageAuctions[0]?.title) || 
         "Paket dražb";
@@ -1878,6 +1907,52 @@ const MainApp: React.FC = () => {
               t={t}
               language={language}
               onPublishPackage={handlePublishPackage}
+              onPublishItemDirectly={async (itemData: any, pkgTitle: string, packageId: string) => {
+                 if (!userData?.id) return;
+                 const getConditionTranslations = (cond: string) => {
+                    switch (cond) {
+                    case "Novo": return { SLO: "Novo", EN: "New", DE: "Neu" };
+                    case "Kot novo": return { SLO: "Kot novo", EN: "Like New", DE: "Wie Neu" };
+                    case "Rabljeno": return { SLO: "Rabljeno", EN: "Used", DE: "Gebraucht" };
+                    case "Potrebno obnove": return { SLO: "Potrebno obnove", EN: "Needs Restoration", DE: "Restaurierungsbedürftig" };
+                    case "Za dele": return { SLO: "Za dele", EN: "For Parts", DE: "Für Ersatzteile" };
+                    default: return { SLO: cond, EN: cond, DE: cond };
+                    }
+                 };
+                 const payload = {
+                    ...itemData,
+                    title: { SLO: itemData.title?.SLO || itemData.title, EN: itemData.title?.SLO || itemData.title, DE: itemData.title?.SLO || itemData.title },
+                    description: { SLO: itemData.description, EN: itemData.description, DE: itemData.description },
+                    current_price: parseInt(itemData.startingPrice),
+                    bid_count: 0,
+                    item_count: 1,
+                    end_time: itemData.endTime,
+                    location: itemData.location || { SLO: "Neznano", EN: "Unknown", DE: "Unbekannt" },
+                    region: itemData.region || "Osrednjeslovenska",
+                    category: itemData.category || "Ostalo",
+                    condition: getConditionTranslations(itemData.condition || "Rabljeno"),
+                    specifications: {},
+                    bidding_history: [],
+                    top_bids: [],
+                    winner_id: null,
+                    winnerId: null,
+                    payment_status: 'unpaid',
+                    post_auction_status: null,
+                    images: itemData.images,
+                    delivery_option: itemData.delivery_option || 'both',
+                    shipping_fee_type: itemData.shipping_fee_type || 'calculated',
+                    shipping_cost: itemData.shipping_cost !== undefined ? itemData.shipping_cost : null,
+                    is_package: true,
+                    package_id: packageId,
+                    package_title: pkgTitle
+                 };
+                 const res = await fetch('/api/auctions/create', {
+                     method: 'POST',
+                     headers: { 'Content-Type': 'application/json' },
+                     body: JSON.stringify({ itemData: payload, user_id: userData.id })
+                 });
+                 if (!res.ok) throw new Error("Failed to publish item");
+              }}
               isLoggedIn={isLoggedIn}
               userData={userData}
               onNavigateToSettings={(tab) => {
@@ -1940,44 +2015,7 @@ const MainApp: React.FC = () => {
         );
       }
       break;
-    case "package": {
-      const allAvailablePackageItems = [...auctions, ...mockSandboxPackageItems];
-      const packageAuctions = allAvailablePackageItems.filter(
-        (a) => (a.is_package && a.package_id === selectedPackageId) || a.id === selectedPackageId || (a as any).packageId === selectedPackageId
-      );
-      const pkgTitle =
-        (packageAuctions[0] as any)?.package_title ||
-        (selectedPackageId === mockSandboxPackageId
-          ? "Paket delavniške opreme in strojev (7 artiklov)"
-          : null) ||
-        (typeof packageAuctions[0]?.title === "object"
-          ? packageAuctions[0]?.title[language] || packageAuctions[0]?.title["SLO"]
-          : packageAuctions[0]?.title) ||
-        "Paket dražb";
-
-      content = (
-        <PackageView
-          packageId={selectedPackageId || ""}
-          packageTitle={pkgTitle}
-          items={packageAuctions}
-          t={t}
-          language={language}
-          isVerified={isVerified}
-          watchlist={watchedIds}
-          onWatchToggle={toggleWatch}
-          onAuctionClick={(item) => {
-            window.scrollTo({ top: 0, behavior: "instant" });
-            setSelectedItem(item);
-            setActiveView("detail");
-          }}
-          onBack={() => {
-            setSelectedPackageId(null);
-            setActiveView("grid");
-          }}
-        />
-      );
-      break;
-    }
+    
     case "verification":
       content = (
         <VerificationView

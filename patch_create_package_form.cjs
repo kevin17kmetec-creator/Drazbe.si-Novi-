@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+const fs = require('fs');
+
+const code = `import React, { useState } from 'react';
 import { CreateAuctionForm } from './CreateAuctionForm';
 import { Layers, Plus, Trash2, ArrowLeft, CheckCircle } from 'lucide-react';
 import { toast } from 'sonner';
@@ -211,3 +213,6 @@ export const CreatePackageForm: React.FC<any> = ({ onBack, t, language, onPublis
     </div>
   );
 };
+`;
+fs.writeFileSync('src/components/CreatePackageForm.tsx', code);
+console.log('patched CreatePackageForm');
