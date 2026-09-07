@@ -1,5 +1,9 @@
 'use server';
 
+import Stripe from 'stripe';
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '');
+
 /**
  * Server Actions za drazbe.si
  * Zagotavljajo varno komunikacijo z backendom, preprečujejo JSON.parse napake
@@ -65,19 +69,120 @@ async function safeApiCall<T = any>(url: string, options?: RequestInit): Promise
 }
 
 /**
- * Ustvari Stripe Checkout sejo za plačilo naročnine ali dražbe
+ * Neposredno ustvari Stripe Checkout sejo preko Stripe SDK
  */
-export async function createCheckoutSessionAction(params: {
-  amount: number;
-  return_url?: string;
-  buyer_data?: any;
-  [key: string]: any;
-}): Promise<ActionResponse<{ url?: string; sessionId?: string }>> {
+export async function createCheckoutSessionAction(planOrParams?: any): Promise<{
+  url: string | null;
+  sessionId?: string;
+  success?: boolean;
+  error?: string;
+}> {
   'use server';
-  return safeApiCall<{ url?: string; sessionId?: string }>('/api/create-checkout-session', {
-    method: 'POST',
-    body: JSON.stringify(params),
-  });
+  try {
+    const key = process.env.STRIPE_SECRET_KEY;
+    const stripeInstance = key ? new Stripe(key) : stripe;
+
+    let planId: string | undefined;
+    let amount = 20;
+    let title = 'Naročnina';
+    let currency = 'eur';
+    let returnUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://www.drazbe.si';
+    let sessionMetadata: Record<string, any> = { type: 'subscription' };
+    let customerEmail: string | undefined;
+
+    if (typeof planOrParams === 'string') {
+      planId = planOrParams;
+      const upper = planId.toUpperCase();
+      if (upper.includes('PRO')) {
+        amount = 50;
+        title = 'Naročnina Pro - drazbe.si';
+      } else if (upper.includes('BASIC')) {
+        amount = 20;
+        title = 'Naročnina Basic - drazbe.si';
+      } else {
+        title = `Naročnina ${planId} - drazbe.si`;
+      }
+      sessionMetadata = {
+        type: 'subscription',
+        planId,
+      };
+    } else if (typeof planOrParams === 'object' && planOrParams !== null) {
+      planId = planOrParams.planId || planOrParams.tier;
+      if (typeof planOrParams.amount === 'number' && planOrParams.amount > 0) {
+        amount = planOrParams.amount;
+      } else if (planId) {
+        const upper = String(planId).toUpperCase();
+        amount = upper.includes('PRO') ? 50 : 20;
+      }
+
+      if (planOrParams.title) {
+        title = planOrParams.title;
+      } else if (planId) {
+        title = `Naročnina ${planId} - drazbe.si`;
+      } else {
+        title = 'Plačilo - drazbe.si';
+      }
+
+      if (planOrParams.currency) currency = planOrParams.currency;
+      if (planOrParams.return_url) returnUrl = planOrParams.return_url;
+
+      sessionMetadata = {
+        type: planOrParams.type || (planId ? 'subscription' : 'auction'),
+        ...(planId ? { planId } : {}),
+        ...(planOrParams.auction_id ? { auction_id: planOrParams.auction_id } : {}),
+        ...(planOrParams.buyer_id || planOrParams.user_id ? { buyer_id: planOrParams.buyer_id || planOrParams.user_id } : {}),
+        ...(planOrParams.seller_id ? { seller_id: planOrParams.seller_id } : {}),
+        ...(planOrParams.metadata || {}),
+      };
+
+      if (planOrParams.buyer_data?.email) {
+        customerEmail = planOrParams.buyer_data.email;
+      }
+    }
+
+    const sessionParams: Stripe.Checkout.SessionCreateParams = {
+      payment_method_types: ['card'],
+      line_items: [
+        {
+          price_data: {
+            currency: currency.toLowerCase(),
+            product_data: {
+              name: title,
+            },
+            unit_amount: Math.round(amount * 100),
+          },
+          quantity: 1,
+        },
+      ],
+      metadata: sessionMetadata,
+      mode: 'payment',
+      success_url: returnUrl.includes('/stripe-callback.html')
+        ? `${returnUrl}?payment=success&session_id={CHECKOUT_SESSION_ID}`
+        : `${returnUrl}${returnUrl.includes('?') ? '&' : '?'}payment=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: returnUrl.includes('/stripe-callback.html')
+        ? `${returnUrl}?payment=cancel`
+        : `${returnUrl}${returnUrl.includes('?') ? '&' : '?'}payment=cancel`,
+    };
+
+    if (customerEmail) {
+      sessionParams.customer_email = customerEmail;
+    }
+
+    const session = await stripeInstance.checkout.sessions.create(sessionParams);
+
+    return {
+      url: session.url,
+      sessionId: session.id,
+      success: true,
+    };
+  } catch (error: any) {
+    console.error('Napaka pri ustvarjanju Stripe seje:', error);
+    return {
+      url: null,
+      success: false,
+      error: error?.message || 'Napaka pri vzpostavitvi povezave s sistemom Stripe.',
+    };
+  }
 }
 
 /**

@@ -73,84 +73,24 @@ export const CheckoutModal: React.FC<{
       return;
     }
 
-    // Open popup immediately on click to prevent browser popup blockers
-    const popup = window.open('', 'stripeCheckout', 'width=800,height=750,left=250,top=100');
-    popupRef.current = popup;
-
-    if (popup) {
-      popup.document.write(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <title>Dražbe.si - Varno plačilo</title>
-          <style>
-            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0A1128; color: #fff; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; text-align: center; }
-            .loader { width: 36px; height: 36px; border: 3px solid rgba(254,186,79,0.2); border-top-color: #FEBA4F; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 16px; }
-            @keyframes spin { to { transform: rotate(360deg); } }
-            h3 { font-size: 18px; margin-bottom: 8px; color: #FEBA4F; }
-            p { font-size: 13px; color: #94a3b8; }
-          </style>
-        </head>
-        <body>
-          <div>
-            <div class="loader"></div>
-            <h3>Pripravljam varno plačilo...</h3>
-            <p>Preusmerjanje na sistem Stripe</p>
-          </div>
-        </body>
-        </html>
-      `);
-    }
-
     try {
-      const callbackUrl = `${window.location.origin}/stripe-callback.html`;
-      const res = await createCheckoutSessionAction({ 
-        amount, 
+      const planId = metadata?.planId || metadata?.tier || (metadata?.type === 'subscription' ? (title.includes('Pro') ? 'pro' : 'basic') : undefined);
+      const callbackUrl = typeof window !== 'undefined' ? `${window.location.origin}/stripe-callback.html` : '';
+
+      const res = await createCheckoutSessionAction(planId || {
+        amount,
+        title,
         ...metadata,
         return_url: callbackUrl
       });
-      
-      if (!res.success || !res.data) {
-        throw new Error(res.error || "Napaka pri vzpostavitvi povezave za plačilo.");
-      }
 
-      const data = res.data;
-
-      if (data.url) {
-        if (popup && !popup.closed) {
-          popup.location.href = data.url;
-        } else {
-          window.location.href = data.url;
-          return;
-        }
-
-        // Start fallback monitor for popup closure
-        let checkCount = 0;
-        if (pollTimerRef.current) clearInterval(pollTimerRef.current);
-        pollTimerRef.current = setInterval(async () => {
-          checkCount++;
-          if (popup.closed) {
-            clearInterval(pollTimerRef.current);
-            setIsLoading(false);
-            // If popup was closed after having loaded Stripe, trigger refresh to check if paid
-            if (checkCount > 5) {
-              if (metadata?.auction_id) {
-                try {
-                  await confirmCheckoutSessionAction({ auctionId: metadata.auction_id });
-                } catch (e) {}
-              }
-              onSuccess();
-              onClose();
-            }
-          }
-        }, 1000);
-
+      if (res.url) {
+        window.location.href = res.url;
+        return;
       } else {
-        if (popup && !popup.closed) popup.close();
-        throw new Error("Povezava za plačilo ni na voljo.");
+        throw new Error(res.error || "Povezava za plačilo ni na voljo.");
       }
     } catch (err: any) {
-      if (popup && !popup.closed) popup.close();
       setIsLoading(false);
       setErrorMessage(err.message || "Napaka pri preusmeritvi na plačilo");
     }
