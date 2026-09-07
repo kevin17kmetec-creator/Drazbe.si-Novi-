@@ -1,4 +1,22 @@
 import { db } from '../lib/firebase.js';
+
+async function safeGetDoc(docRef: any) {
+  try {
+    return await safeGetDoc(docRef);
+  } catch (error: any) {
+    console.warn("[safeGetDoc] Failed to fetch doc:", error.message);
+    return { exists: () => false, data: () => null } as any;
+  }
+}
+async function safeGetDocs(queryRef: any) {
+  try {
+    return await safeGetDocs(queryRef);
+  } catch (error: any) {
+    console.warn("[safeGetDocs] Failed to fetch docs:", error.message);
+    return { empty: true, docs: [] } as any;
+  }
+}
+
 import {
   collection,
   doc,
@@ -50,7 +68,7 @@ export async function processAuctionCrons(): Promise<CronRunResult> {
     // -------------------------------------------------------------
     // 1. NOTIFICATIONS: 30 MINUTES BEFORE ENDING
     // -------------------------------------------------------------
-    const activeAuctionsSnap = await getDocs(
+    const activeAuctionsSnap = await safeGetDocs(
       query(collection(db, 'auctions'), where('status', '==', 'active'))
     );
 
@@ -99,7 +117,7 @@ export async function processAuctionCrons(): Promise<CronRunResult> {
         let sentCount = 0;
         for (const userId of userIdsToNotify) {
           try {
-            const userSnap = await getDoc(doc(db, 'users', userId));
+            const userSnap = await safeGetDoc(doc(db, 'users', userId));
             if (userSnap.exists()) {
               const udata = userSnap.data();
               if (udata.email) {
@@ -173,7 +191,7 @@ export async function processAuctionCrons(): Promise<CronRunResult> {
           // Send winner congratulatory email with checkout link
           if (winnerId) {
             try {
-              const winnerSnap = await getDoc(doc(db, 'users', winnerId));
+              const winnerSnap = await safeGetDoc(doc(db, 'users', winnerId));
               if (winnerSnap.exists()) {
                 const winnerData = winnerSnap.data();
                 if (winnerData.email) {
@@ -211,7 +229,7 @@ export async function processAuctionCrons(): Promise<CronRunResult> {
     // -------------------------------------------------------------
     // 3. PAYMENT REMINDER: 2 HOURS BEFORE 24h DEADLINE
     // -------------------------------------------------------------
-    const awaitingPaymentSnap = await getDocs(
+    const awaitingPaymentSnap = await safeGetDocs(
       query(collection(db, 'auctions'), where('post_auction_status', '==', 'awaiting_payment_1st'))
     );
 
@@ -241,7 +259,7 @@ export async function processAuctionCrons(): Promise<CronRunResult> {
 
         if (winnerId) {
           try {
-            const winnerSnap = await getDoc(doc(db, 'users', winnerId));
+            const winnerSnap = await safeGetDoc(doc(db, 'users', winnerId));
             if (winnerSnap.exists()) {
               const winnerData = winnerSnap.data();
               if (winnerData.email) {
@@ -291,7 +309,7 @@ export async function processAuctionCrons(): Promise<CronRunResult> {
         if (winnerId) {
           try {
             const userRef = doc(db, 'users', winnerId);
-            const userDoc = await getDoc(userRef);
+            const userDoc = await safeGetDoc(userRef);
             if (userDoc.exists()) {
               const udata = userDoc.data();
               const newStrikes = (udata.unpaidStrikes || 0) + 1;
@@ -332,7 +350,7 @@ export async function processAuctionCrons(): Promise<CronRunResult> {
     // -------------------------------------------------------------
     // 5. CLEANUP OLD EXPIRED AUCTIONS (> 30 DAYS AFTER END)
     // -------------------------------------------------------------
-    const completedAuctionsSnap = await getDocs(
+    const completedAuctionsSnap = await safeGetDocs(
       query(collection(db, 'auctions'), where('status', '==', 'completed'))
     );
     const thirtyDaysAgo = now.getTime() - 30 * 24 * 60 * 60 * 1000;

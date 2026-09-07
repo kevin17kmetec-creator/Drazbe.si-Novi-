@@ -2088,6 +2088,7 @@ const MainApp: React.FC = () => {
                   buyer_id: userData.id,
                   seller_id: item.sellerId || item.seller_id,
                   fee_percentage: 10,
+                  buyer_data: userData,
                 },
               });
               setIsCheckoutOpen(true);
@@ -2578,6 +2579,7 @@ const MainApp: React.FC = () => {
                                       buyer_id: userData.id,
                                       seller_id: wonItem.sellerId,
                                       fee_percentage: feePercentage,
+                                      buyer_data: userData,
                                     },
                                   });
                                   setIsCheckoutOpen(true);
@@ -3068,6 +3070,7 @@ const MainApp: React.FC = () => {
                 buyer_id: userData.id,
                 seller_id: auction.sellerId || (auction as any).seller_id,
                 fee_percentage: fee * 100,
+                buyer_data: userData,
               },
             });
             setIsCheckoutOpen(true);

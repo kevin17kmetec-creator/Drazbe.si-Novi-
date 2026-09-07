@@ -18,6 +18,26 @@ import { sendOutbidNotification, sendEndingSoonNotification, sendAuctionWonNotif
 import { processAuctionCrons } from './src/server/cronProcessor.js';
 import dotenv from 'dotenv';
 
+async function safeGetDocs(queryRef: any) {
+  try {
+    return await safeGetDocs(queryRef);
+  } catch (error: any) {
+    console.warn("[safeGetDocs] Failed to fetch docs:", error.message);
+    return { empty: true, docs: [] } as any;
+  }
+}
+
+
+async function safeGetDoc(docRef: any) {
+  try {
+    return await safeGetDoc(docRef);
+  } catch (error: any) {
+    console.warn("[safeGetDoc] Failed to fetch doc:", error.message);
+    return { exists: () => false, data: () => null } as any;
+  }
+}
+
+
 dotenv.config();
 
 async function generateInvoiceNumber(type: 'SALES' | 'COMMISSION'): Promise<string> {
@@ -280,9 +300,9 @@ export default app;
         }
 
         // 2. Fetch buyer and seller details
-        const buyerDoc = await getDoc(doc(db, 'users', buyer_id));
+        const buyerDoc = await safeGetDoc(doc(db, 'users', buyer_id));
     const buyer = buyerDoc.data();
-        const sellerDoc = await getDoc(doc(db, 'users', seller_id));
+        const sellerDoc = await safeGetDoc(doc(db, 'users', seller_id));
     const seller = sellerDoc.data();
 
         if (!buyer || !seller) throw new Error('Buyer or seller not found');
@@ -292,7 +312,7 @@ export default app;
         const amountTotal = amountTotalInCents / 100;
         
         // Fetch auction to get exact price instead of estimating it
-        const auctionDoc = await getDoc(doc(db, 'auctions', auction_id));
+        const auctionDoc = await safeGetDoc(doc(db, 'auctions', auction_id));
         const auction = auctionDoc.data();
         let currentPrice = amountTotal;
         if (auction && (auction.current_price || auction.currentBid)) {
@@ -342,7 +362,7 @@ export default app;
             is_reverse_charge: isReverseCharge,
             status: 'completed'
         });
-      const snap = await getDoc(ref);
+      const snap = await safeGetDoc(ref);
       transaction = { id: ref.id, ...snap.data() };
     } catch(e) { txError = e; }
 
@@ -411,7 +431,7 @@ export default app;
 
         // Generate Invoice for Platform Fee
         try {
-            const auctionDocPdf = await getDoc(doc(db, 'auctions', auction_id));
+            const auctionDocPdf = await safeGetDoc(doc(db, 'auctions', auction_id));
             const auctionDataPdf = auctionDocPdf.data();
             const invoicePdfBuffer = await generateInvoicePDF(transaction, buyer, seller, auctionDataPdf, salesInvoiceNo, commissionInvoiceNo);
             const invoiceFileName = `racun_${salesInvoiceNo}.pdf`;
@@ -533,7 +553,7 @@ export default app;
       const userRef = doc(db, 'users', user_id);
 
       // Verify user existence and state
-      const userSnap = await getDoc(userRef);
+      const userSnap = await safeGetDoc(userRef);
       if (!userSnap.exists()) {
         return res.status(404).json({ error: "Uporabnik ne obstaja." });
       }
@@ -662,7 +682,7 @@ export default app;
       if (outbidUserToNotify) {
         (async () => {
           try {
-            const prevUserDoc = await getDoc(doc(db, 'users', outbidUserToNotify!.userId));
+            const prevUserDoc = await safeGetDoc(doc(db, 'users', outbidUserToNotify!.userId));
             if (prevUserDoc.exists()) {
               const prevUserData = prevUserDoc.data();
               if (prevUserData.email) {
@@ -758,7 +778,7 @@ export default app;
       if (effectiveBuyerId) {
         if (!buyer) {
           try {
-            const buyerDoc = await getDoc(doc(db, 'users', effectiveBuyerId));
+            const buyerDoc = await safeGetDoc(doc(db, 'users', effectiveBuyerId));
             if (buyerDoc.exists()) {
               buyer = buyerDoc.data();
             }
@@ -795,7 +815,7 @@ export default app;
         // Fetch the actual auction
         let auction: any = null;
         try {
-          const auctionDoc = await getDoc(doc(db, 'auctions', auction_id));
+          const auctionDoc = await safeGetDoc(doc(db, 'auctions', auction_id));
           auction = auctionDoc.data();
         } catch (e) {
           console.warn("Could not fetch auction:", e);
@@ -804,7 +824,7 @@ export default app;
 
         let seller: any = null;
         try {
-          const sellerDoc = await getDoc(doc(db, 'users', seller_id));
+          const sellerDoc = await safeGetDoc(doc(db, 'users', seller_id));
           seller = sellerDoc.data();
         } catch (e) {
           console.warn("Could not fetch seller:", e);
@@ -963,9 +983,9 @@ export default app;
           });
 
           if (effectiveBuyerId && effectiveSellerId) {
-            const buyerDoc = await getDoc(doc(db, 'users', effectiveBuyerId));
+            const buyerDoc = await safeGetDoc(doc(db, 'users', effectiveBuyerId));
             const buyer = buyerDoc.data() || {};
-            const sellerDoc = await getDoc(doc(db, 'users', effectiveSellerId));
+            const sellerDoc = await safeGetDoc(doc(db, 'users', effectiveSellerId));
             const seller = sellerDoc.data() || {};
 
             const amountTotal = (session.amount_total || (paymentIntent ? paymentIntent.amount : 0)) / 100;
@@ -990,7 +1010,7 @@ export default app;
 
             try {
               const txQuery = query(collection(db, 'transactions'), where('stripe_payment_intent_id', '==', (paymentIntent?.id || session.id)));
-              const existingTx = await getDocs(txQuery);
+              const existingTx = await safeGetDocs(txQuery);
 
               if (existingTx.empty) {
                 await addDoc(collection(db, 'transactions'), {
@@ -1065,7 +1085,7 @@ export default app;
       let stripeCustomerId: string | null = null;
       let buyer: any = null;
       if (effectiveBuyerId) {
-        const buyerDoc = await getDoc(doc(db, 'users', effectiveBuyerId));
+        const buyerDoc = await safeGetDoc(doc(db, 'users', effectiveBuyerId));
         if (buyerDoc.exists()) {
           buyer = buyerDoc.data();
           stripeCustomerId = await getOrCreateStripeCustomer(stripe, effectiveBuyerId, buyer);
@@ -1073,11 +1093,11 @@ export default app;
       }
 
       // Fetch the actual auction to securely determine the final bid price
-      const auctionDoc = await getDoc(doc(db, 'auctions', auction_id));
+      const auctionDoc = await safeGetDoc(doc(db, 'auctions', auction_id));
       const auction = auctionDoc.data();
       const currentPrice = auction?.current_price || (amount / 1.122); // Fallback estimate if not found
 
-      const sellerDoc = await getDoc(doc(db, 'users', seller_id));
+      const sellerDoc = await safeGetDoc(doc(db, 'users', seller_id));
       const seller = sellerDoc.data();
       const platformFee = calculateMarginalPlatformFee(currentPrice, seller?.subscription_tier);
       
@@ -1137,7 +1157,7 @@ export default app;
       const { user_id } = req.body;
       const stripe = getStripe();
 
-      const userDoc = await getDoc(doc(db, 'users', user_id));
+      const userDoc = await safeGetDoc(doc(db, 'users', user_id));
       const user = userDoc.data();
       let accountId = user?.stripe_account_id;
 
@@ -1175,7 +1195,7 @@ export default app;
 
       // Check if user already has an account
       const userDocRef = doc(db, 'users', targetUserId);
-      const userDoc = await getDoc(userDocRef);
+      const userDoc = await safeGetDoc(userDocRef);
       const user = userDoc.data() || {};
       
       let targetStripeAccountId = user.stripeAccountId || user.stripe_account_id;
@@ -1300,7 +1320,7 @@ export default app;
       const stripe = getStripe();
       
       const userDocRef = doc(db, 'users', user_id);
-      const userDoc = await getDoc(userDocRef);
+      const userDoc = await safeGetDoc(userDocRef);
       const user = userDoc.data() || {};
       
       let targetStripeAccountId = user.stripeAccountId || user.stripe_account_id;
@@ -1331,7 +1351,7 @@ export default app;
           return res.status(400).json({ error: "Manjkajoči podatki" });
       }
 
-      const auctionDoc = await getDoc(doc(db, 'auctions', auction_id));
+      const auctionDoc = await safeGetDoc(doc(db, 'auctions', auction_id));
       const auction = auctionDoc.data();
 
       // Get exact currentPrice from auction
@@ -1345,7 +1365,7 @@ export default app;
           }
       }
       
-      const sellerDoc = await getDoc(doc(db, 'users', seller_id));
+      const sellerDoc = await safeGetDoc(doc(db, 'users', seller_id));
     const seller = sellerDoc.data();
 
       // Ensure platform fee calculation uses the buyer's fee rate since they pay the fee
@@ -1356,7 +1376,7 @@ export default app;
 
       // Execute internal wallet payment logic manually using Firestore
       const buyerDocRef = doc(db, 'users', buyer_id);
-      const buyerDocSnapshot = await getDoc(buyerDocRef);
+      const buyerDocSnapshot = await safeGetDoc(buyerDocRef);
       const buyerData = buyerDocSnapshot.data();
       
       const currentBuyerWallet = Number(buyerData?.wallet_balance) || 0;
@@ -1390,7 +1410,7 @@ export default app;
           status: 'completed',
           payment_method: 'wallet'
       });
-      const snap = await getDoc(ref);
+      const snap = await safeGetDoc(ref);
       transaction = { id: ref.id, ...snap.data() };
     } catch(e) { txError = e; }
 
@@ -1400,7 +1420,7 @@ export default app;
       await updateDoc(doc(db, 'auctions', auction_id), { status: 'completed', payment_status: 'paid', post_auction_status: 'paid', paid_at: new Date().toISOString() });
 
       // Generate Documents asynchronously to not block the request
-      const buyerDoc = await getDoc(doc(db, 'users', buyer_id));
+      const buyerDoc = await safeGetDoc(doc(db, 'users', buyer_id));
     const buyer = buyerDoc.data();
       
       if (buyer && seller && transaction) {
@@ -1496,7 +1516,7 @@ export default app;
 
       // Check balance and connected account
       const userDocRef = doc(db, 'users', user_id);
-      const userDoc = await getDoc(userDocRef);
+      const userDoc = await safeGetDoc(userDocRef);
       const user = userDoc.data() || {};
       
       const currentBalance = Number(user.wallet_balance) || 0;
@@ -1615,7 +1635,7 @@ export default app;
 
       let user: any = null;
       if (targetUserId) {
-        const userDoc = await getDoc(doc(db, 'users', targetUserId));
+        const userDoc = await safeGetDoc(doc(db, 'users', targetUserId));
         if (userDoc.exists()) {
           user = userDoc.data();
         }
@@ -1950,7 +1970,7 @@ export default app;
       }
 
       const userDocRef = doc(db, 'users', user_id);
-      const userDoc = await getDoc(userDocRef);
+      const userDoc = await safeGetDoc(userDocRef);
       if (!userDoc.exists()) {
         return res.status(404).json({ error: "Uporabnik ne obstaja v bazi." });
       }
@@ -2024,7 +2044,7 @@ export default app;
       if (!user_id) return res.status(400).json({ error: "Manjka user_id" });
 
       const userDocRef = doc(db, 'users', user_id);
-      const userDoc = await getDoc(userDocRef);
+      const userDoc = await safeGetDoc(userDocRef);
       if (!userDoc.exists()) return res.status(404).json({ error: "Uporabnik ne obstaja" });
 
       const currentBalance = Number(userDoc.data()?.wallet_balance) || 0;
@@ -2088,7 +2108,7 @@ export default app;
         where('user_id', '==', seller_id)
       );
       
-      const snapshot = await getDocs(strikesQuery);
+      const snapshot = await safeGetDocs(strikesQuery);
       const recentStrikes = snapshot.docs.filter(d => {
         const data = d.data();
         return data.created_at >= sixMonthsAgo;
@@ -2113,7 +2133,7 @@ export default app;
       const { itemData, user_id } = req.body;
       
       const userRef = doc(db, 'users', user_id);
-      const userDoc = await getDoc(userRef);
+      const userDoc = await safeGetDoc(userRef);
       if (!userDoc.exists()) return res.status(404).json({ error: "Uporabnik ne obstaja" });
       
       const userData = userDoc.data();
@@ -2149,7 +2169,7 @@ export default app;
         where('status', '==', 'HELD_IN_ESCROW')
       );
 
-      const snapshot = await getDocs(txQuery);
+      const snapshot = await safeGetDocs(txQuery);
       let processed = 0;
 
       for (const docSnap of snapshot.docs) {
@@ -2171,7 +2191,7 @@ export default app;
           
           // Refund buyer
           const buyerRef = doc(db, 'users', tx.buyer_id);
-          const buyerDoc = await getDoc(buyerRef);
+          const buyerDoc = await safeGetDoc(buyerRef);
           if (buyerDoc.exists()) {
             const currentBalance = Number(buyerDoc.data().wallet_balance) || 0;
             await updateDoc(buyerRef, { wallet_balance: currentBalance + Number(tx.amount_total || tx.amount) });
@@ -2187,7 +2207,7 @@ export default app;
           
           // Zapiši sistemsko opombo na profil prodajalca
           const sellerRef = doc(db, 'users', tx.seller_id);
-          const sellerDocInfo = await getDoc(sellerRef);
+          const sellerDocInfo = await safeGetDoc(sellerRef);
           if (sellerDocInfo.exists()) {
              const existingNotes = sellerDocInfo.data().system_notes || [];
              await updateDoc(sellerRef, {
@@ -2217,7 +2237,7 @@ export default app;
       if (!pin || !seller_id) return res.status(400).json({ error: "Manjka PIN ali seller_id." });
 
       const txRef = doc(db, 'transactions', id);
-      const txDoc = await getDoc(txRef);
+      const txDoc = await safeGetDoc(txRef);
       if (!txDoc.exists()) return res.status(404).json({ error: "Naročilo ne obstaja." });
 
       const tx = txDoc.data();
@@ -2233,7 +2253,7 @@ export default app;
 
       // Release funds to seller
       const sellerDocRef = doc(db, 'users', seller_id);
-      const sellerDoc = await getDoc(sellerDocRef);
+      const sellerDoc = await safeGetDoc(sellerDocRef);
       if (sellerDoc.exists()) {
         const currentBalance = Number(sellerDoc.data()?.wallet_balance) || 0;
         await updateDoc(sellerDocRef, { wallet_balance: currentBalance + Number(tx.amount_total || tx.amount) });
@@ -2253,7 +2273,7 @@ export default app;
       const { carrier_name, tracking_number, seller_id } = req.body;
       
       const txRef = doc(db, 'transactions', id);
-      const txDoc = await getDoc(txRef);
+      const txDoc = await safeGetDoc(txRef);
       if (!txDoc.exists()) return res.status(404).json({ error: "Naročilo ne obstaja." });
       
       const tx = txDoc.data();
@@ -2285,7 +2305,7 @@ export default app;
       const { user_id } = req.body;
       
       const txRef = doc(db, 'transactions', id);
-      const txDoc = await getDoc(txRef);
+      const txDoc = await safeGetDoc(txRef);
       if (!txDoc.exists()) return res.status(404).json({ error: "Naročilo ne obstaja." });
       
       const tx = txDoc.data();
@@ -2320,7 +2340,7 @@ export default app;
         where('auto_complete_at', '<=', now)
       );
 
-      const snapshot = await getDocs(txQuery);
+      const snapshot = await safeGetDocs(txQuery);
       let processed = 0;
 
       for (const docSnap of snapshot.docs) {
@@ -2333,7 +2353,7 @@ export default app;
         });
 
         const sellerDocRef = doc(db, 'users', tx.seller_id);
-        const sellerDoc = await getDoc(sellerDocRef);
+        const sellerDoc = await safeGetDoc(sellerDocRef);
         if (sellerDoc.exists()) {
           const currentBalance = Number(sellerDoc.data()?.wallet_balance) || 0;
           await updateDoc(sellerDocRef, { wallet_balance: currentBalance + Number(tx.amount_total || tx.amount) });
@@ -2355,7 +2375,7 @@ export default app;
       const { user_id, reason } = req.body;
       
       const txRef = doc(db, 'transactions', id);
-      const txDoc = await getDoc(txRef);
+      const txDoc = await safeGetDoc(txRef);
       if (!txDoc.exists()) return res.status(404).json({ error: "Naročilo ne obstaja." });
       
       const tx = txDoc.data();
