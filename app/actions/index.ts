@@ -2,7 +2,16 @@
 
 import Stripe from 'stripe';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '');
+let stripeClient: Stripe | null = null;
+
+function getStripe(): Stripe | null {
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key) return null;
+  if (!stripeClient) {
+    stripeClient = new Stripe(key);
+  }
+  return stripeClient;
+}
 
 /**
  * Server Actions za drazbe.si
@@ -79,8 +88,29 @@ export async function createCheckoutSessionAction(planOrParams?: any): Promise<{
 }> {
   'use server';
   try {
-    const key = process.env.STRIPE_SECRET_KEY;
-    const stripeInstance = key ? new Stripe(key) : stripe;
+    const stripeInstance = getStripe();
+    if (!stripeInstance) {
+      // V okoljih, kjer STRIPE_SECRET_KEY ni neposredno dostopen (npr. brskalnik),
+      // se ob klicu varno povežemo s strežniško končno točko
+      const res = await fetch('/api/create-checkout-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(
+          typeof planOrParams === 'string'
+            ? { type: 'subscription', planId: planOrParams }
+            : (planOrParams || {})
+        ),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'Napaka pri vzpostavitvi seje za plačilo.');
+      }
+      return {
+        url: data.url || null,
+        sessionId: data.sessionId,
+        success: true,
+      };
+    }
 
     let planId: string | undefined;
     let amount = 20;
