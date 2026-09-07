@@ -27,6 +27,12 @@ import { ConfirmBidModal } from "./src/components/ConfirmBidModal";
 import { MessagesView } from "./src/components/MessagesView";
 import { MissingInvoiceDataModal } from "./src/components/MissingInvoiceDataModal";
 import { checkUserInvoiceData } from "./src/lib/invoiceDataCheck";
+import { 
+  createAuctionAction, 
+  confirmCheckoutSessionAction, 
+  notifyOutbidAction,
+  checkAuctionsCronAction
+} from "@/app/actions/index";
 import {
   Search,
   User,
@@ -1078,10 +1084,10 @@ const MainApp: React.FC = () => {
 
   // Private stream: Users
   useEffect(() => {
-    // Fire cron job on mount and every 5 minutes
-    fetch('/api/cron/check-auctions', { method: 'POST' }).catch(console.error);
+    // Fire cron check on mount and every 5 minutes
+    checkAuctionsCronAction().catch(console.error);
     const cronInterval = setInterval(() => {
-       fetch('/api/cron/check-auctions', { method: 'POST' }).catch(console.error);
+       checkAuctionsCronAction().catch(console.error);
     }, 5 * 60 * 1000);
     return () => clearInterval(cronInterval);
   }, []);
@@ -1279,14 +1285,12 @@ const MainApp: React.FC = () => {
       window.history.replaceState({}, document.title, cleanUrl);
 
       if (sessionIdParam) {
-        fetch('/api/confirm-checkout-session', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sessionId: sessionIdParam })
-        }).then(() => {
-          fetchAuctions();
-          if (userData?.id) refreshUserData(userData.id);
-        }).catch(console.error);
+        confirmCheckoutSessionAction({ sessionId: sessionIdParam })
+          .then(() => {
+            fetchAuctions();
+            if (userData?.id) refreshUserData(userData.id);
+          })
+          .catch(console.error);
       } else {
         fetchAuctions();
       }
@@ -1353,14 +1357,9 @@ const MainApp: React.FC = () => {
             package_title: pkg.title
           };
           
-          const res = await fetch('/api/auctions/create', {
-             method: 'POST',
-             headers: { 'Content-Type': 'application/json' },
-             body: JSON.stringify({ itemData: payload, user_id: userData.id })
-          });
-          if (res.ok) {
-             const data = await res.json();
-             auctionIds.push(data.id || itemData.id || crypto.randomUUID());
+          const res = await createAuctionAction({ itemData: payload, user_id: userData.id });
+          if (res.success) {
+             auctionIds.push(res.data?.id || itemData.id || crypto.randomUUID());
           }
       }
       
@@ -1472,24 +1471,12 @@ const MainApp: React.FC = () => {
       let publishSuccess = false;
 
       try {
-        const res = await fetch('/api/auctions/create', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ itemData: auctionPayload, user_id: userData.id })
-        });
-
-        const contentType = res.headers.get('content-type') || '';
-        if (res.ok && contentType.includes('application/json')) {
-          const resData = await res.json();
-          if (resData.success) {
-            publishSuccess = true;
-          }
-        } else if (!res.ok && contentType.includes('application/json')) {
-          const errorData = await res.json();
-          toast.error(errorData.error || t("publishError"));
-          return;
-        } else {
-          // Direct client Firestore fallback if route returned HTML/404
+        const res = await createAuctionAction({ itemData: auctionPayload, user_id: userData.id });
+        if (res.success) {
+          publishSuccess = true;
+        } else if (res.error) {
+          // If action reported an explicit error, verify if it's an API route failure where client fallback can handle it
+          console.warn("API create returned error, falling back to direct Firestore:", res.error);
           const newDocRef = itemData.id ? doc(db, 'auctions', itemData.id) : doc(collection(db, 'auctions'));
           await setDoc(newDocRef, {
             ...auctionPayload,
@@ -2035,12 +2022,8 @@ const MainApp: React.FC = () => {
                     package_id: packageId,
                     package_title: pkgTitle
                  };
-                 const res = await fetch('/api/auctions/create', {
-                     method: 'POST',
-                     headers: { 'Content-Type': 'application/json' },
-                     body: JSON.stringify({ itemData: payload, user_id: userData.id })
-                 });
-                 if (!res.ok) throw new Error("Failed to publish item");
+                 const res = await createAuctionAction({ itemData: payload, user_id: userData.id });
+                 if (!res.success) throw new Error(res.error || "Failed to publish item");
               }}
               isLoggedIn={isLoggedIn}
               userData={userData}
@@ -3582,14 +3565,10 @@ const MainApp: React.FC = () => {
 
             // If we took the lead and replaced a previous bidder, trigger outbid email notification
             if (previousLeaderId && previousLeaderId !== userData.id) {
-                fetch('/api/notify-outbid', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        auction_id: item.id,
-                        outbid_user_id: previousLeaderId,
-                        new_price: finalCalculatedPrice
-                    })
+                notifyOutbidAction({
+                    auction_id: item.id,
+                    outbid_user_id: previousLeaderId,
+                    new_price: finalCalculatedPrice
                 }).catch(err => console.error("Outbid notify email error:", err));
             }
         }

@@ -1,9 +1,10 @@
 import React, { useState, useRef } from 'react';
-import { Loader2, Package, Truck, Check, Upload, Image as ImageIcon, CheckCircle2 } from 'lucide-react';
+import { Loader2, Package, Truck, Check, Upload, Image as ImageIcon, CheckCircle2, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db, storage } from '../lib/firebase';
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { analyzeReceiptAction } from '@/app/actions/index';
 
 export const CheckoutFlow: React.FC<{ auction: any, currentUserId: string }> = ({ auction, currentUserId }) => {
     const isSeller = auction.userId === currentUserId;
@@ -24,6 +25,7 @@ export const CheckoutFlow: React.FC<{ auction: any, currentUserId: string }> = (
     const selectedDelivery = auction.selected_delivery;
     
     const [loading, setLoading] = useState(false);
+    const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [localSelected, setLocalSelected] = useState(selectedDelivery || (deliveryOption !== 'both' ? (deliveryOption === 'pickup_only' ? 'pickup' : 'shipping') : null));
     
     // For Seller uploading receipt
@@ -34,45 +36,44 @@ export const CheckoutFlow: React.FC<{ auction: any, currentUserId: string }> = (
         if (!localSelected) return toast.error("Izberite način prevzema");
         
         setLoading(true);
+        setErrorMessage(null);
         try {
             await updateDoc(doc(db, 'auctions', auction.id), {
                 selected_delivery: localSelected,
                 is_delivery_locked: localSelected === 'pickup' ? true : (feeType === 'fixed' ? true : false)
             });
             toast.success("Način predaje potrjen");
-        } catch (e) {
+        } catch (e: any) {
+            setErrorMessage(e?.message || "Napaka pri shranjevanju");
             toast.error("Napaka pri shranjevanju");
         } finally {
             setLoading(false);
         }
     };
-    
+
     const handleUploadReceipt = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
         
         setLoading(true);
+        setErrorMessage(null);
         try {
             const fRef = storageRef(storage, `receipts/${auction.id}_${Date.now()}`);
             await uploadBytes(fRef, file);
             const url = await getDownloadURL(fRef);
             setFileUrl(url);
             
-            // Call Gemini API
-            const res = await fetch('/api/analyze-receipt', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ imageUrl: url })
-            });
-            const data = await res.json();
+            // Call Gemini API via Server Action
+            const res = await analyzeReceiptAction({ imageUrl: url });
             
-            if (data.shipping_cost !== undefined && data.shipping_cost !== null) {
-                setCost(data.shipping_cost);
+            if (res.success && res.data?.shipping_cost !== undefined && res.data?.shipping_cost !== null) {
+                setCost(res.data.shipping_cost);
                 toast.success("Znesek uspešno odčitan z računa!");
             } else {
                 toast.error("Zneska ni bilo mogoče prepoznati. Prosimo, vnesite ga ročno.");
             }
-        } catch (e) {
+        } catch (e: any) {
+            setErrorMessage(e?.message || "Napaka pri nalaganju in analizi računa");
             toast.error("Napaka pri nalaganju in analizi računa");
         } finally {
             setLoading(false);
@@ -84,6 +85,7 @@ export const CheckoutFlow: React.FC<{ auction: any, currentUserId: string }> = (
         if (cost <= 0) return toast.error("Znesek poštnine mora biti večji od 0");
         
         setLoading(true);
+        setErrorMessage(null);
         try {
             await updateDoc(doc(db, 'auctions', auction.id), {
                 shipping_receipt_url: fileUrl,
@@ -91,7 +93,8 @@ export const CheckoutFlow: React.FC<{ auction: any, currentUserId: string }> = (
                 is_delivery_locked: true
             });
             toast.success("Račun poslan kupcu in zaklenjen");
-        } catch (e) {
+        } catch (e: any) {
+            setErrorMessage(e?.message || "Napaka pri potrjevanju računa");
             toast.error("Napaka pri potrjevanju računa");
         } finally {
             setLoading(false);
@@ -127,6 +130,13 @@ export const CheckoutFlow: React.FC<{ auction: any, currentUserId: string }> = (
     return (
         <div className="bg-white border-2 border-[#FEBA4F] rounded-[2rem] p-6 mb-6 shadow-sm">
             <h3 className="text-sm font-black text-[#0A1128] uppercase tracking-wider mb-4">Dogovor o predaji predmeta</h3>
+            
+            {errorMessage && (
+                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-red-600 text-xs font-bold flex items-center gap-2">
+                    <AlertCircle size={16} className="shrink-0 text-red-500" />
+                    <span>{errorMessage}</span>
+                </div>
+            )}
             
             {/* BUYER VIEW */}
             {isBuyer && !selectedDelivery && deliveryOption === 'both' && (

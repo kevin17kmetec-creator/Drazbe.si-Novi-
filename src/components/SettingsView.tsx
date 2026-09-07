@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import imageCompression from 'browser-image-compression';
 import { StripeConnectOnboarding } from './StripeConnectOnboarding';
 import { PhoneInput } from './PhoneInput';
+import { requestPayoutAction, checkStripeAccountStatusAction } from '@/app/actions/index';
 
 const COUNTRIES = [
   { code: 'AT', name: 'Avstrija / Austria' },
@@ -64,21 +65,20 @@ export const SettingsView: React.FC<{
   const activeTab = propActiveTab !== undefined ? propActiveTab : localActiveTab;
   const setActiveTab = propSetActiveTab !== undefined ? propSetActiveTab : setLocalActiveTab;
   const [isSaving, setIsSaving] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [stripeStatusChecked, setStripeStatusChecked] = useState(false);
 
   useEffect(() => {
      if (user?.id && !stripeStatusChecked && activeTab === 'stripe') {
          setStripeStatusChecked(true);
          // Dynamically check Stripe onboarding status when they switch to this tab
-         fetch('/api/stripe-check-account-status', {
-             method: 'POST',
-             headers: { 'Content-Type': 'application/json' },
-             body: JSON.stringify({ user_id: user.id })
-         }).then(res => res.json()).then(data => {
-             if (data.complete && !user.stripe_onboarding_complete) {
-                 onStripeVerified(); // trigger parent update if needed
+         checkStripeAccountStatusAction({ user_id: user.id })
+           .then(res => {
+             if (res.success && res.data?.complete && !user.stripe_onboarding_complete) {
+               onStripeVerified(); // trigger parent update if needed
              }
-         }).catch(console.error);
+           })
+           .catch(console.error);
      }
   }, [user?.id, activeTab, stripeStatusChecked, user?.stripe_onboarding_complete, onStripeVerified]);
 
@@ -208,9 +208,15 @@ export const SettingsView: React.FC<{
     }
 
     setIsSaving(true);
+    setErrorMessage(null);
     try {
       await onSave(formData);
       isFormDirtyRef.current = false;
+      toast.success(t('profileSaved') || "Nastavitve so bile uspešno shranjene.");
+    } catch (err: any) {
+      console.error("Save profile error:", err);
+      setErrorMessage(err?.message || "Napaka pri shranjevanju podatkov.");
+      toast.error(err?.message || "Napaka pri shranjevanju podatkov.");
     } finally {
       setIsSaving(false);
     }
@@ -248,6 +254,12 @@ export const SettingsView: React.FC<{
         {/* Right Content Area */}
         <div className="flex-1">
           <form onSubmit={handleSave} className="bg-white rounded-[3rem] p-10 shadow-2xl border border-slate-100">
+            {errorMessage && (
+              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-2xl text-red-600 text-sm font-bold flex items-center gap-3">
+                <AlertCircle size={20} className="shrink-0 text-red-500" />
+                <span>{errorMessage}</span>
+              </div>
+            )}
             {activeTab === 'profile' && (
               <div className="animate-in fade-in slide-in-from-right-4">
                 <div className="flex items-center justify-between mb-10 pb-10 border-b border-slate-100">
@@ -479,17 +491,12 @@ export const SettingsView: React.FC<{
                             }
                             setIsWithdrawing(true);
                             try {
-                              const res = await fetch("/api/payouts/withdraw", {
-                                method: "POST",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({
-                                  user_id: user?.id,
-                                  amount: balance,
-                                }),
+                              const res = await requestPayoutAction({
+                                user_id: user?.id,
+                                amount: balance,
                               });
-                              const data = await res.json();
-                              if (!res.ok || data.error) {
-                                throw new Error(data.error || "Napaka pri izplačilu");
+                              if (!res.success) {
+                                throw new Error(res.error || "Napaka pri izplačilu");
                               }
                               toast.success(t('payoutRequestSuccess') || "Zahtevek za izplačilo je bil uspešno izveden.");
                               if (onRefreshUser) {

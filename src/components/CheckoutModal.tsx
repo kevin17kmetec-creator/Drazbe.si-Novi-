@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Clock, Lock, CreditCard as CardIcon, ShieldCheck, Wallet } from 'lucide-react';
+import { X, Clock, Lock, CreditCard as CardIcon, ShieldCheck, Wallet, AlertCircle } from 'lucide-react';
+import { createCheckoutSessionAction, walletPayAuctionAction, confirmCheckoutSessionAction } from '@/app/actions/index';
 
 export const CheckoutModal: React.FC<{
   isOpen: boolean;
@@ -14,8 +15,8 @@ export const CheckoutModal: React.FC<{
 }> = ({ isOpen, onClose, amount, title, t, language, onSuccess, metadata, userWalletBalance = 0 }) => {
   if (!isOpen) return null;
 
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<'stripe' | 'wallet'>('stripe');
   const popupRef = useRef<Window | null>(null);
   const pollTimerRef = useRef<any>(null);
@@ -25,7 +26,7 @@ export const CheckoutModal: React.FC<{
       if (event.data && event.data.type === 'STRIPE_POPUP_CALLBACK') {
         const { status, action, sessionId } = event.data;
         if (status === 'success') {
-          setIsProcessing(false);
+          setIsLoading(false);
           if (pollTimerRef.current) clearInterval(pollTimerRef.current);
           if (popupRef.current && !popupRef.current.closed) {
             try { popupRef.current.close(); } catch (e) {}
@@ -33,9 +34,9 @@ export const CheckoutModal: React.FC<{
           onSuccess();
           onClose();
         } else if (status === 'cancel') {
-          setIsProcessing(false);
+          setIsLoading(false);
           if (pollTimerRef.current) clearInterval(pollTimerRef.current);
-          setError("Plačilo je bilo preklicano.");
+          setErrorMessage("Plačilo je bilo preklicano.");
         }
       }
     };
@@ -48,31 +49,26 @@ export const CheckoutModal: React.FC<{
   }, [onSuccess, onClose]);
 
   const handlePay = async () => {
-    setError(null);
-    setIsProcessing(true);
+    setErrorMessage(null);
+    setIsLoading(true);
 
     if (paymentMethod === 'wallet') {
       try {
-        const res = await fetch('/api/payments/wallet-pay-auction', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            amount,
-            ...metadata
-          })
+        const res = await walletPayAuctionAction({
+          amount,
+          ...metadata
         });
-        const data = await res.json();
         
-        if (data.error) {
-          throw new Error(data.error);
+        if (!res.success) {
+          throw new Error(res.error || "Napaka pri plačilu z denarnico.");
         }
         
-        setIsProcessing(false);
+        setIsLoading(false);
         onSuccess();
         onClose();
       } catch (err: any) {
-        setIsProcessing(false);
-        setError(err.message || "Napaka pri plačilu z denarnico.");
+        setIsLoading(false);
+        setErrorMessage(err.message || "Napaka pri plačilu z denarnico.");
       }
       return;
     }
@@ -108,20 +104,17 @@ export const CheckoutModal: React.FC<{
 
     try {
       const callbackUrl = `${window.location.origin}/stripe-callback.html`;
-      const res = await fetch('/api/create-checkout-session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          amount, 
-          ...metadata,
-          return_url: callbackUrl
-        })
+      const res = await createCheckoutSessionAction({ 
+        amount, 
+        ...metadata,
+        return_url: callbackUrl
       });
-      const data = await res.json();
       
-      if (data.error) {
-        throw new Error(data.error);
+      if (!res.success || !res.data) {
+        throw new Error(res.error || "Napaka pri vzpostavitvi povezave za plačilo.");
       }
+
+      const data = res.data;
 
       if (data.url) {
         if (popup && !popup.closed) {
@@ -138,16 +131,12 @@ export const CheckoutModal: React.FC<{
           checkCount++;
           if (popup.closed) {
             clearInterval(pollTimerRef.current);
-            setIsProcessing(false);
+            setIsLoading(false);
             // If popup was closed after having loaded Stripe, trigger refresh to check if paid
             if (checkCount > 5) {
               if (metadata?.auction_id) {
                 try {
-                  await fetch('/api/confirm-checkout-session', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ auctionId: metadata.auction_id })
-                  });
+                  await confirmCheckoutSessionAction({ auctionId: metadata.auction_id });
                 } catch (e) {}
               }
               onSuccess();
@@ -162,8 +151,8 @@ export const CheckoutModal: React.FC<{
       }
     } catch (err: any) {
       if (popup && !popup.closed) popup.close();
-      setIsProcessing(false);
-      setError(err.message || "Napaka pri preusmeritvi na plačilo");
+      setIsLoading(false);
+      setErrorMessage(err.message || "Napaka pri preusmeritvi na plačilo");
     }
   };
 
@@ -202,8 +191,8 @@ export const CheckoutModal: React.FC<{
           <button
             type="button"
             onClick={() => setPaymentMethod('wallet')}
-            disabled={userWalletBalance < amount}
-            className={`flex items-center justify-between w-full p-4 rounded-2xl border-2 transition-all ${paymentMethod === 'wallet' ? 'border-[#0A1128] bg-slate-50' : 'border-slate-100 hover:border-slate-300'} ${userWalletBalance < amount ? 'opacity-50 cursor-not-allowed' : ''}`}
+            disabled={userWalletBalance < amount || isLoading}
+            className={`flex items-center justify-between w-full p-4 rounded-2xl border-2 transition-all ${paymentMethod === 'wallet' ? 'border-[#0A1128] bg-slate-50' : 'border-slate-100 hover:border-slate-300'} ${userWalletBalance < amount || isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             <div className="flex items-center gap-3">
               <Wallet size={24} className={paymentMethod === 'wallet' ? 'text-[#0A1128]' : 'text-slate-400'} />
@@ -227,20 +216,21 @@ export const CheckoutModal: React.FC<{
           </div>
         )}
 
-        {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-2xl text-red-600 text-sm font-bold text-center leading-snug">
-            {error}
+        {errorMessage && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-2xl text-red-600 text-sm font-bold text-center leading-snug flex items-center justify-center gap-2">
+            <AlertCircle size={18} className="shrink-0 text-red-500" />
+            <span>{errorMessage}</span>
           </div>
         )}
 
         <button 
           type="button" 
           onClick={handlePay} 
-          disabled={isProcessing} 
+          disabled={isLoading} 
           className="w-full bg-[#0A1128] text-white py-5 rounded-2xl font-black uppercase tracking-widest hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
         >
-          {isProcessing ? <Clock className="animate-spin" size={20} /> : <Lock size={20} />}
-          {isProcessing ? 'Pripravljam varno plačilo...' : 'Nadaljuj na plačilo'}
+          {isLoading ? <Clock className="animate-spin" size={20} /> : <Lock size={20} />}
+          {isLoading ? (t('processing') || 'Obdelujem...') : 'Nadaljuj na plačilo'}
         </button>
       </div>
     </div>

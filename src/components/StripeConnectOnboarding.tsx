@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { AlertCircle, CheckCircle2 } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Clock } from 'lucide-react';
+import { getStripeAccountLinkAction } from '@/app/actions/index';
 
 interface Props {
   userId: string;
@@ -11,6 +12,7 @@ interface Props {
 
 export const StripeConnectOnboarding: React.FC<Props> = ({ userId, isComplete, onComplete, t, language }) => {
   const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const popupRef = useRef<Window | null>(null);
   const pollTimerRef = useRef<any>(null);
 
@@ -67,26 +69,21 @@ export const StripeConnectOnboarding: React.FC<Props> = ({ userId, isComplete, o
     }
 
     setLoading(true);
+    setErrorMessage(null);
     try {
       const callbackUrl = `${window.location.origin}/stripe-callback.html`;
-      const response = await fetch('/api/stripe-account-link', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          userId: userId, 
-          user_id: userId,
-          return_url: `${callbackUrl}?stripe=success`,
-          refresh_url: `${callbackUrl}?stripe=refresh`
-        })
+      const res = await getStripeAccountLinkAction({ 
+        userId: userId, 
+        user_id: userId,
+        return_url: `${callbackUrl}?stripe=success`,
+        refresh_url: `${callbackUrl}?stripe=refresh`
       });
       
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error("API returned non-200 response:", response.status, errorText);
-        throw new Error(`Server status ${response.status}: ${errorText || 'Failed to fetch link'}`);
+      if (!res.success || !res.data?.url) {
+        throw new Error(res.error || 'Napaka pri pridobivanju povezave za Stripe račun');
       }
 
-      const data = await response.json();
+      const data = res.data;
       
       if (data && data.url) {
         if (popup && !popup.closed) {
@@ -111,7 +108,7 @@ export const StripeConnectOnboarding: React.FC<Props> = ({ userId, isComplete, o
     } catch (err: any) {
       console.error(err);
       if (popup && !popup.closed) popup.close();
-      alert(err.message || 'Napaka pri povezovanju s Stripe sistemom');
+      setErrorMessage(err.message || 'Napaka pri povezovanju s Stripe sistemom');
     } finally {
       setLoading(false);
     }
@@ -131,15 +128,26 @@ export const StripeConnectOnboarding: React.FC<Props> = ({ userId, isComplete, o
             <p className="text-xs font-bold text-slate-500 mt-2 max-w-sm">
                 {isComplete ? t('stripeConnectedDesc') : t('stripeUnconnectedDesc')}
             </p>
+            {errorMessage && (
+              <p className="text-xs font-bold text-red-600 mt-2 flex items-center gap-1.5">
+                <AlertCircle size={14} className="shrink-0" />
+                {errorMessage}
+              </p>
+            )}
           </div>
         </div>
         <button
           type="button"
           disabled={loading}
           onClick={handleStartOnboarding}
-          className="shrink-0 bg-[#0A1128] text-white px-6 py-3 rounded-xl font-black uppercase tracking-widest text-xs hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-colors shadow-lg disabled:opacity-50"
+          className="shrink-0 bg-[#0A1128] text-white px-6 py-3 rounded-xl font-black uppercase tracking-widest text-xs hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-colors shadow-lg disabled:opacity-50 flex items-center gap-2"
         >
-          {loading ? (t('loading') || 'Nalaganje...') : isComplete ? t('manageBankAccount') : t('startVerification')}
+          {loading ? (
+            <>
+              <Clock size={16} className="animate-spin" />
+              <span>{t('loading') || 'Nalaganje...'}</span>
+            </>
+          ) : isComplete ? t('manageBankAccount') : t('startVerification')}
         </button>
       </div>
     </div>

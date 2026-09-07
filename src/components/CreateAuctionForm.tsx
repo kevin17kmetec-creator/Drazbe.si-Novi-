@@ -90,6 +90,7 @@ export const CreateAuctionForm: React.FC<{
     const [previews, setPreviews] = useState<string[]>([]);
     const [isDragging, setIsDragging] = useState(false);
     const [uploading, setUploading] = useState(false);
+    const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [uploadProgress, setUploadProgress] = useState<Record<number, { state: string, percent: number }>>({});
     const [enhancingIndex, setEnhancingIndex] = useState<number | null>(null);
     const [isCompressing, setIsCompressing] = useState(false);
@@ -330,6 +331,7 @@ export const CreateAuctionForm: React.FC<{
         const selectedEnd = new Date(`${formData.endDate}T${formData.endTime}`);
         
         setUploading(true);
+        setErrorMessage(null);
         setUploadProgress({});
         cancelRef.current = false;
         uploadedFilesRef.current = [];
@@ -443,6 +445,7 @@ export const CreateAuctionForm: React.FC<{
             }
             console.error("Error publishing auction:", error); 
             const errorMsg = error.message || JSON.stringify(error);
+            setErrorMessage(errorMsg);
             toast.error(`${t('imageUploadError')} ${errorMsg}`, { duration: 5000 });
         } finally { 
             activeUploadTaskRef.current = null;
@@ -718,6 +721,13 @@ export const CreateAuctionForm: React.FC<{
                         </button>
                     )}
 
+                    
+                    {errorMessage && (
+                        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-2xl text-red-600 text-sm font-bold flex items-center gap-3">
+                            <AlertCircle size={20} className="shrink-0 text-red-500" />
+                            <span>{errorMessage}</span>
+                        </div>
+                    )}
                     
                     <div className={isPackageMode ? "grid grid-cols-1 md:grid-cols-2 gap-4" : ""}>
                         {isPackageMode && onSaveDraft && (
