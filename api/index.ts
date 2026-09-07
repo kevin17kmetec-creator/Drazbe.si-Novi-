@@ -1,4 +1,4 @@
-import app from '../server.js';
+import app from '@/server';
 export const config = {
   api: {
     bodyParser: false,

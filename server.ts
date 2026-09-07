@@ -1,9 +1,7 @@
-import { initializeApp as initAdminApp, cert } from 'firebase-admin/app';
-import { getFirestore as getAdminFirestore } from 'firebase-admin/firestore';
 import { GoogleGenAI } from '@google/genai';
 
 import { getFirestore, collection, doc, getDoc, getDocs, updateDoc, setDoc, addDoc, query, where, limit, writeBatch, runTransaction } from 'firebase/firestore';
-import { db, storage } from './src/lib/firebase.js';
+import { db, storage } from '@/src/lib/firebase';
 
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import express from "express";
@@ -13,14 +11,14 @@ import Stripe from "stripe";
 import path from "path";
 
 import { Resend } from 'resend';
-import { generateInvoicePDF } from './src/lib/pdfGenerator.js';
-import { sendOutbidNotification, sendEndingSoonNotification, sendAuctionWonNotification, sendPaymentReminderNotification } from './src/server/emailService.js';
-import { processAuctionCrons } from './src/server/cronProcessor.js';
+import { generateInvoicePDF } from '@/src/lib/pdfGenerator';
+import { sendOutbidNotification, sendEndingSoonNotification, sendAuctionWonNotification, sendPaymentReminderNotification } from '@/src/server/emailService';
+import { processAuctionCrons } from '@/src/server/cronProcessor';
 import dotenv from 'dotenv';
 
 async function safeGetDocs(queryRef: any) {
   try {
-    return await safeGetDocs(queryRef);
+    return await getDocs(queryRef);
   } catch (error: any) {
     console.warn("[safeGetDocs] Failed to fetch docs:", error.message);
     return { empty: true, docs: [] } as any;
@@ -30,7 +28,7 @@ async function safeGetDocs(queryRef: any) {
 
 async function safeGetDoc(docRef: any) {
   try {
-    return await safeGetDoc(docRef);
+    return await getDoc(docRef);
   } catch (error: any) {
     console.warn("[safeGetDoc] Failed to fetch doc:", error.message);
     return { exists: () => false, data: () => null } as any;

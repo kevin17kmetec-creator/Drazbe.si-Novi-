@@ -1,8 +1,8 @@
-import { db } from '../lib/firebase.js';
+import { db } from '@/src/lib/firebase';
 
 async function safeGetDoc(docRef: any) {
   try {
-    return await safeGetDoc(docRef);
+    return await getDoc(docRef);
   } catch (error: any) {
     console.warn("[safeGetDoc] Failed to fetch doc:", error.message);
     return { exists: () => false, data: () => null } as any;
@@ -10,7 +10,7 @@ async function safeGetDoc(docRef: any) {
 }
 async function safeGetDocs(queryRef: any) {
   try {
-    return await safeGetDocs(queryRef);
+    return await getDocs(queryRef);
   } catch (error: any) {
     console.warn("[safeGetDocs] Failed to fetch docs:", error.message);
     return { empty: true, docs: [] } as any;
@@ -31,7 +31,7 @@ import {
   sendEndingSoonNotification,
   sendAuctionWonNotification,
   sendPaymentReminderNotification,
-} from './emailService.js';
+} from '@/src/server/emailService';
 
 export interface CronRunResult {
   success: boolean;
