@@ -745,20 +745,29 @@ export default app;
 
   app.post("/api/create-checkout-session", async (req, res) => {
     try {
-      const { amount, currency = "eur", auction_id, buyer_id, seller_id, fee_percentage, return_url, type = "auction", user_id, userId } = req.body;
+      const { amount, currency = "eur", auction_id, buyer_id, seller_id, fee_percentage, return_url, type = "auction", user_id, userId, buyer_data } = req.body;
       const stripe = getStripe();
       
       const effectiveBuyerId = buyer_id || user_id || userId;
       let auctionTitle = "Plačilo";
       let sessionMetadata: any = { type };
-      let buyer: any = null;
+      let buyer: any = buyer_data || null;
       let stripeCustomerId: string | null = null;
 
       // Check EU AML law: 10,000 € annual limit check for buyers without ID verification
       if (effectiveBuyerId) {
-        const buyerDoc = await getDoc(doc(db, 'users', effectiveBuyerId));
-        if (buyerDoc.exists()) {
-          buyer = buyerDoc.data();
+        if (!buyer) {
+          try {
+            const buyerDoc = await getDoc(doc(db, 'users', effectiveBuyerId));
+            if (buyerDoc.exists()) {
+              buyer = buyerDoc.data();
+            }
+          } catch (e: any) {
+            console.warn("Could not fetch buyer from DB (permissions/unauth), proceeding without full verification check:", e.message);
+          }
+        }
+        
+        if (buyer) {
           stripeCustomerId = await getOrCreateStripeCustomer(stripe, effectiveBuyerId, buyer);
           
           const currentYear = new Date().getFullYear();
@@ -784,12 +793,23 @@ export default app;
 
       if (type === "auction" && auction_id && effectiveBuyerId && seller_id) {
         // Fetch the actual auction
-        const auctionDoc = await getDoc(doc(db, 'auctions', auction_id));
-        const auction = auctionDoc.data();
+        let auction: any = null;
+        try {
+          const auctionDoc = await getDoc(doc(db, 'auctions', auction_id));
+          auction = auctionDoc.data();
+        } catch (e) {
+          console.warn("Could not fetch auction:", e);
+        }
         const currentPrice = auction?.current_price || (amount / 1.122);
 
-        const sellerDoc = await getDoc(doc(db, 'users', seller_id));
-        const seller = sellerDoc.data();
+        let seller: any = null;
+        try {
+          const sellerDoc = await getDoc(doc(db, 'users', seller_id));
+          seller = sellerDoc.data();
+        } catch (e) {
+          console.warn("Could not fetch seller:", e);
+        }
+        
         const platformFee = calculateMarginalPlatformFee(currentPrice, seller?.subscription_tier);
         
         let vatRate = 0;

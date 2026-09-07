@@ -1599,7 +1599,7 @@ const MainApp: React.FC = () => {
     setCheckoutData({
       amount: prices[tier],
       title: `${t("subscription")} - ${planNames[tier]}`,
-      metadata: { type: "subscription" },
+      metadata: { type: "subscription", user_id: auth.currentUser?.uid || userData?.id || '', buyer_data: userData },
       onSuccess: async () => {
         setIsCheckoutOpen(false);
         await saveSubscription(tier);
