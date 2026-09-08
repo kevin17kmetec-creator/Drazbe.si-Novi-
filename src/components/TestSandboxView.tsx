@@ -476,10 +476,15 @@ export const TestSandboxView: React.FC<TestSandboxViewProps> = ({
         } catch (_) {}
       }
 
+      const clientKey = `fund_${userData.id}_${Date.now()}`;
       const res = await fetch('/api/test/add-test-funds', {
         method: 'POST',
         headers,
-        body: JSON.stringify({ user_id: userData.id, amount: 100 })
+        body: JSON.stringify({
+          user_id: userData.id,
+          amount: 100,
+          idempotencyKey: clientKey
+        })
       });
       let data: any;
       const contentType = res.headers.get('content-type') || '';
@@ -489,11 +494,12 @@ export const TestSandboxView: React.FC<TestSandboxViewProps> = ({
         const text = await res.text();
         throw new Error(`Strežnik (${res.status}): ${text.slice(0, 150)}`);
       }
-      if (!res.ok) throw new Error(data.error || 'Napaka');
-      toast.success('Uspešno dodano +100,00 € testnega dobroimetja!');
+      if (!res.ok) throw new Error(data.error || 'Napaka pri testnem plačilu');
+      const piSnippet = data.stripe_payment_intent_id ? ` (Stripe: ${data.stripe_payment_intent_id.slice(0, 12)}...)` : '';
+      toast.success(`Stripe testno plačilo uspešno! Dodano +100,00 € dobroimetja${piSnippet}`);
       if (onRefreshUserData) onRefreshUserData();
     } catch (e: any) {
-      toast.error(e.message || 'Napaka pri dodajanju sredstev');
+      toast.error(e.message || 'Napaka pri dodajanju testnih sredstev');
     } finally {
       setIsAddingFunds(false);
     }

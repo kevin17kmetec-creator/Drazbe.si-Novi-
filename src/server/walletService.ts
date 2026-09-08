@@ -340,4 +340,120 @@ export async function creditTestFunds(
   });
 }
 
+/**
+ * Credit real Stripe test-mode deposit to user wallet.
+ * Strictly idempotent: checks both idempotency_key and stripe_payment_intent_id.
+ * Updates available_cents and keeps legacy wallet_balance synchronized.
+ * Creates an official wallet_transactions entry with type: 'deposit'.
+ */
+export async function creditWalletDepositFromStripe(
+  userId: string,
+  amountCents: number,
+  stripePaymentIntentId: string,
+  meta?: {
+    description?: string;
+    environment?: string;
+    idempotencyKey?: string;
+    [key: string]: any;
+  }
+) {
+  if (amountCents <= 0) {
+    throw new Error("Deposit amount must be positive integer in cents");
+  }
+  if (!stripePaymentIntentId) {
+    throw new Error("Stripe PaymentIntent ID is required for deposit credit");
+  }
+
+  const idempotencyKey = meta?.idempotencyKey || `stripe_deposit_${stripePaymentIntentId}`;
+
+  return await adminDb.runTransaction(async (t) => {
+    // 1. Idempotency Check A: By idempotency_key
+    const existingByIdempotency = await t.get(
+      adminDb.collection('wallet_transactions').where('idempotency_key', '==', idempotencyKey).limit(1)
+    );
+    if (!existingByIdempotency.empty) {
+      const existingDoc = existingByIdempotency.docs[0];
+      const data = existingDoc.data() || {};
+      const userRef = adminDb.collection('users').doc(userId);
+      const userDoc = await t.get(userRef);
+      const userData = userDoc.data() || {};
+      const wallet = ensureWalletMigrated(t, userRef, userData);
+      return {
+        transaction_id: existingDoc.id,
+        amount_cents: data.amount_cents || amountCents,
+        available_cents: wallet.available_cents,
+        wallet_balance: Math.max(0, wallet.available_cents / 100),
+        already_processed: true
+      };
+    }
+
+    // Idempotency Check B: By stripe_payment_intent_id
+    const existingByPi = await t.get(
+      adminDb.collection('wallet_transactions')
+        .where('stripe_payment_intent_id', '==', stripePaymentIntentId)
+        .where('type', '==', 'deposit')
+        .limit(1)
+    );
+    if (!existingByPi.empty) {
+      const existingDoc = existingByPi.docs[0];
+      const data = existingDoc.data() || {};
+      const userRef = adminDb.collection('users').doc(userId);
+      const userDoc = await t.get(userRef);
+      const userData = userDoc.data() || {};
+      const wallet = ensureWalletMigrated(t, userRef, userData);
+      return {
+        transaction_id: existingDoc.id,
+        amount_cents: data.amount_cents || amountCents,
+        available_cents: wallet.available_cents,
+        wallet_balance: Math.max(0, wallet.available_cents / 100),
+        already_processed: true
+      };
+    }
+
+    // 2. Fetch and migrate user wallet
+    const userRef = adminDb.collection('users').doc(userId);
+    const userDoc = await t.get(userRef);
+    if (!userDoc.exists) {
+      throw new Error("Uporabnik ne obstaja v bazi");
+    }
+    const userData = userDoc.data() || {};
+    const wallet = ensureWalletMigrated(t, userRef, userData);
+
+    // 3. Atomically update balances
+    const newAvailableCents = wallet.available_cents + amountCents;
+    const newLegacyBalance = Math.max(0, newAvailableCents / 100);
+
+    t.update(userRef, {
+      available_cents: FieldValue.increment(amountCents),
+      wallet_balance: newLegacyBalance
+    });
+
+    // 4. Create ledger entry in wallet_transactions
+    const txRef = adminDb.collection('wallet_transactions').doc();
+    const entry: any = {
+      transaction_id: txRef.id,
+      user_id: userId,
+      type: 'deposit',
+      amount_cents: amountCents,
+      amount: amountCents / 100,
+      status: 'completed',
+      stripe_payment_intent_id: stripePaymentIntentId,
+      description: meta?.description || 'Platform test balance funding',
+      idempotency_key: idempotencyKey,
+      created_at: FieldValue.serverTimestamp(),
+      environment: meta?.environment || 'test',
+      ...meta
+    };
+    t.set(txRef, entry);
+
+    return {
+      transaction_id: txRef.id,
+      amount_cents: amountCents,
+      available_cents: newAvailableCents,
+      wallet_balance: newLegacyBalance,
+      already_processed: false
+    };
+  });
+}
+
 

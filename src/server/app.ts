@@ -7,6 +7,7 @@ import {
   releaseHeldFunds,
   ensureWalletMigrated,
   creditTestFunds,
+  creditWalletDepositFromStripe,
   getUserWallet
 } from './walletService';
 import { parseAmountToCents, calculateCheckoutTotals, calculateMarginalPlatformFee } from './moneyUtils';
@@ -292,7 +293,31 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
     console.log('Payment event succeeded:', event.type, paymentId);
 
     try {
-      const { type, auction_id, buyer_id, seller_id, fee_percentage, user_id, package_id } = rawMetadata;
+      const { type, purpose, auction_id, buyer_id, seller_id, fee_percentage, user_id, package_id } = rawMetadata;
+
+      // Handle Test Wallet Funding from Stripe PaymentIntent
+      if (purpose === 'test_wallet_funding' || type === 'test_wallet_funding') {
+        const targetUserId = user_id || buyer_id;
+        const amountCents = isSession ? (sessionObj?.amount_total || 0) : (paymentIntent?.amount || 0);
+        const piId = isSession 
+          ? (typeof sessionObj?.payment_intent === 'string' ? sessionObj.payment_intent : sessionObj?.payment_intent?.id || sessionObj!.id)
+          : paymentIntent!.id;
+
+        if (targetUserId && amountCents > 0 && piId) {
+          console.log(`[stripe-webhook] eventId=${event.id} paymentIntentId=${piId} userId=${targetUserId} walletCredit=${amountCents}`);
+          const depositResult = await creditWalletDepositFromStripe(targetUserId, amountCents, piId, {
+            description: 'Platform test balance funding',
+            environment: 'test',
+            webhook_event_id: event.id,
+            idempotencyKey: `wallet_dep_${piId}`
+          });
+          console.log(`[stripe-webhook] eventId=${event.id} paymentIntentId=${piId} userId=${targetUserId} walletCredit=${amountCents} alreadyProcessed=${depositResult.already_processed}`);
+        } else {
+          console.warn('[stripe-webhook] Missing user_id or amount for test_wallet_funding:', { targetUserId, amountCents, piId });
+        }
+        res.json({ received: true });
+        return;
+      }
 
       if (type === 'subscription') {
         const targetUserId = user_id || buyer_id;
@@ -2250,38 +2275,81 @@ app.post("/api/test/test-payout", async (req, res) => {
 
 app.post("/api/test/add-test-funds", async (req, res) => {
   try {
+    const stripeKey = process.env.STRIPE_SECRET_KEY || '';
+    if (!stripeKey.startsWith('sk_test_')) {
+      return res.status(400).json({ error: "Ta funkcija je na voljo le v testnem načinu (Stripe Sandbox)." });
+    }
+
     let userId = req.body?.user_id;
     try {
       const authUid = await authenticateFirebaseUser(req);
       if (authUid) userId = authUid;
     } catch (_) {}
 
-    const { amount = 100 } = req.body || {};
-    if (!userId) return res.status(400).json({ error: "Manjka user_id" });
+    if (!userId) {
+      return res.status(401).json({ error: "Zahtevana je avtentikacija uporabnika ali veljaven user_id" });
+    }
 
+    const { amount = 100 } = req.body || {};
     const amountInCents = parseAmountToCents(amount);
     if (amountInCents <= 0) {
       return res.status(400).json({ error: "Znesek mora biti večji od 0" });
     }
 
-    const idempotencyKey = req.body?.idempotencyKey || `test_credit_${userId}_${Date.now()}`;
-    const result = await creditTestFunds(userId, amountInCents, idempotencyKey, {
-      description: req.body?.description || 'Testno dobroimetje (Sandbox)',
-      environment: 'sandbox'
+    const stripe = getStripe();
+    const clientKey = req.body?.idempotencyKey || `pi_test_${Date.now()}`;
+    const stripeIdempotencyKey = `stripe_pi_test_funding_${userId}_${clientKey}`;
+
+    // 1. Create and confirm real Stripe test PaymentIntent with official test card pm_card_visa
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: amountInCents,
+      currency: "eur",
+      payment_method: "pm_card_visa",
+      confirm: true,
+      return_url: "https://drazba.si/test-sandbox",
+      payment_method_types: ['card'],
+      description: "Platform test balance funding",
+      metadata: {
+        purpose: "test_wallet_funding",
+        user_id: userId,
+        environment: "test"
+      }
+    }, {
+      idempotencyKey: stripeIdempotencyKey
+    });
+
+    console.log(`[test-wallet-funding] userId=${userId} paymentIntentId=${paymentIntent.id} amountCents=${amountInCents} status=${paymentIntent.status}`);
+
+    if (paymentIntent.status !== 'succeeded') {
+      return res.status(400).json({
+        error: `Stripe testno plačilo ni uspelo (stanje: ${paymentIntent.status})`,
+        paymentIntentId: paymentIntent.id,
+        status: paymentIntent.status
+      });
+    }
+
+    // 2. Credit the wallet idempotently with real Stripe test deposit
+    const result = await creditWalletDepositFromStripe(userId, amountInCents, paymentIntent.id, {
+      description: "Platform test balance funding",
+      environment: "test",
+      idempotencyKey: `wallet_dep_${paymentIntent.id}`
     });
 
     res.json({
       success: true,
+      stripe_payment_intent_id: paymentIntent.id,
       transaction_id: result.transaction_id,
-      added_amount: amountInCents / 100,
-      added_cents: amountInCents,
+      amount: amountInCents / 100,
+      amount_cents: amountInCents,
       newBalance: result.wallet_balance,
       available_cents: result.available_cents,
-      wallet_balance: result.wallet_balance
+      wallet_balance: result.wallet_balance,
+      already_processed: result.already_processed
     });
   } catch (err: any) {
     console.error("Add test funds error:", err);
-    res.status(500).json({ error: err.message || "Napaka pri dodajanju testnih sredstev" });
+    const formatted = formatStripeError(err);
+    res.status(500).json({ error: formatted.userMessage || "Napaka pri izvedbi Stripe testnega plačila" });
   }
 });
 
