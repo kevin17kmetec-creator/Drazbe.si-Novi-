@@ -1,6 +1,6 @@
 import { adminDb, FieldValue } from '../lib/firebase-admin';
 
-export type WalletTxType = 'deposit' | 'withdrawal' | 'wallet_payment' | 'hold' | 'release' | 'refund' | 'migration';
+export type WalletTxType = 'deposit' | 'withdrawal' | 'wallet_payment' | 'hold' | 'release' | 'refund' | 'migration' | 'test_credit' | 'test_deposit' | 'payout';
 
 export interface WalletLedgerEntry {
   transaction_id: string;
@@ -243,4 +243,101 @@ export async function releaseHeldFunds(userId: string, amountCents: number, idem
     });
   });
 }
+
+/**
+ * Safely fetch user wallet data within an atomic transaction,
+ * ensuring automatic migration of legacy balances.
+ */
+export async function getUserWallet(userId: string) {
+  return await adminDb.runTransaction(async (t) => {
+    const userRef = adminDb.collection('users').doc(userId);
+    const userDoc = await t.get(userRef);
+    if (!userDoc.exists) throw new Error("User not found");
+    const userData = userDoc.data() || {};
+    return ensureWalletMigrated(t, userRef, userData);
+  });
+}
+
+/**
+ * Credit realistic test/sandbox funds to a user's wallet.
+ * Operates in cents, migrates legacy balance if needed, updates both
+ * available_cents and wallet_balance atomically, and records an official
+ * wallet_transactions ledger entry.
+ */
+export async function creditTestFunds(
+  userId: string,
+  amountCents: number,
+  idempotencyKey: string,
+  meta?: any
+) {
+  if (amountCents <= 0) {
+    throw new Error("Amount must be positive integer in cents");
+  }
+
+  return await adminDb.runTransaction(async (t) => {
+    // 1. Check idempotency
+    const existingQuery = await t.get(
+      adminDb.collection('wallet_transactions').where('idempotency_key', '==', idempotencyKey).limit(1)
+    );
+    if (!existingQuery.empty) {
+      const existingDoc = existingQuery.docs[0];
+      const data = existingDoc.data() || {};
+      const userRef = adminDb.collection('users').doc(userId);
+      const userDoc = await t.get(userRef);
+      const userData = userDoc.data() || {};
+      const wallet = ensureWalletMigrated(t, userRef, userData);
+      return {
+        transaction_id: existingDoc.id,
+        amount_cents: data.amount_cents || amountCents,
+        available_cents: wallet.available_cents,
+        wallet_balance: Math.max(0, wallet.available_cents / 100),
+        already_processed: true
+      };
+    }
+
+    // 2. Fetch and migrate user wallet
+    const userRef = adminDb.collection('users').doc(userId);
+    const userDoc = await t.get(userRef);
+    if (!userDoc.exists) {
+      throw new Error("Uporabnik ne obstaja v bazi");
+    }
+    const userData = userDoc.data() || {};
+    const wallet = ensureWalletMigrated(t, userRef, userData);
+
+    // 3. Atomically update balances
+    const newAvailableCents = wallet.available_cents + amountCents;
+    const newLegacyBalance = Math.max(0, newAvailableCents / 100);
+
+    t.update(userRef, {
+      available_cents: FieldValue.increment(amountCents),
+      wallet_balance: newLegacyBalance
+    });
+
+    // 4. Create ledger entry in wallet_transactions
+    const txRef = adminDb.collection('wallet_transactions').doc();
+    const entry: any = {
+      transaction_id: txRef.id,
+      user_id: userId,
+      type: 'test_credit',
+      amount_cents: amountCents,
+      amount: amountCents / 100,
+      status: 'completed',
+      description: meta?.description || 'Testno dobroimetje (Sandbox)',
+      idempotency_key: idempotencyKey,
+      created_at: FieldValue.serverTimestamp(),
+      environment: 'sandbox',
+      ...meta
+    };
+    t.set(txRef, entry);
+
+    return {
+      transaction_id: txRef.id,
+      amount_cents: amountCents,
+      available_cents: newAvailableCents,
+      wallet_balance: newLegacyBalance,
+      already_processed: false
+    };
+  });
+}
+
 

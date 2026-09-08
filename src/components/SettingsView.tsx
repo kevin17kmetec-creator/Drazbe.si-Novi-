@@ -478,14 +478,19 @@ export const SettingsView: React.FC<{
                       </div>
                       <div className="relative z-10">
                         <p className="text-[10px] font-black uppercase tracking-widest text-[#FEBA4F] mb-1">{t('currentBalance')}</p>
-                        <p className="text-5xl font-black">€{Number(user?.wallet_balance || 0).toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                        <p className="text-5xl font-black">€{((user?.available_cents !== undefined ? user.available_cents / 100 : Number(user?.wallet_balance)) || 0).toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                        {Boolean(user?.held_cents) && (
+                          <p className="text-xs font-semibold text-slate-300 mt-1">
+                            (Zadržano: €{((user.held_cents || 0) / 100).toLocaleString('sl-SI', { minimumFractionDigits: 2 })})
+                          </p>
+                        )}
                       </div>
                       <div className="relative z-10">
                         <button 
                           type="button"
                           disabled={isWithdrawing}
                           onClick={async () => {
-                            const balance = Number(user?.wallet_balance || 0);
+                            const balance = user?.available_cents !== undefined ? user.available_cents / 100 : Number(user?.wallet_balance || 0);
                             if (balance <= 0) {
                               toast.error(t('insufficientFunds') || "Ni zadostnih sredstev za izplačilo.");
                               return;

@@ -35,6 +35,411 @@ __export(app_exports, {
 module.exports = __toCommonJS(app_exports);
 var import_express = __toESM(require("express"), 1);
 
+// src/lib/firebase-admin.ts
+var import_app = require("firebase-admin/app");
+var import_firestore = require("firebase-admin/firestore");
+var import_storage = require("firebase-admin/storage");
+var adminApp = null;
+var adminDbInstance = null;
+var adminStorageInstance = null;
+var adminAuthInstance = null;
+function getServiceAccountCredentials() {
+  const saEnv = process.env.FIREBASE_SERVICE_ACCOUNT;
+  if (!saEnv) return null;
+  if (typeof saEnv === "object") {
+    return saEnv;
+  }
+  if (typeof saEnv === "string") {
+    const trimmed = saEnv.trim();
+    if (trimmed.startsWith("{")) {
+      try {
+        return JSON.parse(trimmed);
+      } catch (e) {
+        console.error("[Firebase Admin] Failed to parse FIREBASE_SERVICE_ACCOUNT JSON:", e.message);
+      }
+    }
+    try {
+      const decoded = Buffer.from(trimmed, "base64").toString("utf8");
+      if (decoded.trim().startsWith("{")) {
+        return JSON.parse(decoded);
+      }
+    } catch (e) {
+    }
+  }
+  return null;
+}
+function getAdminApp() {
+  if (adminApp) return adminApp;
+  const existingApps = (0, import_app.getApps)();
+  if (existingApps.length > 0) {
+    adminApp = existingApps[0];
+    return adminApp;
+  }
+  const defaultBucket = process.env.FIREBASE_STORAGE_BUCKET || "drazbesi.firebasestorage.app";
+  const credentials = getServiceAccountCredentials();
+  try {
+    if (credentials) {
+      adminApp = (0, import_app.initializeApp)({
+        credential: (0, import_app.cert)(credentials),
+        storageBucket: defaultBucket,
+        projectId: credentials.project_id || "drazbesi"
+      });
+      console.log("[Firebase Admin] Initialized with service account for project:", credentials.project_id || "drazbesi");
+    } else {
+      adminApp = (0, import_app.initializeApp)({
+        credential: (0, import_app.applicationDefault)(),
+        storageBucket: defaultBucket,
+        projectId: process.env.FIREBASE_PROJECT_ID || "drazbesi"
+      });
+      console.log("[Firebase Admin] Initialized with application default credentials");
+    }
+  } catch (error) {
+    console.error("[Firebase Admin] Initialization error:", error.message);
+    if (!(0, import_app.getApps)().length) {
+      adminApp = (0, import_app.initializeApp)({
+        storageBucket: defaultBucket,
+        projectId: "drazbesi"
+      });
+    } else {
+      adminApp = (0, import_app.getApps)()[0];
+    }
+  }
+  return adminApp;
+}
+function getAdminDb() {
+  if (adminDbInstance) return adminDbInstance;
+  const app2 = getAdminApp();
+  adminDbInstance = (0, import_firestore.getFirestore)(app2);
+  return adminDbInstance;
+}
+function getAdminStorage() {
+  if (adminStorageInstance) return adminStorageInstance;
+  const app2 = getAdminApp();
+  adminStorageInstance = (0, import_storage.getStorage)(app2);
+  return adminStorageInstance;
+}
+function getAdminAuth() {
+  if (adminAuthInstance) return adminAuthInstance;
+  const app2 = getAdminApp();
+  const { getAuth: getFirebaseAuth } = require("firebase-admin/auth");
+  adminAuthInstance = getFirebaseAuth(app2);
+  return adminAuthInstance;
+}
+var adminDb = new Proxy({}, {
+  get(_target, prop) {
+    const firestore = getAdminDb();
+    const val = firestore[prop];
+    if (typeof val === "function") {
+      return val.bind(firestore);
+    }
+    return val;
+  }
+});
+var adminStorage = new Proxy({}, {
+  get(_target, prop) {
+    const storage = getAdminStorage();
+    const val = storage[prop];
+    if (typeof val === "function") {
+      return val.bind(storage);
+    }
+    return val;
+  }
+});
+var adminAuth = new Proxy({}, {
+  get(_target, prop) {
+    const auth = getAdminAuth();
+    const val = auth[prop];
+    if (typeof val === "function") {
+      return val.bind(auth);
+    }
+    return val;
+  }
+});
+async function uploadBufferToStorage(buffer, destinationPath, contentType = "application/pdf") {
+  try {
+    const storage = getAdminStorage();
+    const bucketName = process.env.FIREBASE_STORAGE_BUCKET || "drazbesi.firebasestorage.app";
+    const bucket = storage.bucket(bucketName);
+    const file = bucket.file(destinationPath);
+    await file.save(buffer, {
+      metadata: {
+        contentType,
+        metadata: {
+          firebaseStorageDownloadTokens: `${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
+        }
+      },
+      resumable: false
+    });
+    try {
+      await file.makePublic();
+      return `https://storage.googleapis.com/${bucket.name}/${destinationPath}`;
+    } catch (makePublicErr) {
+      const [signedUrl] = await file.getSignedUrl({
+        action: "read",
+        expires: "2030-01-01"
+      });
+      return signedUrl;
+    }
+  } catch (error) {
+    console.error(`[Firebase Admin Storage] Upload error for ${destinationPath}:`, error.message);
+    const bucketName = process.env.FIREBASE_STORAGE_BUCKET || "drazbesi.firebasestorage.app";
+    return `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodeURIComponent(destinationPath)}?alt=media`;
+  }
+}
+function isDocSnapshotExists(snap) {
+  if (!snap) return false;
+  if (typeof snap.exists === "function") return snap.exists();
+  return Boolean(snap.exists);
+}
+function getDocSnapshotData(snap) {
+  if (!snap) return null;
+  if (typeof snap.data === "function") return snap.data();
+  return snap.data || null;
+}
+
+// src/server/walletService.ts
+function ensureWalletMigrated(t, userRef, userData) {
+  if (userData.available_cents === void 0) {
+    const legacyBalance = Number(userData.wallet_balance) || 0;
+    const legacyCents = Math.round(legacyBalance * 100);
+    t.update(userRef, {
+      available_cents: legacyCents,
+      held_cents: 0,
+      reserved_cents: 0
+    });
+    if (legacyCents !== 0) {
+      const txRef = adminDb.collection("wallet_transactions").doc();
+      t.set(txRef, {
+        transaction_id: txRef.id,
+        user_id: userRef.id,
+        type: "migration",
+        amount_cents: legacyCents,
+        status: "completed",
+        idempotency_key: `migration_${userRef.id}`,
+        created_at: import_firestore.FieldValue.serverTimestamp()
+      });
+    }
+    return {
+      available_cents: legacyCents,
+      held_cents: 0,
+      reserved_cents: 0
+    };
+  }
+  return {
+    available_cents: userData.available_cents || 0,
+    held_cents: userData.held_cents || 0,
+    reserved_cents: userData.reserved_cents || 0
+  };
+}
+async function reserveWalletFunds(userId, amountCents, type, idempotencyKey, meta) {
+  if (amountCents <= 0) throw new Error("Amount must be positive");
+  return await adminDb.runTransaction(async (t) => {
+    const existingQuery = await t.get(
+      adminDb.collection("wallet_transactions").where("idempotency_key", "==", idempotencyKey).limit(1)
+    );
+    if (!existingQuery.empty) {
+      throw new Error("Idempotency key already exists");
+    }
+    const userRef = adminDb.collection("users").doc(userId);
+    const userDoc = await t.get(userRef);
+    if (!userDoc.exists) throw new Error("User not found");
+    const userData = userDoc.data() || {};
+    const wallet = ensureWalletMigrated(t, userRef, userData);
+    if (wallet.available_cents < amountCents) {
+      throw new Error("Insufficient available balance");
+    }
+    const newAvailable = wallet.available_cents - amountCents;
+    t.update(userRef, {
+      available_cents: import_firestore.FieldValue.increment(-amountCents),
+      reserved_cents: import_firestore.FieldValue.increment(amountCents),
+      wallet_balance: Math.max(0, newAvailable / 100)
+    });
+    const txRef = adminDb.collection("wallet_transactions").doc();
+    const entry = {
+      transaction_id: txRef.id,
+      user_id: userId,
+      type,
+      amount_cents: amountCents,
+      status: "pending",
+      idempotency_key: idempotencyKey,
+      created_at: import_firestore.FieldValue.serverTimestamp(),
+      ...meta
+    };
+    t.set(txRef, entry);
+    return txRef.id;
+  });
+}
+async function commitReservedFunds(txId, metaUpdates) {
+  await adminDb.runTransaction(async (t) => {
+    const txRef = adminDb.collection("wallet_transactions").doc(txId);
+    const txDoc = await t.get(txRef);
+    if (!txDoc.exists) throw new Error("Transaction not found");
+    const tx = txDoc.data();
+    if (tx.status !== "pending") throw new Error("Transaction is not pending");
+    const userRef = adminDb.collection("users").doc(tx.user_id);
+    t.update(userRef, {
+      reserved_cents: import_firestore.FieldValue.increment(-tx.amount_cents)
+    });
+    t.update(txRef, {
+      status: "completed",
+      ...metaUpdates
+    });
+  });
+}
+async function rollbackReservedFunds(txId) {
+  await adminDb.runTransaction(async (t) => {
+    const txRef = adminDb.collection("wallet_transactions").doc(txId);
+    const txDoc = await t.get(txRef);
+    if (!txDoc.exists) throw new Error("Transaction not found");
+    const tx = txDoc.data();
+    if (tx.status !== "pending") throw new Error("Transaction is not pending");
+    const userRef = adminDb.collection("users").doc(tx.user_id);
+    const userDoc = await t.get(userRef);
+    const userData = userDoc.data() || {};
+    const wallet = ensureWalletMigrated(t, userRef, userData);
+    const restoredAvailable = wallet.available_cents + tx.amount_cents;
+    t.update(userRef, {
+      reserved_cents: import_firestore.FieldValue.increment(-tx.amount_cents),
+      available_cents: import_firestore.FieldValue.increment(tx.amount_cents),
+      wallet_balance: Math.max(0, restoredAvailable / 100)
+    });
+    t.update(txRef, {
+      status: "failed"
+    });
+  });
+}
+async function addHeldFunds(userId, amountCents, idempotencyKey, meta) {
+  if (amountCents <= 0) throw new Error("Amount must be positive");
+  await adminDb.runTransaction(async (t) => {
+    const existingQuery = await t.get(
+      adminDb.collection("wallet_transactions").where("idempotency_key", "==", idempotencyKey).limit(1)
+    );
+    if (!existingQuery.empty) return;
+    const userRef = adminDb.collection("users").doc(userId);
+    const userDoc = await t.get(userRef);
+    if (!userDoc.exists) throw new Error("User not found");
+    const userData = userDoc.data() || {};
+    ensureWalletMigrated(t, userRef, userData);
+    t.update(userRef, {
+      held_cents: import_firestore.FieldValue.increment(amountCents)
+    });
+    const txRef = adminDb.collection("wallet_transactions").doc();
+    t.set(txRef, {
+      transaction_id: txRef.id,
+      user_id: userId,
+      type: "hold",
+      amount_cents: amountCents,
+      status: "completed",
+      idempotency_key: idempotencyKey,
+      created_at: import_firestore.FieldValue.serverTimestamp(),
+      ...meta
+    });
+  });
+}
+async function releaseHeldFunds(userId, amountCents, idempotencyKey, meta) {
+  if (amountCents <= 0) throw new Error("Amount must be positive");
+  await adminDb.runTransaction(async (t) => {
+    const existingQuery = await t.get(
+      adminDb.collection("wallet_transactions").where("idempotency_key", "==", idempotencyKey).limit(1)
+    );
+    if (!existingQuery.empty) return;
+    const userRef = adminDb.collection("users").doc(userId);
+    const userDoc = await t.get(userRef);
+    if (!userDoc.exists) throw new Error("User not found");
+    const userData = userDoc.data() || {};
+    const wallet = ensureWalletMigrated(t, userRef, userData);
+    if (wallet.held_cents < amountCents) {
+      throw new Error("Insufficient held balance");
+    }
+    const newAvailable = wallet.available_cents + amountCents;
+    t.update(userRef, {
+      held_cents: import_firestore.FieldValue.increment(-amountCents),
+      available_cents: import_firestore.FieldValue.increment(amountCents),
+      wallet_balance: Math.max(0, newAvailable / 100)
+    });
+    const txRef = adminDb.collection("wallet_transactions").doc();
+    t.set(txRef, {
+      transaction_id: txRef.id,
+      user_id: userId,
+      type: "release",
+      amount_cents: amountCents,
+      status: "completed",
+      idempotency_key: idempotencyKey,
+      created_at: import_firestore.FieldValue.serverTimestamp(),
+      ...meta
+    });
+  });
+}
+async function getUserWallet(userId) {
+  return await adminDb.runTransaction(async (t) => {
+    const userRef = adminDb.collection("users").doc(userId);
+    const userDoc = await t.get(userRef);
+    if (!userDoc.exists) throw new Error("User not found");
+    const userData = userDoc.data() || {};
+    return ensureWalletMigrated(t, userRef, userData);
+  });
+}
+async function creditTestFunds(userId, amountCents, idempotencyKey, meta) {
+  if (amountCents <= 0) {
+    throw new Error("Amount must be positive integer in cents");
+  }
+  return await adminDb.runTransaction(async (t) => {
+    const existingQuery = await t.get(
+      adminDb.collection("wallet_transactions").where("idempotency_key", "==", idempotencyKey).limit(1)
+    );
+    if (!existingQuery.empty) {
+      const existingDoc = existingQuery.docs[0];
+      const data = existingDoc.data() || {};
+      const userRef2 = adminDb.collection("users").doc(userId);
+      const userDoc2 = await t.get(userRef2);
+      const userData2 = userDoc2.data() || {};
+      const wallet2 = ensureWalletMigrated(t, userRef2, userData2);
+      return {
+        transaction_id: existingDoc.id,
+        amount_cents: data.amount_cents || amountCents,
+        available_cents: wallet2.available_cents,
+        wallet_balance: Math.max(0, wallet2.available_cents / 100),
+        already_processed: true
+      };
+    }
+    const userRef = adminDb.collection("users").doc(userId);
+    const userDoc = await t.get(userRef);
+    if (!userDoc.exists) {
+      throw new Error("Uporabnik ne obstaja v bazi");
+    }
+    const userData = userDoc.data() || {};
+    const wallet = ensureWalletMigrated(t, userRef, userData);
+    const newAvailableCents = wallet.available_cents + amountCents;
+    const newLegacyBalance = Math.max(0, newAvailableCents / 100);
+    t.update(userRef, {
+      available_cents: import_firestore.FieldValue.increment(amountCents),
+      wallet_balance: newLegacyBalance
+    });
+    const txRef = adminDb.collection("wallet_transactions").doc();
+    const entry = {
+      transaction_id: txRef.id,
+      user_id: userId,
+      type: "test_credit",
+      amount_cents: amountCents,
+      amount: amountCents / 100,
+      status: "completed",
+      description: meta?.description || "Testno dobroimetje (Sandbox)",
+      idempotency_key: idempotencyKey,
+      created_at: import_firestore.FieldValue.serverTimestamp(),
+      environment: "sandbox",
+      ...meta
+    };
+    t.set(txRef, entry);
+    return {
+      transaction_id: txRef.id,
+      amount_cents: amountCents,
+      available_cents: newAvailableCents,
+      wallet_balance: newLegacyBalance,
+      already_processed: false
+    };
+  });
+}
+
 // src/server/moneyUtils.ts
 function parseAmountToCents(val) {
   if (val === void 0 || val === null) return 0;
@@ -85,6 +490,169 @@ function calculateCheckoutTotals(itemPriceInCents, sellerSubscriptionTier) {
     platformFeeInCents,
     vatInCents,
     buyerTotalInCents
+  };
+}
+
+// src/server/authHelper.ts
+var AuthenticationError = class extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "AuthenticationError";
+    this.statusCode = 401;
+  }
+};
+async function authenticateFirebaseUser(req) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || typeof authHeader !== "string") {
+    throw new AuthenticationError("Missing Authorization header");
+  }
+  const parts = authHeader.trim().split(/\s+/);
+  if (parts.length !== 2 || parts[0] !== "Bearer" || !parts[1]) {
+    throw new AuthenticationError("Malformed Authorization header");
+  }
+  const token = parts[1];
+  try {
+    const decodedToken = await adminAuth.verifyIdToken(token);
+    if (!decodedToken || !decodedToken.uid) {
+      throw new AuthenticationError("Invalid token payload");
+    }
+    return decodedToken.uid;
+  } catch (err) {
+    console.warn("[AUTH] Authentication verification failed");
+    throw new AuthenticationError("Invalid or expired token");
+  }
+}
+
+// src/server/stripeHelper.ts
+function formatStripeError(err) {
+  const type = err.type || err.raw?.type;
+  const code = err.code || err.raw?.code;
+  const decline_code = err.decline_code || err.raw?.decline_code;
+  const param = err.param || err.raw?.param;
+  const requestId = err.requestId || err.raw?.requestId;
+  const statusCode = err.statusCode || err.status;
+  const rawMessage = err.message || "";
+  let userMessage = "Pri obdelavi izpla\u010Dila preko sistema Stripe je pri\u0161lo do napake.";
+  if (code === "balance_insufficient" || rawMessage.toLowerCase().includes("insufficient funds")) {
+    userMessage = "Nezadostno razpolo\u017Eljivo stanje na platformskem ra\u010Dunu Stripe za izvedbo nakazila.";
+  } else if (rawMessage.includes("transfers") && (rawMessage.includes("capabilities") || rawMessage.includes("inactive"))) {
+    userMessage = "Prejemni\u0161ki Stripe ra\u010Dun nima aktivne zmo\u017Enosti nakazil ('transfers'). Za prejem sredstev je potrebno zaklju\u010Diti Stripe onboarding.";
+  } else if (rawMessage.includes("payouts are not enabled") || rawMessage.includes("payouts_not_enabled")) {
+    userMessage = "Izpla\u010Dila na prejemni\u0161kem Stripe ra\u010Dunu \u0161e niso aktivirana.";
+  } else if (code === "account_invalid" || rawMessage.includes("No such destination")) {
+    userMessage = "Povezani Stripe ra\u010Dun prejemnika ne obstaja ali ni veljaven.";
+  } else if (code === "card_declined") {
+    userMessage = `Pla\u010Dilo zavrnjeno s strani izdajatelja kartice (${decline_code || "splo\u0161na zavrnitev"}).`;
+  } else if (rawMessage) {
+    const sanitized = rawMessage.replace(/sk_(test|live)_[0-9a-zA-Z]+/g, "[REDACTED]");
+    userMessage = `Stripe napaka: ${sanitized}`;
+  }
+  return {
+    type,
+    code,
+    decline_code,
+    param,
+    requestId,
+    statusCode,
+    userMessage
+  };
+}
+async function ensurePlatformTestBalance(stripe, requiredCents) {
+  try {
+    const isTestMode = (process.env.STRIPE_SECRET_KEY || "").startsWith("sk_test_");
+    if (!isTestMode) {
+      return { toppedUp: false, availableCents: 0 };
+    }
+    const balance = await stripe.balance.retrieve();
+    const eurAvailable = balance.available.find((b) => b.currency.toLowerCase() === "eur");
+    const availableCents = eurAvailable ? eurAvailable.amount : 0;
+    if (availableCents < requiredCents) {
+      const topupAmount = Math.max(requiredCents * 2, 5e4);
+      await stripe.charges.create({
+        amount: topupAmount,
+        currency: "eur",
+        source: "tok_bypassPending",
+        description: "Automated test platform balance funding for test transfers"
+      });
+      return { toppedUp: true, availableCents: availableCents + topupAmount };
+    }
+    return { toppedUp: false, availableCents };
+  } catch (err) {
+    console.warn("[ensurePlatformTestBalance] Top-up notice:", err.message);
+    return { toppedUp: false, availableCents: 0 };
+  }
+}
+async function diagnoseStripeTransferPrerequisites(stripe, user, amountInCents) {
+  const logs = [];
+  const issues = [];
+  const isTestMode = (process.env.STRIPE_SECRET_KEY || "").startsWith("sk_test_");
+  logs.push(`[1] Preverjanje Stripe okolja: ${isTestMode ? "TESTNI NA\u010CIN (sk_test_...)" : "PRODUKCIJSKI NA\u010CIN (sk_live_...)"}`);
+  let platformEurCents = 0;
+  try {
+    const balance = await stripe.balance.retrieve();
+    const eurAvailable = balance.available.find((b) => b.currency.toLowerCase() === "eur");
+    platformEurCents = eurAvailable ? eurAvailable.amount : 0;
+    logs.push(`[2] Stanje platforme Stripe (EUR na voljo): ${(platformEurCents / 100).toFixed(2)} \u20AC`);
+    if (platformEurCents < amountInCents) {
+      if (isTestMode) {
+        logs.push(`[!] Opozorilo: Stanje platforme (${(platformEurCents / 100).toFixed(2)} \u20AC) je ni\u017Eje od zneska izpla\u010Dila (${(amountInCents / 100).toFixed(2)} \u20AC). V testnem na\u010Dinu se bo izvedla samodejna polnitev.`);
+      } else {
+        issues.push("Nezadostno stanje na platformskem ra\u010Dunu Stripe.");
+      }
+    }
+  } catch (balErr) {
+    logs.push(`[2] Napaka pri branju stanja platforme: ${balErr.message}`);
+    issues.push(`Preverjanje stanja platforme ni uspelo: ${balErr.message}`);
+  }
+  const stripeAccountId = user.stripeAccountId || user.stripe_account_id;
+  if (!stripeAccountId) {
+    logs.push(`[3] Stripe Connect ra\u010Dun: NI POVEZAN (prodajalec nima nastavljenega ra\u010Duna)`);
+    issues.push("Stripe ra\u010Dun za izpla\u010Dila ni povezan.");
+    return {
+      ready: false,
+      issues,
+      logs,
+      details: {
+        isTestMode,
+        stripeAccountId: null,
+        platformEurCents
+      }
+    };
+  }
+  logs.push(`[3] Stripe Connect ra\u010Dun najden: ${stripeAccountId}`);
+  let stripeAccount = null;
+  try {
+    stripeAccount = await stripe.accounts.retrieve(stripeAccountId);
+    const transfersActive = stripeAccount.capabilities?.transfers === "active";
+    const payoutsEnabled = Boolean(stripeAccount.payouts_enabled);
+    const chargesEnabled = Boolean(stripeAccount.charges_enabled);
+    const detailsSubmitted = Boolean(stripeAccount.details_submitted);
+    logs.push(`[4] Podatki ra\u010Duna oddani (details_submitted): ${detailsSubmitted ? "DA" : "NE"}`);
+    logs.push(`[5] Zmo\u017Enost nakazil (capabilities.transfers): ${transfersActive ? "AKTIVNA (Active)" : `${stripeAccount.capabilities?.transfers || "inactive"}`}`);
+    logs.push(`[6] Izpla\u010Dila omogo\u010Dena (payouts_enabled): ${payoutsEnabled ? "DA" : "NE"}`);
+    logs.push(`[7] Pla\u010Dila omogo\u010Dena (charges_enabled): ${chargesEnabled ? "DA" : "NE"}`);
+    if (!transfersActive && !payoutsEnabled) {
+      issues.push("Prejemni\u0161ki Stripe ra\u010Dun nima aktivnih nakazil ('transfers'). Dokon\u010Dajte onboarding postopek.");
+    }
+  } catch (acctErr) {
+    logs.push(`[4] Napaka pri preverjanju ra\u010Duna ${stripeAccountId}: ${acctErr.message}`);
+    issues.push(`Povezanega Stripe ra\u010Duna ni bilo mogo\u010De preveriti: ${acctErr.message}`);
+  }
+  const ready = issues.length === 0;
+  logs.push(`[8] Skupna ocena pripravljenosti za izpla\u010Dilo: ${ready ? "PRIPRAVLJENO" : "POTREBNA DEJANJA"}`);
+  return {
+    ready,
+    issues,
+    logs,
+    details: {
+      isTestMode,
+      stripeAccountId,
+      platformEurCents,
+      accountType: stripeAccount?.type,
+      transfersCapability: stripeAccount?.capabilities?.transfers,
+      payoutsEnabled: stripeAccount?.payouts_enabled,
+      detailsSubmitted: stripeAccount?.details_submitted
+    }
   };
 }
 
@@ -755,150 +1323,6 @@ async function sendPaymentReminderNotification(params) {
   });
 }
 
-// src/lib/firebase-admin.ts
-var import_app = require("firebase-admin/app");
-var import_firestore = require("firebase-admin/firestore");
-var import_storage = require("firebase-admin/storage");
-var adminApp = null;
-var adminDbInstance = null;
-var adminStorageInstance = null;
-function getServiceAccountCredentials() {
-  const saEnv = process.env.FIREBASE_SERVICE_ACCOUNT;
-  if (!saEnv) return null;
-  if (typeof saEnv === "object") {
-    return saEnv;
-  }
-  if (typeof saEnv === "string") {
-    const trimmed = saEnv.trim();
-    if (trimmed.startsWith("{")) {
-      try {
-        return JSON.parse(trimmed);
-      } catch (e) {
-        console.error("[Firebase Admin] Failed to parse FIREBASE_SERVICE_ACCOUNT JSON:", e.message);
-      }
-    }
-    try {
-      const decoded = Buffer.from(trimmed, "base64").toString("utf8");
-      if (decoded.trim().startsWith("{")) {
-        return JSON.parse(decoded);
-      }
-    } catch (e) {
-    }
-  }
-  return null;
-}
-function getAdminApp() {
-  if (adminApp) return adminApp;
-  const existingApps = (0, import_app.getApps)();
-  if (existingApps.length > 0) {
-    adminApp = existingApps[0];
-    return adminApp;
-  }
-  const defaultBucket = process.env.FIREBASE_STORAGE_BUCKET || "drazbesi.firebasestorage.app";
-  const credentials = getServiceAccountCredentials();
-  try {
-    if (credentials) {
-      adminApp = (0, import_app.initializeApp)({
-        credential: (0, import_app.cert)(credentials),
-        storageBucket: defaultBucket,
-        projectId: credentials.project_id || "drazbesi"
-      });
-      console.log("[Firebase Admin] Initialized with service account for project:", credentials.project_id || "drazbesi");
-    } else {
-      adminApp = (0, import_app.initializeApp)({
-        credential: (0, import_app.applicationDefault)(),
-        storageBucket: defaultBucket,
-        projectId: process.env.FIREBASE_PROJECT_ID || "drazbesi"
-      });
-      console.log("[Firebase Admin] Initialized with application default credentials");
-    }
-  } catch (error) {
-    console.error("[Firebase Admin] Initialization error:", error.message);
-    if (!(0, import_app.getApps)().length) {
-      adminApp = (0, import_app.initializeApp)({
-        storageBucket: defaultBucket,
-        projectId: "drazbesi"
-      });
-    } else {
-      adminApp = (0, import_app.getApps)()[0];
-    }
-  }
-  return adminApp;
-}
-function getAdminDb() {
-  if (adminDbInstance) return adminDbInstance;
-  const app2 = getAdminApp();
-  adminDbInstance = (0, import_firestore.getFirestore)(app2);
-  return adminDbInstance;
-}
-function getAdminStorage() {
-  if (adminStorageInstance) return adminStorageInstance;
-  const app2 = getAdminApp();
-  adminStorageInstance = (0, import_storage.getStorage)(app2);
-  return adminStorageInstance;
-}
-var adminDb = new Proxy({}, {
-  get(_target, prop) {
-    const firestore = getAdminDb();
-    const val = firestore[prop];
-    if (typeof val === "function") {
-      return val.bind(firestore);
-    }
-    return val;
-  }
-});
-var adminStorage = new Proxy({}, {
-  get(_target, prop) {
-    const storage = getAdminStorage();
-    const val = storage[prop];
-    if (typeof val === "function") {
-      return val.bind(storage);
-    }
-    return val;
-  }
-});
-async function uploadBufferToStorage(buffer, destinationPath, contentType = "application/pdf") {
-  try {
-    const storage = getAdminStorage();
-    const bucketName = process.env.FIREBASE_STORAGE_BUCKET || "drazbesi.firebasestorage.app";
-    const bucket = storage.bucket(bucketName);
-    const file = bucket.file(destinationPath);
-    await file.save(buffer, {
-      metadata: {
-        contentType,
-        metadata: {
-          firebaseStorageDownloadTokens: `${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
-        }
-      },
-      resumable: false
-    });
-    try {
-      await file.makePublic();
-      return `https://storage.googleapis.com/${bucket.name}/${destinationPath}`;
-    } catch (makePublicErr) {
-      const [signedUrl] = await file.getSignedUrl({
-        action: "read",
-        expires: "2030-01-01"
-      });
-      return signedUrl;
-    }
-  } catch (error) {
-    console.error(`[Firebase Admin Storage] Upload error for ${destinationPath}:`, error.message);
-    const bucketName = process.env.FIREBASE_STORAGE_BUCKET || "drazbesi.firebasestorage.app";
-    return `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodeURIComponent(destinationPath)}?alt=media`;
-  }
-}
-function isDocSnapshotExists(snap) {
-  if (!snap) return false;
-  if (typeof snap.exists === "function") return snap.exists();
-  return Boolean(snap.exists);
-}
-function getDocSnapshotData(snap) {
-  if (!snap) return null;
-  if (typeof snap.data === "function") return snap.data();
-  return snap.data || null;
-}
-
 // src/server/cronProcessor.ts
 async function processAuctionCrons() {
   const now = /* @__PURE__ */ new Date();
@@ -1397,11 +1821,31 @@ app.post("/api/webhook", import_express.default.raw({ type: "application/json" }
         const targetUserId = user_id || buyer_id;
         console.log("Processing subscription payment for user", targetUserId);
         if (targetUserId && package_id) {
-          await adminDb.collection("users").doc(targetUserId).update({
+          const updateData = {
             subscription_tier: package_id,
             subscription_active: true,
             subscription_paid_at: (/* @__PURE__ */ new Date()).toISOString()
-          });
+          };
+          let paymentMethodId = null;
+          let customerId = null;
+          if (isSession && sessionObj?.payment_intent) {
+            const pi = typeof sessionObj.payment_intent === "string" ? await stripe.paymentIntents.retrieve(sessionObj.payment_intent) : sessionObj.payment_intent;
+            if (typeof pi === "object" && pi.payment_method) {
+              paymentMethodId = typeof pi.payment_method === "string" ? pi.payment_method : pi.payment_method.id;
+            }
+          } else if (!isSession && paymentIntent?.payment_method) {
+            paymentMethodId = typeof paymentIntent.payment_method === "string" ? paymentIntent.payment_method : paymentIntent.payment_method.id;
+          }
+          if (isSession && sessionObj?.customer) {
+            customerId = typeof sessionObj.customer === "string" ? sessionObj.customer : sessionObj.customer.id;
+          } else if (!isSession && paymentIntent?.customer) {
+            customerId = typeof paymentIntent.customer === "string" ? paymentIntent.customer : paymentIntent.customer.id;
+          }
+          if (paymentMethodId && customerId) {
+            updateData.stripe_default_payment_method = paymentMethodId;
+            updateData.stripe_customer_id = customerId;
+          }
+          await adminDb.collection("users").doc(targetUserId).update(updateData);
         }
         res.json({ received: true });
         return;
@@ -1475,10 +1919,8 @@ app.post("/api/webhook", import_express.default.raw({ type: "application/json" }
           post_auction_status: "paid",
           paid_at: (/* @__PURE__ */ new Date()).toISOString()
         });
-        const currentWallet = Number(seller.wallet_balance) || 0;
-        await adminDb.collection("users").doc(seller_id).update({
-          wallet_balance: currentWallet + currentPrice
-        });
+        const currentPriceCents = Math.round(currentPrice * 100);
+        await addHeldFunds(seller_id, currentPriceCents, "stripe_" + paymentId, { stripe_payment_intent_id: paymentId, auction_id });
       } catch (e) {
         console.error("Error updating auction status or wallet:", e.message);
       }
@@ -1600,14 +2042,12 @@ var handleCronCheck = async (req, res) => {
     const secretHeader = req.headers["x-cron-secret"];
     const querySecret = req.query?.secret;
     const cronSecret = process.env.CRON_SECRET;
-    if (cronSecret) {
-      const isBearerMatch = authHeader === `Bearer ${cronSecret}`;
-      const isSecretHeaderMatch = secretHeader === cronSecret;
-      const isQueryMatch = querySecret === cronSecret;
-      if (!isBearerMatch && !isSecretHeaderMatch && !isQueryMatch) {
-        console.warn("[CRON AUTH] Unauthorized cron request attempt");
-        return res.status(401).json({ error: "Unauthorized: Invalid CRON_SECRET" });
-      }
+    const isBearerMatch = Boolean(cronSecret && authHeader === `Bearer ${cronSecret}`);
+    const isSecretHeaderMatch = Boolean(cronSecret && secretHeader === cronSecret);
+    const isQueryMatch = Boolean(cronSecret && querySecret === cronSecret);
+    if (!isBearerMatch && !isSecretHeaderMatch && !isQueryMatch) {
+      console.warn("[CRON AUTH] Unauthorized cron request attempt");
+      return res.status(401).json({ error: "Unauthorized: Invalid or missing CRON_SECRET" });
     }
     console.log("[CRON] Executing auction check...");
     const results = await processAuctionCrons();
@@ -2310,9 +2750,14 @@ app.post("/api/stripe-account-link", async (req, res) => {
 });
 app.post("/api/stripe-check-account-status", async (req, res) => {
   try {
-    const { user_id } = req.body;
+    let userId;
+    try {
+      userId = await authenticateFirebaseUser(req);
+    } catch (authErr) {
+      return res.status(401).json({ error: authErr.message || "Unauthorized" });
+    }
     const stripe = getStripe();
-    const userDocRef = adminDb.collection("users").doc(user_id);
+    const userDocRef = adminDb.collection("users").doc(userId);
     const userDoc = await safeGetDoc(userDocRef);
     const user = userDoc.data() || {};
     let targetStripeAccountId = user.stripeAccountId || user.stripe_account_id;
@@ -2330,68 +2775,111 @@ app.post("/api/stripe-check-account-status", async (req, res) => {
 });
 app.post("/api/payments/wallet-pay-auction", async (req, res) => {
   try {
-    const { amount, auction_id, buyer_id, seller_id, fee_percentage } = req.body || {};
-    if (!auction_id || !buyer_id || !seller_id) {
+    let userId;
+    try {
+      userId = await authenticateFirebaseUser(req);
+    } catch (authErr) {
+      return res.status(401).json({ error: authErr.message || "Unauthorized" });
+    }
+    const { auction_id } = req.body || {};
+    if (!auction_id) {
       return res.status(400).json({ error: "Manjkajo\u010Di podatki" });
     }
-    let auction = null;
-    const auctionRef = adminDb.collection("auctions").doc(auction_id);
-    const auctionDoc = await safeGetDoc(auctionRef);
-    if (auctionDoc.exists()) {
-      auction = auctionDoc.data();
-    } else {
-      return res.status(404).json({ error: "Dra\u017Eba ne obstaja" });
-    }
-    let authoritativePriceInCents = 0;
-    if (auction.current_price !== void 0 && auction.current_price !== null && auction.current_price !== "") {
-      authoritativePriceInCents = parseAmountToCents(auction.current_price);
-    } else if (auction.currentBid !== void 0 && auction.currentBid !== null && auction.currentBid !== "") {
-      authoritativePriceInCents = parseAmountToCents(auction.currentBid);
-    } else if (auction.starting_price !== void 0 && auction.starting_price !== null && auction.starting_price !== "") {
-      authoritativePriceInCents = parseAmountToCents(auction.starting_price);
-    }
-    if (authoritativePriceInCents <= 0) {
-      return res.status(400).json({ error: "Invalid auction price" });
-    }
-    const sellerDoc2 = await safeGetDoc(adminDb.collection("users").doc(seller_id));
-    let sellerTier = "BASIC";
-    if (sellerDoc2.exists()) sellerTier = sellerDoc2.data().subscription_tier;
-    const totals = calculateCheckoutTotals(authoritativePriceInCents, sellerTier);
-    const finalAmountCents = totals.buyerTotalInCents;
-    const finalAmountEuro = finalAmountCents / 100;
-    const buyerRef = adminDb.collection("users").doc(buyer_id);
-    const buyerDoc = await safeGetDoc(buyerRef);
-    const buyer = buyerDoc.data() || {};
-    const walletBalance = Number(buyer.wallet_balance) || 0;
-    if (walletBalance < finalAmountEuro) {
-      return res.status(400).json({ error: "Ni dovolj sredstev v denarnici" });
-    }
-    await buyerRef.update({
-      wallet_balance: admin.firestore.FieldValue.increment(-finalAmountEuro)
-    });
-    const sellerRef = adminDb.collection("users").doc(seller_id);
-    await sellerRef.update({
-      wallet_balance: admin.firestore.FieldValue.increment(authoritativePriceInCents / 100)
-    });
-    await auctionRef.update({
-      payment_status: "paid",
-      post_auction_status: "sold",
-      status: "completed"
-    });
-    const txId = "WTX_" + Date.now();
-    await adminDb.collection("transactions").doc(txId).set({
-      type: "wallet_payment",
-      auction_id,
-      buyer_id,
-      seller_id,
-      amount_total: finalAmountEuro,
-      platform_fee: totals.platformFeeInCents / 100,
-      vat_amount: totals.vatInCents / 100,
-      vat_rate: 0,
-      is_reverse_charge: false,
-      currency: "eur",
-      status: "completed",
-      created_at: admin.firestore.FieldValue.serverTimestamp()
+    const txId = await adminDb.runTransaction(async (t) => {
+      let auction = null;
+      const auctionRef = adminDb.collection("auctions").doc(auction_id);
+      const auctionDoc = await t.get(auctionRef);
+      if (auctionDoc.exists) {
+        auction = auctionDoc.data();
+      } else {
+        throw new Error("Dra\u017Eba ne obstaja");
+      }
+      const buyer_id = auction.highest_bidder || auction.winner_id;
+      if (userId !== buyer_id) {
+        throw new Error("Samo zmagovalec lahko pla\u010Da dra\u017Ebo");
+      }
+      const seller_id = auction.seller_id;
+      if (!seller_id) throw new Error("Missing seller info");
+      let authoritativePriceInCents = 0;
+      if (auction.current_price !== void 0 && auction.current_price !== null && auction.current_price !== "") {
+        authoritativePriceInCents = parseAmountToCents(auction.current_price);
+      } else if (auction.currentBid !== void 0 && auction.currentBid !== null && auction.currentBid !== "") {
+        authoritativePriceInCents = parseAmountToCents(auction.currentBid);
+      } else if (auction.starting_price !== void 0 && auction.starting_price !== null && auction.starting_price !== "") {
+        authoritativePriceInCents = parseAmountToCents(auction.starting_price);
+      }
+      if (authoritativePriceInCents <= 0) {
+        throw new Error("Invalid auction price");
+      }
+      const sellerRef = adminDb.collection("users").doc(seller_id);
+      const sellerDoc2 = await t.get(sellerRef);
+      let sellerTier = "BASIC";
+      let sellerData = {};
+      if (sellerDoc2.exists) {
+        sellerData = sellerDoc2.data() || {};
+        sellerTier = sellerData.subscription_tier || "BASIC";
+      }
+      const totals = calculateCheckoutTotals(authoritativePriceInCents, sellerTier);
+      const finalAmountCents = totals.buyerTotalInCents;
+      const buyerRef = adminDb.collection("users").doc(buyer_id);
+      const buyerDoc = await t.get(buyerRef);
+      const buyerData = buyerDoc.data() || {};
+      const buyerWallet = ensureWalletMigrated(t, buyerRef, buyerData);
+      if (buyerWallet.available_cents < finalAmountCents) {
+        throw new Error("Ni dovolj sredstev v denarnici");
+      }
+      t.update(buyerRef, {
+        available_cents: import_firestore.FieldValue.increment(-finalAmountCents)
+      });
+      ensureWalletMigrated(t, sellerRef, sellerData);
+      t.update(sellerRef, {
+        held_cents: import_firestore.FieldValue.increment(authoritativePriceInCents)
+        // Seller gets the item price (before platform fee is applied if we assume buyer pays fee? Wait, calculateCheckoutTotals adds platform fee to itemPrice. Actually, seller proceeds is authoritativePriceInCents - totals.platformFeeInCents - totals.vatInCents? Wait, check the original code: it credited `authoritativePriceInCents / 100`. Let's use authoritativePriceInCents)
+      });
+      t.update(auctionRef, {
+        payment_status: "paid",
+        post_auction_status: "sold",
+        status: "completed"
+      });
+      const txId2 = "WTX_" + Date.now();
+      t.set(adminDb.collection("transactions").doc(txId2), {
+        type: "wallet_payment",
+        auction_id,
+        buyer_id,
+        seller_id,
+        amount_total: finalAmountCents / 100,
+        // legacy UI compatibility
+        amount_cents: finalAmountCents,
+        platform_fee: totals.platformFeeInCents / 100,
+        vat_amount: totals.vatInCents / 100,
+        vat_rate: 0,
+        is_reverse_charge: false,
+        currency: "eur",
+        status: "completed",
+        created_at: import_firestore.FieldValue.serverTimestamp()
+      });
+      const wtxBuyerId = adminDb.collection("wallet_transactions").doc().id;
+      t.set(adminDb.collection("wallet_transactions").doc(wtxBuyerId), {
+        transaction_id: wtxBuyerId,
+        user_id: buyer_id,
+        type: "wallet_payment",
+        amount_cents: finalAmountCents,
+        status: "completed",
+        idempotency_key: txId2 + "_buyer",
+        created_at: import_firestore.FieldValue.serverTimestamp()
+      });
+      const wtxSellerId = adminDb.collection("wallet_transactions").doc().id;
+      t.set(adminDb.collection("wallet_transactions").doc(wtxSellerId), {
+        transaction_id: wtxSellerId,
+        user_id: seller_id,
+        type: "hold",
+        amount_cents: authoritativePriceInCents,
+        status: "completed",
+        auction_id,
+        idempotency_key: txId2 + "_seller",
+        created_at: import_firestore.FieldValue.serverTimestamp()
+      });
+      return txId2;
     });
     res.json({ success: true, transaction_id: txId });
   } catch (error) {
@@ -2401,14 +2889,37 @@ app.post("/api/payments/wallet-pay-auction", async (req, res) => {
 });
 app.post("/api/payments/wallet-pay-subscription", async (req, res) => {
   try {
-    const { user_id, package_id } = req.body;
-    await adminDb.collection("users").doc(user_id).update({
-      subscription_tier: package_id,
+    let userId;
+    try {
+      userId = await authenticateFirebaseUser(req);
+    } catch (authErr) {
+      return res.status(401).json({ error: authErr.message || "Unauthorized" });
+    }
+    const { package_id } = req.body || {};
+    if (!package_id) {
+      return res.status(400).json({ error: "Manjka package_id" });
+    }
+    const packageIdStr = String(package_id).toLowerCase();
+    let amountCents = 0;
+    if (packageIdStr.includes("pro")) amountCents = 5e3;
+    else if (packageIdStr.includes("basic")) amountCents = 2e3;
+    else {
+      return res.status(400).json({ error: "Neznan paket" });
+    }
+    const idempotencyKey = `sub_wallet_${userId}_${Date.now()}`;
+    const txId = await reserveWalletFunds(userId, amountCents, "wallet_payment", idempotencyKey, {
+      package_id,
+      type: "subscription"
+    });
+    await commitReservedFunds(txId);
+    const tierToSet = packageIdStr.includes("pro") ? "PRO" : "BASIC";
+    await adminDb.collection("users").doc(userId).update({
+      subscription_tier: tierToSet,
       subscription_active: true,
       subscription_paid_at: (/* @__PURE__ */ new Date()).toISOString()
     });
-    console.log("Subscription paid via wallet:", package_id);
-    res.json({ success: true });
+    console.log("Subscription paid via wallet:", package_id, "by user:", userId);
+    res.json({ success: true, transaction_id: txId, subscription_tier: tierToSet });
   } catch (error) {
     console.error("Wallet pay subscription error:", error);
     res.status(500).json({ error: error.message || "Napaka" });
@@ -2416,50 +2927,73 @@ app.post("/api/payments/wallet-pay-subscription", async (req, res) => {
 });
 app.post("/api/payouts/withdraw", async (req, res) => {
   try {
-    const { user_id, amount, return_url, refresh_url } = req.body || {};
+    let userId;
+    try {
+      userId = await authenticateFirebaseUser(req);
+    } catch (authErr) {
+      return res.status(401).json({ error: authErr.message || "Unauthorized" });
+    }
+    const { amount, return_url, refresh_url } = req.body || {};
     const stripe = getStripe();
     const amountInCents = parseAmountToCents(amount);
     if (amountInCents <= 0) {
       return res.status(400).json({ error: "Invalid payout amount" });
     }
-    const withdrawalAmount = amountInCents / 100;
-    const userDocRef = adminDb.collection("users").doc(user_id);
+    const userDocRef = adminDb.collection("users").doc(userId);
     const userDoc = await safeGetDoc(userDocRef);
-    const user = userDoc.data() || {};
-    const currentBalance = Number(user.wallet_balance) || 0;
-    if (currentBalance < withdrawalAmount) {
-      return res.status(400).json({ error: "Nedostupno stanje v denarnici" });
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: "User not found" });
     }
+    const user = userDoc.data() || {};
     let stripeAccountId = user.stripeAccountId || user.stripe_account_id;
     if (!stripeAccountId) {
       return res.status(400).json({ error: "Stripe ra\u010Dun ni povezan" });
     }
-    const transfer = await stripe.transfers.create({
-      amount: amountInCents,
-      currency: "eur",
-      destination: stripeAccountId
-    });
-    const payout = await stripe.payouts.create({
-      amount: amountInCents,
-      currency: "eur"
-    }, {
-      stripeAccount: stripeAccountId
-    });
-    await userDocRef.update({
-      wallet_balance: admin.firestore.FieldValue.increment(-withdrawalAmount)
-    });
-    const txId = "POUT_" + Date.now();
-    await adminDb.collection("transactions").doc(txId).set({
-      type: "payout",
-      user_id,
-      amount: withdrawalAmount,
-      currency: "eur",
-      status: "completed",
-      stripe_transfer_id: transfer.id,
-      stripe_payout_id: payout.id,
-      created_at: admin.firestore.FieldValue.serverTimestamp()
-    });
-    res.json({ success: true, transfer_id: transfer.id, payout_id: payout.id });
+    const stripeAccount = await stripe.accounts.retrieve(stripeAccountId);
+    const payoutsReady = stripeAccount.payouts_enabled || stripeAccount.charges_enabled || stripeAccount.capabilities && stripeAccount.capabilities.transfers === "active";
+    if (!payoutsReady) {
+      return res.status(400).json({ error: "Stripe payouts are not enabled for this account" });
+    }
+    const idempotencyKey = `withdraw_${userId}_${Date.now()}`;
+    let txId;
+    try {
+      txId = await reserveWalletFunds(userId, amountInCents, "withdrawal", idempotencyKey);
+    } catch (e) {
+      return res.status(400).json({ error: e.message || "Insufficient funds" });
+    }
+    try {
+      await ensurePlatformTestBalance(stripe, amountInCents);
+      const transfer = await stripe.transfers.create({
+        amount: amountInCents,
+        currency: "eur",
+        destination: stripeAccountId,
+        description: `Izpla\u010Dilo drazbe.si za uporabnika ${userId}`
+      }, {
+        idempotencyKey
+      });
+      await commitReservedFunds(txId, { stripe_transfer_id: transfer.id });
+      const updatedUserDoc = await safeGetDoc(userDocRef);
+      const remainingAvailable = updatedUserDoc.data()?.available_cents || 0;
+      res.json({
+        success: true,
+        transfer_id: transfer.id,
+        available_cents: remainingAvailable,
+        wallet_balance: remainingAvailable / 100
+      });
+    } catch (transferError) {
+      console.error("Stripe transfer failed, rolling back reserved funds:", transferError.message);
+      await rollbackReservedFunds(txId);
+      const safeDiag = formatStripeError(transferError);
+      console.warn(`[Withdrawal Diagnostics] Type: ${safeDiag.type || "none"}, Code: ${safeDiag.code || "none"}, RequestId: ${safeDiag.requestId || "none"}`);
+      res.status(safeDiag.statusCode || 400).json({
+        error: safeDiag.userMessage,
+        diagnostics: {
+          type: safeDiag.type,
+          code: safeDiag.code,
+          requestId: safeDiag.requestId
+        }
+      });
+    }
   } catch (error) {
     console.error("Payout error:", error);
     res.status(500).json({ error: error.message });
@@ -2481,7 +3015,17 @@ app.post("/api/create-subscription-checkout", async (req, res) => {
     if (finalAmountCents <= 0) {
       return res.status(400).json({ error: "Invalid subscription payment amount" });
     }
+    let customerId = void 0;
+    if (user_id) {
+      const userDoc = await safeGetDoc(adminDb.collection("users").doc(user_id));
+      if (userDoc.exists()) {
+        const cId = await getOrCreateStripeCustomer(stripe, user_id, userDoc.data());
+        if (cId) customerId = cId;
+      }
+    }
     const session = await stripe.checkout.sessions.create({
+      customer: customerId,
+      customer_update: { name: "auto", address: "auto" },
       payment_method_types: ["card"],
       line_items: [{
         price_data: {
@@ -2500,6 +3044,7 @@ app.post("/api/create-subscription-checkout", async (req, res) => {
         amount: finalAmountCents.toString()
       },
       payment_intent_data: {
+        setup_future_usage: "off_session",
         metadata: {
           type: "subscription",
           user_id: user_id || "",
@@ -2816,63 +3361,131 @@ app.post("/api/test/generate-pdf", async (req, res) => {
 });
 app.post("/api/test/test-payout", async (req, res) => {
   try {
-    const { user_id, amount = 50, executeReal = false } = req.body;
-    const withdrawalAmount = Number(amount);
-    if (!user_id) {
+    let userId = req.body?.user_id;
+    try {
+      const authUid = await authenticateFirebaseUser(req);
+      if (authUid) userId = authUid;
+    } catch (_) {
+    }
+    const { amount = 50, executeReal = false } = req.body || {};
+    const amountInCents = parseAmountToCents(amount);
+    if (!userId) {
       return res.status(400).json({ error: "Manjka user_id." });
     }
-    const userDocRef = adminDb.collection("users").doc(user_id);
+    if (amountInCents <= 0) {
+      return res.status(400).json({ error: "Znesek izpla\u010Dila mora biti ve\u010Dji od 0." });
+    }
+    const userDocRef = adminDb.collection("users").doc(userId);
     const userDoc = await safeGetDoc(userDocRef);
     if (!userDoc.exists()) {
       return res.status(404).json({ error: "Uporabnik ne obstaja v bazi." });
     }
     const userData = userDoc.data() || {};
-    const currentBalance = Number(userData.wallet_balance) || 0;
-    const logs = [];
-    logs.push(`[1] Preverjanje uporabnika: ${userData.first_name || ""} ${userData.last_name || userData.username || user_id} (Tip: ${userData.user_type || "individual"})`);
-    logs.push(`[2] Trenutno stanje v denarnici: ${currentBalance.toFixed(2)} \u20AC`);
-    logs.push(`[3] Zahtevan znesek izpla\u010Dila: ${withdrawalAmount.toFixed(2)} \u20AC`);
-    const hasSufficientBalance = currentBalance >= withdrawalAmount;
-    logs.push(`[4] Zadostno stanje: ${hasSufficientBalance ? "DA (Odobreno)" : "NE (Nezadostno dobroimetje)"}`);
-    const stripeAccountId = userData.stripeAccountId || userData.stripe_account_id;
-    const stripeOnboardingComplete = userData.stripe_onboarding_complete;
-    logs.push(`[5] Stripe Connect ra\u010Dun: ${stripeAccountId ? `Povezan (${stripeAccountId})` : "NI povezan (potrebna registracija izpla\u010Dilnega ra\u010Duna)"}`);
-    logs.push(`[6] Stripe Onboarding zaklju\u010Den: ${stripeOnboardingComplete ? "DA" : "NE"}`);
-    let newBalance = currentBalance;
+    const wallet = await getUserWallet(userId);
+    const stripe = getStripe();
+    const diag = await diagnoseStripeTransferPrerequisites(stripe, userData, amountInCents);
+    const logs = [
+      `[1] Preverjanje uporabnika: ${userData.first_name || ""} ${userData.last_name || userData.username || userId} (ID: ${userId})`,
+      `[2] Trenutno razpolo\u017Eljivo stanje v denarnici: ${(wallet.available_cents / 100).toFixed(2)} \u20AC (${wallet.available_cents} centov)`,
+      `[3] Zahtevan znesek izpla\u010Dila: ${(amountInCents / 100).toFixed(2)} \u20AC (${amountInCents} centov)`,
+      ...diag.logs
+    ];
+    const hasSufficientBalance = wallet.available_cents >= amountInCents;
+    logs.push(`[*] Preverjanje stanja denarnice: ${hasSufficientBalance ? "DA (Zadostno dobroimetje)" : "NE (Nezadostno dobroimetje)"}`);
     if (executeReal) {
       if (!hasSufficientBalance) {
+        logs.push(`[X] Prekinitev: Sredstva v denarnici niso zadostna.`);
         return res.status(400).json({
           success: false,
           error: "Nezadostno stanje v denarnici za izvedbo izpla\u010Dila.",
-          logs
+          logs,
+          diagnostics: diag.details
         });
       }
-      newBalance = currentBalance - withdrawalAmount;
-      await userDocRef.update({
-        wallet_balance: newBalance
-      });
-      await adminDb.collection("wallet_transactions").add({
-        user_id,
-        amount: -withdrawalAmount,
-        type: "payout",
-        status: "completed",
-        description: `Testno izpla\u010Dilo na ban\u010Dni ra\u010Dun`,
-        created_at: (/* @__PURE__ */ new Date()).toISOString()
-      });
-      logs.push(`[7] Baza posodobljena: Novo stanje denarnice je ${newBalance.toFixed(2)} \u20AC`);
-      logs.push(`[8] Zgodovina transakcij zabele\u017Eena.`);
+      if (!diag.ready) {
+        logs.push(`[X] Prekinitev: Zahteve Stripe Connect ra\u010Duna niso izpolnjene.`);
+        return res.status(400).json({
+          success: false,
+          error: diag.issues[0] || "Stripe ra\u010Dun ni pripravljen za izpla\u010Dilo.",
+          logs,
+          diagnostics: diag.details
+        });
+      }
+      const stripeAccountId = userData.stripeAccountId || userData.stripe_account_id;
+      const idempotencyKey = `test_payout_${userId}_${Date.now()}`;
+      logs.push(`[->] Rezervacija sredstev v denarnici (${amountInCents} centov)...`);
+      let txId;
+      try {
+        txId = await reserveWalletFunds(userId, amountInCents, "withdrawal", idempotencyKey, {
+          description: `Testno izpla\u010Dilo preko Stripe Connect (${(amountInCents / 100).toFixed(2)} \u20AC)`,
+          environment: "sandbox"
+        });
+        logs.push(`[OK] Sredstva uspe\u0161no rezervirana (ID transakcije: ${txId})`);
+      } catch (reserveErr) {
+        logs.push(`[X] Rezervacija ni uspela: ${reserveErr.message}`);
+        return res.status(400).json({ success: false, error: reserveErr.message, logs });
+      }
+      await ensurePlatformTestBalance(stripe, amountInCents);
+      logs.push(`[->] Izvajanje Stripe Connect transferja na ra\u010Dun ${stripeAccountId}...`);
+      try {
+        const transfer = await stripe.transfers.create({
+          amount: amountInCents,
+          currency: "eur",
+          destination: stripeAccountId,
+          description: `Testno izpla\u010Dilo drazbe.si za ${userId}`
+        }, {
+          idempotencyKey
+        });
+        logs.push(`[OK] Stripe transfer uspe\u0161no izveden! ID nakazila: ${transfer.id}`);
+        await commitReservedFunds(txId, {
+          stripe_transfer_id: transfer.id,
+          status: "completed"
+        });
+        logs.push(`[OK] Knji\u017Eenje v denarnici potrjeno. Transakcija zaklju\u010Dena.`);
+        const updatedWallet = await getUserWallet(userId);
+        logs.push(`[=] Novo razpolo\u017Eljivo stanje v denarnici: ${(updatedWallet.available_cents / 100).toFixed(2)} \u20AC`);
+        return res.json({
+          success: true,
+          simulation: false,
+          transfer_id: transfer.id,
+          requestedAmount: amountInCents / 100,
+          previousBalance: wallet.available_cents / 100,
+          newBalance: updatedWallet.available_cents / 100,
+          available_cents: updatedWallet.available_cents,
+          logs,
+          diagnostics: diag.details
+        });
+      } catch (transferErr) {
+        logs.push(`[X] Stripe transfer ni uspel: ${transferErr.message}`);
+        await rollbackReservedFunds(txId);
+        logs.push(`[!] Rezervirana sredstva vrnjena v denarnico uporabnika (rollback).`);
+        const safeErr = formatStripeError(transferErr);
+        logs.push(`[Diagnoza] Koda napake: ${safeErr.code || safeErr.type || "neznana"}, Sporo\u010Dilo: ${safeErr.userMessage}`);
+        return res.status(400).json({
+          success: false,
+          error: safeErr.userMessage,
+          logs,
+          diagnostics: {
+            ...diag.details,
+            stripeError: safeErr
+          }
+        });
+      }
     } else {
-      logs.push(`[7] Na\u010Din simulacije: Denarnica ni bila zmanj\u0161ana (za dejansko zmanj\u0161anje vklopi 'Izvedi pravo izpla\u010Dilo').`);
+      logs.push(`[7] Na\u010Din simulacije: Denarnica ni bila zmanj\u0161ana in Stripe transfer ni bil spro\u017Een.`);
+      logs.push(`[8] Vklopi stikalo 'Izvedi pravo izpla\u010Dilo' za dejansko nakazilo preko Stripe Connect.`);
+      return res.json({
+        success: true,
+        simulation: true,
+        requestedAmount: amountInCents / 100,
+        previousBalance: wallet.available_cents / 100,
+        newBalance: wallet.available_cents / 100,
+        available_cents: wallet.available_cents,
+        stripeAccountStatus: diag.ready ? "ready" : diag.details.stripeAccountId ? "onboarding_required" : "missing",
+        logs,
+        diagnostics: diag.details
+      });
     }
-    res.json({
-      success: true,
-      simulation: !executeReal,
-      requestedAmount: withdrawalAmount,
-      previousBalance: currentBalance,
-      newBalance: executeReal ? newBalance : currentBalance,
-      stripeAccountStatus: stripeAccountId ? stripeOnboardingComplete ? "ready" : "onboarding_required" : "missing",
-      logs
-    });
   } catch (err) {
     console.error("Test payout error:", err);
     res.status(500).json({ error: err.message || "Napaka pri testnem izpla\u010Dilu" });
@@ -2880,18 +3493,35 @@ app.post("/api/test/test-payout", async (req, res) => {
 });
 app.post("/api/test/add-test-funds", async (req, res) => {
   try {
-    const { user_id, amount = 100 } = req.body;
-    if (!user_id) return res.status(400).json({ error: "Manjka user_id" });
-    const userDocRef = adminDb.collection("users").doc(user_id);
-    const userDoc = await safeGetDoc(userDocRef);
-    if (!userDoc.exists()) return res.status(404).json({ error: "Uporabnik ne obstaja" });
-    const currentBalance = Number(userDoc.data()?.wallet_balance) || 0;
-    const newBalance = currentBalance + Number(amount);
-    await userDocRef.update({ wallet_balance: newBalance });
-    res.json({ success: true, previousBalance: currentBalance, newBalance });
+    let userId = req.body?.user_id;
+    try {
+      const authUid = await authenticateFirebaseUser(req);
+      if (authUid) userId = authUid;
+    } catch (_) {
+    }
+    const { amount = 100 } = req.body || {};
+    if (!userId) return res.status(400).json({ error: "Manjka user_id" });
+    const amountInCents = parseAmountToCents(amount);
+    if (amountInCents <= 0) {
+      return res.status(400).json({ error: "Znesek mora biti ve\u010Dji od 0" });
+    }
+    const idempotencyKey = req.body?.idempotencyKey || `test_credit_${userId}_${Date.now()}`;
+    const result = await creditTestFunds(userId, amountInCents, idempotencyKey, {
+      description: req.body?.description || "Testno dobroimetje (Sandbox)",
+      environment: "sandbox"
+    });
+    res.json({
+      success: true,
+      transaction_id: result.transaction_id,
+      added_amount: amountInCents / 100,
+      added_cents: amountInCents,
+      newBalance: result.wallet_balance,
+      available_cents: result.available_cents,
+      wallet_balance: result.wallet_balance
+    });
   } catch (err) {
     console.error("Add test funds error:", err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: err.message || "Napaka pri dodajanju testnih sredstev" });
   }
 });
 app.post("/api/analyze-receipt", async (req, res) => {
@@ -2991,13 +3621,24 @@ app.post("/api/cron/process-shipping-deadlines", async (req, res) => {
           cancelled_reason: "SELLER_NO_SHIPMENT",
           updated_at: now
         });
-        const buyerDoc = await safeGetDoc(adminDb.collection("users").doc(tx.buyer_id));
-        if (buyerDoc.exists()) {
-          const currentBalance = Number(buyerDoc.data().wallet_balance) || 0;
-          await adminDb.collection("users").doc(tx.buyer_id).update({
-            wallet_balance: currentBalance + Number(tx.amount_total || tx.amount)
+        const refundAmount = Number(tx.amount_total || tx.amount);
+        const refundCents = Math.round(refundAmount * 100);
+        await adminDb.runTransaction(async (t) => {
+          const sellerRef = adminDb.collection("users").doc(tx.seller_id);
+          const buyerRef = adminDb.collection("users").doc(tx.buyer_id);
+          t.update(sellerRef, { held_cents: import_firestore.FieldValue.increment(-refundCents) });
+          t.update(buyerRef, { available_cents: import_firestore.FieldValue.increment(refundCents) });
+          const txRef = adminDb.collection("wallet_transactions").doc();
+          t.set(txRef, {
+            transaction_id: txRef.id,
+            user_id: tx.buyer_id,
+            type: "refund",
+            amount_cents: refundCents,
+            status: "completed",
+            idempotency_key: "refund_" + docSnap.id,
+            created_at: import_firestore.FieldValue.serverTimestamp()
           });
-        }
+        });
         await adminDb.collection("seller_strikes").add({
           user_id: tx.seller_id,
           order_id: docSnap.id,
@@ -3037,13 +3678,11 @@ app.post("/api/orders/:id/verify-pickup-pin", async (req, res) => {
       status: "COMPLETED",
       completed_at: (/* @__PURE__ */ new Date()).toISOString()
     });
-    const sellerDocRef = adminDb.collection("users").doc(seller_id);
-    const sellerDoc = await safeGetDoc(sellerDocRef);
-    if (sellerDoc.exists()) {
-      const currentBalance = Number(sellerDoc.data()?.wallet_balance) || 0;
-      const releaseAmount = Number(tx.amount_total || tx.amount) - Number(tx.platform_fee || 0) - Number(tx.vat_amount || 0);
-      await sellerDocRef.update({ wallet_balance: currentBalance + releaseAmount });
-    }
+    const releaseAmount = Number(tx.amount_total || tx.amount) - Number(tx.platform_fee || 0) - Number(tx.vat_amount || 0);
+    const releaseCents = Math.round(releaseAmount * 100);
+    const tx_id = id;
+    const auction_id = tx.auction_id || "";
+    await releaseHeldFunds(seller_id, releaseCents, "release_" + tx_id, { auction_id, related_tx: tx_id });
     res.json({ success: true, message: "Prevzem potrjen, sredstva so bila spro\u0161\u010Dena." });
   } catch (e) {
     console.error(e);
@@ -3113,14 +3752,9 @@ app.post("/api/cron/process-escrow-completions", async (_req, res) => {
         status: "COMPLETED",
         completed_at: now
       });
-      const sellerDoc = await safeGetDoc(adminDb.collection("users").doc(tx.seller_id));
-      if (sellerDoc.exists()) {
-        const currentBalance = Number(sellerDoc.data()?.wallet_balance) || 0;
-        const releaseAmount = Number(tx.amount_total || tx.amount) - Number(tx.platform_fee || 0) - Number(tx.vat_amount || 0);
-        await adminDb.collection("users").doc(tx.seller_id).update({
-          wallet_balance: currentBalance + releaseAmount
-        });
-      }
+      const releaseAmount = Number(tx.amount_total || tx.amount) - Number(tx.platform_fee || 0) - Number(tx.vat_amount || 0);
+      const releaseCents = Math.round(releaseAmount * 100);
+      await releaseHeldFunds(tx.seller_id, releaseCents, "cron_release_" + tx.id, { auction_id: tx.auction_id, related_tx: tx.id });
       processed++;
     }
     res.json({ success: true, processed });
@@ -3169,6 +3803,79 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ error: "Internal Server Error", message: err.message, stack: err.stack });
 });
 var app_default = app;
+app.post("/api/cron/process-subscription-renewals", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization || "";
+    const secretHeader = req.headers["x-cron-secret"];
+    const cronSecret = process.env.CRON_SECRET;
+    if (cronSecret) {
+      if (authHeader !== `Bearer ${cronSecret}` && secretHeader !== cronSecret) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+    }
+    const thirtyDaysAgo = /* @__PURE__ */ new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const usersSnapshot = await adminDb.collection("users").where("subscription_active", "==", true).where("subscription_paid_at", "<=", thirtyDaysAgo.toISOString()).get();
+    let processed = 0;
+    const stripe = getStripe();
+    for (const doc of usersSnapshot.docs) {
+      const user = doc.data();
+      const packageId = (user.subscription_tier || "").toLowerCase();
+      let amountCents = 0;
+      if (packageId.includes("pro")) amountCents = 5e3;
+      else if (packageId.includes("basic")) amountCents = 2e3;
+      else continue;
+      const idempotencyKey = `renew_${doc.id}_${(/* @__PURE__ */ new Date()).getFullYear()}_${(/* @__PURE__ */ new Date()).getMonth()}`;
+      try {
+        const txId = await reserveWalletFunds(doc.id, amountCents, "wallet_payment", idempotencyKey, { type: "subscription_renewal" });
+        await commitReservedFunds(txId);
+        await doc.ref.update({
+          subscription_paid_at: (/* @__PURE__ */ new Date()).toISOString()
+        });
+        processed++;
+        continue;
+      } catch (walletError) {
+        if (walletError.message.includes("Idempotency key already exists")) {
+          continue;
+        }
+        if (user.stripe_customer_id && user.stripe_default_payment_method) {
+          try {
+            const pi = await stripe.paymentIntents.create({
+              amount: amountCents,
+              currency: "eur",
+              customer: user.stripe_customer_id,
+              payment_method: user.stripe_default_payment_method,
+              off_session: true,
+              confirm: true,
+              metadata: {
+                type: "subscription",
+                user_id: doc.id,
+                package_id: user.subscription_tier,
+                renewal: "true"
+              }
+            }, { idempotencyKey: `card_${idempotencyKey}` });
+            processed++;
+          } catch (stripeError) {
+            console.error(`Failed to renew subscription via card for user ${doc.id}: `, stripeError);
+            await doc.ref.update({
+              subscription_active: false
+              // Mark unpaid / past due
+            });
+          }
+        } else {
+          await doc.ref.update({
+            subscription_active: false
+            // Mark unpaid / past due
+          });
+        }
+      }
+    }
+    res.json({ success: true, processed });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   app

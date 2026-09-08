@@ -490,6 +490,9 @@ const MainApp: React.FC = () => {
     first_name: "",
     last_name: "",
     wallet_balance: 0,
+    available_cents: 0,
+    held_cents: 0,
+    reserved_cents: 0,
   });
   const bidAuctionIds = useMemo(() => {
     if (!userData?.id) return [];
@@ -952,7 +955,10 @@ const MainApp: React.FC = () => {
               user_type: data.user_type || data.userType || null,
               userType: data.userType || data.user_type || null,
               stripe_onboarding_complete: data.stripe_onboarding_complete ?? data.stripeOnboardingComplete ?? false,
-              wallet_balance: data.wallet_balance ?? data.walletBalance ?? 0,
+              wallet_balance: data.available_cents !== undefined ? (data.available_cents / 100) : (data.wallet_balance ?? data.walletBalance ?? 0),
+              available_cents: data.available_cents !== undefined ? data.available_cents : Math.round(Number(data.wallet_balance ?? data.walletBalance ?? 0) * 100),
+              held_cents: data.held_cents || 0,
+              reserved_cents: data.reserved_cents || 0,
             }));
             setIsVerified(data.is_verified || data.isVerified || false);
             setUserType(data.user_type || data.userType || null);
@@ -1234,7 +1240,10 @@ const MainApp: React.FC = () => {
           user_type: data.user_type || data.userType || null,
           userType: data.userType || data.user_type || null,
           stripe_onboarding_complete: data.stripe_onboarding_complete ?? data.stripeOnboardingComplete ?? false,
-          wallet_balance: data.wallet_balance ?? data.walletBalance ?? 0,
+          wallet_balance: data.available_cents !== undefined ? (data.available_cents / 100) : (data.wallet_balance ?? data.walletBalance ?? 0),
+          available_cents: data.available_cents !== undefined ? data.available_cents : Math.round(Number(data.wallet_balance ?? data.walletBalance ?? 0) * 100),
+          held_cents: data.held_cents || 0,
+          reserved_cents: data.reserved_cents || 0,
         }));
       }
     } catch (e) {

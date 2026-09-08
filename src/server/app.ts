@@ -1,7 +1,21 @@
 import express from "express";
-import { reserveWalletFunds, commitReservedFunds, rollbackReservedFunds, addHeldFunds, releaseHeldFunds, ensureWalletMigrated } from './walletService';
+import {
+  reserveWalletFunds,
+  commitReservedFunds,
+  rollbackReservedFunds,
+  addHeldFunds,
+  releaseHeldFunds,
+  ensureWalletMigrated,
+  creditTestFunds,
+  getUserWallet
+} from './walletService';
 import { parseAmountToCents, calculateCheckoutTotals, calculateMarginalPlatformFee } from './moneyUtils';
 import { authenticateFirebaseUser } from './authHelper';
+import {
+  formatStripeError,
+  ensurePlatformTestBalance,
+  diagnoseStripeTransferPrerequisites
+} from './stripeHelper';
 import cors from "cors";
 import Stripe from "stripe";
 import { Resend } from 'resend';
@@ -1643,28 +1657,44 @@ app.post("/api/payouts/withdraw", async (req, res) => {
 
     // 2. Transfer to Connected Account
     try {
+      // In test mode, ensure platform balance has sufficient test funds
+      await ensurePlatformTestBalance(stripe, amountInCents);
+
       const transfer = await stripe.transfers.create({
         amount: amountInCents,
         currency: "eur",
         destination: stripeAccountId,
+        description: `Izplačilo drazbe.si za uporabnika ${userId}`
       }, {
         idempotencyKey
       });
-
-      // Payout is generally handled automatically by Stripe Connect depending on settings.
-      // Do not create a manual payout unless explicitly needed. The transfer moves it to their balance.
-      // If we need to trigger manual payout from their connected account, we can, but a transfer is the actual money move from platform to seller.
 
       await commitReservedFunds(txId, { stripe_transfer_id: transfer.id });
 
       const updatedUserDoc = await safeGetDoc(userDocRef);
       const remainingAvailable = updatedUserDoc.data()?.available_cents || 0;
 
-      res.json({ success: true, transfer_id: transfer.id, available_cents: remainingAvailable });
+      res.json({
+        success: true,
+        transfer_id: transfer.id,
+        available_cents: remainingAvailable,
+        wallet_balance: remainingAvailable / 100
+      });
     } catch (transferError: any) {
-      console.error("Stripe transfer failed, rolling back:", transferError);
+      console.error("Stripe transfer failed, rolling back reserved funds:", transferError.message);
       await rollbackReservedFunds(txId);
-      res.status(500).json({ error: transferError.message || "Transfer failed" });
+
+      const safeDiag = formatStripeError(transferError);
+      console.warn(`[Withdrawal Diagnostics] Type: ${safeDiag.type || 'none'}, Code: ${safeDiag.code || 'none'}, RequestId: ${safeDiag.requestId || 'none'}`);
+
+      res.status(safeDiag.statusCode || 400).json({
+        error: safeDiag.userMessage,
+        diagnostics: {
+          type: safeDiag.type,
+          code: safeDiag.code,
+          requestId: safeDiag.requestId
+        }
+      });
     }
   } catch (error: any) {
     console.error("Payout error:", error);
@@ -2066,74 +2096,152 @@ app.post("/api/test/generate-pdf", async (req, res) => {
 
 app.post("/api/test/test-payout", async (req, res) => {
   try {
-    const { user_id, amount = 50, executeReal = false } = req.body;
-    const withdrawalAmount = Number(amount);
+    let userId = req.body?.user_id;
+    try {
+      const authUid = await authenticateFirebaseUser(req);
+      if (authUid) userId = authUid;
+    } catch (_) {}
 
-    if (!user_id) {
+    const { amount = 50, executeReal = false } = req.body || {};
+    const amountInCents = parseAmountToCents(amount);
+
+    if (!userId) {
       return res.status(400).json({ error: "Manjka user_id." });
     }
+    if (amountInCents <= 0) {
+      return res.status(400).json({ error: "Znesek izplačila mora biti večji od 0." });
+    }
 
-    const userDocRef = adminDb.collection('users').doc(user_id);
+    const userDocRef = adminDb.collection('users').doc(userId);
     const userDoc = await safeGetDoc(userDocRef);
     if (!userDoc.exists()) {
       return res.status(404).json({ error: "Uporabnik ne obstaja v bazi." });
     }
     const userData = userDoc.data() || {};
-    const currentBalance = Number(userData.wallet_balance) || 0;
+    const wallet = await getUserWallet(userId);
+    const stripe = getStripe();
 
-    const logs: string[] = [];
-    logs.push(`[1] Preverjanje uporabnika: ${userData.first_name || ''} ${userData.last_name || userData.username || user_id} (Tip: ${userData.user_type || 'individual'})`);
-    logs.push(`[2] Trenutno stanje v denarnici: ${currentBalance.toFixed(2)} €`);
-    logs.push(`[3] Zahtevan znesek izplačila: ${withdrawalAmount.toFixed(2)} €`);
+    const diag = await diagnoseStripeTransferPrerequisites(stripe, userData, amountInCents);
+    const logs: string[] = [
+      `[1] Preverjanje uporabnika: ${userData.first_name || ''} ${userData.last_name || userData.username || userId} (ID: ${userId})`,
+      `[2] Trenutno razpoložljivo stanje v denarnici: ${(wallet.available_cents / 100).toFixed(2)} € (${wallet.available_cents} centov)`,
+      `[3] Zahtevan znesek izplačila: ${(amountInCents / 100).toFixed(2)} € (${amountInCents} centov)`,
+      ...diag.logs
+    ];
 
-    const hasSufficientBalance = currentBalance >= withdrawalAmount;
-    logs.push(`[4] Zadostno stanje: ${hasSufficientBalance ? 'DA (Odobreno)' : 'NE (Nezadostno dobroimetje)'}`);
-
-    const stripeAccountId = userData.stripeAccountId || userData.stripe_account_id;
-    const stripeOnboardingComplete = userData.stripe_onboarding_complete;
-    logs.push(`[5] Stripe Connect račun: ${stripeAccountId ? `Povezan (${stripeAccountId})` : 'NI povezan (potrebna registracija izplačilnega računa)'}`);
-    logs.push(`[6] Stripe Onboarding zaključen: ${stripeOnboardingComplete ? 'DA' : 'NE'}`);
-
-    let newBalance = currentBalance;
+    const hasSufficientBalance = wallet.available_cents >= amountInCents;
+    logs.push(`[*] Preverjanje stanja denarnice: ${hasSufficientBalance ? 'DA (Zadostno dobroimetje)' : 'NE (Nezadostno dobroimetje)'}`);
 
     if (executeReal) {
       if (!hasSufficientBalance) {
+        logs.push(`[X] Prekinitev: Sredstva v denarnici niso zadostna.`);
         return res.status(400).json({
           success: false,
           error: "Nezadostno stanje v denarnici za izvedbo izplačila.",
-          logs
+          logs,
+          diagnostics: diag.details
         });
       }
 
-      newBalance = currentBalance - withdrawalAmount;
-      await userDocRef.update({
-        wallet_balance: newBalance
-      });
+      if (!diag.ready) {
+        logs.push(`[X] Prekinitev: Zahteve Stripe Connect računa niso izpolnjene.`);
+        return res.status(400).json({
+          success: false,
+          error: diag.issues[0] || "Stripe račun ni pripravljen za izplačilo.",
+          logs,
+          diagnostics: diag.details
+        });
+      }
 
-      await adminDb.collection('wallet_transactions').add({
-        user_id,
-        amount: -withdrawalAmount,
-        type: 'payout',
-        status: 'completed',
-        description: `Testno izplačilo na bančni račun`,
-        created_at: new Date().toISOString()
-      });
+      const stripeAccountId = userData.stripeAccountId || userData.stripe_account_id;
+      const idempotencyKey = `test_payout_${userId}_${Date.now()}`;
 
-      logs.push(`[7] Baza posodobljena: Novo stanje denarnice je ${newBalance.toFixed(2)} €`);
-      logs.push(`[8] Zgodovina transakcij zabeležena.`);
+      // Reserve funds in wallet
+      logs.push(`[->] Rezervacija sredstev v denarnici (${amountInCents} centov)...`);
+      let txId: string;
+      try {
+        txId = await reserveWalletFunds(userId, amountInCents, 'withdrawal', idempotencyKey, {
+          description: `Testno izplačilo preko Stripe Connect (${(amountInCents / 100).toFixed(2)} €)`,
+          environment: 'sandbox'
+        });
+        logs.push(`[OK] Sredstva uspešno rezervirana (ID transakcije: ${txId})`);
+      } catch (reserveErr: any) {
+        logs.push(`[X] Rezervacija ni uspela: ${reserveErr.message}`);
+        return res.status(400).json({ success: false, error: reserveErr.message, logs });
+      }
+
+      // Ensure platform balance in test mode
+      await ensurePlatformTestBalance(stripe, amountInCents);
+
+      // Perform Stripe transfer
+      logs.push(`[->] Izvajanje Stripe Connect transferja na račun ${stripeAccountId}...`);
+      try {
+        const transfer = await stripe.transfers.create({
+          amount: amountInCents,
+          currency: "eur",
+          destination: stripeAccountId,
+          description: `Testno izplačilo drazbe.si za ${userId}`
+        }, {
+          idempotencyKey
+        });
+
+        logs.push(`[OK] Stripe transfer uspešno izveden! ID nakazila: ${transfer.id}`);
+
+        // Commit reserved funds
+        await commitReservedFunds(txId, {
+          stripe_transfer_id: transfer.id,
+          status: 'completed'
+        });
+        logs.push(`[OK] Knjiženje v denarnici potrjeno. Transakcija zaključena.`);
+
+        const updatedWallet = await getUserWallet(userId);
+        logs.push(`[=] Novo razpoložljivo stanje v denarnici: ${(updatedWallet.available_cents / 100).toFixed(2)} €`);
+
+        return res.json({
+          success: true,
+          simulation: false,
+          transfer_id: transfer.id,
+          requestedAmount: amountInCents / 100,
+          previousBalance: wallet.available_cents / 100,
+          newBalance: updatedWallet.available_cents / 100,
+          available_cents: updatedWallet.available_cents,
+          logs,
+          diagnostics: diag.details
+        });
+      } catch (transferErr: any) {
+        logs.push(`[X] Stripe transfer ni uspel: ${transferErr.message}`);
+        await rollbackReservedFunds(txId);
+        logs.push(`[!] Rezervirana sredstva vrnjena v denarnico uporabnika (rollback).`);
+
+        const safeErr = formatStripeError(transferErr);
+        logs.push(`[Diagnoza] Koda napake: ${safeErr.code || safeErr.type || 'neznana'}, Sporočilo: ${safeErr.userMessage}`);
+
+        return res.status(400).json({
+          success: false,
+          error: safeErr.userMessage,
+          logs,
+          diagnostics: {
+            ...diag.details,
+            stripeError: safeErr
+          }
+        });
+      }
     } else {
-      logs.push(`[7] Način simulacije: Denarnica ni bila zmanjšana (za dejansko zmanjšanje vklopi 'Izvedi pravo izplačilo').`);
-    }
+      logs.push(`[7] Način simulacije: Denarnica ni bila zmanjšana in Stripe transfer ni bil sprožen.`);
+      logs.push(`[8] Vklopi stikalo 'Izvedi pravo izplačilo' za dejansko nakazilo preko Stripe Connect.`);
 
-    res.json({
-      success: true,
-      simulation: !executeReal,
-      requestedAmount: withdrawalAmount,
-      previousBalance: currentBalance,
-      newBalance: executeReal ? newBalance : currentBalance,
-      stripeAccountStatus: stripeAccountId ? (stripeOnboardingComplete ? 'ready' : 'onboarding_required') : 'missing',
-      logs
-    });
+      return res.json({
+        success: true,
+        simulation: true,
+        requestedAmount: amountInCents / 100,
+        previousBalance: wallet.available_cents / 100,
+        newBalance: wallet.available_cents / 100,
+        available_cents: wallet.available_cents,
+        stripeAccountStatus: diag.ready ? 'ready' : (diag.details.stripeAccountId ? 'onboarding_required' : 'missing'),
+        logs,
+        diagnostics: diag.details
+      });
+    }
   } catch (err: any) {
     console.error("Test payout error:", err);
     res.status(500).json({ error: err.message || "Napaka pri testnem izplačilu" });
@@ -2142,22 +2250,38 @@ app.post("/api/test/test-payout", async (req, res) => {
 
 app.post("/api/test/add-test-funds", async (req, res) => {
   try {
-    const { user_id, amount = 100 } = req.body;
-    if (!user_id) return res.status(400).json({ error: "Manjka user_id" });
+    let userId = req.body?.user_id;
+    try {
+      const authUid = await authenticateFirebaseUser(req);
+      if (authUid) userId = authUid;
+    } catch (_) {}
 
-    const userDocRef = adminDb.collection('users').doc(user_id);
-    const userDoc = await safeGetDoc(userDocRef);
-    if (!userDoc.exists()) return res.status(404).json({ error: "Uporabnik ne obstaja" });
+    const { amount = 100 } = req.body || {};
+    if (!userId) return res.status(400).json({ error: "Manjka user_id" });
 
-    const currentBalance = Number(userDoc.data()?.wallet_balance) || 0;
-    const newBalance = currentBalance + Number(amount);
+    const amountInCents = parseAmountToCents(amount);
+    if (amountInCents <= 0) {
+      return res.status(400).json({ error: "Znesek mora biti večji od 0" });
+    }
 
-    await userDocRef.update({ wallet_balance: newBalance });
+    const idempotencyKey = req.body?.idempotencyKey || `test_credit_${userId}_${Date.now()}`;
+    const result = await creditTestFunds(userId, amountInCents, idempotencyKey, {
+      description: req.body?.description || 'Testno dobroimetje (Sandbox)',
+      environment: 'sandbox'
+    });
 
-    res.json({ success: true, previousBalance: currentBalance, newBalance });
+    res.json({
+      success: true,
+      transaction_id: result.transaction_id,
+      added_amount: amountInCents / 100,
+      added_cents: amountInCents,
+      newBalance: result.wallet_balance,
+      available_cents: result.available_cents,
+      wallet_balance: result.wallet_balance
+    });
   } catch (err: any) {
     console.error("Add test funds error:", err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: err.message || "Napaka pri dodajanju testnih sredstev" });
   }
 });
 

@@ -40,6 +40,7 @@ import {
   mockSandboxPackageItems, 
   mockSandboxStandaloneItems 
 } from '../data/mockSandboxData';
+import { auth } from '../lib/firebase';
 
 interface TestSandboxViewProps {
   onBack: () => void;
@@ -420,9 +421,17 @@ export const TestSandboxView: React.FC<TestSandboxViewProps> = ({
 
     setIsPayoutRunning(true);
     try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (auth.currentUser) {
+        try {
+          const token = await auth.currentUser.getIdToken();
+          if (token) headers['Authorization'] = `Bearer ${token}`;
+        } catch (_) {}
+      }
+
       const response = await fetch('/api/test/test-payout', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           user_id: userData.id,
           amount: payoutAmount,
@@ -459,9 +468,17 @@ export const TestSandboxView: React.FC<TestSandboxViewProps> = ({
     if (!userData?.id) return;
     setIsAddingFunds(true);
     try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (auth.currentUser) {
+        try {
+          const token = await auth.currentUser.getIdToken();
+          if (token) headers['Authorization'] = `Bearer ${token}`;
+        } catch (_) {}
+      }
+
       const res = await fetch('/api/test/add-test-funds', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ user_id: userData.id, amount: 100 })
       });
       let data: any;
@@ -1717,8 +1734,13 @@ export const TestSandboxView: React.FC<TestSandboxViewProps> = ({
               <div>
                 <span className="text-xs font-black uppercase text-slate-400">Trenutno stanje</span>
                 <div className="text-3xl font-black text-[#0A1128] mt-1">
-                  {(Number(userData?.wallet_balance) || 0).toLocaleString('sl-SI', { minimumFractionDigits: 2 })} €
+                  {((userData?.available_cents !== undefined ? userData.available_cents / 100 : Number(userData?.wallet_balance)) || 0).toLocaleString('sl-SI', { minimumFractionDigits: 2 })} €
                 </div>
+                {Boolean(userData?.held_cents) && (
+                  <p className="text-[11px] font-semibold text-amber-600 mt-1">
+                    Zadržano: {((userData?.held_cents || 0) / 100).toLocaleString('sl-SI', { minimumFractionDigits: 2 })} €
+                  </p>
+                )}
                 <p className="text-xs text-slate-500 mt-2">
                   Uporabnik: <strong>{userData?.first_name || userData?.email || 'Testni račun'}</strong>
                 </p>
