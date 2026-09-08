@@ -1,19 +1,9 @@
 const fs = require('fs');
+let code = fs.readFileSync('src/server/app.ts', 'utf8');
 
-let code = fs.readFileSync('App.tsx', 'utf8');
+// 1. Add moneyUtils import
+if (!code.includes("import { parseAmountToCents, calculateCheckoutTotals }")) {
+  code = code.replace("import express from 'express';", "import express from 'express';\nimport { parseAmountToCents, calculateCheckoutTotals } from './moneyUtils';");
+}
 
-// Fix Promise.race bug
-const target = `      const { error } = (await Promise.race([
-        insertPromise,
-        timeoutPromise,
-      ])) as any;`;
-
-const replacement = `      const { error } = (await Promise.race([
-        insertPromise.then(() => ({ data: true, error: null })).catch((e: any) => ({ data: null, error: e })),
-        timeoutPromise,
-      ])) as any;`;
-
-code = code.replace(target, replacement);
-
-fs.writeFileSync('App.tsx', code);
-console.log("App.tsx fixed");
+fs.writeFileSync('src/server/app.ts', code);

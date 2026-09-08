@@ -1179,40 +1179,6 @@ async function generateInvoiceNumber(type) {
     return `${prefix}-${year}-${formattedNum}`;
   });
 }
-function calculateMarginalPlatformFee(currentPrice, subscriptionTier) {
-  let bracket1Rate = 8;
-  let bracket2Rate = 5;
-  let bracket3Rate = 4;
-  if (subscriptionTier === "PRO") {
-    bracket1Rate = 3;
-    bracket2Rate = 2.5;
-    bracket3Rate = 2;
-  } else if (subscriptionTier === "BASIC") {
-    bracket1Rate = 6.5;
-    bracket2Rate = 4;
-    bracket3Rate = 3.2;
-  }
-  let totalFee = 0;
-  let remainingAmount = currentPrice;
-  if (remainingAmount > 0) {
-    const amountInBracket = Math.min(remainingAmount, 1e3);
-    totalFee += amountInBracket * (bracket1Rate / 100);
-    remainingAmount -= amountInBracket;
-  }
-  if (remainingAmount > 0) {
-    const amountInBracket = Math.min(remainingAmount, 4e3);
-    totalFee += amountInBracket * (bracket2Rate / 100);
-    remainingAmount -= amountInBracket;
-  }
-  if (remainingAmount > 0) {
-    totalFee += remainingAmount * (bracket3Rate / 100);
-  }
-  const absoluteMinimumFee = currentPrice * 0.02;
-  if (totalFee < absoluteMinimumFee) {
-    totalFee = absoluteMinimumFee;
-  }
-  return totalFee;
-}
 function formatE164Phone(phoneStr, defaultCountry = "SI") {
   if (!phoneStr || typeof phoneStr !== "string") return void 0;
   const cleaned = phoneStr.trim();
@@ -1789,15 +1755,21 @@ app.post("/api/notify-outbid", async (req, res) => {
 app.get("/api/health", (_req, res) => {
   res.json({ status: "ok" });
 });
+app.get("/api/test-create-auction", async (req, res) => {
+  const ref = await adminDb.collection("auctions").add({ title: { SLO: "Test" }, current_price: "20,00", seller_id: "123" });
+  res.json({ id: ref.id });
+});
 app.post("/api/create-checkout-session", async (req, res) => {
   try {
-    const { amount, currency = "eur", auction_id, buyer_id, seller_id, fee_percentage, return_url, type = "auction", user_id, userId, buyer_data } = req.body;
+    const { amount, currency = "eur", auction_id, auctionId, buyer_id, seller_id, fee_percentage, return_url, type = "auction", user_id, userId, buyer_data } = req.body || {};
     const stripe = getStripe();
+    const effectiveAuctionId = auction_id || auctionId;
     const effectiveBuyerId = buyer_id || user_id || userId;
     let auctionTitle = "Pla\u010Dilo";
     let sessionMetadata = { type };
     let buyer = buyer_data || null;
     let stripeCustomerId = null;
+    let finalAmountCents = NaN;
     if (effectiveBuyerId) {
       if (!buyer) {
         try {
@@ -1818,95 +1790,93 @@ app.post("/api/create-checkout-session", async (req, res) => {
         } else if (buyer.yearly_spent_year === currentYear && typeof buyer.yearly_spent === "number") {
           currentYearSpent = buyer.yearly_spent;
         }
-        const prospectiveTotal = currentYearSpent + (Number(amount) || 0);
         const isVerified = !!(buyer.is_verified || buyer.is_id_verified || buyer.id_document_verified);
-        if (prospectiveTotal > 1e4 && !isVerified) {
+        if (currentYearSpent > 1e4 && !isVerified) {
           return res.status(400).json({
             error: "V skladu z zakonodajo EU (ZPPDFT-2 / AML) je za skupne letne nakupe nad 10.000 \u20AC obvezna identifikacija z osebnim dokumentom. Prosimo, verificirajte svoj profil v nastavitvah pred nadaljevanjem."
           });
         }
       }
     }
-    let finalAmount = NaN;
     let diagnosticInfo = {
       route: "/api/create-checkout-session",
-      hasAmount: amount !== void 0 && amount !== null,
-      amountType: typeof amount,
-      parsedAmountInput: NaN,
+      type,
+      hasAuctionId: !!effectiveAuctionId,
+      auctionFound: false,
       usedPriceField: "none",
       computedCents: NaN
     };
-    const parseAmount = (val) => {
-      if (val === void 0 || val === null) return NaN;
-      if (typeof val === "number") return val;
-      if (typeof val === "string") {
-        let cleaned = val.trim().replace(/,/g, ".");
-        return Number(cleaned);
+    if (type === "auction") {
+      if (!effectiveAuctionId || !effectiveBuyerId) {
+        return res.status(400).json({ error: "Missing required auction fields for payment" });
       }
-      return NaN;
-    };
-    const parsedClientAmount = parseAmount(amount);
-    diagnosticInfo.parsedAmountInput = parsedClientAmount;
-    if (type === "auction" && auction_id && effectiveBuyerId && seller_id) {
       let auction = null;
       try {
-        const auctionDoc = await safeGetDoc(adminDb.collection("auctions").doc(auction_id));
+        const auctionDoc = await safeGetDoc(adminDb.collection("auctions").doc(effectiveAuctionId));
         if (auctionDoc.exists()) {
           auction = auctionDoc.data();
+          diagnosticInfo.auctionFound = true;
         }
       } catch (e) {
         console.warn("Could not fetch auction:", e);
       }
-      if (auction) {
-        if (auction.title) {
-          auctionTitle = auction.title["SLO"] || auction.title["EN"] || "Dra\u017Eba";
-        }
-        let authoritativePrice = NaN;
-        if (auction.current_price !== void 0 && auction.current_price !== null && auction.current_price !== "") {
-          authoritativePrice = parseAmount(auction.current_price);
-          diagnosticInfo.usedPriceField = "current_price";
-        } else if (auction.currentBid !== void 0 && auction.currentBid !== null && auction.currentBid !== "") {
-          authoritativePrice = parseAmount(auction.currentBid);
-          diagnosticInfo.usedPriceField = "currentBid";
-        }
-        if (!isNaN(authoritativePrice)) {
-          const feePct = Number(fee_percentage) || 0;
-          if (feePct > 0) {
-            finalAmount = authoritativePrice * (1 + feePct / 100);
-          } else {
-            finalAmount = authoritativePrice;
-          }
-        }
+      if (!auction) {
+        return res.status(400).json({ error: "Invalid auction payment amount (auction not found)" });
       }
+      if (auction.title) {
+        auctionTitle = auction.title["SLO"] || auction.title["EN"] || "Dra\u017Eba";
+      }
+      let authoritativePriceInCents = NaN;
+      if (auction.current_price !== void 0 && auction.current_price !== null && auction.current_price !== "") {
+        authoritativePriceInCents = parseAmountToCents(auction.current_price);
+        diagnosticInfo.usedPriceField = "current_price";
+      } else if (auction.currentBid !== void 0 && auction.currentBid !== null && auction.currentBid !== "") {
+        authoritativePriceInCents = parseAmountToCents(auction.currentBid);
+        diagnosticInfo.usedPriceField = "currentBid";
+      } else if (auction.starting_price !== void 0 && auction.starting_price !== null && auction.starting_price !== "") {
+        authoritativePriceInCents = parseAmountToCents(auction.starting_price);
+        diagnosticInfo.usedPriceField = "starting_price";
+      }
+      if (isNaN(authoritativePriceInCents)) {
+        return res.status(400).json({ error: "Invalid auction payment amount" });
+      }
+      const sellerDoc = await safeGetDoc(adminDb.collection("users").doc(seller_id || auction.seller_id || auction.sellerId || ""));
+      let sellerTier = "BASIC";
+      if (sellerDoc.exists()) sellerTier = sellerDoc.data().subscription_tier;
+      const totals = calculateCheckoutTotals(authoritativePriceInCents, sellerTier);
+      finalAmountCents = totals.buyerTotalInCents;
       sessionMetadata = {
         type: "auction",
-        auction_id,
+        auction_id: effectiveAuctionId,
         buyer_id: effectiveBuyerId,
-        seller_id,
-        fee_percentage
+        seller_id: seller_id || auction.seller_id || auction.sellerId || "",
+        fee_percentage: fee_percentage || ""
       };
     } else if (type === "subscription") {
-      auctionTitle = "Naro\u010Dnina";
-      finalAmount = parsedClientAmount;
+      const planIdStr = (req.body.planId || req.body.package_id || "").toLowerCase();
+      if (planIdStr.includes("pro")) finalAmountCents = 5e3;
+      else if (planIdStr.includes("basic")) finalAmountCents = 2e3;
+      else finalAmountCents = parseAmountToCents(amount);
+      auctionTitle = "Naro\u010Dnina - " + (req.body.planId || "Paket");
       sessionMetadata = {
         type: "subscription",
         buyer_id: effectiveBuyerId || "",
-        user_id: effectiveBuyerId || ""
+        user_id: effectiveBuyerId || "",
+        planId: req.body.planId || ""
       };
     } else {
       auctionTitle = "Pla\u010Dilo dra\u017Ebe";
-      finalAmount = parsedClientAmount;
+      finalAmountCents = parseAmountToCents(amount);
       sessionMetadata = {
         type: "auction",
-        auction_id: auction_id || "",
+        auction_id: effectiveAuctionId || "",
         buyer_id: effectiveBuyerId || "",
         seller_id: seller_id || ""
       };
     }
-    const unitAmountCents = Math.round(finalAmount * 100);
-    diagnosticInfo.computedCents = unitAmountCents;
+    diagnosticInfo.computedCents = finalAmountCents;
     console.log("[DIAGNOSTIC] create-checkout-session amounts:", JSON.stringify(diagnosticInfo));
-    if (isNaN(unitAmountCents) || !isFinite(unitAmountCents) || unitAmountCents <= 0) {
+    if (isNaN(finalAmountCents) || !isFinite(finalAmountCents) || finalAmountCents <= 0) {
       return res.status(400).json({ error: "Invalid auction payment amount" });
     }
     const sessionParams = {
@@ -1917,7 +1887,7 @@ app.post("/api/create-checkout-session", async (req, res) => {
           product_data: {
             name: auctionTitle
           },
-          unit_amount: unitAmountCents
+          unit_amount: finalAmountCents
         },
         quantity: 1
       }],
@@ -2076,8 +2046,9 @@ app.post("/api/confirm-checkout-session", async (req, res) => {
 });
 app.post("/api/create-payment-intent", async (req, res) => {
   try {
-    const { amount, currency = "eur", auction_id, buyer_id, seller_id, fee_percentage, user_id, userId } = req.body;
+    const { amount, currency = "eur", auction_id, auctionId, buyer_id, seller_id, fee_percentage, user_id, userId } = req.body || {};
     const stripe = getStripe();
+    const effectiveAuctionId = auction_id || auctionId;
     const effectiveBuyerId = buyer_id || user_id || userId;
     let stripeCustomerId = null;
     let buyer = null;
@@ -2088,71 +2059,61 @@ app.post("/api/create-payment-intent", async (req, res) => {
         stripeCustomerId = await getOrCreateStripeCustomer(stripe, effectiveBuyerId, buyer);
       }
     }
-    let finalAmount = NaN;
-    const parseAmount = (val) => {
-      if (val === void 0 || val === null) return NaN;
-      if (typeof val === "number") return val;
-      if (typeof val === "string") {
-        let cleaned = val.trim().replace(/,/g, ".");
-        return Number(cleaned);
-      }
-      return NaN;
-    };
-    if (auction_id) {
-      let authoritativePrice = NaN;
+    let finalAmountCents = NaN;
+    if (effectiveAuctionId) {
       try {
-        const auctionDoc = await safeGetDoc(adminDb.collection("auctions").doc(auction_id));
+        const auctionDoc = await safeGetDoc(adminDb.collection("auctions").doc(effectiveAuctionId));
         if (auctionDoc.exists()) {
           const auction = auctionDoc.data();
+          let authoritativePriceInCents = NaN;
           if (auction && auction.current_price !== void 0 && auction.current_price !== null && auction.current_price !== "") {
-            authoritativePrice = parseAmount(auction.current_price);
+            authoritativePriceInCents = parseAmountToCents(auction.current_price);
           } else if (auction && auction.currentBid !== void 0 && auction.currentBid !== null && auction.currentBid !== "") {
-            authoritativePrice = parseAmount(auction.currentBid);
+            authoritativePriceInCents = parseAmountToCents(auction.currentBid);
+          } else if (auction && auction.starting_price !== void 0 && auction.starting_price !== null && auction.starting_price !== "") {
+            authoritativePriceInCents = parseAmountToCents(auction.starting_price);
+          }
+          if (!isNaN(authoritativePriceInCents)) {
+            const sellerDoc = await safeGetDoc(adminDb.collection("users").doc(seller_id || auction.seller_id || auction.sellerId || ""));
+            let sellerTier = "BASIC";
+            if (sellerDoc.exists()) sellerTier = sellerDoc.data().subscription_tier;
+            const totals = calculateCheckoutTotals(authoritativePriceInCents, sellerTier);
+            finalAmountCents = totals.buyerTotalInCents;
           }
         }
       } catch (e) {
         console.warn("Could not fetch auction for payment intent:", e);
       }
-      if (!isNaN(authoritativePrice)) {
-        const feePct = Number(fee_percentage) || 0;
-        if (feePct > 0) {
-          finalAmount = authoritativePrice * (1 + feePct / 100);
-        } else {
-          finalAmount = authoritativePrice;
-        }
-      }
     }
-    if (isNaN(finalAmount)) {
-      finalAmount = parseAmount(amount);
+    if (isNaN(finalAmountCents)) {
+      finalAmountCents = parseAmountToCents(amount);
     }
-    const unitAmountCents = Math.round(finalAmount * 100);
-    if (isNaN(unitAmountCents) || !isFinite(unitAmountCents) || unitAmountCents <= 0) {
+    if (isNaN(finalAmountCents) || !isFinite(finalAmountCents) || finalAmountCents <= 0) {
       return res.status(400).json({ error: "Invalid payment intent amount" });
     }
     const intentParams = {
-      amount: unitAmountCents,
+      amount: finalAmountCents,
       currency,
       automatic_payment_methods: {
         enabled: true
       },
       metadata: {
         type: "auction",
-        auction_id,
+        auction_id: effectiveAuctionId || "",
         buyer_id: effectiveBuyerId || "",
-        seller_id,
-        fee_percentage
+        seller_id: seller_id || "",
+        fee_percentage: fee_percentage || ""
       }
     };
     if (stripeCustomerId) {
       intentParams.customer = stripeCustomerId;
     }
-    if (buyer?.email) {
-      intentParams.receipt_email = buyer.email;
-    }
     const paymentIntent = await stripe.paymentIntents.create(intentParams);
-    res.json({ clientSecret: paymentIntent.client_secret });
+    res.json({
+      clientSecret: paymentIntent.client_secret
+    });
   } catch (error) {
-    console.error("Stripe error:", error);
+    console.error("Stripe Payment Intent Error:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -2318,112 +2279,73 @@ app.post("/api/stripe-check-account-status", async (req, res) => {
 });
 app.post("/api/payments/wallet-pay-auction", async (req, res) => {
   try {
-    const { amount, auction_id, buyer_id, seller_id, fee_percentage } = req.body;
+    const { amount, auction_id, buyer_id, seller_id, fee_percentage } = req.body || {};
     if (!auction_id || !buyer_id || !seller_id) {
       return res.status(400).json({ error: "Manjkajo\u010Di podatki" });
     }
-    const auctionDoc = await safeGetDoc(adminDb.collection("auctions").doc(auction_id));
-    const auction = auctionDoc.data();
-    let currentPrice = amount;
-    if (auction && (auction.current_price || auction.currentBid)) {
-      currentPrice = Number(auction.current_price || auction.currentBid);
+    let auction = null;
+    const auctionRef = adminDb.collection("auctions").doc(auction_id);
+    const auctionDoc = await safeGetDoc(auctionRef);
+    if (auctionDoc.exists()) {
+      auction = auctionDoc.data();
     } else {
-      const feePct = Number(fee_percentage) || 0;
-      if (feePct > 0) {
-        currentPrice = amount / (1 + feePct / 100);
-      }
+      return res.status(404).json({ error: "Dra\u017Eba ne obstaja" });
     }
-    const sellerDoc = await safeGetDoc(adminDb.collection("users").doc(seller_id));
-    const seller = sellerDoc.data();
-    const platformFee = amount - currentPrice;
-    const buyerDocRef = adminDb.collection("users").doc(buyer_id);
-    const buyerDocSnapshot = await safeGetDoc(buyerDocRef);
-    const buyerData = buyerDocSnapshot.data();
-    const currentBuyerWallet = Number(buyerData?.wallet_balance) || 0;
-    if (currentBuyerWallet < amount) {
-      return res.status(400).json({ error: "Ni dovolj sredstev na ra\u010Dunu." });
+    let authoritativePriceInCents = NaN;
+    if (auction.current_price !== void 0 && auction.current_price !== null && auction.current_price !== "") {
+      authoritativePriceInCents = parseAmountToCents(auction.current_price);
+    } else if (auction.currentBid !== void 0 && auction.currentBid !== null && auction.currentBid !== "") {
+      authoritativePriceInCents = parseAmountToCents(auction.currentBid);
+    } else if (auction.starting_price !== void 0 && auction.starting_price !== null && auction.starting_price !== "") {
+      authoritativePriceInCents = parseAmountToCents(auction.starting_price);
     }
-    await buyerDocRef.update({
-      wallet_balance: currentBuyerWallet - amount
+    if (isNaN(authoritativePriceInCents)) {
+      return res.status(400).json({ error: "Invalid auction price" });
+    }
+    const sellerDoc2 = await safeGetDoc(adminDb.collection("users").doc(seller_id));
+    let sellerTier = "BASIC";
+    if (sellerDoc2.exists()) sellerTier = sellerDoc2.data().subscription_tier;
+    const totals = calculateCheckoutTotals(authoritativePriceInCents, sellerTier);
+    const finalAmountCents = totals.buyerTotalInCents;
+    const finalAmountEuro = finalAmountCents / 100;
+    const buyerRef = adminDb.collection("users").doc(buyer_id);
+    const buyerDoc = await safeGetDoc(buyerRef);
+    const buyer = buyerDoc.data() || {};
+    const walletBalance = Number(buyer.wallet_balance) || 0;
+    if (walletBalance < finalAmountEuro) {
+      return res.status(400).json({ error: "Ni dovolj sredstev v denarnici" });
+    }
+    await buyerRef.update({
+      wallet_balance: admin.firestore.FieldValue.increment(-finalAmountEuro)
     });
-    const sellerWallet = Number(seller?.wallet_balance) || 0;
-    await adminDb.collection("users").doc(seller_id).update({
-      wallet_balance: sellerWallet + currentPrice
+    const sellerRef = adminDb.collection("users").doc(seller_id);
+    await sellerRef.update({
+      wallet_balance: admin.firestore.FieldValue.increment(authoritativePriceInCents / 100)
     });
-    let transaction = null;
-    const txRef = await adminDb.collection("transactions").add({
+    await auctionRef.update({
+      payment_status: "paid",
+      post_auction_status: "sold",
+      status: "completed"
+    });
+    const txId = "WTX_" + Date.now();
+    await adminDb.collection("transactions").doc(txId).set({
+      type: "wallet_payment",
       auction_id,
       buyer_id,
       seller_id,
-      amount_total: currentPrice,
-      platform_fee: Math.round(platformFee),
-      vat_amount: 0,
-      vat_rate: 22,
+      amount_total: finalAmountEuro,
+      platform_fee: totals.platformFeeInCents / 100,
+      vat_amount: totals.vatInCents / 100,
+      vat_rate: 0,
       is_reverse_charge: false,
+      currency: "eur",
       status: "completed",
-      payment_method: "wallet",
-      created_at: (/* @__PURE__ */ new Date()).toISOString()
+      created_at: admin.firestore.FieldValue.serverTimestamp()
     });
-    const snap = await safeGetDoc(txRef);
-    transaction = { id: txRef.id, ...snap.data() };
-    await adminDb.collection("auctions").doc(auction_id).update({
-      status: "completed",
-      payment_status: "paid",
-      post_auction_status: "paid",
-      paid_at: (/* @__PURE__ */ new Date()).toISOString()
-    });
-    const buyerDoc = await safeGetDoc(adminDb.collection("users").doc(buyer_id));
-    const buyer = buyerDoc.data();
-    if (buyer && seller && transaction) {
-      (async () => {
-        let salesInvoiceNo = `ITEM-${transaction.id.substring(0, 8)}`;
-        let commissionInvoiceNo = `FEE-${transaction.id.substring(0, 8)}`;
-        try {
-          salesInvoiceNo = await generateInvoiceNumber("SALES");
-          commissionInvoiceNo = await generateInvoiceNumber("COMMISSION");
-          await adminDb.collection("transactions").doc(transaction.id).update({
-            sales_invoice_no: salesInvoiceNo,
-            commission_invoice_no: commissionInvoiceNo
-          });
-        } catch (e) {
-          console.error("Error generating invoice numbers for wallet:", e.message);
-        }
-        const documentsToInsert = [];
-        const attachments = [];
-        try {
-          const invoicePdfBuffer = await generateInvoicePDF(transaction, buyer, seller, auction, salesInvoiceNo, commissionInvoiceNo);
-          const invoiceFileName = `racun_${salesInvoiceNo}.pdf`;
-          const publicUrl = await uploadBufferToStorage(invoicePdfBuffer, `${buyer_id}/${invoiceFileName}`);
-          documentsToInsert.push({ transaction_id: transaction.id, user_id: buyer_id, type: "invoice", file_url: publicUrl });
-          attachments.push({ filename: invoiceFileName, content: invoicePdfBuffer });
-        } catch (e) {
-          console.error("Invoice error:", e.message);
-        }
-        if (documentsToInsert.length > 0) {
-          const batch = adminDb.batch();
-          documentsToInsert.forEach((d) => {
-            const ref = adminDb.collection("documents").doc();
-            batch.set(ref, d);
-          });
-          await batch.commit();
-        }
-        if (buyer.email && process.env.RESEND_API_KEY) {
-          const resendClient2 = new import_resend2.Resend(process.env.RESEND_API_KEY);
-          await resendClient2.emails.send({
-            from: process.env.EMAIL_FROM || "Drazba.si <obvestila@drazba.si>",
-            to: buyer.email,
-            subject: "Potrdilo o internem pla\u010Dilu in dokumenti - Drazba.si",
-            html: `<p>Va\u0161e pla\u010Dilo z dobroimetjem je bilo uspe\u0161no obdelano.</p>`,
-            attachments
-          });
-        }
-      })();
-    }
-    console.log("Auction paid via wallet:", auction_id);
-    res.json({ success: true });
+    res.json({ success: true, transaction_id: txId });
   } catch (error) {
-    console.error("Wallet pay auction error:", error);
-    res.status(500).json({ error: error.message || "Napaka pri pla\u010Dilu" });
+    console.error("Wallet pay error:", error);
+    res.status(500).json({ error: error.message || "Napaka" });
   }
 });
 app.post("/api/payments/wallet-pay-subscription", async (req, res) => {
@@ -2443,54 +2365,49 @@ app.post("/api/payments/wallet-pay-subscription", async (req, res) => {
 });
 app.post("/api/payouts/withdraw", async (req, res) => {
   try {
-    const { user_id, amount, return_url, refresh_url } = req.body;
+    const { user_id, amount, return_url, refresh_url } = req.body || {};
     const stripe = getStripe();
-    const withdrawalAmount = Number(amount);
-    const amountInCents = Math.round(withdrawalAmount * 100);
+    const amountInCents = parseAmountToCents(amount);
+    if (isNaN(amountInCents) || amountInCents <= 0) {
+      return res.status(400).json({ error: "Invalid payout amount" });
+    }
+    const withdrawalAmount = amountInCents / 100;
     const userDocRef = adminDb.collection("users").doc(user_id);
     const userDoc = await safeGetDoc(userDocRef);
     const user = userDoc.data() || {};
     const currentBalance = Number(user.wallet_balance) || 0;
     if (currentBalance < withdrawalAmount) {
-      return res.status(400).json({ error: "Stanje na ra\u010Dunu je prenizko." });
+      return res.status(400).json({ error: "Nedostupno stanje v denarnici" });
     }
-    let accountId = user.stripeAccountId || user.stripe_account_id;
-    if (!accountId) {
-      const account = await stripe.accounts.create({
-        type: "express",
-        country: "SI",
-        email: user.email,
-        capabilities: {
-          transfers: { requested: true }
-        },
-        settings: { payouts: { schedule: { interval: "manual" } } }
-      });
-      accountId = account.id;
-      await userDocRef.set({ stripeAccountId: accountId }, { merge: true });
+    let stripeAccountId = user.stripeAccountId || user.stripe_account_id;
+    if (!stripeAccountId) {
+      return res.status(400).json({ error: "Stripe ra\u010Dun ni povezan" });
     }
-    const isComplete = user?.stripe_onboarding_complete;
-    if (!isComplete) {
-      const accountLink = await stripe.accountLinks.create({
-        account: accountId,
-        refresh_url: refresh_url || "http://localhost:3000",
-        return_url: return_url || "http://localhost:3000",
-        type: "account_onboarding"
-      });
-      return res.json({ url: accountLink.url, status: "requires_onboarding" });
-    }
-    await userDocRef.update({
-      wallet_balance: currentBalance - withdrawalAmount
-    });
     const transfer = await stripe.transfers.create({
       amount: amountInCents,
       currency: "eur",
-      destination: accountId,
-      description: `Izpla\u010Dilo za uporabnika ${user_id}`
+      destination: stripeAccountId
     });
-    const payout = await stripe.payouts.create(
-      { amount: amountInCents, currency: "eur" },
-      { stripeAccount: accountId }
-    );
+    const payout = await stripe.payouts.create({
+      amount: amountInCents,
+      currency: "eur"
+    }, {
+      stripeAccount: stripeAccountId
+    });
+    await userDocRef.update({
+      wallet_balance: admin.firestore.FieldValue.increment(-withdrawalAmount)
+    });
+    const txId = "POUT_" + Date.now();
+    await adminDb.collection("transactions").doc(txId).set({
+      type: "payout",
+      user_id,
+      amount: withdrawalAmount,
+      currency: "eur",
+      status: "completed",
+      stripe_transfer_id: transfer.id,
+      stripe_payout_id: payout.id,
+      created_at: admin.firestore.FieldValue.serverTimestamp()
+    });
     res.json({ success: true, transfer_id: transfer.id, payout_id: payout.id });
   } catch (error) {
     console.error("Payout error:", error);
@@ -2499,20 +2416,18 @@ app.post("/api/payouts/withdraw", async (req, res) => {
 });
 app.post("/api/create-subscription-checkout", async (req, res) => {
   try {
-    const { amount, currency = "eur", user_id, package_id, return_url } = req.body;
+    const { amount, currency = "eur", user_id, package_id, return_url } = req.body || {};
     const stripe = getStripe();
-    const parseAmount = (val) => {
-      if (val === void 0 || val === null) return NaN;
-      if (typeof val === "number") return val;
-      if (typeof val === "string") {
-        let cleaned = val.trim().replace(/,/g, ".");
-        return Number(cleaned);
-      }
-      return NaN;
-    };
-    const parsedAmount = parseAmount(amount);
-    const unitAmountCents = Math.round(parsedAmount * 100);
-    if (isNaN(unitAmountCents) || !isFinite(unitAmountCents) || unitAmountCents <= 0) {
+    const packageIdStr = (package_id || "").toLowerCase();
+    let finalAmountCents = 0;
+    if (packageIdStr.includes("pro")) {
+      finalAmountCents = 5e3;
+    } else if (packageIdStr.includes("basic")) {
+      finalAmountCents = 2e3;
+    } else {
+      finalAmountCents = parseAmountToCents(amount);
+    }
+    if (isNaN(finalAmountCents) || !isFinite(finalAmountCents) || finalAmountCents <= 0) {
       return res.status(400).json({ error: "Invalid subscription payment amount" });
     }
     const session = await stripe.checkout.sessions.create({
@@ -2521,24 +2436,24 @@ app.post("/api/create-subscription-checkout", async (req, res) => {
         price_data: {
           currency,
           product_data: {
-            name: `Naro\u010Dnina - Paket ${package_id}`
+            name: `Naro\u010Dnina - Paket ${package_id || "Premium"}`
           },
-          unit_amount: unitAmountCents
+          unit_amount: finalAmountCents
         },
         quantity: 1
       }],
       metadata: {
         type: "subscription",
-        user_id,
-        package_id,
-        amount: amount.toString()
+        user_id: user_id || "",
+        package_id: package_id || "",
+        amount: finalAmountCents.toString()
       },
       payment_intent_data: {
         metadata: {
           type: "subscription",
-          user_id,
-          package_id,
-          amount: amount.toString()
+          user_id: user_id || "",
+          package_id: package_id || "",
+          amount: finalAmountCents.toString()
         }
       },
       mode: "payment",
@@ -3075,7 +2990,8 @@ app.post("/api/orders/:id/verify-pickup-pin", async (req, res) => {
     const sellerDoc = await safeGetDoc(sellerDocRef);
     if (sellerDoc.exists()) {
       const currentBalance = Number(sellerDoc.data()?.wallet_balance) || 0;
-      await sellerDocRef.update({ wallet_balance: currentBalance + Number(tx.amount_total || tx.amount) });
+      const releaseAmount = Number(tx.amount_total || tx.amount) - Number(tx.platform_fee || 0) - Number(tx.vat_amount || 0);
+      await sellerDocRef.update({ wallet_balance: currentBalance + releaseAmount });
     }
     res.json({ success: true, message: "Prevzem potrjen, sredstva so bila spro\u0161\u010Dena." });
   } catch (e) {
@@ -3149,8 +3065,9 @@ app.post("/api/cron/process-escrow-completions", async (_req, res) => {
       const sellerDoc = await safeGetDoc(adminDb.collection("users").doc(tx.seller_id));
       if (sellerDoc.exists()) {
         const currentBalance = Number(sellerDoc.data()?.wallet_balance) || 0;
+        const releaseAmount = Number(tx.amount_total || tx.amount) - Number(tx.platform_fee || 0) - Number(tx.vat_amount || 0);
         await adminDb.collection("users").doc(tx.seller_id).update({
-          wallet_balance: currentBalance + Number(tx.amount_total || tx.amount)
+          wallet_balance: currentBalance + releaseAmount
         });
       }
       processed++;
