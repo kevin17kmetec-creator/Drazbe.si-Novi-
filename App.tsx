@@ -2062,9 +2062,11 @@ const MainApp: React.FC = () => {
                   t("auctionFallback"),
                 onSuccess: async () => {
                   setIsCheckoutOpen(false);
-                  await setDoc(doc(db, 'auctions', item.id), { payment_status: 'paid', paid_at: new Date().toISOString() }, { merge: true });
+                  await setDoc(doc(db, 'auctions', item.id), { payment_status: 'paid', post_auction_status: 'paid', status: 'completed', paid_at: new Date().toISOString() }, { merge: true });
                   toast.success(t("paymentSuccess"));
+                  setSelectedItem((prev: any) => prev?.id === item.id ? { ...prev, payment_status: 'paid', post_auction_status: 'paid', status: 'completed', paid_at: new Date().toISOString() } : prev);
                   fetchAuctions();
+                  if (userData?.id) refreshUserData(userData.id);
                 },
                 metadata: {
                   auction_id: item.id,
@@ -2553,9 +2555,10 @@ const MainApp: React.FC = () => {
                                     title: `${t("paymentFor")}: ${wonItem.title[language as keyof typeof wonItem.title] || wonItem.title.SLO}`,
                                     onSuccess: async () => {
                                       setIsCheckoutOpen(false);
-                                      await setDoc(doc(db, 'auctions', wonItem.id), { payment_status: 'paid', paid_at: new Date().toISOString(), post_auction_status: 'paid' }, { merge: true });
+                                      await setDoc(doc(db, 'auctions', wonItem.id), { payment_status: 'paid', paid_at: new Date().toISOString(), post_auction_status: 'paid', status: 'completed' }, { merge: true });
                                       toast.success(t("paymentSuccessEmail"));
-                                      setTimeout(() => fetchAuctions(), 1500);
+                                      fetchAuctions();
+                                      if (userData?.id) refreshUserData(userData.id);
                                     },
                                     metadata: {
                                       auction_id: wonItem.id,

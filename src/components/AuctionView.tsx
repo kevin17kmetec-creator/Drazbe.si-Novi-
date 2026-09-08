@@ -5,6 +5,8 @@ import {
   CreditCard, Landmark, Plus, Minus, X, Calendar as CalendarIcon, Phone, Mail, User,
   MessageSquare
 } from 'lucide-react';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 import { getIncrement, calculateMarginalPlatformFee } from '../lib/utils';
 
 const TimeBox = ({ value, label }: { value: number, label: string }) => (
@@ -28,32 +30,57 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
   onWatchToggle?: () => void,
   currentUserId?: string
 }) {
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
-  const [lightboxImage, setLightboxImage] = useState<string | null>(null);
-  const [signedImages, setSignedImages] = useState<string[]>([]);
-  const [currentBid, setCurrentBid] = useState<number>(item?.currentBid || item?.current_price || 0);
-  const [endTime, setEndTime] = useState<Date>(item?.endTime ? new Date(item.endTime) : new Date());
-  const [bidCount, setBidCount] = useState<number>(item?.bidCount || item?.bid_count || 0);
-  
+  const [auctionData, setAuctionData] = useState<any>(item);
+
   useEffect(() => {
-    setCurrentBid(item?.currentBid || item?.current_price || 0);
-    setEndTime(item?.endTime ? new Date(item.endTime) : new Date());
-    setBidCount(item?.bidCount || item?.bid_count || 0);
+    setAuctionData(item);
   }, [item]);
 
   useEffect(() => {
-    if (!item?.images) return;
-    const urls = item.images.map((imgPath: string) => {
+    if (!item?.id) return;
+    const unsub = onSnapshot(doc(db, 'auctions', item.id), (snap) => {
+      if (snap.exists()) {
+        setAuctionData((prev: any) => ({ ...prev, id: snap.id, ...snap.data() }));
+      }
+    });
+    return () => unsub();
+  }, [item?.id]);
+
+  const currentAuction = auctionData || item;
+
+  const isPaid = Boolean(
+    currentAuction?.payment_status === 'paid' || 
+    (currentAuction as any)?.post_auction_status === 'paid' || 
+    currentAuction?.status === 'paid' || 
+    (currentAuction as any)?.paid_at
+  );
+
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+  const [signedImages, setSignedImages] = useState<string[]>([]);
+  const [currentBid, setCurrentBid] = useState<number>(currentAuction?.currentBid || currentAuction?.current_price || 0);
+  const [endTime, setEndTime] = useState<Date>(currentAuction?.endTime ? new Date(currentAuction.endTime) : new Date());
+  const [bidCount, setBidCount] = useState<number>(currentAuction?.bidCount || currentAuction?.bid_count || 0);
+  
+  useEffect(() => {
+    setCurrentBid(currentAuction?.currentBid || currentAuction?.current_price || 0);
+    setEndTime(currentAuction?.endTime ? new Date(currentAuction.endTime) : new Date());
+    setBidCount(currentAuction?.bidCount || currentAuction?.bid_count || 0);
+  }, [currentAuction]);
+
+  useEffect(() => {
+    if (!currentAuction?.images) return;
+    const urls = currentAuction.images.map((imgPath: string) => {
       if (imgPath.startsWith('http') || imgPath.startsWith('blob:') || imgPath.startsWith('data:')) return imgPath;
       const publicUrl = `https://storage.googleapis.com/auction-images/${imgPath}`;
       return publicUrl || imgPath;
     });
     setSignedImages(urls);
     if (urls.length > 0) setSelectedImage(urls[0]);
-  }, [item?.images]);
+  }, [currentAuction?.images]);
 
   const [timeLeft, setTimeLeft] = useState<number>(() => {
-    const end = (item?.endTime ? new Date(item.endTime) : new Date()).getTime();
+    const end = (currentAuction?.endTime ? new Date(currentAuction.endTime) : new Date()).getTime();
     const now = new Date().getTime();
     return Math.max(0, Math.floor((end - now) / 1000));
   });
@@ -63,7 +90,7 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
   const [bidSuccess, setBidSuccess] = useState(false);
 
   useEffect(() => {
-    if (!item || item.status !== 'active') return;
+    if (!currentAuction || currentAuction.status !== 'active') return;
     const updateTimer = () => {
       const end = endTime.getTime();
       const now = new Date().getTime();
@@ -76,26 +103,30 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
     return () => {
       clearInterval(interval);
     };
-  }, [endTime, item?.status]);
+  }, [endTime, currentAuction?.status]);
 
-  const isWinner = currentUserId && (item.winnerId === currentUserId || item.winner_id === currentUserId);
-  const isSeller = currentUserId && (item.sellerId === currentUserId || item.seller_id === currentUserId);
-  const isEnded = item.status === 'completed' || item.status === 'cancelled' || timeLeft === 0;
+  const isWinner = currentUserId && (
+    currentAuction.winnerId === currentUserId || 
+    currentAuction.winner_id === currentUserId ||
+    (currentAuction.second_highest_bidder_id === currentUserId && (currentAuction.post_auction_status === 'offered_2nd' || currentAuction.post_auction_status === 'awaiting_payment_2nd'))
+  );
+  const isSeller = currentUserId && (currentAuction.sellerId === currentUserId || currentAuction.seller_id === currentUserId);
+  const isEnded = currentAuction.status === 'completed' || currentAuction.status === 'cancelled' || isPaid || timeLeft === 0;
 
   const currentLeadingAmount = isWinner 
-    ? Math.max(currentBid, Number(item?.current_proxy_bid?.amount || item?.currentProxyBid?.amount || item?.hiddenMaxBid || item?.hidden_max_bid || currentBid))
+    ? Math.max(currentBid, Number(currentAuction?.current_proxy_bid?.amount || currentAuction?.currentProxyBid?.amount || currentAuction?.hiddenMaxBid || currentAuction?.hidden_max_bid || currentBid))
     : currentBid;
   const minNextBid = currentLeadingAmount + getIncrement(currentLeadingAmount);
 
   useEffect(() => {
     const baseline = isWinner 
-      ? Math.max(currentBid, Number(item?.current_proxy_bid?.amount || item?.currentProxyBid?.amount || item?.hiddenMaxBid || item?.hidden_max_bid || currentBid))
+      ? Math.max(currentBid, Number(currentAuction?.current_proxy_bid?.amount || currentAuction?.currentProxyBid?.amount || currentAuction?.hiddenMaxBid || currentAuction?.hidden_max_bid || currentBid))
       : currentBid;
     const requiredMin = baseline + getIncrement(baseline);
     if (!bidAmount || Number(bidAmount) < requiredMin) {
       setBidAmount(String(requiredMin));
     }
-  }, [currentBid, isWinner, item]);
+  }, [currentBid, isWinner, currentAuction]);
 
   const handleAdjustBid = (dir: 'up' | 'down') => {
     const currentNum = Number(bidAmount) || minNextBid;
@@ -114,7 +145,7 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
     setError(null);
     
     try {
-      const result = await onBidSubmit(item, Number(bidAmount));
+      const result = await onBidSubmit(currentAuction, Number(bidAmount));
       if (result === 'ok') {
           setBidSuccess(true);
           setTimeout(() => setBidSuccess(false), 3000);
@@ -130,7 +161,8 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
   };
 
   const handleCheckout = async () => {
-    onCheckout(item);
+    if (isPaid) return;
+    onCheckout(currentAuction);
   };
 
   if (!item) return <div className="p-10 text-center font-bold text-slate-500 animate-pulse">{t('loading')}...</div>;
@@ -164,7 +196,11 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
               <div className="flex justify-between items-start gap-4 mb-6">
                 <div className="flex flex-col gap-2">
                   <h1 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-[#0A1128] leading-tight">{title}</h1>
-                  {isWinner && (
+                  {isPaid ? (
+                    <div className="inline-flex items-center gap-2 bg-green-50 border border-green-200 px-3.5 py-1.5 rounded-xl text-xs font-black uppercase tracking-widest text-green-700 w-fit shadow-sm">
+                      <CheckCircle2 size={16} className="text-green-600" /> {t('paid') || 'Plačano'}
+                    </div>
+                  ) : isWinner && (
                     <div className="inline-flex items-center gap-2 bg-green-500/10 border border-green-500/20 px-3 py-1 rounded-xl text-[10px] font-black uppercase tracking-widest text-green-600 w-fit animate-pulse">
                       <Trophy size={12} /> {t('leading') || 'Vodilni'}
                     </div>
@@ -235,31 +271,58 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
           <div className="lg:col-span-4 order-2 space-y-6">
             <div className="bg-[#0A1128] text-white border border-white/5 rounded-[2rem] p-5 flex flex-col w-full shadow-2xl relative overflow-hidden">
               {isEnded && (
-                <div className="absolute inset-0 bg-[#0A1128]/90 backdrop-blur-sm z-10 flex flex-col items-center justify-center p-8 text-center">
-                  <CheckCircle2 size={48} className="text-green-500 mb-4" />
-                  <h3 className="text-2xl font-black uppercase tracking-tighter text-white mb-2">{t('auctionEnded')}</h3>
-                  <div className="bg-white/10 rounded-2xl px-6 py-4 mb-6 border border-white/10">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Končna cena</p>
-                    <p className="text-3xl font-black text-[#FEBA4F]">€ {item.currentBid?.toLocaleString('sl-SI') || 0}</p>
-                  </div>
-                  
-                  {isWinner ? (
-                    <>
-                      <p className="text-slate-300 font-bold mb-6">{t('winnerNotice')}</p>
-                      <button 
-                        onClick={handleCheckout}
-                        disabled={loading}
-                        className="w-full bg-[#FEBA4F] text-[#0A1128] px-8 py-4 rounded-xl font-black uppercase tracking-widest hover:bg-white transition-all shadow-xl flex items-center justify-center gap-2 disabled:opacity-50 mb-3"
-                      >
-                        <Lock size={18} /> {loading ? '...' : t('payNow')}
-                      </button>
-                    </>
-                  ) : isSeller ? (
-                    <>
-                      <p className="text-slate-300 font-bold mb-4">{t('sellerWinnerNotice')}</p>
-                    </>
+                <div className="absolute inset-0 bg-[#0A1128]/95 backdrop-blur-md z-10 flex flex-col items-center justify-center p-8 text-center">
+                  {isPaid ? (
+                    <div className="w-full max-w-md bg-green-500/10 border-2 border-green-500/30 rounded-3xl p-6 mb-2 flex flex-col items-center">
+                      <div className="w-16 h-16 rounded-full bg-green-500/20 border border-green-500/40 flex items-center justify-center mb-4 text-green-400 shadow-lg shadow-green-500/10">
+                        <CheckCircle2 size={36} />
+                      </div>
+                      <h3 className="text-2xl font-black uppercase tracking-tight text-white mb-2">{t('auctionPaid') || 'Dražba plačana'}</h3>
+                      <div className="bg-white/10 rounded-2xl px-6 py-3 mb-4 border border-white/10 w-full">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-0.5">Končni znesek</p>
+                        <p className="text-2xl font-black text-[#FEBA4F]">€ {(currentAuction.currentBid || currentAuction.current_price || currentBid)?.toLocaleString('sl-SI')}</p>
+                      </div>
+                      <p className="text-xs text-slate-200 font-bold leading-relaxed mb-3">
+                        {isWinner
+                          ? (t('winnerPaidNotice') || 'Čestitamo! Vaše plačilo je bilo potrjeno. Prodajalec pripravlja pošiljko.')
+                          : isSeller
+                            ? (t('sellerPaidNotice') || 'Kupec je uspešno plačal dražbo. Sredstva so varno shranjena v vaših zadržanih sredstvih.')
+                            : (t('auctionCompletedPaid') || 'Dražba je bila uspešno zaključena in plačana.')}
+                      </p>
+                      {currentAuction.paid_at && (
+                        <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest bg-white/5 px-3 py-1 rounded-lg">
+                          Plačano dne: {new Date(currentAuction.paid_at).toLocaleDateString('sl-SI', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      )}
+                    </div>
                   ) : (
-                    <p className="text-slate-300 font-bold">{t('notWinnerNotice')}</p>
+                    <>
+                      <CheckCircle2 size={48} className="text-green-500 mb-4" />
+                      <h3 className="text-2xl font-black uppercase tracking-tighter text-white mb-2">{t('auctionEnded')}</h3>
+                      <div className="bg-white/10 rounded-2xl px-6 py-4 mb-6 border border-white/10">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Končna cena</p>
+                        <p className="text-3xl font-black text-[#FEBA4F]">€ {(currentAuction.currentBid || currentAuction.current_price || currentBid)?.toLocaleString('sl-SI') || 0}</p>
+                      </div>
+                      
+                      {isWinner ? (
+                        <>
+                          <p className="text-slate-300 font-bold mb-6">{t('winnerNotice')}</p>
+                          <button 
+                            onClick={handleCheckout}
+                            disabled={loading || isPaid}
+                            className="w-full bg-[#FEBA4F] text-[#0A1128] px-8 py-4 rounded-xl font-black uppercase tracking-widest hover:bg-white transition-all shadow-xl flex items-center justify-center gap-2 disabled:opacity-50 mb-3"
+                          >
+                            <Lock size={18} /> {loading ? '...' : t('payNow')}
+                          </button>
+                        </>
+                      ) : isSeller ? (
+                        <>
+                          <p className="text-slate-300 font-bold mb-4">{t('sellerWinnerNotice')}</p>
+                        </>
+                      ) : (
+                        <p className="text-slate-300 font-bold">{t('notWinnerNotice')}</p>
+                      )}
+                    </>
                   )}
                 </div>
               )}
@@ -276,22 +339,22 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
 
               <div className="grid grid-cols-2 gap-y-4 gap-x-4 w-full mb-4">
                 <div className="text-center border-r border-white/10">
-                  <p className="text-2xl font-black text-[#FEBA4F]">{item.bidCount || 0}</p>
+                  <p className="text-2xl font-black text-[#FEBA4F]">{currentAuction.bidCount || currentAuction.bid_count || bidCount || 0}</p>
                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1">{t('bidCount')}</p>
                 </div>
                 <div className="text-center">
-                  <p className="text-2xl font-black text-white">€ {item.currentBid || 0}</p>
+                  <p className="text-2xl font-black text-white">€ {currentAuction.currentBid || currentAuction.current_price || currentBid || 0}</p>
                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1">{t('startingPrice')}</p>
                 </div>
                 
                 <div className="text-center border-r border-white/10 pt-4 border-t">
                   <p className="text-2xl font-black text-green-400">
-                    {isWinner ? `€ ${item.current_proxy_bid?.amount || item.currentProxyBid?.amount || item.hiddenMaxBid || item.hidden_max_bid || item.currentBid || item.current_price || '-'}` : '-'}
+                    {isWinner ? `€ ${currentAuction.current_proxy_bid?.amount || currentAuction.currentProxyBid?.amount || currentAuction.hiddenMaxBid || currentAuction.hidden_max_bid || currentAuction.currentBid || currentAuction.current_price || currentBid || '-'}` : '-'}
                   </p>
                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1 flex items-center justify-center gap-1"><Lock size={10}/> {t('myMaxBid')}</p>
                 </div>
                 <div className="text-center pt-4 border-t border-white/10">
-                  <p className="text-4xl font-black text-[#FEBA4F]">€ {item.currentBid || 0}</p>
+                  <p className="text-4xl font-black text-[#FEBA4F]">€ {currentAuction.currentBid || currentAuction.current_price || currentBid || 0}</p>
                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1">{t('currentBid')}</p>
                 </div>
               </div>

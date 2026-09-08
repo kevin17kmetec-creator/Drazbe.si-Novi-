@@ -1,0 +1,246 @@
+import { adminDb, FieldValue } from '../lib/firebase-admin';
+
+export type WalletTxType = 'deposit' | 'withdrawal' | 'wallet_payment' | 'hold' | 'release' | 'refund' | 'migration';
+
+export interface WalletLedgerEntry {
+  transaction_id: string;
+  user_id: string;
+  type: WalletTxType;
+  amount_cents: number;
+  status: 'pending' | 'completed' | 'failed';
+  auction_id?: string;
+  stripe_transfer_id?: string;
+  stripe_payment_intent_id?: string;
+  idempotency_key: string;
+  created_at: any;
+}
+
+/** Ensure user wallet is migrated to cents model within a transaction */
+export function ensureWalletMigrated(t: FirebaseFirestore.Transaction, userRef: FirebaseFirestore.DocumentReference, userData: any) {
+  if (userData.available_cents === undefined) {
+    const legacyBalance = Number(userData.wallet_balance) || 0;
+    const legacyCents = Math.round(legacyBalance * 100);
+    
+    t.update(userRef, {
+      available_cents: legacyCents,
+      held_cents: 0,
+      reserved_cents: 0
+    });
+
+    if (legacyCents !== 0) {
+      const txRef = adminDb.collection('wallet_transactions').doc();
+      t.set(txRef, {
+        transaction_id: txRef.id,
+        user_id: userRef.id,
+        type: 'migration',
+        amount_cents: legacyCents,
+        status: 'completed',
+        idempotency_key: `migration_${userRef.id}`,
+        created_at: FieldValue.serverTimestamp()
+      });
+    }
+    
+    return {
+      available_cents: legacyCents,
+      held_cents: 0,
+      reserved_cents: 0
+    };
+  }
+  return {
+    available_cents: userData.available_cents || 0,
+    held_cents: userData.held_cents || 0,
+    reserved_cents: userData.reserved_cents || 0
+  };
+}
+
+/** 
+ * Reserve funds for withdrawal or wallet payment.
+ * Moves from available_cents to reserved_cents.
+ */
+export async function reserveWalletFunds(userId: string, amountCents: number, type: WalletTxType, idempotencyKey: string, meta?: any) {
+  if (amountCents <= 0) throw new Error("Amount must be positive");
+  
+  return await adminDb.runTransaction(async (t) => {
+    // 1. Check idempotency
+    const existingQuery = await t.get(
+      adminDb.collection('wallet_transactions').where('idempotency_key', '==', idempotencyKey).limit(1)
+    );
+    if (!existingQuery.empty) {
+      throw new Error("Idempotency key already exists");
+    }
+
+    // 2. Fetch user
+    const userRef = adminDb.collection('users').doc(userId);
+    const userDoc = await t.get(userRef);
+    if (!userDoc.exists) throw new Error("User not found");
+    const userData = userDoc.data() || {};
+    
+    const wallet = ensureWalletMigrated(t, userRef, userData);
+    
+    if (wallet.available_cents < amountCents) {
+      throw new Error("Insufficient available balance");
+    }
+
+    // 3. Update balances
+    const newAvailable = wallet.available_cents - amountCents;
+    t.update(userRef, {
+      available_cents: FieldValue.increment(-amountCents),
+      reserved_cents: FieldValue.increment(amountCents),
+      wallet_balance: Math.max(0, newAvailable / 100)
+    });
+
+    // 4. Create pending transaction
+    const txRef = adminDb.collection('wallet_transactions').doc();
+    const entry: any = {
+      transaction_id: txRef.id,
+      user_id: userId,
+      type,
+      amount_cents: amountCents,
+      status: 'pending',
+      idempotency_key: idempotencyKey,
+      created_at: FieldValue.serverTimestamp(),
+      ...meta
+    };
+    t.set(txRef, entry);
+
+    return txRef.id;
+  });
+}
+
+/**
+ * Confirm reserved funds are spent.
+ * Removes from reserved_cents and marks transaction completed.
+ */
+export async function commitReservedFunds(txId: string, metaUpdates?: any) {
+  await adminDb.runTransaction(async (t) => {
+    const txRef = adminDb.collection('wallet_transactions').doc(txId);
+    const txDoc = await t.get(txRef);
+    if (!txDoc.exists) throw new Error("Transaction not found");
+    const tx = txDoc.data()!;
+    if (tx.status !== 'pending') throw new Error("Transaction is not pending");
+
+    const userRef = adminDb.collection('users').doc(tx.user_id);
+    
+    t.update(userRef, {
+      reserved_cents: FieldValue.increment(-tx.amount_cents)
+    });
+
+    t.update(txRef, {
+      status: 'completed',
+      ...metaUpdates
+    });
+  });
+}
+
+/**
+ * Rollback reserved funds.
+ * Moves from reserved_cents back to available_cents and marks transaction failed.
+ */
+export async function rollbackReservedFunds(txId: string) {
+  await adminDb.runTransaction(async (t) => {
+    const txRef = adminDb.collection('wallet_transactions').doc(txId);
+    const txDoc = await t.get(txRef);
+    if (!txDoc.exists) throw new Error("Transaction not found");
+    const tx = txDoc.data()!;
+    if (tx.status !== 'pending') throw new Error("Transaction is not pending");
+
+    const userRef = adminDb.collection('users').doc(tx.user_id);
+    
+    const userDoc = await t.get(userRef);
+    const userData = userDoc.data() || {};
+    const wallet = ensureWalletMigrated(t, userRef, userData);
+    const restoredAvailable = wallet.available_cents + tx.amount_cents;
+
+    t.update(userRef, {
+      reserved_cents: FieldValue.increment(-tx.amount_cents),
+      available_cents: FieldValue.increment(tx.amount_cents),
+      wallet_balance: Math.max(0, restoredAvailable / 100)
+    });
+
+    t.update(txRef, {
+      status: 'failed'
+    });
+  });
+}
+
+/**
+ * Add held funds to a user (e.g. from an auction payment).
+ * Increases held_cents.
+ */
+export async function addHeldFunds(userId: string, amountCents: number, idempotencyKey: string, meta?: any) {
+  if (amountCents <= 0) throw new Error("Amount must be positive");
+  
+  await adminDb.runTransaction(async (t) => {
+    const existingQuery = await t.get(
+      adminDb.collection('wallet_transactions').where('idempotency_key', '==', idempotencyKey).limit(1)
+    );
+    if (!existingQuery.empty) return; // Already processed
+
+    const userRef = adminDb.collection('users').doc(userId);
+    const userDoc = await t.get(userRef);
+    if (!userDoc.exists) throw new Error("User not found");
+    const userData = userDoc.data() || {};
+    ensureWalletMigrated(t, userRef, userData);
+
+    t.update(userRef, {
+      held_cents: FieldValue.increment(amountCents)
+    });
+
+    const txRef = adminDb.collection('wallet_transactions').doc();
+    t.set(txRef, {
+      transaction_id: txRef.id,
+      user_id: userId,
+      type: 'hold',
+      amount_cents: amountCents,
+      status: 'completed',
+      idempotency_key: idempotencyKey,
+      created_at: FieldValue.serverTimestamp(),
+      ...meta
+    });
+  });
+}
+
+/**
+ * Release held funds to available funds.
+ * Moves from held_cents to available_cents.
+ */
+export async function releaseHeldFunds(userId: string, amountCents: number, idempotencyKey: string, meta?: any) {
+  if (amountCents <= 0) throw new Error("Amount must be positive");
+  
+  await adminDb.runTransaction(async (t) => {
+    const existingQuery = await t.get(
+      adminDb.collection('wallet_transactions').where('idempotency_key', '==', idempotencyKey).limit(1)
+    );
+    if (!existingQuery.empty) return; // Already processed
+
+    const userRef = adminDb.collection('users').doc(userId);
+    const userDoc = await t.get(userRef);
+    if (!userDoc.exists) throw new Error("User not found");
+    const userData = userDoc.data() || {};
+    const wallet = ensureWalletMigrated(t, userRef, userData);
+
+    if (wallet.held_cents < amountCents) {
+      throw new Error("Insufficient held balance");
+    }
+
+    const newAvailable = wallet.available_cents + amountCents;
+    t.update(userRef, {
+      held_cents: FieldValue.increment(-amountCents),
+      available_cents: FieldValue.increment(amountCents),
+      wallet_balance: Math.max(0, newAvailable / 100)
+    });
+
+    const txRef = adminDb.collection('wallet_transactions').doc();
+    t.set(txRef, {
+      transaction_id: txRef.id,
+      user_id: userId,
+      type: 'release',
+      amount_cents: amountCents,
+      status: 'completed',
+      idempotency_key: idempotencyKey,
+      created_at: FieldValue.serverTimestamp(),
+      ...meta
+    });
+  });
+}
+

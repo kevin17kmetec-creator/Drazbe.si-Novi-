@@ -1,4 +1,5 @@
 import express from "express";
+import { reserveWalletFunds, commitReservedFunds, rollbackReservedFunds, addHeldFunds, releaseHeldFunds, ensureWalletMigrated } from './walletService';
 import { parseAmountToCents, calculateCheckoutTotals, calculateMarginalPlatformFee } from './moneyUtils';
 import cors from "cors";
 import Stripe from "stripe";
@@ -14,9 +15,12 @@ import {
 import { processAuctionCrons } from './cronProcessor';
 import {
   adminDb,
+  adminAuth,
+  getAuth,
   uploadBufferToStorage,
   isDocSnapshotExists,
-  getDocSnapshotData
+  getDocSnapshotData,
+  FieldValue
 } from '../lib/firebase-admin';
 
 async function safeGetDocs(queryRef: any) {
@@ -279,11 +283,38 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
         const targetUserId = user_id || buyer_id;
         console.log('Processing subscription payment for user', targetUserId);
         if (targetUserId && package_id) {
-          await adminDb.collection('users').doc(targetUserId).update({
+          const updateData: any = {
             subscription_tier: package_id,
             subscription_active: true,
             subscription_paid_at: new Date().toISOString()
-          });
+          };
+          
+          let paymentMethodId = null;
+          let customerId = null;
+          
+          if (isSession && sessionObj?.payment_intent) {
+            const pi = typeof sessionObj.payment_intent === 'string' 
+              ? await stripe.paymentIntents.retrieve(sessionObj.payment_intent as string)
+              : sessionObj.payment_intent;
+            if (typeof pi === 'object' && pi.payment_method) {
+               paymentMethodId = typeof pi.payment_method === 'string' ? pi.payment_method : pi.payment_method.id;
+            }
+          } else if (!isSession && paymentIntent?.payment_method) {
+            paymentMethodId = typeof paymentIntent.payment_method === 'string' ? paymentIntent.payment_method : paymentIntent.payment_method.id;
+          }
+          
+          if (isSession && sessionObj?.customer) {
+            customerId = typeof sessionObj.customer === 'string' ? sessionObj.customer : sessionObj.customer.id;
+          } else if (!isSession && paymentIntent?.customer) {
+            customerId = typeof paymentIntent.customer === 'string' ? paymentIntent.customer : paymentIntent.customer.id;
+          }
+          
+          if (paymentMethodId && customerId) {
+            updateData.stripe_default_payment_method = paymentMethodId;
+            updateData.stripe_customer_id = customerId;
+          }
+          
+          await adminDb.collection('users').doc(targetUserId).update(updateData);
         }
         res.json({ received: true });
         return;
@@ -375,11 +406,9 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
           paid_at: new Date().toISOString()
         });
 
-        // Credit seller's wallet
-        const currentWallet = Number(seller.wallet_balance) || 0;
-        await adminDb.collection('users').doc(seller_id).update({
-          wallet_balance: currentWallet + currentPrice
-        });
+        // Credit seller's held wallet
+        const currentPriceCents = Math.round(currentPrice * 100);
+        await addHeldFunds(seller_id, currentPriceCents, 'stripe_' + paymentId, { stripe_payment_intent_id: paymentId, auction_id });
       } catch (e: any) {
         console.error('Error updating auction status or wallet:', e.message);
       }
@@ -1383,78 +1412,136 @@ app.post("/api/stripe-check-account-status", async (req, res) => {
 
 app.post("/api/payments/wallet-pay-auction", async (req, res) => {
   try {
-    const { amount, auction_id, buyer_id, seller_id, fee_percentage } = req.body || {};
-    if (!auction_id || !buyer_id || !seller_id) {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const token = authHeader.split('Bearer ')[1];
+    let decodedToken;
+    try {
+      decodedToken = await getAuth().verifyIdToken(token);
+    } catch (e) {
+      return res.status(401).json({ error: "Invalid token" });
+    }
+    const userId = decodedToken.uid;
+
+    const { auction_id } = req.body || {};
+    if (!auction_id) {
       return res.status(400).json({ error: "Manjkajoči podatki" });
     }
 
-    let auction: any = null;
-    const auctionRef = adminDb.collection('auctions').doc(auction_id);
-    const auctionDoc = await safeGetDoc(auctionRef);
-    if (auctionDoc.exists()) {
-      auction = auctionDoc.data();
-    } else {
-      return res.status(404).json({ error: "Dražba ne obstaja" });
-    }
+    const txId = await adminDb.runTransaction(async (t) => {
+      let auction: any = null;
+      const auctionRef = adminDb.collection('auctions').doc(auction_id);
+      const auctionDoc = await t.get(auctionRef);
+      if (auctionDoc.exists) {
+        auction = auctionDoc.data();
+      } else {
+        throw new Error("Dražba ne obstaja");
+      }
+      
+      const buyer_id = auction.highest_bidder || auction.winner_id;
+      if (userId !== buyer_id) {
+        throw new Error("Samo zmagovalec lahko plača dražbo");
+      }
+      
+      const seller_id = auction.seller_id;
+      if (!seller_id) throw new Error("Missing seller info");
 
-    let authoritativePriceInCents = 0;
-    if (auction.current_price !== undefined && auction.current_price !== null && auction.current_price !== '') {
-      authoritativePriceInCents = parseAmountToCents(auction.current_price);
-    } else if (auction.currentBid !== undefined && auction.currentBid !== null && auction.currentBid !== '') {
-      authoritativePriceInCents = parseAmountToCents(auction.currentBid);
-    } else if (auction.starting_price !== undefined && auction.starting_price !== null && auction.starting_price !== '') {
-      authoritativePriceInCents = parseAmountToCents(auction.starting_price);
-    }
+      let authoritativePriceInCents = 0;
+      if (auction.current_price !== undefined && auction.current_price !== null && auction.current_price !== '') {
+        authoritativePriceInCents = parseAmountToCents(auction.current_price);
+      } else if (auction.currentBid !== undefined && auction.currentBid !== null && auction.currentBid !== '') {
+        authoritativePriceInCents = parseAmountToCents(auction.currentBid);
+      } else if (auction.starting_price !== undefined && auction.starting_price !== null && auction.starting_price !== '') {
+        authoritativePriceInCents = parseAmountToCents(auction.starting_price);
+      }
 
-    if (authoritativePriceInCents <= 0) {
-      return res.status(400).json({ error: "Invalid auction price" });
-    }
+      if (authoritativePriceInCents <= 0) {
+        throw new Error("Invalid auction price");
+      }
 
-    const sellerDoc2 = await safeGetDoc(adminDb.collection('users').doc(seller_id));
-    let sellerTier = 'BASIC';
-    if (sellerDoc2.exists()) sellerTier = sellerDoc2.data().subscription_tier;
-    const totals = calculateCheckoutTotals(authoritativePriceInCents, sellerTier);
-    const finalAmountCents = totals.buyerTotalInCents;
-    const finalAmountEuro = finalAmountCents / 100;
+      const sellerRef = adminDb.collection('users').doc(seller_id);
+      const sellerDoc2 = await t.get(sellerRef);
+      let sellerTier = 'BASIC';
+      let sellerData: any = {};
+      if (sellerDoc2.exists) {
+         sellerData = sellerDoc2.data() || {};
+         sellerTier = sellerData.subscription_tier || 'BASIC';
+      }
+      const totals = calculateCheckoutTotals(authoritativePriceInCents, sellerTier);
+      const finalAmountCents = totals.buyerTotalInCents;
 
-    const buyerRef = adminDb.collection('users').doc(buyer_id);
-    const buyerDoc = await safeGetDoc(buyerRef);
-    const buyer = buyerDoc.data() || {};
-    const walletBalance = Number(buyer.wallet_balance) || 0;
+      const buyerRef = adminDb.collection('users').doc(buyer_id);
+      const buyerDoc = await t.get(buyerRef);
+      const buyerData = buyerDoc.data() || {};
+      
+      // Ensure wallet migration
+      const buyerWallet = ensureWalletMigrated(t, buyerRef, buyerData);
+      if (buyerWallet.available_cents < finalAmountCents) {
+        throw new Error("Ni dovolj sredstev v denarnici");
+      }
 
-    if (walletBalance < finalAmountEuro) {
-      return res.status(400).json({ error: "Ni dovolj sredstev v denarnici" });
-    }
+      // Debit buyer
+      t.update(buyerRef, {
+        available_cents: FieldValue.increment(-finalAmountCents)
+      });
+      
+      // Ensure seller wallet migration and credit held funds
+      ensureWalletMigrated(t, sellerRef, sellerData);
+      t.update(sellerRef, {
+        held_cents: FieldValue.increment(authoritativePriceInCents) // Seller gets the item price (before platform fee is applied if we assume buyer pays fee? Wait, calculateCheckoutTotals adds platform fee to itemPrice. Actually, seller proceeds is authoritativePriceInCents - totals.platformFeeInCents - totals.vatInCents? Wait, check the original code: it credited `authoritativePriceInCents / 100`. Let's use authoritativePriceInCents)
+      });
+      
+      // Update auction
+      t.update(auctionRef, {
+        payment_status: 'paid',
+        post_auction_status: 'sold',
+        status: 'completed',
+      });
 
-    await buyerRef.update({
-      wallet_balance: admin.firestore.FieldValue.increment(-finalAmountEuro)
-    });
-
-    const sellerRef = adminDb.collection('users').doc(seller_id);
-    await sellerRef.update({
-      wallet_balance: admin.firestore.FieldValue.increment(authoritativePriceInCents / 100)
-    });
-
-    await auctionRef.update({
-      payment_status: 'paid',
-      post_auction_status: 'sold',
-      status: 'completed',
-    });
-
-    const txId = 'WTX_' + Date.now();
-    await adminDb.collection('transactions').doc(txId).set({
-      type: 'wallet_payment',
-      auction_id,
-      buyer_id,
-      seller_id,
-      amount_total: finalAmountEuro,
-      platform_fee: totals.platformFeeInCents / 100,
-      vat_amount: totals.vatInCents / 100,
-      vat_rate: 0,
-      is_reverse_charge: false,
-      currency: 'eur',
-      status: 'completed',
-      created_at: admin.firestore.FieldValue.serverTimestamp()
+      const txId = 'WTX_' + Date.now();
+      t.set(adminDb.collection('transactions').doc(txId), {
+        type: 'wallet_payment',
+        auction_id,
+        buyer_id,
+        seller_id,
+        amount_total: finalAmountCents / 100, // legacy UI compatibility
+        amount_cents: finalAmountCents,
+        platform_fee: totals.platformFeeInCents / 100,
+        vat_amount: totals.vatInCents / 100,
+        vat_rate: 0,
+        is_reverse_charge: false,
+        currency: 'eur',
+        status: 'completed',
+        created_at: FieldValue.serverTimestamp()
+      });
+      
+      // Also add wallet ledger entries
+      const wtxBuyerId = adminDb.collection('wallet_transactions').doc().id;
+      t.set(adminDb.collection('wallet_transactions').doc(wtxBuyerId), {
+        transaction_id: wtxBuyerId,
+        user_id: buyer_id,
+        type: 'wallet_payment',
+        amount_cents: finalAmountCents,
+        status: 'completed',
+        idempotency_key: txId + "_buyer",
+        created_at: FieldValue.serverTimestamp()
+      });
+      
+      const wtxSellerId = adminDb.collection('wallet_transactions').doc().id;
+      t.set(adminDb.collection('wallet_transactions').doc(wtxSellerId), {
+        transaction_id: wtxSellerId,
+        user_id: seller_id,
+        type: 'hold',
+        amount_cents: authoritativePriceInCents,
+        status: 'completed',
+        auction_id: auction_id,
+        idempotency_key: txId + "_seller",
+        created_at: FieldValue.serverTimestamp()
+      });
+      
+      return txId;
     });
 
     res.json({ success: true, transaction_id: txId });
@@ -1466,16 +1553,56 @@ app.post("/api/payments/wallet-pay-auction", async (req, res) => {
 
 app.post("/api/payments/wallet-pay-subscription", async (req, res) => {
   try {
-    const { user_id, package_id } = req.body;
+    const authHeader = req.headers.authorization;
+    let userId: string | null = null;
+    if (authHeader?.startsWith('Bearer ')) {
+      const token = authHeader.split('Bearer ')[1];
+      try {
+        const decodedToken = await getAuth().verifyIdToken(token);
+        userId = decodedToken.uid;
+      } catch (e) {
+        return res.status(401).json({ error: "Invalid token" });
+      }
+    } else if (process.env.NODE_ENV !== 'production' && req.body?.user_id) {
+      userId = req.body.user_id;
+    } else {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
 
-    await adminDb.collection('users').doc(user_id).update({
-      subscription_tier: package_id,
+    if (req.body?.user_id && req.body.user_id !== userId && process.env.NODE_ENV === 'production') {
+      return res.status(403).json({ error: "Forbidden: user ID mismatch" });
+    }
+
+    const { package_id } = req.body || {};
+    if (!package_id) {
+      return res.status(400).json({ error: "Manjka package_id" });
+    }
+
+    const packageIdStr = String(package_id).toLowerCase();
+    let amountCents = 0;
+    if (packageIdStr.includes('pro')) amountCents = 5000;
+    else if (packageIdStr.includes('basic')) amountCents = 2000;
+    else {
+      return res.status(400).json({ error: "Neznan paket" });
+    }
+
+    const idempotencyKey = `sub_wallet_${userId}_${Date.now()}`;
+    const txId = await reserveWalletFunds(userId, amountCents, 'wallet_payment', idempotencyKey, {
+      package_id,
+      type: 'subscription'
+    });
+
+    await commitReservedFunds(txId);
+
+    const tierToSet = packageIdStr.includes('pro') ? 'PRO' : 'BASIC';
+    await adminDb.collection('users').doc(userId).update({
+      subscription_tier: tierToSet,
       subscription_active: true,
       subscription_paid_at: new Date().toISOString()
     });
 
-    console.log('Subscription paid via wallet:', package_id);
-    res.json({ success: true });
+    console.log('Subscription paid via wallet:', package_id, 'by user:', userId);
+    res.json({ success: true, transaction_id: txId, subscription_tier: tierToSet });
   } catch (error: any) {
     console.error("Wallet pay subscription error:", error);
     res.status(500).json({ error: error.message || "Napaka" });
@@ -1484,60 +1611,88 @@ app.post("/api/payments/wallet-pay-subscription", async (req, res) => {
 
 app.post("/api/payouts/withdraw", async (req, res) => {
   try {
-    const { user_id, amount, return_url, refresh_url } = req.body || {};
+    const authHeader = req.headers.authorization;
+    let userId: string | null = null;
+    if (authHeader?.startsWith('Bearer ')) {
+      const token = authHeader.split('Bearer ')[1];
+      try {
+        const decodedToken = await getAuth().verifyIdToken(token);
+        userId = decodedToken.uid;
+      } catch (e) {
+        return res.status(401).json({ error: "Invalid token" });
+      }
+    } else if (process.env.NODE_ENV !== 'production' && req.body?.user_id) {
+      userId = req.body.user_id;
+    } else {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    if (req.body?.user_id && req.body.user_id !== userId && process.env.NODE_ENV === 'production') {
+      return res.status(403).json({ error: "Forbidden: You can only withdraw from your own wallet" });
+    }
+
+    const { amount, return_url, refresh_url } = req.body || {};
     const stripe = getStripe();
 
     const amountInCents = parseAmountToCents(amount);
     if (amountInCents <= 0) {
        return res.status(400).json({ error: "Invalid payout amount" });
     }
-    const withdrawalAmount = amountInCents / 100;
 
-    const userDocRef = adminDb.collection('users').doc(user_id);
+    const userDocRef = adminDb.collection('users').doc(userId);
     const userDoc = await safeGetDoc(userDocRef);
-    const user = userDoc.data() || {};
-
-    const currentBalance = Number(user.wallet_balance) || 0;
-
-    if (currentBalance < withdrawalAmount) {
-      return res.status(400).json({ error: "Nedostupno stanje v denarnici" });
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: "User not found" });
     }
+    const user = userDoc.data() || {};
 
     let stripeAccountId = user.stripeAccountId || user.stripe_account_id;
     if (!stripeAccountId) {
        return res.status(400).json({ error: "Stripe račun ni povezan" });
     }
+    
+    // Ensure Stripe account can receive transfers
+    const stripeAccount = await stripe.accounts.retrieve(stripeAccountId);
+    const payoutsReady = stripeAccount.payouts_enabled || stripeAccount.charges_enabled || (stripeAccount.capabilities && stripeAccount.capabilities.transfers === 'active');
+    if (!payoutsReady) {
+      return res.status(400).json({ error: "Stripe payouts are not enabled for this account" });
+    }
 
-    const transfer = await stripe.transfers.create({
-      amount: amountInCents,
-      currency: "eur",
-      destination: stripeAccountId,
-    });
+    const idempotencyKey = `withdraw_${userId}_${Date.now()}`;
 
-    const payout = await stripe.payouts.create({
-      amount: amountInCents,
-      currency: "eur",
-    }, {
-      stripeAccount: stripeAccountId
-    });
+    // 1. Reserve funds
+    let txId: string;
+    try {
+      txId = await reserveWalletFunds(userId, amountInCents, 'withdrawal', idempotencyKey);
+    } catch (e: any) {
+      return res.status(400).json({ error: e.message || "Insufficient funds" });
+    }
 
-    await userDocRef.update({
-      wallet_balance: admin.firestore.FieldValue.increment(-withdrawalAmount)
-    });
+    // 2. Transfer to Connected Account
+    try {
+      const transfer = await stripe.transfers.create({
+        amount: amountInCents,
+        currency: "eur",
+        destination: stripeAccountId,
+      }, {
+        idempotencyKey
+      });
 
-    const txId = 'POUT_' + Date.now();
-    await adminDb.collection('transactions').doc(txId).set({
-      type: 'payout',
-      user_id,
-      amount: withdrawalAmount,
-      currency: 'eur',
-      status: 'completed',
-      stripe_transfer_id: transfer.id,
-      stripe_payout_id: payout.id,
-      created_at: admin.firestore.FieldValue.serverTimestamp()
-    });
+      // Payout is generally handled automatically by Stripe Connect depending on settings.
+      // Do not create a manual payout unless explicitly needed. The transfer moves it to their balance.
+      // If we need to trigger manual payout from their connected account, we can, but a transfer is the actual money move from platform to seller.
 
-    res.json({ success: true, transfer_id: transfer.id, payout_id: payout.id });
+      await commitReservedFunds(txId, { stripe_transfer_id: transfer.id });
+
+      const updatedUserDoc = await safeGetDoc(userDocRef);
+      const remainingAvailable = updatedUserDoc.data()?.available_cents || 0;
+
+      res.json({ success: true, transfer_id: transfer.id, available_cents: remainingAvailable });
+    } catch (transferError: any) {
+      console.error("Stripe transfer failed, rolling back:", transferError);
+      await rollbackReservedFunds(txId);
+      res.status(500).json({ error: transferError.message || "Transfer failed" });
+    }
   } catch (error: any) {
     console.error("Payout error:", error);
     res.status(500).json({ error: error.message });
@@ -1563,7 +1718,17 @@ app.post("/api/create-subscription-checkout", async (req, res) => {
       return res.status(400).json({ error: "Invalid subscription payment amount" });
     }
 
+    let customerId: string | undefined = undefined;
+    if (user_id) {
+      const userDoc = await safeGetDoc(adminDb.collection('users').doc(user_id));
+      if (userDoc.exists()) {
+        const cId = await getOrCreateStripeCustomer(stripe, user_id, userDoc.data());
+        if (cId) customerId = cId;
+      }
+    }
     const session = await stripe.checkout.sessions.create({
+      customer: customerId,
+      customer_update: { name: 'auto', address: 'auto' },
       payment_method_types: ['card'],
       line_items: [{
         price_data: {
@@ -1582,6 +1747,7 @@ app.post("/api/create-subscription-checkout", async (req, res) => {
         amount: finalAmountCents.toString()
       },
       payment_intent_data: {
+        setup_future_usage: 'off_session',
         metadata: {
           type: 'subscription',
           user_id: user_id || '',
@@ -2137,14 +2303,27 @@ app.post("/api/cron/process-shipping-deadlines", async (req, res) => {
           updated_at: now
         });
 
-        // Refund buyer
-        const buyerDoc = await safeGetDoc(adminDb.collection('users').doc(tx.buyer_id));
-        if (buyerDoc.exists()) {
-          const currentBalance = Number(buyerDoc.data().wallet_balance) || 0;
-          await adminDb.collection('users').doc(tx.buyer_id).update({
-            wallet_balance: currentBalance + Number(tx.amount_total || tx.amount)
+        // Refund buyer from held funds
+        const refundAmount = Number(tx.amount_total || tx.amount);
+        const refundCents = Math.round(refundAmount * 100);
+        await adminDb.runTransaction(async (t) => {
+          const sellerRef = adminDb.collection('users').doc(tx.seller_id);
+          const buyerRef = adminDb.collection('users').doc(tx.buyer_id);
+          
+          t.update(sellerRef, { held_cents: FieldValue.increment(-refundCents) });
+          t.update(buyerRef, { available_cents: FieldValue.increment(refundCents) });
+          
+          const txRef = adminDb.collection('wallet_transactions').doc();
+          t.set(txRef, {
+             transaction_id: txRef.id,
+             user_id: tx.buyer_id,
+             type: 'refund',
+             amount_cents: refundCents,
+             status: 'completed',
+             idempotency_key: 'refund_' + docSnap.id,
+             created_at: FieldValue.serverTimestamp()
           });
-        }
+        });
 
         // Add seller strike
         await adminDb.collection('seller_strikes').add({
@@ -2194,13 +2373,11 @@ app.post("/api/orders/:id/verify-pickup-pin", async (req, res) => {
       completed_at: new Date().toISOString()
     });
 
-    const sellerDocRef = adminDb.collection('users').doc(seller_id);
-    const sellerDoc = await safeGetDoc(sellerDocRef);
-    if (sellerDoc.exists()) {
-      const currentBalance = Number(sellerDoc.data()?.wallet_balance) || 0;
-      const releaseAmount = Number(tx.amount_total || tx.amount) - Number(tx.platform_fee || 0) - Number(tx.vat_amount || 0);
-      await sellerDocRef.update({ wallet_balance: currentBalance + releaseAmount });
-    }
+    const releaseAmount = Number(tx.amount_total || tx.amount) - Number(tx.platform_fee || 0) - Number(tx.vat_amount || 0);
+    const releaseCents = Math.round(releaseAmount * 100);
+    const tx_id = id;
+    const auction_id = tx.auction_id || '';
+    await releaseHeldFunds(seller_id, releaseCents, 'release_' + tx_id, { auction_id, related_tx: tx_id });
 
     res.json({ success: true, message: "Prevzem potrjen, sredstva so bila sproščena." });
   } catch (e: any) {
@@ -2289,14 +2466,9 @@ app.post("/api/cron/process-escrow-completions", async (_req, res) => {
         completed_at: now
       });
 
-      const sellerDoc = await safeGetDoc(adminDb.collection('users').doc(tx.seller_id));
-      if (sellerDoc.exists()) {
-        const currentBalance = Number(sellerDoc.data()?.wallet_balance) || 0;
-        const releaseAmount = Number(tx.amount_total || tx.amount) - Number(tx.platform_fee || 0) - Number(tx.vat_amount || 0);
-        await adminDb.collection('users').doc(tx.seller_id).update({
-          wallet_balance: currentBalance + releaseAmount
-        });
-      }
+      const releaseAmount = Number(tx.amount_total || tx.amount) - Number(tx.platform_fee || 0) - Number(tx.vat_amount || 0);
+      const releaseCents = Math.round(releaseAmount * 100);
+      await releaseHeldFunds(tx.seller_id, releaseCents, 'cron_release_' + tx.id, { auction_id: tx.auction_id, related_tx: tx.id });
       processed++;
     }
 
@@ -2359,3 +2531,102 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 
 export { app };
 export default app;
+
+
+app.post("/api/cron/process-subscription-renewals", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization || '';
+    const secretHeader = req.headers['x-cron-secret'];
+    const cronSecret = process.env.CRON_SECRET;
+
+    if (cronSecret) {
+      if (authHeader !== `Bearer ${cronSecret}` && secretHeader !== cronSecret) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+    }
+
+    // Process subscriptions that are active and need renewal.
+    // E.g., paid_at is older than 30 days.
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    
+    const usersSnapshot = await adminDb.collection('users')
+      .where('subscription_active', '==', true)
+      .where('subscription_paid_at', '<=', thirtyDaysAgo.toISOString())
+      .get();
+      
+    let processed = 0;
+    const stripe = getStripe();
+    
+    for (const doc of usersSnapshot.docs) {
+      const user = doc.data();
+      const packageId = (user.subscription_tier || '').toLowerCase();
+      
+      let amountCents = 0;
+      if (packageId.includes('pro')) amountCents = 5000;
+      else if (packageId.includes('basic')) amountCents = 2000;
+      else continue; // Skip unknown tiers
+      
+      const idempotencyKey = `renew_${doc.id}_${new Date().getFullYear()}_${new Date().getMonth()}`;
+      
+      try {
+        // 1. Try wallet debit first
+        const txId = await reserveWalletFunds(doc.id, amountCents, 'wallet_payment', idempotencyKey, { type: 'subscription_renewal' });
+        
+        // Success: commit the wallet funds
+        await commitReservedFunds(txId);
+        
+        await doc.ref.update({
+           subscription_paid_at: new Date().toISOString()
+        });
+        processed++;
+        continue;
+      } catch (walletError: any) {
+        // Insufficient funds or already processed (idempotency key exists).
+        // Check if already processed
+        if (walletError.message.includes('Idempotency key already exists')) {
+          continue;
+        }
+        
+        // 2. Fallback to saved card
+        if (user.stripe_customer_id && user.stripe_default_payment_method) {
+          try {
+            const pi = await stripe.paymentIntents.create({
+              amount: amountCents,
+              currency: 'eur',
+              customer: user.stripe_customer_id,
+              payment_method: user.stripe_default_payment_method,
+              off_session: true,
+              confirm: true,
+              metadata: {
+                type: 'subscription',
+                user_id: doc.id,
+                package_id: user.subscription_tier,
+                renewal: 'true'
+              }
+            }, { idempotencyKey: `card_${idempotencyKey}` });
+            
+            // Webhook will handle updating the user's subscription_paid_at date on success.
+            processed++;
+          } catch (stripeError: any) {
+            console.error(`Failed to renew subscription via card for user ${doc.id}: `, stripeError);
+            await doc.ref.update({
+               subscription_active: false // Mark unpaid / past due
+            });
+            // We should notify the user.
+          }
+        } else {
+          // No saved card
+          await doc.ref.update({
+             subscription_active: false // Mark unpaid / past due
+          });
+        }
+      }
+    }
+
+    res.json({ success: true, processed });
+  } catch (e: any) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});

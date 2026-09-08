@@ -1,10 +1,12 @@
 import { initializeApp, getApps, cert, App, applicationDefault } from 'firebase-admin/app';
 import { getFirestore, Firestore, FieldValue } from 'firebase-admin/firestore';
 import { getStorage, Storage } from 'firebase-admin/storage';
+import { getAuth, Auth } from 'firebase-admin/auth';
 
 let adminApp: App | null = null;
 let adminDbInstance: Firestore | null = null;
 let adminStorageInstance: Storage | null = null;
+let adminAuthInstance: Auth | null = null;
 
 function getServiceAccountCredentials(): any | null {
   const saEnv = process.env.FIREBASE_SERVICE_ACCOUNT;
@@ -97,7 +99,14 @@ export function getAdminStorage(): Storage {
   return adminStorageInstance;
 }
 
-// Lazy-initialized getters/proxies for db and storage
+export function getAdminAuth(): Auth {
+  if (adminAuthInstance) return adminAuthInstance;
+  const app = getAdminApp();
+  adminAuthInstance = getAuth(app);
+  return adminAuthInstance;
+}
+
+// Lazy-initialized getters/proxies for db, storage, and auth
 export const adminDb = new Proxy({} as Firestore, {
   get(_target, prop) {
     const firestore = getAdminDb();
@@ -120,9 +129,20 @@ export const adminStorage = new Proxy({} as Storage, {
   }
 });
 
+export const adminAuth = new Proxy({} as Auth, {
+  get(_target, prop) {
+    const auth = getAdminAuth();
+    const val = (auth as any)[prop];
+    if (typeof val === 'function') {
+      return val.bind(auth);
+    }
+    return val;
+  }
+});
+
 // Alias db to adminDb for seamless drop-in
 export const db = adminDb;
-export { FieldValue };
+export { FieldValue, getAuth };
 
 /**
  * Uploads a Buffer (such as a generated PDF invoice) to Firebase Storage using the Admin SDK
