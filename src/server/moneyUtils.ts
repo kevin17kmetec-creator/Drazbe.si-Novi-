@@ -1,7 +1,7 @@
 
 export function parseAmountToCents(val: any): number {
-  if (val === undefined || val === null) return NaN;
-  let parsed = NaN;
+  if (val === undefined || val === null) return 0;
+  let parsed = 0;
   if (typeof val === 'number') {
     parsed = val;
   } else if (typeof val === 'string') {
@@ -10,7 +10,7 @@ export function parseAmountToCents(val: any): number {
   }
   
   if (isNaN(parsed) || !isFinite(parsed) || parsed <= 0) {
-    return NaN;
+    return 0;
   }
   
   return Math.round(parsed * 100);

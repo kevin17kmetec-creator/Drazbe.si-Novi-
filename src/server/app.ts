@@ -1,4 +1,5 @@
 import express from "express";
+import { parseAmountToCents, calculateCheckoutTotals, calculateMarginalPlatformFee } from './moneyUtils';
 import cors from "cors";
 import Stripe from "stripe";
 import { Resend } from 'resend';
@@ -774,10 +775,6 @@ app.get("/api/health", (_req, res) => {
   res.json({ status: "ok" });
 });
 
-app.get("/api/test-create-auction", async (req, res) => {
-  const ref = await adminDb.collection('auctions').add({ title: { SLO: 'Test' }, current_price: '20,00', seller_id: '123' });
-  res.json({ id: ref.id });
-});
 app.post("/api/create-checkout-session", async (req, res) => {
   try {
     const { amount, currency = "eur", auction_id, auctionId, buyer_id, seller_id, fee_percentage, return_url, type = "auction", user_id, userId, buyer_data } = req.body || {};
@@ -789,7 +786,7 @@ app.post("/api/create-checkout-session", async (req, res) => {
     let sessionMetadata: any = { type };
     let buyer: any = buyer_data || null;
     let stripeCustomerId: string | null = null;
-    let finalAmountCents = NaN;
+    let finalAmountCents = 0;
 
     // Check EU AML law: 10,000 € annual limit check for buyers without ID verification
     if (effectiveBuyerId) {
@@ -858,7 +855,7 @@ app.post("/api/create-checkout-session", async (req, res) => {
         auctionTitle = auction.title['SLO'] || auction.title['EN'] || "Dražba";
       }
       
-      let authoritativePriceInCents = NaN;
+      let authoritativePriceInCents = 0;
       
       if (auction.current_price !== undefined && auction.current_price !== null && auction.current_price !== '') {
         authoritativePriceInCents = parseAmountToCents(auction.current_price);
@@ -871,7 +868,7 @@ app.post("/api/create-checkout-session", async (req, res) => {
         diagnosticInfo.usedPriceField = 'starting_price';
       }
 
-      if (isNaN(authoritativePriceInCents)) {
+      if (authoritativePriceInCents <= 0) {
         return res.status(400).json({ error: "Invalid auction payment amount" });
       }
 
@@ -915,7 +912,7 @@ app.post("/api/create-checkout-session", async (req, res) => {
     diagnosticInfo.computedCents = finalAmountCents;
     console.log("[DIAGNOSTIC] create-checkout-session amounts:", JSON.stringify(diagnosticInfo));
 
-    if (isNaN(finalAmountCents) || !isFinite(finalAmountCents) || finalAmountCents <= 0) {
+    if (finalAmountCents <= 0) {
       return res.status(400).json({ error: "Invalid auction payment amount" });
     }
 
@@ -1133,14 +1130,14 @@ app.post("/api/create-payment-intent", async (req, res) => {
       }
     }
 
-    let finalAmountCents = NaN;
+    let finalAmountCents = 0;
     
     if (effectiveAuctionId) {
       try {
         const auctionDoc = await safeGetDoc(adminDb.collection('auctions').doc(effectiveAuctionId));
         if (auctionDoc.exists()) {
           const auction = auctionDoc.data();
-          let authoritativePriceInCents = NaN;
+          let authoritativePriceInCents = 0;
           
           if (auction && auction.current_price !== undefined && auction.current_price !== null && auction.current_price !== '') {
             authoritativePriceInCents = parseAmountToCents(auction.current_price);
@@ -1163,11 +1160,11 @@ app.post("/api/create-payment-intent", async (req, res) => {
       }
     }
     
-    if (isNaN(finalAmountCents)) {
+    if (finalAmountCents <= 0) {
       finalAmountCents = parseAmountToCents(amount);
     }
 
-    if (isNaN(finalAmountCents) || !isFinite(finalAmountCents) || finalAmountCents <= 0) {
+    if (finalAmountCents <= 0) {
       return res.status(400).json({ error: "Invalid payment intent amount" });
     }
 
@@ -1400,7 +1397,7 @@ app.post("/api/payments/wallet-pay-auction", async (req, res) => {
       return res.status(404).json({ error: "Dražba ne obstaja" });
     }
 
-    let authoritativePriceInCents = NaN;
+    let authoritativePriceInCents = 0;
     if (auction.current_price !== undefined && auction.current_price !== null && auction.current_price !== '') {
       authoritativePriceInCents = parseAmountToCents(auction.current_price);
     } else if (auction.currentBid !== undefined && auction.currentBid !== null && auction.currentBid !== '') {
@@ -1409,7 +1406,7 @@ app.post("/api/payments/wallet-pay-auction", async (req, res) => {
       authoritativePriceInCents = parseAmountToCents(auction.starting_price);
     }
 
-    if (isNaN(authoritativePriceInCents)) {
+    if (authoritativePriceInCents <= 0) {
       return res.status(400).json({ error: "Invalid auction price" });
     }
 
@@ -1491,7 +1488,7 @@ app.post("/api/payouts/withdraw", async (req, res) => {
     const stripe = getStripe();
 
     const amountInCents = parseAmountToCents(amount);
-    if (isNaN(amountInCents) || amountInCents <= 0) {
+    if (amountInCents <= 0) {
        return res.status(400).json({ error: "Invalid payout amount" });
     }
     const withdrawalAmount = amountInCents / 100;
@@ -1562,7 +1559,7 @@ app.post("/api/create-subscription-checkout", async (req, res) => {
        finalAmountCents = parseAmountToCents(amount);
     }
 
-    if (isNaN(finalAmountCents) || !isFinite(finalAmountCents) || finalAmountCents <= 0) {
+    if (finalAmountCents <= 0) {
       return res.status(400).json({ error: "Invalid subscription payment amount" });
     }
 
