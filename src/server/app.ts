@@ -1,6 +1,7 @@
 import express from "express";
 import { reserveWalletFunds, commitReservedFunds, rollbackReservedFunds, addHeldFunds, releaseHeldFunds, ensureWalletMigrated } from './walletService';
 import { parseAmountToCents, calculateCheckoutTotals, calculateMarginalPlatformFee } from './moneyUtils';
+import { authenticateFirebaseUser } from './authHelper';
 import cors from "cors";
 import Stripe from "stripe";
 import { Resend } from 'resend';
@@ -557,15 +558,13 @@ const handleCronCheck = async (req: express.Request, res: express.Response) => {
     const querySecret = req.query?.secret;
     const cronSecret = process.env.CRON_SECRET;
 
-    if (cronSecret) {
-      const isBearerMatch = authHeader === `Bearer ${cronSecret}`;
-      const isSecretHeaderMatch = secretHeader === cronSecret;
-      const isQueryMatch = querySecret === cronSecret;
+    const isBearerMatch = Boolean(cronSecret && authHeader === `Bearer ${cronSecret}`);
+    const isSecretHeaderMatch = Boolean(cronSecret && secretHeader === cronSecret);
+    const isQueryMatch = Boolean(cronSecret && querySecret === cronSecret);
 
-      if (!isBearerMatch && !isSecretHeaderMatch && !isQueryMatch) {
-        console.warn('[CRON AUTH] Unauthorized cron request attempt');
-        return res.status(401).json({ error: 'Unauthorized: Invalid CRON_SECRET' });
-      }
+    if (!isBearerMatch && !isSecretHeaderMatch && !isQueryMatch) {
+      console.warn('[CRON AUTH] Unauthorized cron request attempt');
+      return res.status(401).json({ error: 'Unauthorized: Invalid or missing CRON_SECRET' });
     }
 
     console.log('[CRON] Executing auction check...');
@@ -1385,10 +1384,16 @@ app.post("/api/stripe-account-link", async (req, res) => {
 
 app.post("/api/stripe-check-account-status", async (req, res) => {
   try {
-    const { user_id } = req.body;
+    let userId: string;
+    try {
+      userId = await authenticateFirebaseUser(req);
+    } catch (authErr: any) {
+      return res.status(401).json({ error: authErr.message || 'Unauthorized' });
+    }
+
     const stripe = getStripe();
 
-    const userDocRef = adminDb.collection('users').doc(user_id);
+    const userDocRef = adminDb.collection('users').doc(userId);
     const userDoc = await safeGetDoc(userDocRef);
     const user = userDoc.data() || {};
 
@@ -1412,18 +1417,12 @@ app.post("/api/stripe-check-account-status", async (req, res) => {
 
 app.post("/api/payments/wallet-pay-auction", async (req, res) => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader?.startsWith('Bearer ')) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
-    const token = authHeader.split('Bearer ')[1];
-    let decodedToken;
+    let userId: string;
     try {
-      decodedToken = await getAuth().verifyIdToken(token);
-    } catch (e) {
-      return res.status(401).json({ error: "Invalid token" });
+      userId = await authenticateFirebaseUser(req);
+    } catch (authErr: any) {
+      return res.status(401).json({ error: authErr.message || 'Unauthorized' });
     }
-    const userId = decodedToken.uid;
 
     const { auction_id } = req.body || {};
     if (!auction_id) {
@@ -1553,24 +1552,11 @@ app.post("/api/payments/wallet-pay-auction", async (req, res) => {
 
 app.post("/api/payments/wallet-pay-subscription", async (req, res) => {
   try {
-    const authHeader = req.headers.authorization;
-    let userId: string | null = null;
-    if (authHeader?.startsWith('Bearer ')) {
-      const token = authHeader.split('Bearer ')[1];
-      try {
-        const decodedToken = await getAuth().verifyIdToken(token);
-        userId = decodedToken.uid;
-      } catch (e) {
-        return res.status(401).json({ error: "Invalid token" });
-      }
-    } else if (process.env.NODE_ENV !== 'production' && req.body?.user_id) {
-      userId = req.body.user_id;
-    } else {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
-
-    if (req.body?.user_id && req.body.user_id !== userId && process.env.NODE_ENV === 'production') {
-      return res.status(403).json({ error: "Forbidden: user ID mismatch" });
+    let userId: string;
+    try {
+      userId = await authenticateFirebaseUser(req);
+    } catch (authErr: any) {
+      return res.status(401).json({ error: authErr.message || 'Unauthorized' });
     }
 
     const { package_id } = req.body || {};
@@ -1611,24 +1597,11 @@ app.post("/api/payments/wallet-pay-subscription", async (req, res) => {
 
 app.post("/api/payouts/withdraw", async (req, res) => {
   try {
-    const authHeader = req.headers.authorization;
-    let userId: string | null = null;
-    if (authHeader?.startsWith('Bearer ')) {
-      const token = authHeader.split('Bearer ')[1];
-      try {
-        const decodedToken = await getAuth().verifyIdToken(token);
-        userId = decodedToken.uid;
-      } catch (e) {
-        return res.status(401).json({ error: "Invalid token" });
-      }
-    } else if (process.env.NODE_ENV !== 'production' && req.body?.user_id) {
-      userId = req.body.user_id;
-    } else {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
-
-    if (req.body?.user_id && req.body.user_id !== userId && process.env.NODE_ENV === 'production') {
-      return res.status(403).json({ error: "Forbidden: You can only withdraw from your own wallet" });
+    let userId: string;
+    try {
+      userId = await authenticateFirebaseUser(req);
+    } catch (authErr: any) {
+      return res.status(401).json({ error: authErr.message || 'Unauthorized' });
     }
 
     const { amount, return_url, refresh_url } = req.body || {};

@@ -1,7 +1,7 @@
 import { initializeApp, getApps, cert, App, applicationDefault } from 'firebase-admin/app';
 import { getFirestore, Firestore, FieldValue } from 'firebase-admin/firestore';
 import { getStorage, Storage } from 'firebase-admin/storage';
-import { getAuth, Auth } from 'firebase-admin/auth';
+import type { Auth } from 'firebase-admin/auth';
 
 let adminApp: App | null = null;
 let adminDbInstance: Firestore | null = null;
@@ -102,8 +102,10 @@ export function getAdminStorage(): Storage {
 export function getAdminAuth(): Auth {
   if (adminAuthInstance) return adminAuthInstance;
   const app = getAdminApp();
-  adminAuthInstance = getAuth(app);
-  return adminAuthInstance;
+  // Lazy require firebase-admin/auth so it does not run during module startup
+  const { getAuth: getFirebaseAuth } = require('firebase-admin/auth');
+  adminAuthInstance = getFirebaseAuth(app);
+  return adminAuthInstance!;
 }
 
 // Lazy-initialized getters/proxies for db, storage, and auth
@@ -140,9 +142,13 @@ export const adminAuth = new Proxy({} as Auth, {
   }
 });
 
+export function getAuth(_app?: any): Auth {
+  return getAdminAuth();
+}
+
 // Alias db to adminDb for seamless drop-in
 export const db = adminDb;
-export { FieldValue, getAuth };
+export { FieldValue };
 
 /**
  * Uploads a Buffer (such as a generated PDF invoice) to Firebase Storage using the Admin SDK

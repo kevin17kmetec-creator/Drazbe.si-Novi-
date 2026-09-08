@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Clock, Lock, CreditCard as CardIcon, ShieldCheck, Wallet, AlertCircle } from 'lucide-react';
 import { createCheckoutSessionAction, walletPayAuctionAction, confirmCheckoutSessionAction } from '@/app/actions/index';
+import { auth } from '../lib/firebase';
 
 export const CheckoutModal: React.FC<{
   isOpen: boolean;
@@ -54,10 +55,11 @@ export const CheckoutModal: React.FC<{
 
     if (paymentMethod === 'wallet') {
       try {
+        const token = await auth.currentUser?.getIdToken();
         const res = await walletPayAuctionAction({
           amount,
           ...metadata
-        });
+        }, token);
         
         if (!res.success) {
           throw new Error(res.error || "Napaka pri plačilu z denarnico.");

@@ -37,11 +37,29 @@ function getBaseUrl(): string {
 async function safeApiCall<T = any>(url: string, options?: RequestInit): Promise<ActionResponse<T>> {
   try {
     const fullUrl = url.startsWith('http') ? url : `${getBaseUrl()}${url}`;
+    const customHeaders: Record<string, string> = {};
+    if (options?.headers) {
+      if (typeof options.headers === 'object' && !Array.isArray(options.headers)) {
+        Object.assign(customHeaders, options.headers);
+      }
+    }
+    if (!customHeaders['Authorization'] && !customHeaders['authorization'] && typeof window !== 'undefined') {
+      try {
+        const { auth } = await import('@/src/lib/firebase');
+        const token = await auth.currentUser?.getIdToken();
+        if (token) {
+          customHeaders['Authorization'] = `Bearer ${token}`;
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+
     const res = await fetch(fullUrl, {
       ...options,
       headers: {
         'Content-Type': 'application/json',
-        ...(options?.headers || {}),
+        ...customHeaders,
       },
     });
 
@@ -230,10 +248,11 @@ export async function walletPayAuctionAction(params: {
   buyer_id?: string;
   buyer_data?: any;
   [key: string]: any;
-}): Promise<ActionResponse> {
+}, token?: string): Promise<ActionResponse> {
   'use server';
   return safeApiCall('/api/payments/wallet-pay-auction', {
     method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
     body: JSON.stringify(params),
   });
 }
@@ -270,12 +289,13 @@ export async function createAuctionAction(params: {
  * Zahtevek za izplačilo sredstev iz denarnice
  */
 export async function requestPayoutAction(params: {
-  user_id: string;
+  user_id?: string;
   amount: number;
-}): Promise<ActionResponse> {
+}, token?: string): Promise<ActionResponse> {
   'use server';
   return safeApiCall('/api/payouts/withdraw', {
     method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
     body: JSON.stringify(params),
   });
 }
@@ -299,13 +319,14 @@ export async function getStripeAccountLinkAction(params: {
 /**
  * Preverjanje statusa Stripe računa
  */
-export async function checkStripeAccountStatusAction(params: {
-  user_id: string;
-}): Promise<ActionResponse<{ complete?: boolean; account?: any }>> {
+export async function checkStripeAccountStatusAction(params?: {
+  user_id?: string;
+}, token?: string): Promise<ActionResponse<{ complete?: boolean; account?: any }>> {
   'use server';
   return safeApiCall<{ complete?: boolean; account?: any }>('/api/stripe-check-account-status', {
     method: 'POST',
-    body: JSON.stringify(params),
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    body: JSON.stringify(params || {}),
   });
 }
 

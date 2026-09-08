@@ -5,6 +5,7 @@ import imageCompression from 'browser-image-compression';
 import { StripeConnectOnboarding } from './StripeConnectOnboarding';
 import { PhoneInput } from './PhoneInput';
 import { requestPayoutAction, checkStripeAccountStatusAction } from '@/app/actions/index';
+import { auth } from '../lib/firebase';
 
 const COUNTRIES = [
   { code: 'AT', name: 'Avstrija / Austria' },
@@ -72,13 +73,17 @@ export const SettingsView: React.FC<{
      if (user?.id && !stripeStatusChecked && activeTab === 'stripe') {
          setStripeStatusChecked(true);
          // Dynamically check Stripe onboarding status when they switch to this tab
-         checkStripeAccountStatusAction({ user_id: user.id })
-           .then(res => {
+         (async () => {
+           try {
+             const token = await auth.currentUser?.getIdToken();
+             const res = await checkStripeAccountStatusAction({ user_id: user.id }, token);
              if (res.success && res.data?.complete && !user.stripe_onboarding_complete) {
                onStripeVerified(); // trigger parent update if needed
              }
-           })
-           .catch(console.error);
+           } catch (err) {
+             console.error(err);
+           }
+         })();
      }
   }, [user?.id, activeTab, stripeStatusChecked, user?.stripe_onboarding_complete, onStripeVerified]);
 
@@ -491,10 +496,11 @@ export const SettingsView: React.FC<{
                             }
                             setIsWithdrawing(true);
                             try {
+                              const token = await auth.currentUser?.getIdToken();
                               const res = await requestPayoutAction({
                                 user_id: user?.id,
                                 amount: balance,
-                              });
+                              }, token);
                               if (!res.success) {
                                 throw new Error(res.error || "Napaka pri izplačilu");
                               }
