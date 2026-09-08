@@ -1,32 +1,4 @@
-import { db } from '../lib/firebase';
-
-async function safeGetDoc(docRef: any) {
-  try {
-    return await getDoc(docRef);
-  } catch (error: any) {
-    console.warn("[safeGetDoc] Failed to fetch doc:", error.message);
-    return { exists: () => false, data: () => null } as any;
-  }
-}
-async function safeGetDocs(queryRef: any) {
-  try {
-    return await getDocs(queryRef);
-  } catch (error: any) {
-    console.warn("[safeGetDocs] Failed to fetch docs:", error.message);
-    return { empty: true, docs: [] } as any;
-  }
-}
-
-import {
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  updateDoc,
-  deleteDoc,
-  query,
-  where,
-} from 'firebase/firestore';
+import { adminDb, isDocSnapshotExists, getDocSnapshotData } from '../lib/firebase-admin';
 import {
   sendEndingSoonNotification,
   sendAuctionWonNotification,
@@ -68,9 +40,13 @@ export async function processAuctionCrons(): Promise<CronRunResult> {
     // -------------------------------------------------------------
     // 1. NOTIFICATIONS: 30 MINUTES BEFORE ENDING
     // -------------------------------------------------------------
-    const activeAuctionsSnap = await safeGetDocs(
-      query(collection(db, 'auctions'), where('status', '==', 'active'))
-    );
+    let activeAuctionsSnap;
+    try {
+      activeAuctionsSnap = await adminDb.collection('auctions').where('status', '==', 'active').get();
+    } catch (e: any) {
+      console.warn('[CRON] Failed to fetch active auctions:', e.message);
+      activeAuctionsSnap = { empty: true, docs: [] } as any;
+    }
 
     for (const auctionDoc of activeAuctionsSnap.docs) {
       const data = auctionDoc.data();
@@ -117,9 +93,9 @@ export async function processAuctionCrons(): Promise<CronRunResult> {
         let sentCount = 0;
         for (const userId of userIdsToNotify) {
           try {
-            const userSnap = await safeGetDoc(doc(db, 'users', userId));
-            if (userSnap.exists()) {
-              const udata = userSnap.data();
+            const userSnap = await adminDb.collection('users').doc(userId).get();
+            if (isDocSnapshotExists(userSnap)) {
+              const udata = getDocSnapshotData(userSnap) || {};
               if (udata.email) {
                 const minutesLeft = Math.max(1, Math.round(diffMs / 60000));
                 await sendEndingSoonNotification({
@@ -135,15 +111,19 @@ export async function processAuctionCrons(): Promise<CronRunResult> {
               }
             }
           } catch (userErr: any) {
-            console.error(`[CRON] Error sending 30m reminder to user ${userId}:`, userErr);
+            console.error(`[CRON] Error sending 30m reminder to user ${userId}:`, userErr.message);
           }
         }
 
         // Mark as sent on the auction
-        await updateDoc(doc(db, 'auctions', auctionId), {
-          reminder_30m_sent: true,
-          reminder_30m_sent_at: now.toISOString(),
-        });
+        try {
+          await adminDb.collection('auctions').doc(auctionId).update({
+            reminder_30m_sent: true,
+            reminder_30m_sent_at: now.toISOString(),
+          });
+        } catch (updErr: any) {
+          console.error(`[CRON] Error updating auction ${auctionId} reminder:`, updErr.message);
+        }
 
         result.actions.reminders30mSent += sentCount;
         details.push(`30m reminder sent for auction ${auctionId} to ${sentCount} users`);
@@ -178,7 +158,7 @@ export async function processAuctionCrons(): Promise<CronRunResult> {
           const winnerId = data.winner_id || data.winnerId;
           const paymentDeadline = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
 
-          await updateDoc(doc(db, 'auctions', auctionId), {
+          await adminDb.collection('auctions').doc(auctionId).update({
             status: 'completed',
             post_auction_status: 'awaiting_payment_1st',
             payment_deadline: paymentDeadline,
@@ -191,9 +171,9 @@ export async function processAuctionCrons(): Promise<CronRunResult> {
           // Send winner congratulatory email with checkout link
           if (winnerId) {
             try {
-              const winnerSnap = await safeGetDoc(doc(db, 'users', winnerId));
-              if (winnerSnap.exists()) {
-                const winnerData = winnerSnap.data();
+              const winnerSnap = await adminDb.collection('users').doc(winnerId).get();
+              if (isDocSnapshotExists(winnerSnap)) {
+                const winnerData = getDocSnapshotData(winnerSnap) || {};
                 if (winnerData.email) {
                   await sendAuctionWonNotification({
                     toEmail: winnerData.email,
@@ -209,12 +189,12 @@ export async function processAuctionCrons(): Promise<CronRunResult> {
                 }
               }
             } catch (winErr: any) {
-              console.error(`[CRON] Error notifying winner ${winnerId}:`, winErr);
+              console.error(`[CRON] Error notifying winner ${winnerId}:`, winErr.message);
             }
           }
         } else {
           // Unsold auction
-          await updateDoc(doc(db, 'auctions', auctionId), {
+          await adminDb.collection('auctions').doc(auctionId).update({
             status: 'completed',
             post_auction_status: 'unsold',
             winner_notified: true,
@@ -229,9 +209,13 @@ export async function processAuctionCrons(): Promise<CronRunResult> {
     // -------------------------------------------------------------
     // 3. PAYMENT REMINDER: 2 HOURS BEFORE 24h DEADLINE
     // -------------------------------------------------------------
-    const awaitingPaymentSnap = await safeGetDocs(
-      query(collection(db, 'auctions'), where('post_auction_status', '==', 'awaiting_payment_1st'))
-    );
+    let awaitingPaymentSnap;
+    try {
+      awaitingPaymentSnap = await adminDb.collection('auctions').where('post_auction_status', '==', 'awaiting_payment_1st').get();
+    } catch (e: any) {
+      console.warn('[CRON] Failed to fetch awaiting payment auctions:', e.message);
+      awaitingPaymentSnap = { empty: true, docs: [] } as any;
+    }
 
     for (const auctionDoc of awaitingPaymentSnap.docs) {
       const data = auctionDoc.data();
@@ -259,9 +243,9 @@ export async function processAuctionCrons(): Promise<CronRunResult> {
 
         if (winnerId) {
           try {
-            const winnerSnap = await safeGetDoc(doc(db, 'users', winnerId));
-            if (winnerSnap.exists()) {
-              const winnerData = winnerSnap.data();
+            const winnerSnap = await adminDb.collection('users').doc(winnerId).get();
+            if (isDocSnapshotExists(winnerSnap)) {
+              const winnerData = getDocSnapshotData(winnerSnap) || {};
               if (winnerData.email) {
                 const hoursLeft = Math.max(1, Math.round(diffMs / (60 * 60 * 1000)));
                 await sendPaymentReminderNotification({
@@ -278,11 +262,11 @@ export async function processAuctionCrons(): Promise<CronRunResult> {
               }
             }
           } catch (payErr: any) {
-            console.error(`[CRON] Error sending payment reminder for auction ${auctionId}:`, payErr);
+            console.error(`[CRON] Error sending payment reminder for auction ${auctionId}:`, payErr.message);
           }
         }
 
-        await updateDoc(doc(db, 'auctions', auctionId), {
+        await adminDb.collection('auctions').doc(auctionId).update({
           payment_reminder_sent: true,
           payment_reminder_sent_at: now.toISOString(),
         });
@@ -308,19 +292,19 @@ export async function processAuctionCrons(): Promise<CronRunResult> {
         // Apply unpaid strike to default winner
         if (winnerId) {
           try {
-            const userRef = doc(db, 'users', winnerId);
-            const userDoc = await safeGetDoc(userRef);
-            if (userDoc.exists()) {
-              const udata = userDoc.data();
+            const userRef = adminDb.collection('users').doc(winnerId);
+            const userDoc = await userRef.get();
+            if (isDocSnapshotExists(userDoc)) {
+              const udata = getDocSnapshotData(userDoc) || {};
               const newStrikes = (udata.unpaidStrikes || 0) + 1;
               const updates: any = { unpaidStrikes: newStrikes };
               if (newStrikes >= 3) {
                 updates.isBlocked = true;
               }
-              await updateDoc(userRef, updates);
+              await userRef.update(updates);
             }
           } catch (strikeErr: any) {
-            console.error(`[CRON] Error adding strike to user ${winnerId}:`, strikeErr);
+            console.error(`[CRON] Error adding strike to user ${winnerId}:`, strikeErr.message);
           }
         }
 
@@ -330,14 +314,14 @@ export async function processAuctionCrons(): Promise<CronRunResult> {
 
         if (secondBidder && secondBidder.user_id) {
           const secondChanceDeadline = new Date(now.getTime() + 48 * 60 * 60 * 1000).toISOString();
-          await updateDoc(doc(db, 'auctions', auctionId), {
+          await adminDb.collection('auctions').doc(auctionId).update({
             post_auction_status: 'offered_2nd',
             second_chance_deadline: secondChanceDeadline,
             second_winner_id: secondBidder.user_id,
           });
           details.push(`Auction ${auctionId} 1st payment expired; offered 2nd chance to ${secondBidder.user_id}`);
         } else {
-          await updateDoc(doc(db, 'auctions', auctionId), {
+          await adminDb.collection('auctions').doc(auctionId).update({
             post_auction_status: 'failed_1st',
           });
           details.push(`Auction ${auctionId} 1st payment expired with no 2nd bidder; marked failed_1st`);
@@ -350,9 +334,13 @@ export async function processAuctionCrons(): Promise<CronRunResult> {
     // -------------------------------------------------------------
     // 5. CLEANUP OLD EXPIRED AUCTIONS (> 30 DAYS AFTER END)
     // -------------------------------------------------------------
-    const completedAuctionsSnap = await safeGetDocs(
-      query(collection(db, 'auctions'), where('status', '==', 'completed'))
-    );
+    let completedAuctionsSnap;
+    try {
+      completedAuctionsSnap = await adminDb.collection('auctions').where('status', '==', 'completed').get();
+    } catch (e: any) {
+      console.warn('[CRON] Failed to fetch completed auctions:', e.message);
+      completedAuctionsSnap = { empty: true, docs: [] } as any;
+    }
     const thirtyDaysAgo = now.getTime() - 30 * 24 * 60 * 60 * 1000;
 
     for (const auctionDoc of completedAuctionsSnap.docs) {
@@ -371,10 +359,10 @@ export async function processAuctionCrons(): Promise<CronRunResult> {
         ) {
           const auctionId = auctionDoc.id;
           try {
-            await deleteDoc(doc(db, 'auctions', auctionId));
+            await adminDb.collection('auctions').doc(auctionId).delete();
             details.push(`Auction ${auctionId} permanently deleted from DB (expired > 30 days)`);
           } catch (delErr: any) {
-            console.error(`[CRON] Error deleting old auction ${auctionId}:`, delErr);
+            console.error(`[CRON] Error deleting old auction ${auctionId}:`, delErr.message);
           }
         }
       }
