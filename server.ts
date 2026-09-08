@@ -1,19 +1,16 @@
 import { GoogleGenAI } from '@google/genai';
 
 import { getFirestore, collection, doc, getDoc, getDocs, updateDoc, setDoc, addDoc, query, where, limit, writeBatch, runTransaction } from 'firebase/firestore';
-import { db, storage } from '@/src/lib/firebase';
-
+import { db, storage } from './src/lib/firebase';
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import express from "express";
 import cors from "cors";
 import Stripe from "stripe";
-
 import path from "path";
-
 import { Resend } from 'resend';
-import { generateInvoicePDF } from '@/src/lib/pdfGenerator';
-import { sendOutbidNotification, sendEndingSoonNotification, sendAuctionWonNotification, sendPaymentReminderNotification } from '@/src/server/emailService';
-import { processAuctionCrons } from '@/src/server/cronProcessor';
+import { generateInvoicePDF } from './src/lib/pdfGenerator';
+import { sendOutbidNotification, sendEndingSoonNotification, sendAuctionWonNotification, sendPaymentReminderNotification } from './src/server/emailService';
+import { processAuctionCrons } from './src/server/cronProcessor';
 import dotenv from 'dotenv';
 
 async function safeGetDocs(queryRef: any) {
@@ -220,19 +217,30 @@ app.use(cors());
 
 app.use((req, res, next) => {
   if (process.env.VERCEL) {
-    if (req.originalUrl && req.originalUrl.startsWith('/api') && (req.url === '/' || req.url.startsWith('/api/index') || req.url === '')) {
-      req.url = req.originalUrl;
-    } else if (!req.url.startsWith('/api') && !req.url.startsWith('/webhook')) {
-      req.url = '/api' + (req.url.startsWith('/') ? req.url : '/' + req.url);
+    const matchedPath = (req.headers['x-matched-path'] as string) || (req.headers['x-invoke-path'] as string);
+    let resolvedUrl = req.url || '/';
+
+    if (matchedPath && matchedPath.startsWith('/api')) {
+      resolvedUrl = matchedPath;
+    } else if (req.originalUrl && req.originalUrl.startsWith('/api') && (req.url === '/' || req.url.startsWith('/api/index') || req.url === '')) {
+      resolvedUrl = req.originalUrl;
+    } else if (!resolvedUrl.startsWith('/api') && !resolvedUrl.startsWith('/webhook')) {
+      resolvedUrl = '/api' + (resolvedUrl.startsWith('/') ? resolvedUrl : '/' + resolvedUrl);
     }
-    if (req.url.startsWith('/api/api/')) {
-      req.url = req.url.replace('/api/api/', '/api/');
+
+    resolvedUrl = resolvedUrl.replace(/^\/api\/api\//, '/api/');
+
+    if (resolvedUrl === '/api/index.ts' || resolvedUrl === '/api/index') {
+      if (req.originalUrl && req.originalUrl !== resolvedUrl) {
+        resolvedUrl = req.originalUrl;
+      }
     }
+
+    req.url = resolvedUrl;
   }
   next();
 });
 
-export default app;
   const PORT = 3000;
 
   let stripeClient: Stripe | null = null;
@@ -484,7 +492,17 @@ export default app;
     res.json({received: true});
   });
 
-  app.use(express.json());
+  app.use((req, res, next) => {
+    if (req.body && typeof req.body === 'object' && Object.keys(req.body).length > 0) {
+      return next();
+    }
+    express.json({ limit: '10mb' })(req, res, (err) => {
+      if (err) {
+        console.warn('[JSON parse warning]:', err.message);
+      }
+      next();
+    });
+  });
   app.use((req, res, next) => {
     if (typeof req.body === 'string' && req.body.trim().startsWith('{')) {
       try {
@@ -2448,3 +2466,6 @@ async function startLocalServer() {
 if (!process.env.VERCEL && process.env.NODE_ENV !== 'test') {
   startLocalServer();
 }
+
+export { app };
+export default app;

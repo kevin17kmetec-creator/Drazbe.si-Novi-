@@ -29,9 +29,15 @@ interface ActionResponse<T = any> {
  * Varen ovitek okoli klicev na backend, ki dosledno preverja status odgovora
  * ter preprečuje zrušitve zaradi nepričakovanih HTML strani ob napakah.
  */
+function getBaseUrl(): string {
+  if (typeof window !== 'undefined') return '';
+  return process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || process.env.VITE_APP_URL || 'http://localhost:3000';
+}
+
 async function safeApiCall<T = any>(url: string, options?: RequestInit): Promise<ActionResponse<T>> {
   try {
-    const res = await fetch(url, {
+    const fullUrl = url.startsWith('http') ? url : `${getBaseUrl()}${url}`;
+    const res = await fetch(fullUrl, {
       ...options,
       headers: {
         'Content-Type': 'application/json',

@@ -1,4 +1,4 @@
-import { db } from '@/src/lib/firebase';
+import { db } from '../lib/firebase';
 
 async function safeGetDoc(docRef: any) {
   try {
@@ -31,7 +31,7 @@ import {
   sendEndingSoonNotification,
   sendAuctionWonNotification,
   sendPaymentReminderNotification,
-} from '@/src/server/emailService';
+} from './emailService';
 
 export interface CronRunResult {
   success: boolean;
