@@ -866,17 +866,62 @@ app.post("/api/create-checkout-session", async (req, res) => {
       }
     }
 
+    let finalAmount = NaN;
+    let diagnosticInfo: any = {
+      route: '/api/create-checkout-session',
+      hasAmount: amount !== undefined && amount !== null,
+      amountType: typeof amount,
+      parsedAmountInput: NaN,
+      usedPriceField: 'none',
+      computedCents: NaN
+    };
+
+    const parseAmount = (val: any): number => {
+      if (val === undefined || val === null) return NaN;
+      if (typeof val === 'number') return val;
+      if (typeof val === 'string') {
+        let cleaned = val.trim().replace(/,/g, '.');
+        return Number(cleaned);
+      }
+      return NaN;
+    };
+
+    const parsedClientAmount = parseAmount(amount);
+    diagnosticInfo.parsedAmountInput = parsedClientAmount;
+
     if (type === "auction" && auction_id && effectiveBuyerId && seller_id) {
       let auction: any = null;
       try {
         const auctionDoc = await safeGetDoc(adminDb.collection('auctions').doc(auction_id));
-        auction = auctionDoc.data();
+        if (auctionDoc.exists()) {
+          auction = auctionDoc.data();
+        }
       } catch (e) {
         console.warn("Could not fetch auction:", e);
       }
 
-      if (auction?.title) {
-        auctionTitle = auction.title['SLO'] || auction.title['EN'] || "Dražba";
+      if (auction) {
+        if (auction.title) {
+          auctionTitle = auction.title['SLO'] || auction.title['EN'] || "Dražba";
+        }
+        
+        let authoritativePrice = NaN;
+        if (auction.current_price !== undefined && auction.current_price !== null && auction.current_price !== '') {
+          authoritativePrice = parseAmount(auction.current_price);
+          diagnosticInfo.usedPriceField = 'current_price';
+        } else if (auction.currentBid !== undefined && auction.currentBid !== null && auction.currentBid !== '') {
+          authoritativePrice = parseAmount(auction.currentBid);
+          diagnosticInfo.usedPriceField = 'currentBid';
+        }
+        
+        if (!isNaN(authoritativePrice)) {
+          const feePct = Number(fee_percentage) || 0;
+          if (feePct > 0) {
+             finalAmount = authoritativePrice * (1 + (feePct / 100));
+          } else {
+             finalAmount = authoritativePrice;
+          }
+        }
       }
 
       sessionMetadata = {
@@ -888,6 +933,7 @@ app.post("/api/create-checkout-session", async (req, res) => {
       };
     } else if (type === "subscription") {
       auctionTitle = "Naročnina";
+      finalAmount = parsedClientAmount;
       sessionMetadata = {
         type: 'subscription',
         buyer_id: effectiveBuyerId || '',
@@ -895,12 +941,21 @@ app.post("/api/create-checkout-session", async (req, res) => {
       };
     } else {
       auctionTitle = "Plačilo dražbe";
+      finalAmount = parsedClientAmount;
       sessionMetadata = {
         type: 'auction',
         auction_id: auction_id || '',
         buyer_id: effectiveBuyerId || '',
         seller_id: seller_id || '',
       };
+    }
+
+    const unitAmountCents = Math.round(finalAmount * 100);
+    diagnosticInfo.computedCents = unitAmountCents;
+    console.log("[DIAGNOSTIC] create-checkout-session amounts:", JSON.stringify(diagnosticInfo));
+
+    if (isNaN(unitAmountCents) || !isFinite(unitAmountCents) || unitAmountCents <= 0) {
+      return res.status(400).json({ error: "Invalid auction payment amount" });
     }
 
     const sessionParams: Stripe.Checkout.SessionCreateParams = {
@@ -911,7 +966,7 @@ app.post("/api/create-checkout-session", async (req, res) => {
           product_data: {
             name: auctionTitle,
           },
-          unit_amount: Math.round(amount * 100),
+          unit_amount: unitAmountCents,
         },
         quantity: 1,
       }],
@@ -1116,8 +1171,55 @@ app.post("/api/create-payment-intent", async (req, res) => {
       }
     }
 
+    let finalAmount = NaN;
+    const parseAmount = (val: any): number => {
+      if (val === undefined || val === null) return NaN;
+      if (typeof val === 'number') return val;
+      if (typeof val === 'string') {
+        let cleaned = val.trim().replace(/,/g, '.');
+        return Number(cleaned);
+      }
+      return NaN;
+    };
+    
+    if (auction_id) {
+      let authoritativePrice = NaN;
+      try {
+        const auctionDoc = await safeGetDoc(adminDb.collection('auctions').doc(auction_id));
+        if (auctionDoc.exists()) {
+          const auction = auctionDoc.data();
+          if (auction && auction.current_price !== undefined && auction.current_price !== null && auction.current_price !== '') {
+            authoritativePrice = parseAmount(auction.current_price);
+          } else if (auction && auction.currentBid !== undefined && auction.currentBid !== null && auction.currentBid !== '') {
+            authoritativePrice = parseAmount(auction.currentBid);
+          }
+        }
+      } catch(e) {
+        console.warn("Could not fetch auction for payment intent:", e);
+      }
+
+      if (!isNaN(authoritativePrice)) {
+        const feePct = Number(fee_percentage) || 0;
+        if (feePct > 0) {
+           finalAmount = authoritativePrice * (1 + (feePct / 100));
+        } else {
+           finalAmount = authoritativePrice;
+        }
+      }
+    }
+    
+    if (isNaN(finalAmount)) {
+      finalAmount = parseAmount(amount);
+    }
+
+    const unitAmountCents = Math.round(finalAmount * 100);
+
+    if (isNaN(unitAmountCents) || !isFinite(unitAmountCents) || unitAmountCents <= 0) {
+      return res.status(400).json({ error: "Invalid payment intent amount" });
+    }
+
     const intentParams: Stripe.PaymentIntentCreateParams = {
-      amount: Math.round(amount * 100),
+      amount: unitAmountCents,
       currency,
       automatic_payment_methods: {
         enabled: true,
@@ -1554,6 +1656,23 @@ app.post("/api/create-subscription-checkout", async (req, res) => {
     const { amount, currency = "eur", user_id, package_id, return_url } = req.body;
     const stripe = getStripe();
 
+    const parseAmount = (val: any): number => {
+      if (val === undefined || val === null) return NaN;
+      if (typeof val === 'number') return val;
+      if (typeof val === 'string') {
+        let cleaned = val.trim().replace(/,/g, '.');
+        return Number(cleaned);
+      }
+      return NaN;
+    };
+
+    const parsedAmount = parseAmount(amount);
+    const unitAmountCents = Math.round(parsedAmount * 100);
+
+    if (isNaN(unitAmountCents) || !isFinite(unitAmountCents) || unitAmountCents <= 0) {
+      return res.status(400).json({ error: "Invalid subscription payment amount" });
+    }
+
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       line_items: [{
@@ -1562,7 +1681,7 @@ app.post("/api/create-subscription-checkout", async (req, res) => {
           product_data: {
             name: `Naročnina - Paket ${package_id}`,
           },
-          unit_amount: Math.round(amount * 100),
+          unit_amount: unitAmountCents,
         },
         quantity: 1,
       }],
