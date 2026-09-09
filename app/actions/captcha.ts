@@ -2,6 +2,7 @@
 
 interface ActionResponse<T = any> {
   success: boolean;
+  score?: number;
   data?: T;
   error?: string;
 }
@@ -21,16 +22,14 @@ export async function verifyCaptchaAction(token: string): Promise<ActionResponse
       body: JSON.stringify({ token })
     });
 
+    const data = await res.json().catch(() => ({}));
+
     if (!res.ok) {
-      let errorMsg = `Napaka strežnika (${res.status})`;
-      try {
-        const errData = await res.json();
-        errorMsg = errData.error || errData.message || errorMsg;
-      } catch (e) {}
-      return { success: false, error: errorMsg };
+      const errorMsg = data.error || data.message || `Napaka strežnika (${res.status})`;
+      return { success: false, score: data.score, error: errorMsg, data };
     }
 
-    return { success: true };
+    return { success: true, score: data.score, data };
   } catch (err: any) {
     return { success: false, error: err?.message || 'Napaka pri povezavi s strežnikom.' };
   }

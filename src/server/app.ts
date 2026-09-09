@@ -2709,12 +2709,18 @@ app.post("/api/auth/verify-captcha", async (req, res) => {
     });
 
     const data = await verifyRes.json();
+    console.log("reCAPTCHA Google API Response:", data);
+
     if (!data.success || data.score < 0.5) {
       console.warn("reCAPTCHA failed or low score:", data);
-      return res.status(400).json({ error: "Zaznana je bila neobičajna dejavnost. Poskusite znova." });
+      return res.status(400).json({ 
+        error: "Zaznana je bila neobičajna dejavnost. Poskusite znova.",
+        success: false,
+        score: data.score 
+      });
     }
 
-    res.json({ success: true });
+    res.json({ success: data.success, score: data.score });
   } catch (err: any) {
     console.error("verify-captcha error:", err);
     res.status(500).json({ error: err.message });
