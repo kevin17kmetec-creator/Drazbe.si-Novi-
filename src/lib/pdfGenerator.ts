@@ -2,10 +2,26 @@ import PDFDocument from 'pdfkit';
 import fs from 'fs';
 import path from 'path';
 
+function getFontPath(filename: string): string {
+  // Check if we are running in a built environment or locally.
+  const localPath = path.join(process.cwd(), 'public', 'fonts', filename);
+  if (fs.existsSync(localPath)) return localPath;
+  return ''; // If fonts don't exist, we'll gracefully fallback
+}
+
 export async function generateInvoicePDF(transaction: any, buyer: any, seller: any, auction?: any, salesInvoiceNo?: string, commissionInvoiceNo?: string): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ margin: 50 });
     const buffers: Buffer[] = [];
+
+    const regularFont = getFontPath('Roboto-Regular.ttf');
+    const boldFont = getFontPath('Roboto-Bold.ttf');
+    
+    if (regularFont && boldFont) {
+      doc.registerFont('Roboto', regularFont);
+      doc.registerFont('Roboto-Bold', boldFont);
+      doc.font('Roboto');
+    }
 
     doc.on('data', buffers.push.bind(buffers));
     doc.on('end', () => {
@@ -32,7 +48,9 @@ export async function generateInvoicePDF(transaction: any, buyer: any, seller: a
       ? 'RAČUN / INVOICE' 
       : 'KUPOPRODAJNA POGODBA';
 
+    if (boldFont) doc.font('Roboto-Bold');
     doc.fontSize(18).text(documentTitle, { align: 'center' });
+    if (regularFont) doc.font('Roboto');
     doc.moveDown(0.5);
 
     const sellerTaxId = seller.tax_id || seller.taxId || seller.vat_id || seller.vatId;
@@ -168,7 +186,9 @@ export async function generateInvoicePDF(transaction: any, buyer: any, seller: a
     // ==========================================
     doc.addPage();
 
+    if (boldFont) doc.font('Roboto-Bold');
     doc.fontSize(20).text('RAČUN ZA STORITEV / SERVICE INVOICE', { align: 'center' });
+    if (regularFont) doc.font('Roboto');
     doc.moveDown();
 
     // IZDajatelj (Platform)
@@ -239,6 +259,15 @@ export async function generateCertificatePDF(transaction: any, buyer: any, selle
     const doc = new PDFDocument({ margin: 50 });
     const buffers: Buffer[] = [];
 
+    const regularFont = getFontPath('Roboto-Regular.ttf');
+    const boldFont = getFontPath('Roboto-Bold.ttf');
+    
+    if (regularFont && boldFont) {
+      doc.registerFont('Roboto', regularFont);
+      doc.registerFont('Roboto-Bold', boldFont);
+      doc.font('Roboto');
+    }
+
     doc.on('data', buffers.push.bind(buffers));
     doc.on('end', () => {
       const pdfData = Buffer.concat(buffers);
@@ -246,7 +275,9 @@ export async function generateCertificatePDF(transaction: any, buyer: any, selle
     });
 
     // Header
+    if (boldFont) doc.font('Roboto-Bold');
     doc.fontSize(20).text('POTRDILO O NAKUPU / PURCHASE CERTIFICATE', { align: 'center' });
+    if (regularFont) doc.font('Roboto');
     doc.moveDown();
 
     // Platform Details

@@ -20,6 +20,9 @@ import {
 import cors from "cors";
 import Stripe from "stripe";
 import { Resend } from 'resend';
+import { render } from '@react-email/render';
+import React from 'react';
+import { AuctionEmailTemplate } from '../emails/AuctionEmailTemplate';
 import { GoogleGenAI } from "@google/genai";
 import { generateInvoicePDF } from '../lib/pdfGenerator';
 import {
@@ -535,20 +538,25 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
 
       if (buyer.email && process.env.RESEND_API_KEY) {
         try {
+          const auctionTitleText = auctionDataPdf?.title?.SLO || auctionDataPdf?.title?.EN || 'Predmet dražbe';
+          const auctionUrl = `${process.env.APP_URL || 'https://drazba.si'}/?drazba=${auction_id}`;
+          
+          const htmlContent = await render(React.createElement(AuctionEmailTemplate, {
+            type: 'payment_success',
+            recipientName: buyer.first_name || buyer.name || 'uporabnik',
+            auctionTitle: auctionTitleText,
+            auctionImageUrl: auctionDataPdf?.images?.[0]?.url,
+            currentPrice: transaction.amount_total,
+            auctionUrl,
+            settingsUrl: `${process.env.APP_URL || 'https://drazba.si'}/?tab=settings`,
+          }));
+
           const resendClient = new Resend(process.env.RESEND_API_KEY);
           await resendClient.emails.send({
             from: process.env.EMAIL_FROM || 'Drazba.si <obvestila@drazba.si>',
             to: buyer.email,
-            subject: 'Potrdilo o plačilu in dokumenti - Drazba.si',
-            html: `
-              <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
-                <h2 style="color: #0A1128;">Pozdravljeni, ${buyer.first_name || 'uporabnik'}!</h2>
-                <p>Vaše plačilo za dražbo je bilo uspešno obdelano.</p>
-                <p>V priponki vam pošiljamo <strong>račun</strong> za opravljeno storitev ter <strong>potrdilo o nakupu</strong>.</p>
-                <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
-                <p style="font-size: 12px; color: #666;">Ekipa Drazba.si</p>
-              </div>
-            `,
+            subject: `Potrdilo o plačilu in dokumenti: ${auctionTitleText} - Drazba.si`,
+            html: htmlContent,
             attachments
           });
           console.log(`Email sent successfully to ${buyer.email}`);
@@ -1942,26 +1950,20 @@ app.post("/api/test/send-email", async (req, res) => {
       ];
 
       const resendClient = new Resend(resendApiKey);
+      const htmlContent = await render(React.createElement(AuctionEmailTemplate, {
+        type: 'payment_success',
+        recipientName: recipientName || 'Uporabnik',
+        auctionTitle: auctionTitle,
+        currentPrice: currentPrice,
+        auctionUrl: `${process.env.APP_URL || 'https://drazba.si'}/?drazba=${auctionId}`,
+        settingsUrl: `${process.env.APP_URL || 'https://drazba.si'}/?tab=settings`,
+      }));
+
       const emailResponse = await resendClient.emails.send({
         from: process.env.EMAIL_FROM || 'dražbe.si <obvestila@drazba.si>',
         to: toEmail,
         subject: `🧾 Potrdilo o plačilu in račun: ${auctionTitle} - dražbe.si`,
-        html: `
-          <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; background-color: #0A1128; color: #FFFFFF; border-radius: 16px;">
-            <div style="text-align: center; margin-bottom: 24px;">
-              <h1 style="color: #FEBA4F; font-size: 28px; margin: 0;">dražbe.si</h1>
-              <p style="color: #94A3B8; font-size: 13px;">Uradno potrdilo o plačilu in račun</p>
-            </div>
-            <div style="background-color: rgba(255,255,255,0.05); padding: 20px; border-radius: 12px; margin-bottom: 20px;">
-              <h2 style="color: #FFFFFF; font-size: 18px; margin-top: 0;">Pozdravljeni, ${recipientName}!</h2>
-              <p style="color: #CBD5E1; line-height: 1.6;">Vaše plačilo za dražbo <strong>${auctionTitle}</strong> v znesku <strong>${currentPrice.toFixed(2)} €</strong> je bilo uspešno evidentirano.</p>
-              <p style="color: #CBD5E1; line-height: 1.6;">V priponki tega sporočila vam prilagamo <strong>uradni PDF račun</strong>.</p>
-            </div>
-            <div style="text-align: center; font-size: 11px; color: #64748B;">
-              <p>© ${new Date().getFullYear()} dražbe.si. Vse pravice pridržane.</p>
-            </div>
-          </div>
-        `,
+        html: htmlContent,
         attachments
       });
 

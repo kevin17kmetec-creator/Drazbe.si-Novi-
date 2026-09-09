@@ -16,7 +16,7 @@ import {
   Preview,
 } from '@react-email/components';
 
-export type EmailType = 'outbid' | 'ending_soon' | 'won' | 'payment_reminder';
+export type EmailType = 'outbid' | 'ending_soon' | 'won' | 'payment_reminder' | 'payment_success';
 
 export interface AuctionEmailProps {
   type: EmailType;
@@ -114,6 +114,19 @@ export const AuctionEmailTemplate: React.FC<AuctionEmailProps> = ({
       ctaUrl = paymentUrl || `${auctionUrl}?tab=winnings`;
       priceLabel = 'Znesek za plačilo:';
       highlightNote = 'Po izteku roka se artikel lahko ponudi drugemu ponudniku, račun pa prejme opomin.';
+      break;
+
+    case 'payment_success':
+      previewText = `Plačilo za "${auctionTitle}" je bilo uspešno obdelano.`;
+      badgeText = 'PLAČILO USPEŠNO';
+      badgeBg = '#10B981'; // Green
+      badgeColor = '#FFFFFF';
+      headline = 'Vaše plačilo je bilo uspešno!';
+      subheadline = `Plačilo za dražbo "${auctionTitle}" je bilo uspešno obdelano. V priponki tega sporočila vam pošiljamo račun za opravljeno storitev ter potrdilo o nakupu (kupoprodajno pogodbo).`;
+      ctaText = 'Ogled dražbe';
+      ctaUrl = auctionUrl || 'https://drazba.si';
+      priceLabel = 'Plačan znesek:';
+      highlightNote = 'Dokumenti so priloženi k temu sporočilu v PDF obliki.';
       break;
   }
 
