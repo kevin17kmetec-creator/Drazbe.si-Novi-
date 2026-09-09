@@ -111,13 +111,17 @@ if (!rootElement) {
   throw new Error("Could not find root element to mount to");
 }
 
-const siteKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY || import.meta.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY || "dummy_site_key";
+const siteKey = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY;
+
+if (!siteKey) {
+  console.warn("[reCAPTCHA] NEXT_PUBLIC_RECAPTCHA_SITE_KEY is missing in Environment Variables.");
+}
 
 const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
     <ErrorBoundary>
-      <GoogleReCaptchaProvider reCaptchaKey={siteKey}>
+      <GoogleReCaptchaProvider reCaptchaKey={process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY || ""}>
         <App />
       </GoogleReCaptchaProvider>
     </ErrorBoundary>

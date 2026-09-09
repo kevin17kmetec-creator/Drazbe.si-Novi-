@@ -4159,7 +4159,7 @@ app.post("/api/auth/verify-captcha", async (req, res) => {
     const secretKey = process.env.RECAPTCHA_SECRET_KEY;
     if (!secretKey) {
       console.warn("RECAPTCHA_SECRET_KEY ni nastavljen na stre\u017Eniku.");
-      return res.json({ success: true, message: "Bypassed missing secret key" });
+      return res.status(500).json({ error: "Sistemska napaka: reCAPTCHA ni pravilno konfigurirana na stre\u017Eniku." });
     }
     const verifyRes = await fetch("https://www.google.com/recaptcha/api/siteverify", {
       method: "POST",
