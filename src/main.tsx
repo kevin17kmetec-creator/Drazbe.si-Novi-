@@ -1,7 +1,8 @@
-import {StrictMode} from 'react';
-import {createRoot} from 'react-dom/client';
+import { StrictMode } from 'react';
+import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
+import { GoogleReCaptchaProvider } from 'react-google-recaptcha-v3';
 
 if (typeof window !== "undefined") {
   // Ultra-aggressive global error silencer for extensions
@@ -61,8 +62,12 @@ if (typeof window !== "undefined") {
   };
 }
 
+const siteKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY || import.meta.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY || "dummy_site_key";
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
+    <GoogleReCaptchaProvider reCaptchaKey={siteKey}>
       <App />
+    </GoogleReCaptchaProvider>
   </StrictMode>,
 );

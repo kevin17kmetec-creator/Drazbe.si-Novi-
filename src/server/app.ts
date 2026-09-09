@@ -23,6 +23,7 @@ import { Resend } from 'resend';
 import { render } from '@react-email/render';
 import React from 'react';
 import { AuctionEmailTemplate } from '../emails/AuctionEmailTemplate';
+import { AuthEmailTemplate } from '../emails/AuthEmailTemplate';
 import { GoogleGenAI } from "@google/genai";
 import { generateInvoicePDF } from '../lib/pdfGenerator';
 import {
@@ -498,10 +499,11 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
       // 7. Generate Documents
       const documentsToInsert: any[] = [];
       const attachments: any[] = [];
+      let auctionDataPdf: any = null;
 
       try {
         const auctionDocPdf = await safeGetDoc(adminDb.collection('auctions').doc(auction_id));
-        const auctionDataPdf = auctionDocPdf.data();
+        auctionDataPdf = auctionDocPdf.data();
         const invoicePdfBuffer = await generateInvoicePDF(transaction, buyer, seller, auctionDataPdf, salesInvoiceNo, commissionInvoiceNo);
         const invoiceFileName = `racun_${salesInvoiceNo}.pdf`;
 
@@ -2682,6 +2684,161 @@ app.post("/api/orders/:id/open-dispute", async (req, res) => {
   } catch (e: any) {
     console.error(e);
     res.status(500).json({ error: e.message });
+  }
+});
+
+// RECAPTCHA V3 VERIFICATION
+app.post("/api/auth/verify-captcha", async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ error: "Manjka reCAPTCHA žeton." });
+
+    const secretKey = process.env.RECAPTCHA_SECRET_KEY;
+    if (!secretKey) {
+      console.warn("RECAPTCHA_SECRET_KEY ni nastavljen na strežniku.");
+      return res.json({ success: true, message: "Bypassed missing secret key" });
+    }
+
+    const verifyRes = await fetch("https://www.google.com/recaptcha/api/siteverify", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        secret: secretKey,
+        response: token
+      }).toString()
+    });
+
+    const data = await verifyRes.json();
+    if (!data.success || data.score < 0.5) {
+      console.warn("reCAPTCHA failed or low score:", data);
+      return res.status(400).json({ error: "Zaznana je bila neobičajna dejavnost. Poskusite znova." });
+    }
+
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error("verify-captcha error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// AUTH EMAILS
+app.post("/api/auth/send-verification", async (req, res) => {
+  try {
+    const { email, displayName } = req.body;
+    if (!email) return res.status(400).json({ error: "Manjka e-poštni naslov" });
+
+    const actionUrl = await adminAuth.generateEmailVerificationLink(email, {
+      url: `${process.env.APP_URL || 'https://drazba.si'}/?tab=settings`
+    });
+
+    if (process.env.RESEND_API_KEY) {
+      const resend = new Resend(process.env.RESEND_API_KEY);
+      const htmlContent = await render(React.createElement(AuthEmailTemplate, {
+        type: 'verify_email',
+        actionUrl,
+        recipientName: displayName || email.split('@')[0],
+      }));
+
+      await resend.emails.send({
+        from: process.env.EMAIL_FROM || 'Drazba.si <obvestila@drazba.si>',
+        to: email,
+        subject: 'Potrdite svoj e-poštni naslov - dražbe.si',
+        html: htmlContent,
+      });
+    }
+
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error("send-verification error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/auth/send-password-reset", async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: "Manjka e-poštni naslov" });
+
+    const actionUrl = await adminAuth.generatePasswordResetLink(email, {
+      url: `${process.env.APP_URL || 'https://drazba.si'}/`
+    });
+
+    if (process.env.RESEND_API_KEY) {
+      const resend = new Resend(process.env.RESEND_API_KEY);
+      const htmlContent = await render(React.createElement(AuthEmailTemplate, {
+        type: 'reset_password',
+        actionUrl,
+        recipientName: email.split('@')[0],
+      }));
+
+      await resend.emails.send({
+        from: process.env.EMAIL_FROM || 'Drazba.si <obvestila@drazba.si>',
+        to: email,
+        subject: 'Ponastavitev gesla - dražbe.si',
+        html: htmlContent,
+      });
+    }
+
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error("send-password-reset error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/auth/send-email-changed", async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: "Manjka e-poštni naslov" });
+
+    if (process.env.RESEND_API_KEY) {
+      const resend = new Resend(process.env.RESEND_API_KEY);
+      const htmlContent = await render(React.createElement(AuthEmailTemplate, {
+        type: 'email_changed',
+        actionUrl: `${process.env.APP_URL || 'https://drazba.si'}/?tab=settings`,
+        recipientName: email.split('@')[0],
+      }));
+
+      await resend.emails.send({
+        from: process.env.EMAIL_FROM || 'Drazba.si <obvestila@drazba.si>',
+        to: email,
+        subject: 'Sprememba e-poštnega naslova - dražbe.si',
+        html: htmlContent,
+      });
+    }
+
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error("send-email-changed error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/auth/send-mfa-enrollment", async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: "Manjka e-poštni naslov" });
+
+    if (process.env.RESEND_API_KEY) {
+      const resend = new Resend(process.env.RESEND_API_KEY);
+      const htmlContent = await render(React.createElement(AuthEmailTemplate, {
+        type: 'mfa_enrollment',
+        actionUrl: `${process.env.APP_URL || 'https://drazba.si'}/?tab=settings`,
+        recipientName: email.split('@')[0],
+      }));
+
+      await resend.emails.send({
+        from: process.env.EMAIL_FROM || 'Drazba.si <obvestila@drazba.si>',
+        to: email,
+        subject: 'Varnostno obvestilo (MFA) - dražbe.si',
+        html: htmlContent,
+      });
+    }
+
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error("send-mfa-enrollment error:", err);
+    res.status(500).json({ error: err.message });
   }
 });
 

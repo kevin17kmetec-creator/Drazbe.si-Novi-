@@ -1,11 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { User, CheckCircle2, AlertCircle, ShieldCheck, XCircle, ArrowLeft } from 'lucide-react';
 import { auth, db } from '../lib/firebase';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail, signInWithPopup, GoogleAuthProvider, sendEmailVerification, signOut } from 'firebase/auth';
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
 import { setDoc, doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { toast } from 'sonner';
+import { sendEmailVerificationAction, sendPasswordResetAction } from '../../app/actions/auth-emails';
+import { useGoogleReCaptcha } from 'react-google-recaptcha-v3';
+import { verifyCaptchaAction } from '../../app/actions/captcha';
 
 export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerified: (v: boolean) => void; setAppLoggedIn: (val: boolean) => void }> = ({ t, onLoginSuccess, setIsVerified, setAppLoggedIn }) => {
+  const { executeRecaptcha } = useGoogleReCaptcha();
   const [isLogin, setIsLogin] = useState(true);
   const [isForgotPassword, setIsForgotPassword] = useState(false);
   const [email, setEmail] = useState('');
@@ -57,6 +61,19 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
     
     setLoading(true);
     try {
+      if (!executeRecaptcha) {
+        toast.error("reCAPTCHA ni na voljo.");
+        setLoading(false);
+        return;
+      }
+      const token = await executeRecaptcha('auth_submit');
+      const captchaRes = await verifyCaptchaAction(token);
+      if (!captchaRes.success) {
+        toast.error(captchaRes.error || "Zaznana je bila neobičajna dejavnost. Poskusite znova.");
+        setLoading(false);
+        return;
+      }
+
       if (isLogin) {
           const cred = await signInWithEmailAndPassword(auth, email, password);
           const user = cred.user;
@@ -82,7 +99,13 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
           const cred = await createUserWithEmailAndPassword(auth, email, password);
           const user = cred.user;
           
-          await sendEmailVerification(user);
+          const emailRes = await sendEmailVerificationAction(email, email.split('@')[0]);
+          if (!emailRes.success) {
+             console.error("Napaka pri pošiljanju potrditvene e-pošte:", emailRes.error);
+             toast.error("Registracija uspešna, vendar e-pošte ni bilo mogoče poslati. Obrnite se na podporo.");
+          } else {
+             toast.success("Registracija uspešna! Na vaš e-poštni naslov smo poslali potrditveno povezavo. Prosimo, potrdite jo pred prvo prijavo.");
+          }
           
           if (user) {
               await setDoc(doc(db, "users", user.uid), {
@@ -96,7 +119,6 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
           
           await signOut(auth);
           
-          toast.success("Registracija uspešna! Na vaš e-poštni naslov smo poslali potrditveno povezavo. Prosimo, potrdite jo pred prvo prijavo.");
           setIsLogin(true);
       }
     } catch (error: any) {
@@ -183,12 +205,27 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
 
   const handleForgotPassword = async (e: React.FormEvent) => {
       e.preventDefault();
-      if (!email) return toast.error(t('emailRequired'));
+      if (!email) return toast.error(t('emailRequired') || 'Manjka e-poštni naslov');
       
       setLoading(true);
       try {
-          await sendPasswordResetEmail(auth, email);
-          toast.success(t('resetLinkSent'));
+          if (!executeRecaptcha) {
+            toast.error("reCAPTCHA ni na voljo.");
+            setLoading(false);
+            return;
+          }
+          const token = await executeRecaptcha('auth_reset');
+          const captchaRes = await verifyCaptchaAction(token);
+          if (!captchaRes.success) {
+            toast.error(captchaRes.error || "Zaznana je bila neobičajna dejavnost. Poskusite znova.");
+            setLoading(false);
+            return;
+          }
+
+          const res = await sendPasswordResetAction(email);
+          if (!res.success) throw new Error(res.error || "Napaka pri pošiljanju ponastavitvene e-pošte");
+          
+          toast.success(t('resetLinkSent') || 'Povezava za ponastavitev je poslana na vaš e-mail.');
           setIsForgotPassword(false);
           } catch (error: any) {
         let errorMsg = error.message || JSON.stringify(error);
