@@ -17,6 +17,7 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
   const [confirmPassword, setConfirmPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Password validation state
   const [hasUppercase, setHasUppercase] = useState(false);
@@ -47,6 +48,7 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
     if (!email || !password) return toast.error(t("missingFields") || "Manjkajoči podatki.");
     
     if (!isLogin) {
@@ -62,16 +64,20 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
     setLoading(true);
     try {
       if (!executeRecaptcha) {
-        toast.error("reCAPTCHA ni na voljo.");
+        const msg = "reCAPTCHA ni na voljo.";
+        setError(msg);
+        toast.error(msg);
         setLoading(false);
         return;
       }
       const token = await executeRecaptcha('auth_submit');
       const captchaRes = await verifyCaptchaAction(token);
       if (!captchaRes.success) {
-        toast.error(captchaRes.error || "Zaznana je bila neobičajna dejavnost. Prijava ni mogoča.");
+        // PREKINI POTEK in prikaži napako uporabniku
+        setError(captchaRes.error || "reCAPTCHA preverjanje ni uspelo.");
+        toast.error(captchaRes.error || "reCAPTCHA preverjanje ni uspelo.");
         setLoading(false);
-        return;
+        return; // Ne nadaljuj s Firebase login/register!
       }
 
       if (isLogin) {
@@ -217,7 +223,8 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
           const token = await executeRecaptcha('auth_reset');
           const captchaRes = await verifyCaptchaAction(token);
           if (!captchaRes.success) {
-            toast.error(captchaRes.error || "Zaznana je bila neobičajna dejavnost. Prijava ni mogoča.");
+            setError(captchaRes.error || "reCAPTCHA preverjanje ni uspelo.");
+            toast.error(captchaRes.error || "reCAPTCHA preverjanje ni uspelo.");
             setLoading(false);
             return;
           }
@@ -260,6 +267,12 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
             <h2 className="text-4xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">{isLogin ? t('login') : t('register')}</h2>
         </div>
         <form onSubmit={handleSubmit} className="space-y-6 mb-8">
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-red-600 p-4 rounded-2xl text-sm font-bold flex items-center gap-2">
+              <AlertCircle size={18} className="shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
           <input type="email" required className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 px-6 font-bold focus:ring-2 focus:ring-[#FEBA4F] outline-none" placeholder={t('email')} onChange={e => setEmail(e.target.value)} />
           
           <div className="space-y-2">

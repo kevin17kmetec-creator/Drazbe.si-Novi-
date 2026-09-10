@@ -12,6 +12,8 @@ import { auth, db } from '../lib/firebase';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { setDoc, doc } from 'firebase/firestore';
 import { toast } from 'sonner';
+import { useGoogleReCaptcha } from 'react-google-recaptcha-v3';
+import { verifyCaptchaAction } from '../../app/actions/captcha';
 
 export const WatchlistView = ({ 
   watchlist, auctions, onAuctionClick, onWatchToggle, t, language, onBack, isVerified 
@@ -277,6 +279,7 @@ export const SettingsView = ({ profile, onUpdate, t }: { profile: any, onUpdate:
 };
 
 export const AuthView = ({ mode, setMode, onAuthSuccess, t }: { mode: 'login' | 'register', setMode: (m: 'login' | 'register') => void, onAuthSuccess: () => void, t: any }) => {
+  const { executeRecaptcha } = useGoogleReCaptcha();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -287,6 +290,20 @@ export const AuthView = ({ mode, setMode, onAuthSuccess, t }: { mode: 'login' | 
     setLoading(true);
     setError(null);
     try {
+      if (!executeRecaptcha) {
+        setError("reCAPTCHA ni na voljo.");
+        setLoading(false);
+        return;
+      }
+      const token = await executeRecaptcha('auth_submit');
+      const captchaRes = await verifyCaptchaAction(token);
+      if (!captchaRes.success) {
+        // PREKINI POTEK in prikaži napako uporabniku
+        setError(captchaRes.error || "reCAPTCHA preverjanje ni uspelo.");
+        setLoading(false);
+        return; // Ne nadaljuj s Firebase login/register!
+      }
+
       if (mode === 'login') {
           let error = null;
           try { await signInWithEmailAndPassword(auth, email, password); } catch (e) { error = e; }

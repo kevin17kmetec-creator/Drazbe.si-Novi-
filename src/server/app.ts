@@ -2711,12 +2711,13 @@ app.post("/api/auth/verify-captcha", async (req, res) => {
     const data = await verifyRes.json();
     console.log("reCAPTCHA Google API Response:", data);
 
-    if (!data.success || data.score < 0.5) {
-      console.warn("reCAPTCHA failed or low score:", data);
+    // TESTNA SIMULACIJA: Mejni prag je začasno nastavljen na < 2.0, da se zagotovo blokira vsak zahtevek
+    if (!data.success || data.score < 2.0) {
+      console.warn("reCAPTCHA failed or low score (simulacija testiranja < 2.0):", data);
       return res.status(400).json({ 
         success: false, 
         score: data.score, 
-        error: "Zaznana je bila neobičajna dejavnost. Prijava ni mogoča." 
+        error: "Zaznana neobičajna dejavnost. Prijava onemogočena." 
       });
     }
 
