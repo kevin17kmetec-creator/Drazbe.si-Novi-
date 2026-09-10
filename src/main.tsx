@@ -70,7 +70,7 @@ if (!siteKey) {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <GoogleReCaptchaProvider reCaptchaKey={process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY || ""}>
+    <GoogleReCaptchaProvider reCaptchaKey={siteKey || ""}>
       <App />
     </GoogleReCaptchaProvider>
   </StrictMode>,

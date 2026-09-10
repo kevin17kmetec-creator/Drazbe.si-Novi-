@@ -22,6 +22,8 @@
     "@types/d3-geo": "^3.1.1",
     "@types/mangopay2-nodejs-sdk": "^1.9.5",
     "@types/react-simple-maps": "^3.0.6",
+    "@upstash/ratelimit": "^2.0.8",
+    "@upstash/redis": "^1.38.4",
     "browser-image-compression": "^2.0.2",
     "cors": "^2.8.6",
     "d3-delaunay": "^6.0.4",

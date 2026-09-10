@@ -1,4 +1,6 @@
 import express from "express";
+import { Redis } from "@upstash/redis";
+import { Ratelimit } from "@upstash/ratelimit";
 import {
   reserveWalletFunds,
   commitReservedFunds,
@@ -242,6 +244,62 @@ function getBidIncrement(price: number): number {
 const app = express();
 
 app.use(cors());
+
+// SECURITY HEADERS
+app.use((req, res, next) => {
+  res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  
+  if (process.env.NODE_ENV === "production") {
+    // Only apply in production to prevent breaking the AI Studio live preview iframe
+    res.setHeader("X-Frame-Options", "DENY");
+    res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.google.com/recaptcha/ https://www.gstatic.com/recaptcha/ https://js.stripe.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://*.googleapis.com https://www.google.com/recaptcha/ https://api.stripe.com ws: wss:; frame-src 'self' https://www.google.com/recaptcha/ https://js.stripe.com; img-src 'self' data: https: blob:;");
+  }
+  next();
+});
+
+// UPSTASH RATE LIMITER
+let ratelimit: Ratelimit | null = null;
+if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+  const redis = new Redis({
+    url: process.env.UPSTASH_REDIS_REST_URL,
+    token: process.env.UPSTASH_REDIS_REST_TOKEN,
+  });
+  // 5 requests per minute
+  ratelimit = new Ratelimit({
+    redis,
+    limiter: Ratelimit.slidingWindow(5, "1 m"),
+    analytics: true,
+  });
+}
+
+// APPLY RATE LIMITING TO CRITICAL ROUTES
+app.use(async (req, res, next) => {
+  if (
+    req.path === "/api/auth/verify-captcha" ||
+    req.path === "/api/auth/send-verification" ||
+    req.path === "/api/auth/send-password-reset" ||
+    req.path === "/api/place-bid" ||
+    req.path === "/api/auctions/create"
+  ) {
+    if (ratelimit) {
+      const ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress || "127.0.0.1";
+      const identifier = Array.isArray(ip) ? ip[0] : ip;
+      try {
+        const { success } = await ratelimit.limit(identifier);
+        if (!success) {
+          return res.status(429).json({ error: "Too many requests. Please try again later." });
+        }
+      } catch (err) {
+        console.warn("Rate limit check failed, skipping blocking:", err);
+      }
+    } else {
+      console.warn("Rate limiting is disabled (missing UPSTASH_REDIS_REST_URL)");
+    }
+  }
+  next();
+});
 
 // URL Normalizer for Vercel Serverless environment
 app.use((req, _res, next) => {
@@ -2420,6 +2478,20 @@ app.post("/api/auctions/create", async (req, res) => {
   try {
     const { itemData, user_id } = req.body;
 
+    // SANITIZACIJA PREDMETOV (XSS PREVENTIVA)
+    const sanitizeString = (str: any) => {
+      if (typeof str !== 'string') return str;
+      return str.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    };
+
+    if (itemData) {
+      if (itemData.title) itemData.title = sanitizeString(itemData.title);
+      if (itemData.description) itemData.description = sanitizeString(itemData.description);
+      if (itemData.category) itemData.category = sanitizeString(itemData.category);
+      if (itemData.region) itemData.region = sanitizeString(itemData.region);
+      if (itemData.location) itemData.location = sanitizeString(itemData.location);
+    }
+
     const userDoc = await safeGetDoc(adminDb.collection('users').doc(user_id));
     if (!userDoc.exists()) return res.status(404).json({ error: "Uporabnik ne obstaja" });
 
@@ -2711,9 +2783,9 @@ app.post("/api/auth/verify-captcha", async (req, res) => {
     const data = await verifyRes.json();
     console.log("reCAPTCHA Google API Response:", data);
 
-    // TESTNA SIMULACIJA: Mejni prag je začasno nastavljen na < 2.0, da se zagotovo blokira vsak zahtevek
-    if (!data.success || data.score < 2.0) {
-      console.warn("reCAPTCHA failed or low score (simulacija testiranja < 2.0):", data);
+    // VERIFIKACIJA: Mejni prag je 0.5
+    if (!data.success || data.score < 0.5) {
+      console.warn("reCAPTCHA failed or low score (< 0.5):", data);
       return res.status(400).json({ 
         success: false, 
         score: data.score, 

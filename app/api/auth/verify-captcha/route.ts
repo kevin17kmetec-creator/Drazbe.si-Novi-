@@ -28,8 +28,8 @@ export async function POST(request: Request) {
     const data = await verifyRes.json();
     console.log("reCAPTCHA Google API Response:", data);
 
-    // ZAČASNA SIMULACIJA ZA TESTIRANJE: prag nastavljen na data.score < 2.0, da bo vsak zahtevek zagotovo blokiran
-    if (!data.success || data.score < 2.0) {
+    // VERIFIKACIJA: Mejni prag je 0.5
+    if (!data.success || data.score < 0.5) {
       return Response.json(
         { success: false, score: data.score, error: "Zaznana neobičajna dejavnost. Prijava onemogočena." },
         { status: 400 }
