@@ -1,4 +1,4 @@
-import { AuctionItem, Region, SubscriptionTier } from '../../types';
+import { AuctionItem, Region, SubscriptionTier } from "../types";
 
 export const mockSandboxPackageId = 'pkg_sandbox_delavnica_7';
 

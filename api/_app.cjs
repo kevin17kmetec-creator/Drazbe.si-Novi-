@@ -34,6 +34,8 @@ __export(app_exports, {
 });
 module.exports = __toCommonJS(app_exports);
 var import_express = __toESM(require("express"), 1);
+var import_redis = require("@upstash/redis");
+var import_ratelimit = require("@upstash/ratelimit");
 
 // src/lib/firebase-admin.ts
 var import_app = require("firebase-admin/app");
@@ -2079,6 +2081,47 @@ function getBidIncrement(price) {
 }
 var app = (0, import_express.default)();
 app.use((0, import_cors.default)());
+app.use((req, res, next) => {
+  res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  if (process.env.NODE_ENV === "production") {
+    res.setHeader("X-Frame-Options", "DENY");
+    res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.google.com/recaptcha/ https://www.gstatic.com/recaptcha/ https://js.stripe.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://*.googleapis.com https://www.google.com/recaptcha/ https://api.stripe.com ws: wss:; frame-src 'self' https://www.google.com/recaptcha/ https://js.stripe.com; img-src 'self' data: https: blob:;");
+  }
+  next();
+});
+var ratelimit = null;
+if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+  const redis = new import_redis.Redis({
+    url: process.env.UPSTASH_REDIS_REST_URL,
+    token: process.env.UPSTASH_REDIS_REST_TOKEN
+  });
+  ratelimit = new import_ratelimit.Ratelimit({
+    redis,
+    limiter: import_ratelimit.Ratelimit.slidingWindow(5, "1 m"),
+    analytics: true
+  });
+}
+app.use(async (req, res, next) => {
+  if (req.path === "/api/auth/verify-captcha" || req.path === "/api/auth/send-verification" || req.path === "/api/auth/send-password-reset" || req.path === "/api/place-bid" || req.path === "/api/auctions/create") {
+    if (ratelimit) {
+      const ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress || "127.0.0.1";
+      const identifier = Array.isArray(ip) ? ip[0] : ip;
+      try {
+        const { success } = await ratelimit.limit(identifier);
+        if (!success) {
+          return res.status(429).json({ error: "Too many requests. Please try again later." });
+        }
+      } catch (err) {
+        console.warn("Rate limit check failed, skipping blocking:", err);
+      }
+    } else {
+      console.warn("Rate limiting is disabled (missing UPSTASH_REDIS_REST_URL)");
+    }
+  }
+  next();
+});
 app.use((req, _res, next) => {
   if (process.env.VERCEL) {
     const matchedPath = req.headers["x-matched-path"] || req.headers["x-invoke-path"];
@@ -3936,6 +3979,17 @@ async function checkAndApplySellerPenalties(seller_id) {
 app.post("/api/auctions/create", async (req, res) => {
   try {
     const { itemData, user_id } = req.body;
+    const sanitizeString = (str) => {
+      if (typeof str !== "string") return str;
+      return str.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    };
+    if (itemData) {
+      if (itemData.title) itemData.title = sanitizeString(itemData.title);
+      if (itemData.description) itemData.description = sanitizeString(itemData.description);
+      if (itemData.category) itemData.category = sanitizeString(itemData.category);
+      if (itemData.region) itemData.region = sanitizeString(itemData.region);
+      if (itemData.location) itemData.location = sanitizeString(itemData.location);
+    }
     const userDoc = await safeGetDoc(adminDb.collection("users").doc(user_id));
     if (!userDoc.exists()) return res.status(404).json({ error: "Uporabnik ne obstaja" });
     const userData = userDoc.data();
@@ -4170,11 +4224,16 @@ app.post("/api/auth/verify-captcha", async (req, res) => {
       }).toString()
     });
     const data = await verifyRes.json();
+    console.log("reCAPTCHA Google API Response:", data);
     if (!data.success || data.score < 0.5) {
-      console.warn("reCAPTCHA failed or low score:", data);
-      return res.status(400).json({ error: "Zaznana je bila neobi\u010Dajna dejavnost. Poskusite znova." });
+      console.warn("reCAPTCHA failed or low score (< 0.5):", data);
+      return res.status(400).json({
+        success: false,
+        score: data.score,
+        error: "Zaznana neobi\u010Dajna dejavnost. Prijava onemogo\u010Dena."
+      });
     }
-    res.json({ success: true });
+    return res.json({ success: true, score: data.score });
   } catch (err) {
     console.error("verify-captcha error:", err);
     res.status(500).json({ error: err.message });

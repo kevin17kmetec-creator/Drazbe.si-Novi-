@@ -16,7 +16,7 @@ import {
   orderBy,
   limit
 } from "firebase/firestore";
-import { AuctionItem } from "../../types";
+import { AuctionItem } from "../types";
 import { toast } from "sonner";
 
 export interface Message {

@@ -1,8 +1,4180 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
+import React, {
+  useState,
+  useEffect,
+  useMemo,
+  useCallback,
+  useRef,
+} from "react";
+import AuctionView from "@/src/components/auction/AuctionView";
+import SellerView from "@/src/components/profile/SellerView";
+import { SubscriptionsView } from "@/src/components/profile/SubscriptionsView";
+import { VerificationView } from "@/src/components/auth/VerificationView";
+import { CreateAuctionForm } from "@/src/components/auction/CreateAuctionForm";
+import { CreatePackageForm } from "@/src/components/auction/CreatePackageForm";
+import { PackageCard } from "@/src/components/auction/PackageCard";
+import { PackageView } from "@/src/components/auction/PackageView";
+import { AuthView } from "@/src/components/auth/AuthView";
+import { LegalModal } from "@/src/components/modals/LegalModal";
+import { VerificationBanner } from "@/src/components/layout/VerificationBanner";
+import { StaticTimer } from "@/src/components/ui/StaticTimer";
+import { AuctionCard } from "@/src/components/auction/AuctionCard";
+import { HeroCarousel } from "@/src/components/auction/HeroCarousel";
+import { Header } from "@/src/components/layout/Header";
+import { Footer } from "@/src/components/layout/Footer";
+import { CheckoutModal } from "@/src/components/modals/CheckoutModal";
+import { SettingsView } from "@/src/components/profile/SettingsView";
+import { ConfirmBidModal } from "@/src/components/modals/ConfirmBidModal";
+import { MessagesView } from "@/src/components/profile/MessagesView";
+import { MissingInvoiceDataModal } from "@/src/components/modals/MissingInvoiceDataModal";
+import { checkUserInvoiceData } from "./lib/invoiceDataCheck";
+import { 
+  createAuctionAction, 
+  confirmCheckoutSessionAction, 
+  notifyOutbidAction,
+  checkAuctionsCronAction
+} from "@/src/actions/index";
+import {
+  Search,
+  User,
+  Globe,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  MapPin,
+  TrendingUp,
+  Gavel,
+  ArrowLeft,
+  ChevronDown,
+  ShieldCheck,
+  Building2,
+  Eye,
+  Plus,
+  Minus,
+  Lock,
+  CheckCircle2,
+  Mail,
+  Phone,
+  CreditCard as CardIcon,
+  PlusCircle,
+  Settings,
+  LogOut,
+  Star,
+  Camera,
+  Landmark,
+  FileCheck,
+  AlertCircle,
+  X,
+  Calendar,
+  UserCheck,
+  MessageSquare,
+  History,
+  Briefcase,
+  Upload,
+  Image as ImageIcon,
+  ArrowUp,
+  Trophy,
+  AlertTriangle,
+  Info,
+  Table,
+  Truck,
+  Zap,
+  Download,
+  CreditCard,
+  AlertOctagon,
+  Trash2,
+  Filter,
+  LayoutGrid,
+  List,
+  Scale,
+  FileText,
+  HelpCircle,
+  Languages,
+  FileUp,
+} from "lucide-react";
 
-export default function App() {
-  return <div></div>;
+import imageCompression from "browser-image-compression";
+
+import { seedDatabase } from "./lib/seed";
+
+import {
+  AuctionItem,
+  Region,
+  ViewState,
+  Seller,
+  Review,
+  SellerType,
+  SubscriptionTier,
+  PaymentCard,
+  WonItem,
+  Category,
+} from "./types";
+
+import { Toaster, toast } from "sonner";
+
+import { ChatProvider } from "./context/ChatContext";
+import { collection, onSnapshot, setDoc, doc, getDocs, getDoc, updateDoc, addDoc, deleteDoc, query, where, runTransaction } from "firebase/firestore";
+import { db, auth, storage } from "./lib/firebase";
+import { onAuthStateChanged, signOut, updatePassword } from "firebase/auth";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+
+// --- CONFIGURATION ---
+
+import { translations, getCategoryTranslation } from "./lib/translations";
+import { REGION_ALIAS_MAP } from "@/src/components/ui/SloveniaMap";
+import {
+  getIncrement,
+  formatSeconds,
+  calculateMarginalPlatformFee,
+} from "./lib/utils";
+
+const matchesSelectedRegion = (itemRegion: string | undefined, selected: string | null): boolean => {
+  if (!selected) return true;
+  if (!itemRegion) return false;
+  if (itemRegion === selected) return true;
+  const itemLower = itemRegion.toLowerCase();
+  const selLower = selected.toLowerCase();
+  if (itemLower === selLower) return true;
+  const itemAlias = REGION_ALIAS_MAP[itemLower];
+  const selAlias = REGION_ALIAS_MAP[selLower];
+  if (itemAlias && itemAlias.enumVal.toLowerCase() === selLower) return true;
+  if (selAlias && selAlias.enumVal.toLowerCase() === itemLower) return true;
+  if (itemAlias && selAlias && itemAlias.enumVal === selAlias.enumVal) return true;
+  return false;
+};
+
+// --- MAIN APP COMPONENT ---
+
+import { InvoiceModal } from "@/src/components/modals/InvoiceModal";
+import { TestSandboxView } from "@/src/components/flow/TestSandboxView";
+import { 
+  mockSandboxPackageId, 
+  mockSandboxPackageItems 
+} from "./data/mockSandboxData";
+
+// SignedImg component for fetching Supabase signed URLs
+const SignedImg = ({
+  src,
+  alt,
+  className,
+  onClick,
+}: {
+  src: string;
+  alt: string;
+  className?: string;
+  onClick?: () => void;
+}) => {
+  const [signedUrl, setSignedUrl] = useState<string>("");
+  useEffect(() => {
+    if (!src) return;
+    if (src.startsWith("http") || src.startsWith("blob:") || src.startsWith("data:")) {
+      setSignedUrl(src);
+      return;
+    }
+    setSignedUrl(`https://storage.googleapis.com/auction-images/${src}`);
+  }, [src]);
+  return (
+    <img
+      src={signedUrl || src}
+      alt={alt}
+      loading="lazy"
+      className={className}
+      onClick={onClick}
+      referrerPolicy="no-referrer"
+    />
+  );
+};
+
+import { Timer } from "lucide-react";
+
+const PaymentTimer: React.FC<{ endTime: string | Date }> = ({ endTime }) => {
+  const [timeLeft, setTimeLeft] = useState<{
+    hours: number;
+    minutes: number;
+    seconds: number;
+  } | null>(null);
+
+  useEffect(() => {
+    const deadline = new Date(endTime).getTime() + 24 * 60 * 60 * 1000;
+
+    const updateTimer = () => {
+      const now = new Date().getTime();
+      const difference = deadline - now;
+
+      if (difference <= 0) {
+        setTimeLeft({ hours: 0, minutes: 0, seconds: 0 });
+        return;
+      }
+
+      setTimeLeft({
+        hours: Math.floor((difference / (1000 * 60 * 60)) % 24),
+        minutes: Math.floor((difference / 1000 / 60) % 60),
+        seconds: Math.floor((difference / 1000) % 60),
+      });
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+    return () => clearInterval(interval);
+  }, [endTime]);
+
+  if (!timeLeft) return null;
+
+  if (
+    timeLeft.hours === 0 &&
+    timeLeft.minutes === 0 &&
+    timeLeft.seconds === 0
+  ) {
+    return (
+      <span className="text-red-500 font-bold flex items-center gap-1.5">
+        <Timer size={14} /> Čas za plačilo je potekel
+      </span>
+    );
+  }
+
+  return (
+    <span className="text-amber-500 font-bold flex items-center gap-1.5 bg-amber-50 px-3 py-1.5 rounded-xl border border-amber-100">
+      <Timer size={16} /> Čas za plačilo:{" "}
+      {String(timeLeft.hours).padStart(2, "0")}:
+      {String(timeLeft.minutes).padStart(2, "0")}:
+      {String(timeLeft.seconds).padStart(2, "0")}
+    </span>
+  );
+};
+
+// -------------------------------------------------------------
+// MULTILINGUAL SLUG MAPPINGS FOR CATEGORIES, REGIONS, & SETTINGS
+// -------------------------------------------------------------
+const CATEGORY_URL_MAP: Record<Category, Record<string, string>> = {
+  [Category.Oblacila]: { SLO: "oblacila", EN: "clothing", DE: "kleidung" },
+  [Category.Racunalniki]: { SLO: "racunalniki", EN: "computers", DE: "computer" },
+  [Category.ProstiCasInSport]: { SLO: "prosti-cas-in-sport", EN: "leisure-and-sport", DE: "freizeit-und-sport" },
+  [Category.DomInVrt]: { SLO: "dom-in-vrt", EN: "home-and-garden", DE: "haus-und-garten" },
+  [Category.Avtomobilizem]: { SLO: "avtomobilizem", EN: "automotive", DE: "automobil" },
+  [Category.Nepremicnine]: { SLO: "nepremicnine", EN: "real-estate", DE: "immobilien" },
+  [Category.LepotaInZdravje]: { SLO: "lepota-in-zdravje", EN: "health-and-beauty", DE: "gesundheit-und-schonheit" },
+  [Category.OtroškaOprema]: { SLO: "otroska-oprema", EN: "kids-equipment", DE: "kinderausstattung" },
+  [Category.Kmetijstvo]: { SLO: "kmetijstvo", EN: "agriculture", DE: "landwirtschaft" },
+  [Category.Umetnine]: { SLO: "umetnine", EN: "art", DE: "kunst" },
+  [Category.Glasbila]: { SLO: "glasbila", EN: "musical-instruments", DE: "musikinstrumente" },
+  [Category.Zbirateljstvo]: { SLO: "zbirateljstvo", EN: "collecting", DE: "sammeln" },
+  [Category.Ostalo]: { SLO: "ostalo", EN: "other", DE: "sonstiges" }
+};
+
+const REGION_URL_MAP: Record<Region, Record<string, string>> = {
+  [Region.Prekmurje]: { SLO: "prekmurje", EN: "prekmurje", DE: "uebermurgebiet" },
+  [Region.Stajerska]: { SLO: "stajerska", EN: "styria", DE: "steiermark" },
+  [Region.Koroska]: { SLO: "koroska", EN: "carinthia", DE: "kaernten" },
+  [Region.Gorenjska]: { SLO: "gorenjska", EN: "gorenjska", DE: "oberkrain" },
+  [Region.Primorska]: { SLO: "primorska", EN: "primorska", DE: "kuestenland" },
+  [Region.Notranjska]: { SLO: "notranjska", EN: "inner-carniola", DE: "innerkrain" },
+  [Region.Dolenjska]: { SLO: "dolenjska", EN: "lower-carniola", DE: "unterkrain" },
+  [Region.Osrednjeslovenska]: { SLO: "osrednjeslovenska", EN: "central-slovenia", DE: "zentralslowenische" }
+};
+
+const QUERY_PARAM_MAP = {
+  category: { SLO: "kategorija", EN: "category", DE: "kategorie" },
+  region: { SLO: "regija", EN: "region", DE: "region" },
+  tab: { SLO: "zavihek", EN: "tab", DE: "tab" }
+};
+
+const SETTINGS_TAB_MAP: Record<'profile' | 'personal' | 'stripe', Record<string, string>> = {
+  profile: { SLO: "profil", EN: "profile", DE: "profil" },
+  personal: { SLO: "osebno", EN: "personal", DE: "persoenlich" },
+  stripe: { SLO: "placila", EN: "billing", DE: "zahlungen" }
+};
+
+function slugToCategory(slug: string): Category | null {
+  if (!slug) return null;
+  const decoded = decodeURIComponent(slug).toLowerCase().trim();
+  for (const [cat, langMap] of Object.entries(CATEGORY_URL_MAP)) {
+    for (const val of Object.values(langMap)) {
+      if (val.toLowerCase() === decoded) {
+        return cat as Category;
+      }
+    }
+  }
+  return null;
 }
+
+function slugToRegion(slug: string): Region | null {
+  if (!slug) return null;
+  const decoded = decodeURIComponent(slug).toLowerCase().trim();
+  for (const [reg, langMap] of Object.entries(REGION_URL_MAP)) {
+    for (const val of Object.values(langMap)) {
+      if (val.toLowerCase() === decoded) {
+        return reg as Region;
+      }
+    }
+  }
+  return null;
+}
+
+function slugToSettingsTab(slug: string): 'profile' | 'personal' | 'stripe' {
+  if (!slug) return "profile";
+  const decoded = decodeURIComponent(slug).toLowerCase().trim();
+  for (const [tab, langMap] of Object.entries(SETTINGS_TAB_MAP)) {
+    for (const val of Object.values(langMap)) {
+      if (val.toLowerCase() === decoded) {
+        return tab as 'profile' | 'personal' | 'stripe';
+      }
+    }
+  }
+  return "profile";
+}
+
+const MainApp: React.FC = () => {
+  const [language, setLanguage] = useState(() => {
+    if (typeof window === "undefined") return "SLO";
+    const path = window.location.pathname;
+    if (path.startsWith("/de/") || path === "/de") return "DE";
+    if (path.startsWith("/en/") || path === "/en") return "EN";
+    if (path.startsWith("/sl/") || path === "/sl") return "SLO";
+    
+    const isSessionActive = sessionStorage.getItem("session_tab_active");
+    if (isSessionActive) {
+      const savedRoute = localStorage.getItem("last_active_route");
+      if (savedRoute) {
+         if (savedRoute.startsWith("/de/") || savedRoute === "/de") return "DE";
+         if (savedRoute.startsWith("/en/") || savedRoute === "/en") return "EN";
+      }
+    }
+    return "SLO";
+  });
+  const t = useCallback(
+    (key: string) => translations[language]?.[key] || key,
+    [language],
+  );
+
+  const [auctions, setAuctions] = useState<AuctionItem[]>(
+    [],
+  );
+  const [lastSeenWinnings, setLastSeenWinnings] = useState(() => Number(localStorage.getItem('last_seen_winnings') || "0"));
+  const [activeView, setActiveView] = useState<ViewState>(() => {
+    if (typeof window === "undefined") return "grid";
+    const isSessionActive = sessionStorage.getItem("session_tab_active");
+    if (!isSessionActive) {
+      return "grid";
+    }
+    let path = window.location.pathname;
+
+    let langPrefix = "";
+    if (path.startsWith("/de/") || path === "/de") langPrefix = "/de";
+    else if (path.startsWith("/en/") || path === "/en") langPrefix = "/en";
+    else if (path.startsWith("/sl/") || path === "/sl") langPrefix = "/sl";
+
+    let checkPath = path;
+    if ((checkPath === "/" || checkPath === "/de" || checkPath === "/en" || checkPath === "/sl" || checkPath === "/de/" || checkPath === "/en/" || checkPath === "/sl/") && !window.location.search) {
+      const savedRoute = localStorage.getItem("last_active_route");
+      if (savedRoute && savedRoute !== "/" && !savedRoute.match(/^\/(en|de|sl)\/?$/)) {
+        try {
+          const url = new URL(savedRoute, window.location.origin);
+          checkPath = url.pathname;
+          if (checkPath.startsWith("/de/") || checkPath === "/de") langPrefix = "/de";
+          else if (checkPath.startsWith("/en/") || checkPath === "/en") langPrefix = "/en";
+          else if (checkPath.startsWith("/sl/") || checkPath === "/sl") langPrefix = "/sl";
+        } catch (e) {}
+      }
+    }
+
+    if (langPrefix && checkPath.startsWith(langPrefix)) {
+      checkPath = checkPath.slice(langPrefix.length) || "/";
+    }
+
+    if (checkPath.startsWith("/sporocila") || checkPath.startsWith("/messages") || checkPath.startsWith("/nachrichten"))
+      return "messages";
+    if (checkPath.startsWith("/drazba") || checkPath.startsWith("/auction") || checkPath.startsWith("/auktion")) return "detail";
+    if (checkPath.startsWith("/drazbe") || checkPath.startsWith("/auctions") || checkPath.startsWith("/auktionen")) return "grid";
+    if (checkPath.startsWith("/prodajalec") || checkPath.startsWith("/seller") || checkPath.startsWith("/verkaufer"))
+      return "sellerProfile";
+    if (
+      checkPath.startsWith("/nastavitve") ||
+      checkPath.startsWith("/settings") ||
+      checkPath.startsWith("/einstellungen")
+    )
+      return "settings";
+    if (
+      checkPath.startsWith("/narocnine") ||
+      checkPath.startsWith("/subscriptions") ||
+      checkPath.startsWith("/abonnements")
+    )
+      return "subscriptions";
+    if (checkPath.startsWith("/prijava") || checkPath.startsWith("/login") || checkPath.startsWith("/anmelden"))
+      return "login";
+    if (
+      checkPath.startsWith("/ustvari-drazbo") ||
+      checkPath.startsWith("/create-auction") ||
+      checkPath.startsWith("/auktion-erstellen")
+    )
+      return "createAuction";
+    if (
+      checkPath.startsWith("/moje-zmage") ||
+      checkPath.startsWith("/my-winnings") ||
+      checkPath.startsWith("/meine-gewinne")
+    )
+      return "winnings";
+    if (
+      checkPath.startsWith("/moje-ponudbe") ||
+      checkPath.startsWith("/my-bids") ||
+      checkPath.startsWith("/meine-gebote")
+    )
+      return "myBids";
+    if (checkPath.startsWith("/prodano") || checkPath.startsWith("/my-sold") || checkPath.startsWith("/verkauft"))
+      return "mySold";
+    if (
+      checkPath.startsWith("/neprodano") ||
+      checkPath.startsWith("/my-unsold") ||
+      checkPath.startsWith("/unverkauft")
+    )
+      return "myUnsold";
+    if (
+      checkPath.startsWith("/seznam-zelja") ||
+      checkPath.startsWith("/watchlist") ||
+      checkPath.startsWith("/beobachtungsliste")
+    )
+      return "watchlist";
+    if (
+      checkPath.startsWith("/zadnja-priloznost") ||
+      checkPath.startsWith("/last-chance") ||
+      checkPath.startsWith("/letzte-chance")
+    )
+      return "lastChance";
+    if (
+      checkPath.startsWith("/verifikacija") ||
+      checkPath.startsWith("/verification") ||
+      checkPath.startsWith("/verifizierung")
+    )
+      return "verification";
+    return "grid";
+  });
+
+  const [activeConversationId, setActiveConversationId] = useState<
+    string | null
+  >(() => {
+    if (typeof window === "undefined") return null;
+    const isSessionActive = sessionStorage.getItem("session_tab_active");
+    if (!isSessionActive) {
+      return null;
+    }
+    let url = new URL(window.location.href);
+    if (url.pathname === "/" && !url.search) {
+      const savedRoute = localStorage.getItem("last_active_route");
+      if (savedRoute && savedRoute !== "/") {
+        try {
+          url = new URL(savedRoute, window.location.origin);
+        } catch (e) {}
+      }
+    }
+
+    if (
+      url.pathname.startsWith("/sporocila") ||
+      url.pathname.startsWith("/messages")
+    ) {
+      return new URLSearchParams(url.search).get("id") || null;
+    }
+    return null;
+  });
+  const [republishData, setRepublishData] = useState<any>(null);
+  const [quickRepublishItem, setQuickRepublishItem] = useState<any>(null);
+  const [quickRepublishDuration, setQuickRepublishDuration] = useState<number>(3); // days
+  const [selectedPackageId, setSelectedPackageId] = useState<string | null>(null);
+  const [userData, setUserData] = useState({
+    id: "",
+    firstName: "",
+    lastName: "",
+    username: "",
+    email: "",
+    profilePicture: "",
+    is_verified: false,
+    stripe_onboarding_complete: false,
+    profile_picture_url: "",
+    first_name: "",
+    last_name: "",
+    wallet_balance: 0,
+    available_cents: 0,
+    held_cents: 0,
+    reserved_cents: 0,
+  });
+  const bidAuctionIds = useMemo(() => {
+    if (!userData?.id) return [];
+    return auctions.filter((a: any) => {
+      const history = a.bidding_history || a.biddingHistory || [];
+      const topBids = a.top_bids || [];
+      return history.some((h: any) => h.userId === userData.id || h.user_id === userData.id) ||
+             topBids.some((b: any) => b.user_id === userData.id);
+    }).map(a => a.id);
+  }, [auctions, userData?.id]);
+  const [hasAcceptedTerms, setHasAcceptedTerms] = useState(false);
+  const [showTermsModal, setShowTermsModal] = useState(false);
+  const [showConfirmBidModal, setShowConfirmBidModal] = useState(false);
+  const bidResolverRef = useRef<
+    | ((
+        value: "ok" | "outbid" | "error" | "login_required" | "cancelled",
+      ) => void)
+    | null
+  >(null);
+  const [pendingBid, setPendingBid] = useState<{
+    item: AuctionItem;
+    amount: number;
+  } | null>(null);
+  const [selectedRegion, setSelectedRegion] = useState<Region | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<Category | null>(
+    null,
+  );
+  const [selectedItem, setSelectedItem] = useState<AuctionItem | null>(null);
+  const [selectedSeller, setSelectedSeller] = useState<Seller | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isVerified, setIsVerified] = useState(false);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const [userType, setUserType] = useState<"individual" | "business" | null>(
+    null,
+  );
+  const [watchedIds, setWatchedIds] = useState<string[]>([]);
+  const [isPollingStopped, setIsPollingStopped] = useState(false);
+  const [isHydrating, setIsHydrating] = useState(true);
+  const [createMode, setCreateMode] = useState<"choice" | "single" | "package">("choice");
+  const [settingsTab, setSettingsTab] = useState<'profile' | 'personal' | 'stripe'>('profile');
+  const [appMissingInvoiceDataModal, setAppMissingInvoiceDataModal] = useState<{
+    isOpen: boolean;
+    missingFields: any[];
+    userType: 'individual' | 'business';
+  }>({
+    isOpen: false,
+    missingFields: [],
+    userType: 'individual'
+  });
+  const [appWakeupTrigger, setAppWakeupTrigger] = useState(0);
+  const [invoiceModalData, setInvoiceModalData] = useState<{
+    isOpen: boolean;
+    auction: AuctionItem | null;
+    seller: any;
+    buyer: any;
+  }>({
+    isOpen: false,
+    auction: null,
+    seller: null,
+    buyer: null
+  });
+
+  // URL and Path Preservation Hook
+  useEffect(() => {
+    if (activeView === 'winnings') {
+      const now = Date.now();
+      localStorage.setItem('last_seen_winnings', now.toString());
+      setLastSeenWinnings(now);
+    }
+  }, [activeView]);
+
+  useEffect(() => {
+    if (isHydrating) return;
+
+    let targetPath = "/";
+    let targetSearch = "";
+
+    const localizedPaths: Record<string, Record<string, string>> = {
+      messages: { SLO: "/sporocila", EN: "/messages", DE: "/nachrichten" },
+      detail: { SLO: "/drazba", EN: "/auction", DE: "/auktion" },
+      grid: { SLO: "/drazbe", EN: "/auctions", DE: "/auktionen" },
+      sellerProfile: { SLO: "/prodajalec", EN: "/seller", DE: "/verkaufer" },
+      settings: { SLO: "/nastavitve", EN: "/settings", DE: "/einstellungen" },
+      subscriptions: { SLO: "/narocnine", EN: "/subscriptions", DE: "/abonnements" },
+      login: { SLO: "/prijava", EN: "/login", DE: "/anmelden" },
+      createAuction: { SLO: "/ustvari-drazbo", EN: "/create-auction", DE: "/auktion-erstellen" },
+      winnings: { SLO: "/moje-zmage", EN: "/my-winnings", DE: "/meine-gewinne" },
+      myBids: { SLO: "/moje-ponudbe", EN: "/my-bids", DE: "/meine-gebote" },
+      mySold: { SLO: "/prodano", EN: "/my-sold", DE: "/verkauft" },
+      myUnsold: { SLO: "/neprodano", EN: "/my-unsold", DE: "/unverkauft" },
+      watchlist: { SLO: "/seznam-zelja", EN: "/watchlist", DE: "/beobachtungsliste" },
+      lastChance: { SLO: "/zadnja-priloznost", EN: "/last-chance", DE: "/letzte-chance" },
+      verification: { SLO: "/verifikacija", EN: "/verification", DE: "/verifizierung" }
+    };
+
+    if (localizedPaths[activeView]) {
+      targetPath = localizedPaths[activeView][language] || localizedPaths[activeView]["SLO"];
+    }
+
+    const params = new URLSearchParams();
+
+    if (activeView === "messages" && activeConversationId) {
+      params.set("id", activeConversationId);
+    } else if (activeView === "detail" && selectedItem?.id) {
+      params.set("id", selectedItem.id);
+    } else if (activeView === "sellerProfile" && selectedSeller?.id) {
+      params.set("id", selectedSeller.id);
+    } else if (activeView === "grid") {
+      if (selectedCategory) {
+        const catKey = QUERY_PARAM_MAP.category[language as 'SLO' | 'EN' | 'DE'] || QUERY_PARAM_MAP.category.SLO;
+        const catValue = CATEGORY_URL_MAP[selectedCategory]?.[language as 'SLO' | 'EN' | 'DE'] || CATEGORY_URL_MAP[selectedCategory]?.SLO;
+        if (catValue) {
+          params.set(catKey, catValue);
+        }
+      }
+      if (selectedRegion) {
+        const regKey = QUERY_PARAM_MAP.region[language as 'SLO' | 'EN' | 'DE'] || QUERY_PARAM_MAP.region.SLO;
+        const regValue = REGION_URL_MAP[selectedRegion]?.[language as 'SLO' | 'EN' | 'DE'] || REGION_URL_MAP[selectedRegion]?.SLO;
+        if (regValue) {
+          params.set(regKey, regValue);
+        }
+      }
+    } else if (activeView === "settings") {
+      const tabKey = QUERY_PARAM_MAP.tab[language as 'SLO' | 'EN' | 'DE'] || QUERY_PARAM_MAP.tab.SLO;
+      const tabValue = SETTINGS_TAB_MAP[settingsTab]?.[language as 'SLO' | 'EN' | 'DE'] || SETTINGS_TAB_MAP[settingsTab]?.SLO;
+      if (tabValue) {
+        params.set(tabKey, tabValue);
+      }
+    }
+
+    const searchString = params.toString();
+    if (searchString) {
+      targetSearch = `?${searchString}`;
+    }
+    
+    // Add language prefix if needed
+    if (language === "EN") targetPath = "/en" + targetPath;
+    else if (language === "DE") targetPath = "/de" + targetPath;
+
+    const currentUrl = window.location.pathname + window.location.search;
+    const newUrl = targetPath + targetSearch;
+
+    if (currentUrl !== newUrl) {
+      window.history.pushState(null, "", newUrl);
+    }
+
+    // Always persist to local storage for the watchdog
+    localStorage.setItem("last_active_route", newUrl);
+  }, [activeView, activeConversationId, selectedItem?.id, selectedSeller?.id, language, selectedCategory, selectedRegion, settingsTab]);
+
+  // Initial Hydration from URL or LocalStorage
+  useEffect(() => {
+    const isSessionActive = sessionStorage.getItem("session_tab_active");
+    if (!isSessionActive) {
+      sessionStorage.setItem("session_tab_active", "true");
+      setActiveView("grid");
+      setSelectedCategory(null);
+      setSelectedRegion(null);
+      setSearchQuery("");
+      setSelectedItem(null);
+      setSelectedSeller(null);
+      setActiveConversationId(null);
+
+      // Determine clean root URL path based on current language
+      let cleanPath = "/";
+      if (language === "EN") cleanPath = "/en/";
+      else if (language === "DE") cleanPath = "/de/";
+
+      window.history.replaceState(null, "", cleanPath);
+      localStorage.setItem("last_active_route", cleanPath);
+      setTimeout(() => setIsHydrating(false), 50);
+      return;
+    }
+
+    let pathToRestore = window.location.pathname + window.location.search;
+    let currentPath = window.location.pathname;
+
+    if (
+      currentPath === "/" || currentPath === "" ||
+      currentPath === "/de" || currentPath === "/de/" ||
+      currentPath === "/en" || currentPath === "/en/" ||
+      currentPath === "/sl" || currentPath === "/sl/"
+    ) {
+      const savedRoute = localStorage.getItem("last_active_route");
+      if (savedRoute && savedRoute !== "/" && savedRoute !== pathToRestore && !savedRoute.match(/^\/(en|de|sl)\/?$/)) {
+        window.history.replaceState(null, "", savedRoute);
+        pathToRestore = savedRoute;
+      }
+    }
+
+    const url = new URL(pathToRestore, window.location.origin);
+    let path = url.pathname;
+    
+    // Strip language prefix
+    if (path.startsWith("/de/")) path = path.slice(3);
+    else if (path === "/de") path = "/";
+    else if (path.startsWith("/en/")) path = path.slice(3);
+    else if (path === "/en") path = "/";
+    else if (path.startsWith("/sl/")) path = path.slice(3);
+    else if (path === "/sl") path = "/";
+
+    const searchParams = new URLSearchParams(url.search);
+    const id = searchParams.get("id");
+
+    const hydrateState = async () => {
+      // Decode and map category, region, settings tab first so state is fully prepared
+      let categoryToSet: Category | null = null;
+      let regionToSet: Region | null = null;
+      let tabToSet: 'profile' | 'personal' | 'stripe' = 'profile';
+
+      for (const [key, value] of searchParams.entries()) {
+        const lowerKey = key.toLowerCase();
+        if (lowerKey === "kategorija" || lowerKey === "category" || lowerKey === "kategorie") {
+          const decodedCat = slugToCategory(value);
+          if (decodedCat) categoryToSet = decodedCat;
+        }
+        if (lowerKey === "regija" || lowerKey === "region") {
+          const decodedReg = slugToRegion(value);
+          if (decodedReg) regionToSet = decodedReg;
+        }
+        if (lowerKey === "zavihek" || lowerKey === "tab") {
+          tabToSet = slugToSettingsTab(value);
+        }
+      }
+
+      if (categoryToSet) setSelectedCategory(categoryToSet);
+      if (regionToSet) setSelectedRegion(regionToSet);
+      setSettingsTab(tabToSet);
+
+      if (path.startsWith("/sporocila") || path.startsWith("/messages") || path.startsWith("/nachrichten")) {
+        if (id) setActiveConversationId(id);
+        setActiveView("messages");
+      } else if (path.startsWith("/drazba") || path.startsWith("/auction") || path.startsWith("/auktion")) {
+        if (id) {
+          let found = [].find((a) => a.id === id);
+          if (!found) {
+            const snap = await getDoc(doc(db, 'auctions', id));
+            const data: any = snap.exists() ? { id: snap.id, ...snap.data() } : null;
+            if (data) {
+              found = {
+                ...data,
+                endTime: new Date(data.end_time || data.endTime),
+                currentBid: data.current_price || data.currentBid,
+                hiddenMaxBid: data.hidden_max_bid || data.hiddenMaxBid,
+                bidCount: data.bid_count || data.bidCount,
+                winnerId: data.winner_id || data.winnerId,
+                winner_id: data.winner_id || data.winnerId,
+                payment_status: data.payment_status || "unpaid",
+                paid_at: data.paid_at,
+                sellerName: data.sellerName || "",
+                delivery_method: data.delivery_method,
+                buyer_received: data.buyer_received,
+              };
+            }
+          }
+          if (found) {
+            setSelectedItem(found);
+            setActiveView("detail");
+          } else {
+            setActiveView("grid");
+          }
+        } else {
+          setActiveView("grid");
+        }
+      } else if (path.startsWith("/drazbe") || path.startsWith("/auctions") || path.startsWith("/auktionen")) {
+        setActiveView("grid");
+      } else if (path.startsWith("/prodajalec") || path.startsWith("/seller") || path.startsWith("/verkaufer")) {
+        if (id) {
+          let found = [].find((s) => s.id === id);
+          if (!found) {
+            const snap = await getDoc(doc(db, 'users', id));
+            const data: any = snap.exists() ? { id: snap.id, ...snap.data() } : null;
+            if (data) found = data;
+          }
+          if (found) {
+            setSelectedSeller(found);
+            setActiveView("sellerProfile");
+          } else {
+            setActiveView("grid");
+          }
+        }
+      } else if (
+        path.startsWith("/nastavitve") ||
+        path.startsWith("/settings") ||
+        path.startsWith("/einstellungen")
+      ) {
+        setActiveView("settings");
+      } else if (
+        path.startsWith("/narocnine") ||
+        path.startsWith("/subscriptions") ||
+        path.startsWith("/abonnements")
+      ) {
+        setActiveView("subscriptions");
+      } else if (path.startsWith("/prijava") || path.startsWith("/login") || path.startsWith("/anmelden")) {
+        setActiveView("login");
+      } else if (
+        path.startsWith("/ustvari-drazbo") ||
+        path.startsWith("/create-auction") ||
+        path.startsWith("/auktion-erstellen")
+      ) {
+        setActiveView("createAuction");
+      } else if (
+        path.startsWith("/moje-zmage") ||
+        path.startsWith("/my-winnings") ||
+        path.startsWith("/meine-gewinne")
+      ) {
+        setActiveView("winnings");
+      } else if (
+        path.startsWith("/moje-ponudbe") ||
+        path.startsWith("/my-bids") ||
+        path.startsWith("/meine-gebote")
+      ) {
+        setActiveView("myBids");
+      } else if (path.startsWith("/prodano") || path.startsWith("/my-sold") || path.startsWith("/verkauft")) {
+        setActiveView("mySold");
+      } else if (
+        path.startsWith("/neprodano") ||
+        path.startsWith("/my-unsold") ||
+        path.startsWith("/unverkauft")
+      ) {
+        setActiveView("myUnsold");
+      } else if (
+        path.startsWith("/seznam-zelja") ||
+        path.startsWith("/watchlist") ||
+        path.startsWith("/beobachtungsliste")
+      ) {
+        setActiveView("watchlist");
+      } else if (
+        path.startsWith("/zadnja-priloznost") ||
+        path.startsWith("/last-chance") ||
+        path.startsWith("/letzte-chance")
+      ) {
+        setActiveView("lastChance");
+      } else if (
+        path.startsWith("/verifikacija") ||
+        path.startsWith("/verification") ||
+        path.startsWith("/verifizierung")
+      ) {
+        setActiveView("verification");
+      } else {
+        setActiveView("grid");
+      }
+
+      // Delay slightly to ensure state propagation before unlocking the URL preserver
+      setTimeout(() => setIsHydrating(false), 50);
+    };
+
+    hydrateState();
+  }, []);
+
+
+  const toggleWatch = async (id: string) => {
+    const newWatchedIds = watchedIds.includes(id)
+      ? watchedIds.filter((i) => i !== id)
+      : [...watchedIds, id];
+
+    setWatchedIds(newWatchedIds);
+
+    try {
+      const user = auth.currentUser;
+      const session = user ? { user: { id: user.uid, email: user.email } } : null;
+      if (session?.user) {
+        await setDoc(doc(db, 'users', session.user.id), { id: session.user.id, email: session.user.email, watched_auctions: newWatchedIds }, { merge: true });
+      }
+    } catch (err) {
+      console.error("Error updating watched auctions:", err);
+    }
+  };
+  const [activeLegal, setActiveLegal] = useState<
+    "terms" | "privacy" | "how" | null
+  >(null);
+  const [currentPlan, setCurrentPlan] = useState<SubscriptionTier>(
+    SubscriptionTier.FREE,
+  );
+  const [isSubscriptionCanceled, setIsSubscriptionCanceled] = useState(false);
+  const nextBillingDate = useMemo(() => {
+    const date = new Date();
+    date.setMonth(date.getMonth() + 1);
+    return date;
+  }, []);
+  const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
+  const [checkoutData, setCheckoutData] = useState<{
+    amount: number;
+    title: string;
+    onSuccess: () => void;
+    metadata?: any;
+  } | null>(null);
+  const [deliveryMethodModal, setDeliveryMethodModal] = useState<{
+    isOpen: boolean;
+    auctionId: string;
+    deliveryMethod: "pickup" | "post" | null;
+  }>({ isOpen: false, auctionId: "", deliveryMethod: null });
+  const [receiptConfirmModal, setReceiptConfirmModal] = useState<{
+    isOpen: boolean;
+    auctionId: string;
+    sellerId: string;
+  }>({ isOpen: false, auctionId: "", sellerId: "" });
+  const [ratingModal, setRatingModal] = useState<{
+    isOpen: boolean;
+    auctionId: string;
+    sellerId: string;
+    rating: number;
+    comment: string;
+  }>({ isOpen: false, auctionId: "", sellerId: "", rating: 0, comment: "" });
+
+  const lastSessionCheckRef = useRef(0);
+  const isCheckingSessionRef = useRef(false);
+
+  useEffect(() => {
+    let unsubscribeSnap: (() => void) | null = null;
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        if (!user.emailVerified && user.providerData.some(p => p.providerId === "password")) {
+          await signOut(auth);
+          return;
+        }
+        setIsLoggedIn(true);
+        unsubscribeSnap = onSnapshot(doc(db, "users", user.uid), async (snap) => {
+          const data: any = snap.exists() ? { id: snap.id, ...snap.data() } : null;
+
+          if (data) {
+            setUserData((prev: any) => ({
+              ...prev,
+              ...data,
+              id: user.uid,
+              email: user.email || data.email || prev.email || '',
+              username: data.username || data.userName || prev.username || '',
+              userName: data.username || data.userName || prev.username || '',
+              first_name: data.first_name || data.firstName || prev.first_name || prev.firstName || '',
+              firstName: data.firstName || data.first_name || prev.firstName || prev.first_name || '',
+              last_name: data.last_name || data.lastName || prev.last_name || prev.lastName || '',
+              lastName: data.lastName || data.last_name || prev.lastName || prev.last_name || '',
+              profile_picture_url: data.profile_picture_url || data.profilePicture || prev.profile_picture_url || prev.profilePicture || '',
+              profilePicture: data.profilePicture || data.profile_picture_url || prev.profilePicture || prev.profile_picture_url || '',
+              phone: data.phone || data.phoneNumber || prev.phone || '',
+              street: data.street || prev.street || '',
+              city: data.city || prev.city || '',
+              postal_code: data.postal_code || data.postalCode || prev.postal_code || prev.postalCode || '',
+              postalCode: data.postalCode || data.postal_code || prev.postalCode || prev.postal_code || '',
+              company_name: data.company_name || data.companyName || prev.company_name || prev.companyName || '',
+              companyName: data.companyName || data.company_name || prev.companyName || prev.company_name || '',
+              tax_number: data.tax_number || data.tax_id || data.taxNumber || data.taxId || prev.tax_number || '',
+              taxNumber: data.taxNumber || data.tax_number || data.tax_id || data.taxId || prev.taxNumber || '',
+              tax_id: data.tax_id || data.tax_number || data.taxId || data.taxNumber || prev.tax_id || '',
+              taxId: data.taxId || data.tax_id || data.tax_number || data.taxNumber || prev.taxId || '',
+              registration_number: data.registration_number || data.regNumber || prev.registration_number || '',
+              regNumber: data.regNumber || data.registration_number || prev.regNumber || '',
+              company_street: data.company_street || data.companyStreet || prev.company_street || '',
+              companyStreet: data.companyStreet || data.company_street || prev.companyStreet || '',
+              company_city: data.company_city || data.companyCity || prev.company_city || '',
+              companyCity: data.companyCity || data.company_city || prev.companyCity || '',
+              company_postal_code: data.company_postal_code || data.companyPostalCode || prev.company_postal_code || '',
+              companyPostalCode: data.companyPostalCode || data.company_postal_code || prev.companyPostalCode || '',
+              representative: data.representative || prev.representative || '',
+              country_code: data.country_code || data.countryCode || prev.country_code || 'SI',
+              countryCode: data.countryCode || data.country_code || prev.countryCode || 'SI',
+              is_verified: data.is_verified ?? data.isVerified ?? false,
+              isVerified: data.is_verified ?? data.isVerified ?? false,
+              user_type: data.user_type || data.userType || null,
+              userType: data.userType || data.user_type || null,
+              stripe_onboarding_complete: data.stripe_onboarding_complete ?? data.stripeOnboardingComplete ?? false,
+              wallet_balance: data.available_cents !== undefined ? (data.available_cents / 100) : (data.wallet_balance ?? data.walletBalance ?? 0),
+              available_cents: data.available_cents !== undefined ? data.available_cents : Math.round(Number(data.wallet_balance ?? data.walletBalance ?? 0) * 100),
+              held_cents: data.held_cents || 0,
+              reserved_cents: data.reserved_cents || 0,
+            }));
+            setIsVerified(data.is_verified || data.isVerified || false);
+            setUserType(data.user_type || data.userType || null);
+          } else {
+            await setDoc(doc(db, 'users', user.uid), {
+              id: user.uid,
+              email: user.email,
+              is_verified: false,
+              subscription: 'FREE'
+            }, { merge: true });
+            
+            setUserData((prev) => ({
+              ...prev,
+              id: user.uid,
+              email: user.email,
+            }));
+            setIsVerified(false);
+          }
+        });
+      } else {
+        setIsLoggedIn(false);
+        setIsVerified(false);
+        setUserData({
+          id: "",
+          firstName: "",
+          lastName: "",
+          username: "",
+          email: "",
+          profilePicture: "",
+          is_verified: false,
+          stripe_onboarding_complete: false,
+          profile_picture_url: "",
+          first_name: "",
+          last_name: "",
+          wallet_balance: 0
+        } as any);
+        if (unsubscribeSnap) { unsubscribeSnap(); unsubscribeSnap = null; }
+      }
+      setIsAuthLoading(false);
+    });
+
+    return () => {
+      unsubscribe();
+      if (unsubscribeSnap) unsubscribeSnap();
+    };
+  }, []);
+
+  const currentUserWinnings = useMemo(() => {
+    if (!userData?.id) return [];
+    return auctions
+      .filter(
+        (a) =>
+          (((a as any).winner_id === userData.id || a.winnerId === userData.id) || 
+           (a.second_highest_bidder_id === userData.id && (a.post_auction_status === 'offered_2nd' || a.post_auction_status === 'awaiting_payment_2nd'))) &&
+          (a.status === "completed" || a.endTime.getTime() <= Date.now()),
+      )
+      .sort((a, b) => b.endTime.getTime() - a.endTime.getTime());
+  }, [auctions, userData?.id]);
+
+  // Pagination & Scroll
+  const [baseItemsPerPage, setBaseItemsPerPage] = useState(12);
+  const [cols, setCols] = useState(4);
+
+  useEffect(() => {
+    const updateCols = () => {
+      if (window.innerWidth >= 1536) setCols(5);
+      else if (window.innerWidth >= 1280) setCols(4);
+      else if (window.innerWidth >= 1024) setCols(3);
+      else if (window.innerWidth >= 640) setCols(2);
+      else setCols(1);
+    };
+    updateCols();
+    window.addEventListener("resize", updateCols);
+    return () => window.removeEventListener("resize", updateCols);
+  }, []);
+
+  const itemsPerPage = Math.ceil(baseItemsPerPage / cols) * cols;
+  const [currentPage, setCurrentPage] = useState(1);
+  const [showBackToTop, setShowBackToTop] = useState(false);
+
+  // Ref for the "Aktualne dražbe" section
+  const auctionsSectionRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let title = "Drazba.si | Prva slovenska digitalna dražba";
+    let metaDesc =
+      "Najbolj zanesljiva platforma za spletne dražbe v Sloveniji. Pregledno, varno in enostavno.";
+
+    switch (activeView) {
+      case "detail":
+        if (selectedItem) {
+          const itemTitle =
+            selectedItem.title[language as keyof typeof selectedItem.title] ||
+            selectedItem.title["SLO"];
+          title = `${itemTitle} | Drazba.si`;
+        }
+        metaDesc = `Licitirajte za stroje, vozila ali nepremičnine. Oddajte svojo ponudbo zdaj.`;
+        break;
+      case "sellerProfile":
+        if (selectedSeller)
+          title = `Profil prodajalca: ${selectedSeller.name} | Drazba.si`;
+        metaDesc = `Oglejte si vse aktivne dražbe prodajalca na Drazba.si.`;
+        break;
+      case "lastChance":
+        title = "Zadnja priložnost | Predmeti, ki se iztekajo | Drazba.si";
+        metaDesc =
+          "Zgrabite še zadnjo priložnost za licitacijo. Dražbe se iztekajo.";
+        break;
+      case "createAuction":
+        title = "Objavi novo dražbo | Drazba.si";
+        break;
+      case "login":
+        title = "Prijava in registracija | Drazba.si";
+        break;
+    }
+
+    document.title = title;
+
+    let meta = document.querySelector('meta[name="description"]');
+    if (!meta) {
+      meta = document.createElement("meta");
+      meta.setAttribute("name", "description");
+      document.head.appendChild(meta);
+    }
+    meta.setAttribute("content", metaDesc);
+  }, [activeView, selectedItem, selectedSeller, language]);
+
+  const [usersMap, setUsersMap] = useState<Map<string, any>>(new Map());
+
+  // Private stream: Users
+  useEffect(() => {
+    // Fire cron check on mount and every 5 minutes
+    checkAuctionsCronAction().catch(console.error);
+    const cronInterval = setInterval(() => {
+       checkAuctionsCronAction().catch(console.error);
+    }, 5 * 60 * 1000);
+    return () => clearInterval(cronInterval);
+  }, []);
+  
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
+      setUsersMap(new Map(snap.docs.map(d => [d.id, d.data()])));
+    }, (error) => {
+      console.error('Users snapshot error:', error);
+    });
+    return () => unsubUsers();
+  }, [isLoggedIn]);
+
+  // Public stream: Auctions
+  useEffect(() => {
+    const unsubAuctions = onSnapshot(collection(db, 'auctions'), (snap) => {
+      const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const fetchedData: AuctionItem[] = data.map((d: any) => {
+        const seller = usersMap.get(d.seller_id) || {};
+        let sellerName = "";
+        if (seller.user_type === "business" && seller.company_name) {
+          sellerName = seller.company_name;
+        } else if (seller.username) {
+          sellerName = seller.username;
+        } else if (seller.first_name && seller.last_name) {
+          sellerName = `${seller.first_name} ${seller.last_name}`;
+        }
+
+        const isItemPaid = d.payment_status === "paid" || d.post_auction_status === "paid";
+
+        return {
+          ...d,
+          endTime: new Date(d.end_time || d.endTime || Date.now()),
+          currentBid: d.current_price || d.currentBid,
+          hiddenMaxBid: d.hidden_max_bid || d.hiddenMaxBid,
+          bidCount: d.bid_count || d.bidCount,
+          winnerId: d.winner_id || d.winnerId,
+          winner_id: d.winner_id || d.winnerId,
+          sellerId: d.seller_id || d.sellerId,
+          payment_status: isItemPaid ? "paid" : (d.payment_status || "unpaid"),
+          post_auction_status: d.post_auction_status,
+          paid_at: d.paid_at,
+          sellerName: d.sellerName || sellerName,
+          delivery_method: d.delivery_method,
+          buyer_received: d.buyer_received,
+        };
+      });
+
+      setAuctions(fetchedData);
+    }, (error) => {
+      if (error.code === 'permission-denied') { console.warn('Auctions snapshot permission denied (expected if not logged in).'); } else { console.error('Auctions snapshot error:', error); }
+    });
+
+    return () => {
+      unsubAuctions();
+    };
+  }, [usersMap]);
+
+  const fetchAuctions = async () => {
+    try {
+      const snap = await getDocs(collection(db, 'auctions'));
+      const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const fetchedData: AuctionItem[] = data.map((d: any) => {
+        const seller = usersMap.get(d.seller_id) || {};
+        let sellerName = "";
+        if (seller.user_type === "business" && seller.company_name) {
+          sellerName = seller.company_name;
+        } else if (seller.username) {
+          sellerName = seller.username;
+        } else if (seller.first_name && seller.last_name) {
+          sellerName = `${seller.first_name} ${seller.last_name}`;
+        }
+
+        const isItemPaid = d.payment_status === "paid" || d.post_auction_status === "paid";
+
+        return {
+          ...d,
+          endTime: new Date(d.end_time || d.endTime || Date.now()),
+          currentBid: d.current_price || d.currentBid,
+          hiddenMaxBid: d.hidden_max_bid || d.hiddenMaxBid,
+          bidCount: d.bid_count || d.bidCount,
+          winnerId: d.winner_id || d.winnerId,
+          winner_id: d.winner_id || d.winnerId,
+          sellerId: d.seller_id || d.sellerId,
+          payment_status: isItemPaid ? "paid" : (d.payment_status || "unpaid"),
+          post_auction_status: d.post_auction_status,
+          paid_at: d.paid_at,
+          sellerName: d.sellerName || sellerName,
+          delivery_method: d.delivery_method,
+          buyer_received: d.buyer_received,
+        };
+      });
+      setAuctions(fetchedData);
+    } catch (e) {
+      console.warn("Manual fetch auctions warning:", e);
+    }
+  };
+
+  const refreshUserData = async (uid?: string) => {
+    const id = uid || userData.id;
+    if (!id) return;
+    try {
+      const snap = await getDoc(doc(db, 'users', id));
+      if (snap.exists()) {
+        const data = snap.data();
+        setUserData((prev: any) => ({
+          ...prev,
+          ...data,
+          id,
+          email: data.email || prev.email || '',
+          username: data.username || data.userName || prev.username || '',
+          userName: data.username || data.userName || prev.username || '',
+          first_name: data.first_name || data.firstName || prev.first_name || prev.firstName || '',
+          firstName: data.firstName || data.first_name || prev.firstName || prev.first_name || '',
+          last_name: data.last_name || data.lastName || prev.last_name || prev.lastName || '',
+          lastName: data.lastName || data.last_name || prev.lastName || prev.last_name || '',
+          profile_picture_url: data.profile_picture_url || data.profilePicture || prev.profile_picture_url || prev.profilePicture || '',
+          profilePicture: data.profilePicture || data.profile_picture_url || prev.profilePicture || prev.profile_picture_url || '',
+          phone: data.phone || data.phoneNumber || prev.phone || '',
+          street: data.street || prev.street || '',
+          city: data.city || prev.city || '',
+          postal_code: data.postal_code || data.postalCode || prev.postal_code || prev.postalCode || '',
+          postalCode: data.postalCode || data.postal_code || prev.postalCode || prev.postal_code || '',
+          company_name: data.company_name || data.companyName || prev.company_name || prev.companyName || '',
+          companyName: data.companyName || data.company_name || prev.companyName || prev.company_name || '',
+          tax_number: data.tax_number || data.tax_id || data.taxNumber || data.taxId || prev.tax_number || '',
+          taxNumber: data.taxNumber || data.tax_number || data.tax_id || data.taxId || prev.taxNumber || '',
+          tax_id: data.tax_id || data.tax_number || data.taxId || data.taxNumber || prev.tax_id || '',
+          taxId: data.taxId || data.tax_id || data.tax_number || data.taxNumber || prev.taxId || '',
+          registration_number: data.registration_number || data.regNumber || prev.registration_number || '',
+          regNumber: data.regNumber || data.registration_number || prev.regNumber || '',
+          company_street: data.company_street || data.companyStreet || prev.company_street || '',
+          companyStreet: data.companyStreet || data.company_street || prev.companyStreet || '',
+          company_city: data.company_city || data.companyCity || prev.company_city || '',
+          companyCity: data.companyCity || data.company_city || prev.companyCity || '',
+          company_postal_code: data.company_postal_code || data.companyPostalCode || prev.company_postal_code || '',
+          companyPostalCode: data.companyPostalCode || data.company_postal_code || prev.companyPostalCode || '',
+          representative: data.representative || prev.representative || '',
+          country_code: data.country_code || data.countryCode || prev.country_code || 'SI',
+          countryCode: data.countryCode || data.country_code || prev.countryCode || 'SI',
+          is_verified: data.is_verified ?? data.isVerified ?? false,
+          isVerified: data.is_verified ?? data.isVerified ?? false,
+          user_type: data.user_type || data.userType || null,
+          userType: data.userType || data.user_type || null,
+          stripe_onboarding_complete: data.stripe_onboarding_complete ?? data.stripeOnboardingComplete ?? false,
+          wallet_balance: data.available_cents !== undefined ? (data.available_cents / 100) : (data.wallet_balance ?? data.walletBalance ?? 0),
+          available_cents: data.available_cents !== undefined ? data.available_cents : Math.round(Number(data.wallet_balance ?? data.walletBalance ?? 0) * 100),
+          held_cents: data.held_cents || 0,
+          reserved_cents: data.reserved_cents || 0,
+        }));
+      }
+    } catch (e) {
+      console.warn("Failed to refresh user data:", e);
+    }
+  };
+
+  // Listen for Stripe popup completion messages
+  useEffect(() => {
+    const handlePopupMessage = async (event: MessageEvent) => {
+      if (event.data && event.data.type === 'STRIPE_POPUP_CALLBACK') {
+        const { status, action, sessionId } = event.data;
+        if (status === 'success') {
+          if (action === 'stripe_connect') {
+            toast.success("Stripe račun je bil uspešno povezan!");
+            if (userData?.id) {
+              await refreshUserData(userData.id);
+            }
+          } else {
+            toast.success(t("paymentSuccessEmail") || "Plačilo uspešno! Račun in potrdilo sta bila poslana.");
+            await fetchAuctions();
+            if (userData?.id) {
+              await refreshUserData(userData.id);
+            }
+            setTimeout(() => {
+              fetchAuctions();
+            }, 1200);
+          }
+        } else if (status === 'cancel') {
+          toast.info("Postopek je bil preklican.");
+        }
+      }
+    };
+
+    window.addEventListener('message', handlePopupMessage);
+    return () => window.removeEventListener('message', handlePopupMessage);
+  }, [userData, language]);
+
+  // Handle URL redirect returns from Stripe if user completed outside of popup
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const paymentParam = params.get('payment');
+    const sessionIdParam = params.get('session_id');
+    const stripeParam = params.get('stripe');
+
+    if (paymentParam === 'success' || sessionIdParam) {
+      const cleanUrl = window.location.pathname;
+      window.history.replaceState({}, document.title, cleanUrl);
+
+      if (sessionIdParam) {
+        confirmCheckoutSessionAction({ sessionId: sessionIdParam })
+          .then(() => {
+            fetchAuctions();
+            if (userData?.id) refreshUserData(userData.id);
+          })
+          .catch(console.error);
+      } else {
+        fetchAuctions();
+      }
+      toast.success(t("paymentSuccessEmail") || "Plačilo uspešno! Račun in potrdilo sta bila poslana.");
+    } else if (stripeParam === 'success') {
+      const cleanUrl = window.location.pathname;
+      window.history.replaceState({}, document.title, cleanUrl);
+      toast.success("Stripe račun je bil uspešno povezan!");
+      if (userData?.id) refreshUserData(userData.id);
+    }
+  }, [userData]);
+
+  
+  const handlePublishPackage = async (pkg: {title: string, items: any[], packageId: string}) => {
+    if (!userData?.id) {
+      toast.error(t("loginRequired"));
+      return;
+    }
+    
+    const getConditionTranslations = (cond: string) => {
+        switch (cond) {
+          case "Novo": return { SLO: "Novo", EN: "New", DE: "Neu" };
+          case "Kot novo": return { SLO: "Kot novo", EN: "Like New", DE: "Wie Neu" };
+          case "Rabljeno": return { SLO: "Rabljeno", EN: "Used", DE: "Gebraucht" };
+          case "Potrebno obnove": return { SLO: "Potrebno obnove", EN: "Needs Restoration", DE: "Restaurierungsbedürftig" };
+          case "Za dele": return { SLO: "Za dele", EN: "For Parts", DE: "Für Ersatzteile" };
+          default: return { SLO: cond, EN: cond, DE: cond };
+        }
+      };
+
+    try {
+      const auctionIds = [];
+      for (const itemData of pkg.items) {
+          // Skip already published items, but collect their IDs
+          if (itemData.is_published && itemData.id) {
+              auctionIds.push(itemData.id);
+              continue;
+          }
+          
+          const payload = {
+            title: { SLO: itemData.title?.SLO || itemData.title, EN: itemData.title?.SLO || itemData.title, DE: itemData.title?.SLO || itemData.title },
+            description: { SLO: itemData.description, EN: itemData.description, DE: itemData.description },
+            current_price: parseInt(itemData.startingPrice),
+            bid_count: 0,
+            item_count: 1,
+            end_time: itemData.endTime || new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString(),
+            location: itemData.location || { SLO: "Neznano", EN: "Unknown", DE: "Unbekannt" },
+            region: itemData.region || "Osrednjeslovenska",
+            category: itemData.category || "Ostalo",
+            condition: getConditionTranslations(itemData.condition || "Rabljeno"),
+            specifications: {},
+            bidding_history: [],
+            top_bids: [],
+            winner_id: null,
+            winnerId: null,
+            payment_status: 'unpaid',
+            post_auction_status: null,
+            images: itemData.images,
+            delivery_option: itemData.delivery_option || 'both',
+            shipping_fee_type: itemData.shipping_fee_type || 'calculated',
+            shipping_cost: itemData.shipping_cost !== undefined ? itemData.shipping_cost : null,
+            is_package: true,
+            package_id: pkg.packageId,
+            package_title: pkg.title
+          };
+          
+          const res = await createAuctionAction({ itemData: payload, user_id: userData.id });
+          if (res.success) {
+             auctionIds.push(res.data?.id || itemData.id || crypto.randomUUID());
+          }
+      }
+      
+      // Upsert package document
+      const { doc, setDoc } = await import('firebase/firestore');
+      const { db } = await import('./lib/firebase');
+      const pkgRef = doc(db, 'packages', pkg.packageId);
+      await setDoc(pkgRef, {
+          id: pkg.packageId,
+          title: pkg.title,
+          seller_id: userData.id,
+          auction_ids: auctionIds,
+          status: 'active',
+          created_at: new Date().toISOString()
+      }, { merge: true });
+
+      toast.success("Zbirka je uspešno objavljena!");
+      setActiveView("grid");
+      setCreateMode("choice");
+      fetchAuctions();
+    } catch (e) {
+      toast.error("Napaka pri povezavi");
+    }
+  };
+
+  const handlePublish = async (itemData: any) => {
+    if (!userData?.id) {
+      toast.error(t("loginRequired"));
+      return;
+    }
+
+    // Strict validation for mandatory invoice data
+    const invoiceCheck = checkUserInvoiceData(userData);
+    if (!invoiceCheck.isComplete) {
+      setAppMissingInvoiceDataModal({
+        isOpen: true,
+        missingFields: invoiceCheck.missingFields,
+        userType: invoiceCheck.userType
+      });
+      return;
+    }
+
+    try {
+      // Remove [EN] and [DE] prefix hardcoding as this looks like test data and is unnecessary
+      const simulatedTitle = {
+        SLO: itemData.title?.SLO || itemData.title,
+        EN: itemData.title?.SLO || itemData.title,
+        DE: itemData.title?.SLO || itemData.title,
+      };
+      const simulatedDescription = {
+        SLO: itemData.description,
+        EN: itemData.description,
+        DE: itemData.description,
+      };
+
+      // Construct dynamic condition payload based on Slovene selection
+      const getConditionTranslations = (cond: string) => {
+        switch (cond) {
+          case "Novo":
+            return { SLO: "Novo", EN: "New", DE: "Neu" };
+          case "Kot novo":
+            return { SLO: "Kot novo", EN: "Like New", DE: "Wie Neu" };
+          case "Rabljeno":
+            return { SLO: "Rabljeno", EN: "Used", DE: "Gebraucht" };
+          case "Potrebno obnove":
+            return {
+              SLO: "Potrebno obnove",
+              EN: "Needs Restoration",
+              DE: "Restaurierungsbedürftig",
+            };
+          case "Za dele":
+            return { SLO: "Za dele", EN: "For Parts", DE: "Für Ersatzteile" };
+          default:
+            return { SLO: cond, EN: cond, DE: cond };
+        }
+      };
+
+      const auctionPayload = {
+        id: itemData.id,
+        title: simulatedTitle,
+        description: simulatedDescription,
+        current_price: parseInt(itemData.startingPrice),
+        bid_count: 0,
+        item_count: 1,
+        end_time:
+          itemData.endTime ||
+          new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString(),
+        location: itemData.location || {
+          SLO: "Neznano",
+          EN: "Unknown",
+          DE: "Unbekannt",
+        },
+        region: itemData.region || Region.Osrednjeslovenska,
+        category: itemData.category || Category.Ostalo,
+        condition: getConditionTranslations(itemData.condition || "Rabljeno"),
+        specifications: {},
+        bidding_history: [],
+        top_bids: [],
+        winner_id: null,
+        winnerId: null,
+        payment_status: 'unpaid',
+        post_auction_status: null,
+        images: itemData.images,
+        delivery_option: itemData.delivery_option || 'both',
+        shipping_fee_type: itemData.shipping_fee_type || 'calculated',
+        shipping_cost: itemData.shipping_cost !== undefined ? itemData.shipping_cost : null
+      };
+
+      let publishSuccess = false;
+
+      try {
+        const res = await createAuctionAction({ itemData: auctionPayload, user_id: userData.id });
+        if (res.success) {
+          publishSuccess = true;
+        } else if (res.error) {
+          // If action reported an explicit error, verify if it's an API route failure where client fallback can handle it
+          console.warn("API create returned error, falling back to direct Firestore:", res.error);
+          const newDocRef = itemData.id ? doc(db, 'auctions', itemData.id) : doc(collection(db, 'auctions'));
+          await setDoc(newDocRef, {
+            ...auctionPayload,
+            id: newDocRef.id,
+            seller_id: userData.id,
+            status: "active"
+          }, { merge: true });
+          publishSuccess = true;
+        }
+      } catch (fetchErr) {
+        console.warn("Direct API create failed, using direct Firestore save fallback:", fetchErr);
+        const newDocRef = itemData.id ? doc(db, 'auctions', itemData.id) : doc(collection(db, 'auctions'));
+        await setDoc(newDocRef, {
+          ...auctionPayload,
+          id: newDocRef.id,
+          seller_id: userData.id,
+          status: "active"
+        }, { merge: true });
+        publishSuccess = true;
+      }
+
+      if (publishSuccess) {
+        setActiveView("grid");
+        toast.success(t("auctionPublished"));
+        fetchAuctions(); // Refresh the list from DB
+      }
+    } catch (error: any) {
+      console.error("HandlePublish Exception:", error);
+      toast.error(t("publishError"));
+    }
+  };
+
+  const handleLogout = useCallback(async () => {
+    // Clear state immediately for better UX
+    setIsLoggedIn(false);
+    setIsVerified(false);
+    setUserType(null);
+    setUserData({
+      firstName: "",
+      lastName: "",
+      email: "",
+      profilePicture: "",
+    } as any);
+    setHasAcceptedTerms(false);
+    setActiveView("grid");
+
+    try {
+      await signOut(auth);
+      toast.success(t("loggedOut"));
+    } catch (err) {
+      console.error("Error signing out:", err);
+    }
+  }, [t]);
+
+  const handleStripeVerified = useCallback(async () => {
+    if (!userData.id) return;
+    const snap = await getDoc(doc(db, 'users', userData.id));
+    const data: any = snap.exists() ? { id: snap.id, ...snap.data() } : null;
+    if (data) {
+      setUserData((prev) => ({
+        ...prev,
+        stripe_onboarding_complete: data.stripe_onboarding_complete,
+        stripe_account_id: data.stripe_account_id,
+      }));
+      toast.success(
+        "Plačila so uspešno nastavljena! Sedaj lahko objavljate dražbe.",
+      );
+    } else {
+      setUserData((prev) => ({ ...prev, stripe_onboarding_complete: true }));
+      toast.success(
+        "Plačila so uspešno nastavljena! Sedaj lahko objavljate dražbe.",
+      );
+    }
+  }, [userData.id]);
+
+  const handleSubscribe = async (tier: SubscriptionTier) => {
+    const prices = {
+      [SubscriptionTier.FREE]: 0,
+      [SubscriptionTier.BASIC]: 20,
+      [SubscriptionTier.PRO]: 50,
+    };
+    const planNames = {
+      [SubscriptionTier.BASIC]: t("basicTier"),
+      [SubscriptionTier.PRO]: t("proTier"),
+      [SubscriptionTier.FREE]: t("freeTier"),
+    };
+
+    const saveSubscription = async (newTier: SubscriptionTier) => {
+      setCurrentPlan(newTier);
+      setIsSubscriptionCanceled(false);
+      try {
+        const user = auth.currentUser;
+      const session = user ? { user: { id: user.uid, email: user.email } } : null;
+        if (session?.user) {
+          await setDoc(doc(db, 'users', session.user.id), { id: session.user.id, email: session.user.email, subscription: newTier }, { merge: true });
+        }
+      } catch (err) {
+        console.error("Error saving subscription:", err);
+      }
+    };
+
+    if (tier === SubscriptionTier.FREE) {
+      await saveSubscription(tier);
+      toast.success(t("paymentSuccess"));
+      return;
+    }
+    setCheckoutData({
+      amount: prices[tier],
+      title: `${t("subscription")} - ${planNames[tier]}`,
+      metadata: { type: "subscription", user_id: auth.currentUser?.uid || userData?.id || '', buyer_data: userData },
+      onSuccess: async () => {
+        setIsCheckoutOpen(false);
+        await saveSubscription(tier);
+        toast.success(t("paymentSuccess"));
+      },
+    });
+    setIsCheckoutOpen(true);
+  };
+
+  const handleSaveSettings = useCallback(
+    async (data: any) => {
+      console.log("handleSaveSettings called with data:", data);
+      const uid = auth.currentUser?.uid || userData?.id;
+      if (!uid) {
+        console.log("No user ID found in state");
+        toast.error("Uporabnik ni prijavljen.");
+        return;
+      }
+
+      try {
+        // Update password if provided
+        if (data.newPassword && data.oldPassword) {
+          let passError = null;
+          try {
+            if (auth.currentUser) await updatePassword(auth.currentUser, data.newPassword);
+          } catch (e) {
+            passError = e;
+          }
+          if (passError) {
+            toast.error(`Napaka pri spremembi gesla: ${passError.message}`);
+            return;
+          }
+        }
+
+        // Update user profile data
+        const currentEmail = userData?.email || auth.currentUser?.email || '';
+        const updateData: any = {
+          email: currentEmail,
+          phone: data.phone ?? '',
+          phoneNumber: data.phone ?? '',
+          username: data.username ?? '',
+          userName: data.username ?? '',
+          first_name: data.firstName ?? '',
+          firstName: data.firstName ?? '',
+          last_name: data.lastName ?? '',
+          lastName: data.lastName ?? '',
+          street: data.street ?? '',
+          city: data.city ?? '',
+          postal_code: data.postalCode ?? '',
+          postalCode: data.postalCode ?? '',
+          company_name: data.companyName ?? '',
+          companyName: data.companyName ?? '',
+          tax_number: data.taxNumber ?? '',
+          taxNumber: data.taxNumber ?? '',
+          tax_id: data.taxNumber ?? '',
+          taxId: data.taxNumber ?? '',
+          registration_number: data.regNumber ?? '',
+          regNumber: data.regNumber ?? '',
+          company_street: data.companyStreet ?? '',
+          companyStreet: data.companyStreet ?? '',
+          company_city: data.companyCity ?? '',
+          companyCity: data.companyCity ?? '',
+          company_postal_code: data.companyPostalCode ?? '',
+          companyPostalCode: data.companyPostalCode ?? '',
+          representative: data.representative ?? '',
+          country_code: data.countryCode || 'SI',
+          countryCode: data.countryCode || 'SI',
+          auto_invoice_generation: data.autoInvoiceGeneration !== false,
+          autoInvoiceGeneration: data.autoInvoiceGeneration !== false,
+          address: (userData as any)?.user_type === 'individual' || (!data.companyName && !data.companyStreet)
+            ? `${data.street || ''}, ${data.postalCode || ''} ${data.city || ''}`.trim().replace(/^,|,$/g, '').trim()
+            : `${data.companyStreet || ''}, ${data.companyPostalCode || ''} ${data.companyCity || ''}`.trim().replace(/^,|,$/g, '').trim(),
+        };
+
+        if (
+          data.profilePicture &&
+          data.profilePicture.startsWith("data:image")
+        ) {
+            console.log("Processing profile picture...");
+            try {
+              // Manual base64 to Blob conversion to avoid CSP fetch issues
+              const base64Parts = data.profilePicture.split(",");
+              const mimeType =
+                base64Parts[0].match(/:(.*?);/)?.[1] || "image/jpeg";
+              const base64Data = base64Parts[1];
+              const byteCharacters = atob(base64Data);
+              const byteNumbers = new Array(byteCharacters.length);
+              for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+              }
+              const byteArray = new Uint8Array(byteNumbers);
+              const blob = new Blob([byteArray], { type: mimeType });
+              const file = new File([blob], "profile.jpg", { type: mimeType });
+
+              // Compress image to small footprint (<60KB) for instant, reliable Firestore storage
+              const options = {
+                maxSizeMB: 0.06,
+                maxWidthOrHeight: 500,
+                useWebWorker: true,
+                initialQuality: 0.6,
+              };
+
+              const superCompressed = await imageCompression(file, options);
+              const compressedBase64 = await new Promise<string>((resolve, reject) => {
+                  const reader = new FileReader();
+                  reader.onloadend = () => resolve(reader.result as string);
+                  reader.onerror = error => reject(error);
+                  reader.readAsDataURL(superCompressed);
+              });
+              updateData.profile_picture_url = compressedBase64;
+              updateData.profilePicture = compressedBase64;
+              console.log("Profile picture processed successfully");
+            } catch (compErr) {
+              console.warn("Using direct data url fallback:", compErr);
+              updateData.profile_picture_url = data.profilePicture;
+              updateData.profilePicture = data.profilePicture;
+            }
+        } else if (data.profilePicture) {
+          updateData.profile_picture_url = data.profilePicture;
+          updateData.profilePicture = data.profilePicture;
+        } else if ((userData as any)?.profile_picture_url || (userData as any)?.profilePicture) {
+          updateData.profile_picture_url = (userData as any)?.profile_picture_url || (userData as any)?.profilePicture;
+          updateData.profilePicture = updateData.profile_picture_url;
+        } else {
+          updateData.profile_picture_url = null;
+          updateData.profilePicture = null;
+        }
+
+        console.log("Updating database with:", updateData);
+        await setDoc(doc(db, "users", uid), updateData, { merge: true });
+
+        const updatedUser = { id: uid, ...updateData };
+
+        if (updatedUser) {
+          console.log("User updated successfully:", updatedUser);
+          setUserData((prev) => ({ ...prev, ...updatedUser }));
+        }
+
+        toast.success(t("saveChanges") + " - " + t("success"));
+      } catch (err: any) {
+        console.error("Error saving settings:", err);
+        if (err.code === "23505" && err.message?.includes("username")) {
+          toast.error("To uporabniško ime je že zasedeno. Prosimo, izberite drugega.");
+        } else if (err.message === "IMAGE_UPLOAD_FAILED" || (err.code && err.code.startsWith("storage/"))) {
+            toast.error("Napaka pri nalaganju profilne slike.");
+        } else {
+          toast.error(`Napaka pri shranjevanju: ${err.message || err}`);
+        }
+      }
+    },
+    [userData?.id, userData?.email, t],
+  );
+
+  const getFilteredAuctions = useMemo(() => {
+    let filtered = [...auctions];
+    const now = new Date();
+
+    if (activeView === "lastChance") {
+      filtered = filtered
+        .filter((i) => i.status === "active" && new Date(i.endTime) > now)
+        .sort((a, b) => a.endTime.getTime() - b.endTime.getTime())
+        .slice(0, 200);
+    } else {
+      filtered = filtered.filter((item) => {
+        if (item.status === "completed" || new Date(item.endTime) <= now)
+          return false;
+        if (selectedRegion && !matchesSelectedRegion(item.region, selectedRegion)) return false;
+        if (selectedCategory && item.category !== selectedCategory)
+          return false;
+        if (searchQuery) {
+          const q = searchQuery.toLowerCase();
+          const titleMatch = (item.title[language] || item.title["SLO"])
+            .toLowerCase()
+            .includes(q);
+          const locationMatch = (
+            item.location[language] || item.location["SLO"]
+          )
+            .toLowerCase()
+            .includes(q);
+          return titleMatch || locationMatch;
+        }
+        return true;
+      });
+    }
+    return filtered;
+  }, [
+    auctions,
+    activeView,
+    selectedRegion,
+    selectedCategory,
+    searchQuery,
+    language,
+  ]);
+
+  const totalPages = Math.ceil(getFilteredAuctions.length / itemsPerPage);
+  const indexOfLastItem = currentPage * itemsPerPage;
+  const indexOfFirstItem = indexOfLastItem - itemsPerPage;
+  const currentAuctions = getFilteredAuctions.slice(
+    indexOfFirstItem,
+    indexOfLastItem,
+  );
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+    const isHomePage =
+      activeView === "grid" && !selectedCategory && !searchQuery;
+
+    if (isHomePage && auctionsSectionRef.current) {
+      auctionsSectionRef.current.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    } else {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  };
+
+  const paginationNumbers = useMemo(() => {
+    if (totalPages <= 7)
+      return Array.from({ length: totalPages }, (_, i) => i + 1);
+    if (currentPage <= 4) return [1, 2, 3, 4, 5, "...", totalPages];
+    if (currentPage >= totalPages - 3)
+      return [
+        1,
+        "...",
+        totalPages - 4,
+        totalPages - 3,
+        totalPages - 2,
+        totalPages - 1,
+        totalPages,
+      ];
+    return [
+      1,
+      "...",
+      currentPage - 1,
+      currentPage,
+      currentPage + 1,
+      "...",
+      totalPages,
+    ];
+  }, [currentPage, totalPages]);
+
+  let content;
+  switch (activeView) {
+    case "package": {
+      
+
+      // Allow Sandbox preview package to render properly by intercepting the ID
+      const isSandboxPackage = selectedPackageId === mockSandboxPackageId;
+      const packageAuctions = isSandboxPackage 
+          ? mockSandboxPackageItems 
+          : auctions.filter(a => a.package_id === selectedPackageId || (a as any).packageId === selectedPackageId);
+
+      const pkgTitle = (packageAuctions[0] as any)?.package_title || 
+        (typeof packageAuctions[0]?.title === 'object' ? packageAuctions[0]?.title[language] || packageAuctions[0]?.title['SLO'] : packageAuctions[0]?.title) || 
+        "Paket dražb";
+      content = (
+        <PackageView
+          packageId={selectedPackageId || ""}
+          packageTitle={pkgTitle}
+          items={packageAuctions}
+          t={t}
+          language={language}
+          isVerified={isVerified}
+          watchlist={watchedIds}
+          onWatchToggle={toggleWatch}
+          onAuctionClick={(item) => {
+            window.scrollTo({ top: 0, behavior: "instant" });
+            setSelectedItem(item);
+            setActiveView("detail");
+          }}
+          onBack={() => {
+            setSelectedPackageId(null);
+            setActiveView("grid");
+          }}
+        />
+      );
+      break;
+    }
+    case "login":
+      content = (
+        <AuthView
+          t={t}
+          onLoginSuccess={() => {
+            setIsLoggedIn(true);
+            setSelectedRegion(null);
+            setSelectedCategory(null);
+            setSearchQuery("");
+            setActiveView("grid");
+            window.scrollTo({ top: 0, behavior: "instant" });
+          }}
+          setIsVerified={setIsVerified}
+
+          setAppLoggedIn={(val) => setIsLoggedIn(val)}
+        />
+      );
+      break;
+    case "createAuction":
+      if (!isLoggedIn) {
+        content = (
+          <AuthView
+            onLoginSuccess={() => setActiveView("createAuction")}
+            t={t}
+            setIsVerified={setIsVerified}
+            setAppLoggedIn={(val) => setIsLoggedIn(val)}
+          />
+        );
+      } else if (!userData.stripe_onboarding_complete) {
+        content = (
+          <div className="max-w-3xl mx-auto py-32 px-6 flex flex-col items-center text-center animate-in">
+            <div className="bg-red-50 text-red-500 w-24 h-24 rounded-full flex items-center justify-center mb-8 border-4 border-red-100">
+              <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+            </div>
+            <h1 className="text-4xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">
+              {t("cannotPublish")}
+            </h1>
+            <p className="text-lg text-slate-500 mb-8 max-w-xl font-medium">
+              {t("connectBankAccountDesc")}
+            </p>
+            <button
+              onClick={() => {
+                  setSettingsTab("stripe");
+                  setActiveView("settings");
+              }}
+              className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-colors shadow-xl"
+            >
+              {t("editPayouts")}
+            </button>
+          </div>
+        );
+      } else {
+        if (createMode === "choice") {
+          content = (
+            <div className="max-w-5xl mx-auto p-4 md:p-8 animate-in fade-in">
+              <h1 className="text-3xl font-black mb-8 text-center text-[#0A1128]">Kaj želite ustvariti?</h1>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div 
+                  onClick={() => setCreateMode("single")}
+                  className="bg-white p-8 rounded-3xl shadow-lg border-2 border-transparent hover:border-blue-500 cursor-pointer transition-all hover:-translate-y-1 group"
+                >
+                  <div className="bg-blue-50 w-20 h-20 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                    <span className="text-4xl">📄</span>
+                  </div>
+                  <h2 className="text-2xl font-bold mb-4">Enojna dražba</h2>
+                  <p className="text-gray-500 line-height-relaxed">
+                    Objavite en posamezen predmet. Idealno za večino prodajalcev, ki želijo prodati določen artikel.
+                  </p>
+                </div>
+                
+                <div 
+                  onClick={() => setCreateMode("package")}
+                  className="bg-white p-8 rounded-3xl shadow-lg border-2 border-transparent hover:border-blue-500 cursor-pointer transition-all hover:-translate-y-1 group relative overflow-hidden"
+                >
+                  <div className="absolute top-6 right-6 bg-blue-600 text-white text-xs font-bold px-3 py-1 rounded-full">NOVO</div>
+                  <div className="bg-blue-50 w-20 h-20 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                    <span className="text-4xl">📦</span>
+                  </div>
+                  <h2 className="text-2xl font-bold mb-4">Paket dražb</h2>
+                  <p className="text-gray-500 line-height-relaxed">
+                    Združite več artiklov v en paket. Račun za provizijo se obračuna šele, ko poteče ZADNJA dražba v paketu. Vsi zmagani artikli istega kupca se združijo na 1 račun.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-8 text-center">
+                <button onClick={() => { setActiveView("grid"); setCreateMode("choice"); }} className="text-gray-500 hover:text-black font-bold">
+                  Nazaj na domačo stran
+                </button>
+              </div>
+            </div>
+          );
+        } else if (createMode === "single") {
+          content = (
+            <CreateAuctionForm
+              onBack={() => {
+                setCreateMode("choice");
+                setRepublishData(null);
+              }}
+              t={t}
+              language={language}
+              onPublish={handlePublish}
+              isLoggedIn={isLoggedIn}
+              initialData={republishData}
+              userData={userData}
+              onNavigateToSettings={(tab) => {
+                setSettingsTab(tab || 'personal');
+                setActiveView("settings");
+              }}
+            />
+          );
+        } else {
+          content = (
+            <CreatePackageForm
+              onBack={() => setCreateMode("choice")}
+              t={t}
+              language={language}
+              onPublishPackage={handlePublishPackage}
+              onPublishItemDirectly={async (itemData: any, pkgTitle: string, packageId: string) => {
+                 if (!userData?.id) return;
+                 const getConditionTranslations = (cond: string) => {
+                    switch (cond) {
+                    case "Novo": return { SLO: "Novo", EN: "New", DE: "Neu" };
+                    case "Kot novo": return { SLO: "Kot novo", EN: "Like New", DE: "Wie Neu" };
+                    case "Rabljeno": return { SLO: "Rabljeno", EN: "Used", DE: "Gebraucht" };
+                    case "Potrebno obnove": return { SLO: "Potrebno obnove", EN: "Needs Restoration", DE: "Restaurierungsbedürftig" };
+                    case "Za dele": return { SLO: "Za dele", EN: "For Parts", DE: "Für Ersatzteile" };
+                    default: return { SLO: cond, EN: cond, DE: cond };
+                    }
+                 };
+                 const payload = {
+                    ...itemData,
+                    title: { SLO: itemData.title?.SLO || itemData.title, EN: itemData.title?.SLO || itemData.title, DE: itemData.title?.SLO || itemData.title },
+                    description: { SLO: itemData.description, EN: itemData.description, DE: itemData.description },
+                    current_price: parseInt(itemData.startingPrice),
+                    bid_count: 0,
+                    item_count: 1,
+                    end_time: itemData.endTime,
+                    location: itemData.location || { SLO: "Neznano", EN: "Unknown", DE: "Unbekannt" },
+                    region: itemData.region || "Osrednjeslovenska",
+                    category: itemData.category || "Ostalo",
+                    condition: getConditionTranslations(itemData.condition || "Rabljeno"),
+                    specifications: {},
+                    bidding_history: [],
+                    top_bids: [],
+                    winner_id: null,
+                    winnerId: null,
+                    payment_status: 'unpaid',
+                    post_auction_status: null,
+                    images: itemData.images,
+                    delivery_option: itemData.delivery_option || 'both',
+                    shipping_fee_type: itemData.shipping_fee_type || 'calculated',
+                    shipping_cost: itemData.shipping_cost !== undefined ? itemData.shipping_cost : null,
+                    is_package: true,
+                    package_id: packageId,
+                    package_title: pkgTitle
+                 };
+                 const res = await createAuctionAction({ itemData: payload, user_id: userData.id });
+                 if (!res.success) throw new Error(res.error || "Failed to publish item");
+              }}
+              isLoggedIn={isLoggedIn}
+              userData={userData}
+              onNavigateToSettings={(tab) => {
+                setSettingsTab(tab || 'personal');
+                setActiveView("settings");
+              }}
+            />
+          );
+        }
+      }
+      break;
+    case "detail":
+      if (selectedItem) {
+        content = (
+          <AuctionView
+            item={auctions.find(a => a.id === selectedItem.id) || selectedItem}
+            t={t}
+            language={language}
+            isVerified={isVerified}
+            isWatched={watchedIds.includes(selectedItem.id)}
+            onWatchToggle={() => toggleWatch(selectedItem.id)}
+            currentPlan={currentPlan}
+            currentUserId={userData.id}
+            onBack={() => {
+              setActiveView("grid");
+              setSelectedItem(null);
+            }}
+            onBidSubmit={handleBidSubmit}
+            onCheckout={(item) => {
+              setCheckoutData({
+                amount: item.currentBid || item.current_price,
+                title:
+                  item.title?.[language] ||
+                  item.title?.["SLO"] ||
+                  t("auctionFallback"),
+                onSuccess: async () => {
+                  setIsCheckoutOpen(false);
+                  await setDoc(doc(db, 'auctions', item.id), { payment_status: 'paid', post_auction_status: 'paid', status: 'completed', paid_at: new Date().toISOString() }, { merge: true });
+                  toast.success(t("paymentSuccess"));
+                  setSelectedItem((prev: any) => prev?.id === item.id ? { ...prev, payment_status: 'paid', post_auction_status: 'paid', status: 'completed', paid_at: new Date().toISOString() } : prev);
+                  fetchAuctions();
+                  if (userData?.id) refreshUserData(userData.id);
+                },
+                metadata: {
+                  auction_id: item.id,
+                  buyer_id: userData.id,
+                  seller_id: item.sellerId || item.seller_id,
+                  fee_percentage: 10,
+                  buyer_data: userData,
+                },
+              });
+              setIsCheckoutOpen(true);
+            }}
+            onSellerClick={(sellerId) => {
+              const s = [].find((s) => s.id === sellerId);
+              if (s) setSelectedSeller(s);
+              else if (typeof sellerId !== "string")
+                setSelectedSeller(sellerId);
+              setActiveView("sellerProfile");
+              window.scrollTo({ top: 0, behavior: "instant" });
+            }}
+          />
+        );
+      }
+      break;
+    
+    case "verification":
+      content = (
+        <VerificationView
+          onBack={() => setActiveView("grid")}
+          t={t}
+          isVerified={isVerified}
+          userType={userType}
+          initialData={userData}
+          onVerify={async (type, data) => {
+            console.log(
+              "Starting verification process for type:",
+              type,
+              "with data:",
+              data,
+            );
+            try {
+              let userId = auth.currentUser?.uid || userData?.id;
+
+              if (!userId) {
+                console.log("No userId in state, fetching session...");
+                const user = auth.currentUser;
+      const session = user ? { user: { id: user.uid, email: user.email } } : null;
+                userId = session?.user?.id || "";
+                console.log("Session fetched:", userId);
+              } else {
+                console.log("Using userId from state:", userId);
+              }
+
+              if (!userId) {
+                throw new Error("Uporabnik ni prijavljen.");
+              }
+
+              // Prepare data to override ALL relevant fields
+              const updateData: any = {
+                id: userId,
+                email: data.email,
+                is_verified: true,
+                isVerified: true,
+                user_type: type,
+                userType: type,
+                first_name: data.firstName || '',
+                firstName: data.firstName || '',
+                last_name: data.lastName || '',
+                lastName: data.lastName || '',
+                street: data.street || '',
+                city: data.city || '',
+                postal_code: data.postalCode || '',
+                postalCode: data.postalCode || '',
+                tax_number: data.taxNumber || '',
+                taxNumber: data.taxNumber || '',
+                tax_id: data.taxNumber || '',
+                taxId: data.taxNumber || '',
+                registration_number: data.regNumber || '',
+                regNumber: data.regNumber || '',
+                company_name: data.companyName || '',
+                companyName: data.companyName || '',
+                company_street: data.companyStreet || '',
+                companyStreet: data.companyStreet || '',
+                company_city: data.companyCity || '',
+                companyCity: data.companyCity || '',
+                company_postal_code: data.companyPostalCode || '',
+                companyPostalCode: data.companyPostalCode || '',
+                representative: data.representative || '',
+                address: type === 'individual' 
+                  ? `${data.street || ''}, ${data.postalCode || ''} ${data.city || ''}`.trim().replace(/^,|,$/g, '').trim()
+                  : `${data.companyStreet || ''}, ${data.companyPostalCode || ''} ${data.companyCity || ''}`.trim().replace(/^,|,$/g, '').trim(),
+              };
+
+              console.log("Updating verification data:", updateData);
+
+              const updatePromise = (async () => {
+                try {
+                  await setDoc(doc(db, 'users', userId), updateData, { merge: true });
+                  const snap = await getDoc(doc(db, 'users', userId));
+                  return { data: snap.exists() ? { id: snap.id, ...snap.data() } : null, error: null };
+                } catch(e) { return { data: null, error: e }; }
+              })();
+
+              const timeoutPromise = new Promise<{ data: any; error: any }>(
+                (resolve) =>
+                  setTimeout(
+                    () =>
+                      resolve({
+                        data: null,
+                        error: {
+                          message:
+                            "Povezava s strežnikom je potekla. Prosimo, osvežite stran in poskusite znova.",
+                        },
+                      }),
+                    8000,
+                  ),
+              );
+
+              const { data: updatedUser, error } = (await Promise.race([
+                updatePromise,
+                timeoutPromise,
+              ])) as any;
+
+              if (error) {
+                console.error("Supabase update error:", error);
+                throw new Error(`Napaka pri shranjevanju: ${error.message}`);
+              }
+
+              console.log(
+                "Verification data saved successfully. Updating state...",
+              );
+              setIsVerified(true);
+              setUserType(type);
+
+              if (updatedUser) {
+                console.log("Updated user data fetched:", updatedUser);
+                setUserData((prev) => ({
+                  ...prev,
+                  ...updatedUser,
+                  id: userId,
+                  is_verified: true,
+                }));
+              }
+
+              toast.success("Verifikacija uspešna!");
+              return true;
+            } catch (err: any) {
+              console.error("Detailed verification error:", err);
+              toast.error(
+                err.message || "Prišlo je do napake pri verifikaciji.",
+              );
+              throw err;
+            }
+          }}
+        />
+      );
+      break;
+    case "settings":
+      content = (
+        <SettingsView
+          t={t}
+          language={language}
+          user={userData}
+          onSave={handleSaveSettings}
+          onVerify={() => setActiveView("verification")}
+          onStripeVerified={handleStripeVerified}
+          onRefreshUser={() => refreshUserData(userData.id)}
+          activeTab={settingsTab}
+          setActiveTab={setSettingsTab}
+        />
+      );
+      break;
+    case "subscriptions":
+      content = (
+        <SubscriptionsView
+          t={t}
+          currentPlan={currentPlan}
+          onSubscribe={handleSubscribe}
+          isVerified={isVerified}
+          isCanceled={isSubscriptionCanceled}
+          nextBillingDate={nextBillingDate}
+          onCancelSubscription={() => {
+            setIsSubscriptionCanceled(true);
+            toast.success(
+              "Avtomatska bremenitev je preklicana. Naročnina vam ostane veljavna do konca obračunskega obdobja.",
+            );
+          }}
+        />
+      );
+      break;
+    case "myBids":
+      content = (
+        <div className="max-w-[1600px] mx-auto py-16 px-6 animate-in">
+          <button
+            onClick={() => setActiveView("grid")}
+            className="flex items-center gap-2 text-slate-400 mb-10 font-black uppercase text-[10px] tracking-widest hover:text-[#0A1128] transition-colors"
+          >
+            <ArrowLeft size={16} /> {t("back")}
+          </button>
+          <div className="bg-white rounded-[4rem] p-12 shadow-2xl border border-slate-100 min-h-[500px]">
+            <div className="flex items-center gap-6 mb-12">
+              <div className="bg-[#FEBA4F] p-4 rounded-3xl shadow-lg shadow-[#FEBA4F]/20">
+                <Gavel size={40} className="text-[#0A1128]" />
+              </div>
+              <div>
+                <h2 className="text-4xl font-black uppercase tracking-tighter text-[#0A1128]">
+                  {t("myBids")}
+                </h2>
+                <p className="text-slate-400 font-bold mt-2">
+                  {t("myBidsDesc")}
+                </p>
+              </div>
+            </div>
+
+            <div
+              className="grid gap-8 justify-center"
+              style={{
+                gridTemplateColumns: "repeat(auto-fit, minmax(320px, 320px))",
+              }}
+            >
+              {auctions
+                .filter(
+                  (a) =>
+                    a.status === "active" && new Date(a.endTime) > new Date() &&
+                    ((a.top_bids && a.top_bids.some((b: any) => b.user_id === userData.id)) || bidAuctionIds.includes(a.id)),
+                )
+                .map((item) => (
+                  <AuctionCard
+                    key={item.id}
+                    item={item}
+                    t={t}
+                    language={language}
+                    isVerified={isVerified}
+                    currentUserId={userData.id}
+                    hasBid={true}
+                    isWatched={watchedIds.includes(item.id)}
+                    onWatchToggle={() => toggleWatch(item.id)}
+                    onClick={() => {
+                      setSelectedItem(item);
+                      setActiveView("detail");
+                    }}
+                    onBidSubmit={handleBidSubmit}
+                    onSellerClick={(seller) => {
+                      setSelectedSeller(seller);
+                      setActiveView("sellerProfile");
+                    }}
+                  />
+                ))}
+              {auctions
+                .filter((a) => bidAuctionIds.includes(a.id))
+                .filter(
+                  (a) =>
+                    a.status === "active" && new Date(a.endTime) > new Date(),
+                ).length === 0 && (
+                <div className="col-span-full py-20 text-center bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200">
+                  <Gavel size={48} className="mx-auto mb-4 text-slate-300" />
+                  <p className="text-slate-500 font-black uppercase tracking-widest text-xs">
+                    {t("noBids")}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+      break;
+    case "sellerProfile":
+      if (selectedSeller) {
+        content = (
+          <SellerView
+            seller={selectedSeller}
+            onBack={() => setActiveView("grid")}
+            onAuctionClick={(item) => {
+              setSelectedItem(item);
+              setActiveView("detail");
+            }}
+            t={t}
+            language={language}
+            isLoggedIn={isLoggedIn}
+            currentUserWinnings={currentUserWinnings}
+            auctions={auctions}
+          />
+        );
+      }
+      break;
+    case "winnings":
+      content = (
+        <div className="max-w-[1600px] mx-auto py-16 px-6 animate-in">
+          <button
+            onClick={() => setActiveView("grid")}
+            className="flex items-center gap-2 text-slate-400 mb-10 font-black uppercase text-[10px] tracking-widest hover:text-[#0A1128] transition-colors"
+          >
+            <ArrowLeft size={16} /> Nazaj
+          </button>
+          <div className="bg-white rounded-[4rem] p-12 shadow-2xl border border-slate-100 min-h-[500px]">
+            <div className="flex items-center gap-6 mb-12">
+              <div className="bg-[#FEBA4F] p-4 rounded-3xl shadow-lg shadow-[#FEBA4F]/20">
+                <Trophy size={40} className="text-[#0A1128]" />
+              </div>
+              <div>
+                <h2 className="text-4xl font-black uppercase tracking-tighter text-[#0A1128]">
+                  {t("myWinnings")}
+                </h2>
+                <p className="text-slate-400 font-bold mt-2">
+                  Pregled in plačilo dobljenih dražb
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-6">
+              {currentUserWinnings.length === 0 ? (
+                <div className="py-12 text-center">
+                  <p className="text-slate-500 font-black uppercase tracking-widest text-lg">
+                    {t("noWinnings")}
+                  </p>
+                </div>
+              ) : (
+                currentUserWinnings.map((wonItem) => {
+                  const feePercentage =
+                    currentPlan === SubscriptionTier.PRO
+                      ? 5
+                      : currentPlan === SubscriptionTier.BASIC
+                        ? 10
+                        : 12;
+                  const commissionNet = calculateMarginalPlatformFee(
+                    wonItem.currentBid,
+                    currentPlan,
+                  );
+                  const totalAmountToPay =
+                    wonItem.currentBid + commissionNet * 1.22;
+
+                  return (
+                    <div
+                      key={wonItem.id}
+                      className="flex flex-col md:flex-row items-center gap-8 p-6 rounded-[2.5rem] border-2 border-slate-100 hover:border-[#FEBA4F] transition-colors group"
+                    >
+                      <div
+                        className="w-32 h-32 shrink-0 bg-slate-100 rounded-3xl overflow-hidden shadow-md group-hover:scale-105 transition-transform cursor-pointer"
+                        onClick={() => {
+                          setSelectedItem(wonItem);
+                          setActiveView("detail");
+                          window.scrollTo({ top: 0, behavior: "instant" });
+                        }}
+                      >
+                        {wonItem.images &&
+                          wonItem.images.length > 0 &&
+                          typeof wonItem.images[0] === "string" && (
+                            <SignedImg
+                              src={
+                                wonItem.images[0]
+
+
+
+                              }
+                              alt="Item"
+                              className="w-full h-full object-cover"
+                            />
+                          )}
+                      </div>
+                      <div className="flex-1 text-center md:text-left">
+                        <h3
+                          className="text-2xl font-black uppercase tracking-tighter text-[#0A1128] mb-2 cursor-pointer hover:text-[#FEBA4F] transition-colors"
+                          onClick={() => {
+                            setSelectedItem(wonItem);
+                            setActiveView("detail");
+                            window.scrollTo({ top: 0, behavior: "instant" });
+                          }}
+                        >
+                          {wonItem.title[
+                            language as keyof typeof wonItem.title
+                          ] || wonItem.title.SLO}
+                        </h3>
+                        <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 text-sm font-bold text-slate-400 mt-2">
+                          <span className="flex items-center gap-1.5 bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200">
+                            <Gavel size={16} /> Končni znesek (vklj. s provizijo
+                            in DDV):{" "}
+                            <span className="text-[#0A1128] font-black">
+                              €
+                              {totalAmountToPay.toLocaleString("sl-SI", {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}
+                            </span>
+                          </span>
+                          {wonItem.payment_status !== "paid" && (
+                            <PaymentTimer endTime={wonItem.endTime} />
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-3 w-full lg:w-auto shrink-0 mt-4 md:mt-0">
+                        {wonItem.payment_status === "paid" ? (
+                          <div className="flex flex-col items-center md:items-end gap-3 w-full">
+                            <div className="flex flex-col items-center md:items-end gap-1 w-full">
+                              <div className="bg-green-50 text-green-600 px-6 py-2 rounded-2xl font-black uppercase tracking-widest text-sm flex items-center gap-2 border-2 border-green-100 w-full justify-center md:w-auto md:justify-end">
+                                <CheckCircle2 size={16} /> Plačano
+                              </div>
+                              {wonItem.paid_at && (
+                                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
+                                  Plačano dne:{" "}
+                                  {new Date(wonItem.paid_at).toLocaleDateString(
+                                    "sl-SI",
+                                  )}
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="flex flex-col sm:flex-row gap-3 w-full shrink-0">
+                              <div className="flex flex-col gap-3 flex-1 min-w-[150px]">
+                                <button
+                                  onClick={() => {
+                                    setSelectedItem(wonItem);
+                                    setActiveView("detail");
+                                    window.scrollTo({ top: 0, behavior: "instant" });
+                                  }}
+                                  className="bg-slate-100 text-[#0A1128] px-4 py-3 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-[#FEBA4F] transition-all shadow-sm flex items-center justify-center gap-2 h-[42px]"
+                                >
+                                  Odpri dražbo
+                                </button>
+                                
+                                <button
+                                  onClick={() => {
+                                    const seller = usersMap.get(wonItem.sellerId);
+                                    setInvoiceModalData({
+                                      isOpen: true,
+                                      auction: wonItem,
+                                      seller: seller,
+                                      buyer: userData
+                                    });
+                                  }}
+                                  className="bg-slate-100 text-[#0A1128] border-2 border-slate-200 px-4 py-3 rounded-2xl font-black uppercase tracking-widest text-xs hover:border-slate-400 hover:bg-slate-200 transition-all flex items-center justify-center gap-1.5 h-[42px] mt-auto"
+                                >
+                                  <FileText size={14} /> Račun
+                                </button>
+                              </div>
+
+                              <div className="flex flex-col gap-3 flex-1 min-w-[150px]">
+                                {wonItem.delivery_method !== "post" ? (
+                                  <button
+                                    onClick={() => {
+                                      setActiveConversationId(wonItem.id);
+                                      setActiveView("messages");
+                                      window.scrollTo({
+                                        top: 0,
+                                        behavior: "instant",
+                                      });
+                                    }}
+                                    className="bg-[#FEBA4F] text-[#0A1128] px-4 py-3 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-[#0A1128] hover:text-[#FEBA4F] transition-all flex items-center justify-center gap-2 h-[42px]"
+                                  >
+                                    <MessageSquare size={14} /> Sporočila
+                                  </button>
+                                ) : (
+                                  <div className="h-[42px] hidden sm:block"></div>
+                                )}
+
+                                <div className="flex flex-col items-center justify-center gap-2 mt-auto h-[42px] w-full">
+                                  {wonItem.buyer_received ? (
+                                    <div className="text-green-500 font-bold text-[10px] uppercase flex items-center gap-1 w-full justify-center bg-green-50 py-2 rounded-xl border border-green-100">
+                                      <CheckCircle2 size={12} /> Predmet prejet
+                                    </div>
+                                  ) : (
+                                    <button
+                                      onClick={() =>
+                                        setReceiptConfirmModal({
+                                          isOpen: true,
+                                          auctionId: wonItem.id,
+                                          sellerId: wonItem.sellerId,
+                                        })
+                                      }
+                                      className="bg-white border-2 border-slate-200 text-[#0A1128] px-4 py-2 rounded-xl font-bold text-[10px] uppercase tracking-widest hover:border-[#FEBA4F] transition-all w-full h-[42px] flex items-center justify-center"
+                                    >
+                                      Potrdi prejem
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col gap-2 w-full">
+                            {wonItem.post_auction_status !== 'offered_2nd' && wonItem.post_auction_status !== 'rejected_2nd' && (
+                              <button
+                                onClick={async () => {
+                                  setCheckoutData({
+                                    amount: parseFloat(
+                                      totalAmountToPay.toFixed(2),
+                                    ),
+                                    title: `${t("paymentFor")}: ${wonItem.title[language as keyof typeof wonItem.title] || wonItem.title.SLO}`,
+                                    onSuccess: async () => {
+                                      setIsCheckoutOpen(false);
+                                      await setDoc(doc(db, 'auctions', wonItem.id), { payment_status: 'paid', paid_at: new Date().toISOString(), post_auction_status: 'paid', status: 'completed' }, { merge: true });
+                                      toast.success(t("paymentSuccessEmail"));
+                                      fetchAuctions();
+                                      if (userData?.id) refreshUserData(userData.id);
+                                    },
+                                    metadata: {
+                                      auction_id: wonItem.id,
+                                      buyer_id: userData.id,
+                                      seller_id: wonItem.sellerId,
+                                      fee_percentage: feePercentage,
+                                      buyer_data: userData,
+                                    },
+                                  });
+                                  setIsCheckoutOpen(true);
+                                }}
+                                className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl flex items-center justify-center gap-2"
+                              >
+                                <CardIcon size={18} /> Plačaj zdaj
+                              </button>
+                            )}
+                            {wonItem.delivery_method !== "post" && (
+                              <button
+                                onClick={() => {
+                                  setActiveConversationId(wonItem.id);
+                                  setActiveView("messages");
+                                  window.scrollTo({
+                                    top: 0,
+                                    behavior: "instant",
+                                  });
+                                }}
+                                className="bg-[#FEBA4F] text-[#0A1128] px-8 py-3 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#0A1128] hover:text-[#FEBA4F] transition-all flex items-center justify-center gap-2"
+                              >
+                                <MessageSquare size={18} /> Sporočila
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      );
+      break;
+    case "mySold":
+      const currentUserSold = auctions.filter(
+        (a) =>
+          (a.sellerId === userData.id ||
+            (a as any).seller_id === userData.id) &&
+          (a.status === "completed" || new Date(a.endTime) <= new Date()) &&
+          !!(a.winnerId || (a as any).winner_id),
+      );
+      content = (
+        <div className="max-w-[1600px] mx-auto py-16 px-6 animate-in">
+          <button
+            onClick={() => setActiveView("grid")}
+            className="flex items-center gap-2 text-slate-400 mb-10 font-black uppercase text-[10px] tracking-widest hover:text-[#0A1128] transition-colors"
+          >
+            <ArrowLeft size={16} /> Nazaj
+          </button>
+          <div className="bg-white rounded-[4rem] p-12 shadow-2xl border border-slate-100 min-h-[500px]">
+            <div className="flex items-center gap-6 mb-12">
+              <div className="bg-[#FEBA4F] p-4 rounded-3xl shadow-lg shadow-[#FEBA4F]/20">
+                <CreditCard size={40} className="text-[#0A1128]" />
+              </div>
+              <div>
+                <h2 className="text-4xl font-black uppercase tracking-tighter text-[#0A1128]">
+                  Prodane dražbe
+                </h2>
+                <p className="text-slate-400 font-bold mt-2">
+                  Pregled vaših zaključenih in prodanih dražb
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-6">
+              {currentUserSold.length === 0 ? (
+                <div className="py-12 text-center">
+                  <p className="text-slate-500 font-black uppercase tracking-widest text-lg">
+                    Nimate prodanih dražb
+                  </p>
+                </div>
+              ) : (
+                currentUserSold.map((soldItem) => {
+                  const winnerId = soldItem.winnerId || (soldItem as any).winner_id || soldItem.second_highest_bidder_id || ((soldItem as any).top_bids && (soldItem as any).top_bids[0]?.bidder_id);
+                  const buyer = winnerId ? usersMap.get(winnerId) : null;
+                  const isPostalShipping = soldItem.delivery_method === "post" ||
+                    soldItem.delivery_method === "shipping" ||
+                    (soldItem as any).selected_delivery === "post" ||
+                    (soldItem as any).selected_delivery === "shipping" ||
+                    (soldItem as any).delivery_option === "shipping_only";
+
+                  const buyerName = buyer?.company_name
+                    ? buyer.company_name
+                    : buyer?.first_name || buyer?.firstName
+                    ? `${buyer.first_name || buyer.firstName} ${buyer.last_name || buyer.lastName || ''}`.trim()
+                    : buyer?.username || buyer?.email || "Kupec";
+                  const buyerAddress = buyer?.address || buyer?.street_address || "";
+                  const buyerPostalCode = buyer?.postal_code || buyer?.postcode || "";
+                  const buyerCity = buyer?.city || buyer?.place || "";
+                  const buyerPhone = buyer?.phone || buyer?.phone_number || buyer?.telephone || "";
+                  const buyerEmail = buyer?.email || "";
+
+                  return (
+                    <div
+                      key={soldItem.id}
+                      className="flex flex-col lg:flex-row items-start lg:items-center gap-8 p-6 sm:p-8 rounded-[2.5rem] border-2 border-slate-100 hover:border-[#FEBA4F] transition-colors group bg-white shadow-sm"
+                    >
+                      <div
+                        className="w-32 h-32 shrink-0 bg-slate-100 rounded-3xl overflow-hidden shadow-md group-hover:scale-105 transition-transform cursor-pointer"
+                        onClick={() => {
+                          setSelectedItem(soldItem);
+                          setActiveView("detail");
+                          window.scrollTo({ top: 0, behavior: "instant" });
+                        }}
+                      >
+                        {soldItem.images &&
+                          soldItem.images.length > 0 &&
+                          typeof soldItem.images[0] === "string" && (
+                            <SignedImg
+                              src={soldItem.images[0]}
+                              alt="Item"
+                              className="w-full h-full object-cover"
+                            />
+                          )}
+                      </div>
+                      <div className="flex-1 text-left w-full">
+                        <h3
+                          className="text-2xl font-black uppercase tracking-tighter text-[#0A1128] mb-2 cursor-pointer hover:text-[#FEBA4F] transition-colors"
+                          onClick={() => {
+                            setSelectedItem(soldItem);
+                            setActiveView("detail");
+                            window.scrollTo({ top: 0, behavior: "instant" });
+                          }}
+                        >
+                          {soldItem.title[
+                            language as keyof typeof soldItem.title
+                          ] || soldItem.title.SLO}
+                        </h3>
+                        <div className="flex flex-wrap items-center gap-4 text-sm font-bold text-slate-400">
+                          <span className="flex items-center gap-1.5">
+                            <Gavel size={16} /> Prodajna cena:{" "}
+                            <span className="text-[#0A1128] font-black">
+                              €
+                              {soldItem.currentBid.toLocaleString("sl-SI", {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}
+                            </span>
+                          </span>
+                          {soldItem.payment_status === "paid" ? (
+                            <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
+                              <CheckCircle2 size={12} /> Plačano
+                            </span>
+                          ) : soldItem.post_auction_status === "failed_1st" ? (
+                            <span className="bg-red-100 text-red-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
+                              <AlertCircle size={12} /> Zmagovalec ni plačal
+                            </span>
+                          ) : soldItem.post_auction_status === "offered_2nd" ? (
+                            <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
+                              <Clock size={12} /> Čaka na odločitev 2. ponudnika
+                            </span>
+                          ) : soldItem.post_auction_status === "awaiting_payment_2nd" ? (
+                            <span className="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
+                              <Clock size={12} /> Čaka na plačilo (2. ponudnik)
+                            </span>
+                          ) : (
+                            <span className="bg-yellow-100 text-yellow-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
+                              <Clock size={12} /> Čaka na plačilo
+                            </span>
+                          )}
+                        </div>
+
+                        {/* SHIPPING DETAILS BOX (WHEN POSTAL DELIVERY) */}
+                        {isPostalShipping && (
+                          <div className="mt-4 p-4 rounded-2xl bg-slate-50 border border-slate-200">
+                            <div className="flex items-center justify-between gap-2 mb-2.5 pb-2 border-b border-slate-200">
+                              <span className="text-xs font-black uppercase tracking-wider text-[#0A1128] flex items-center gap-1.5">
+                                <Truck size={15} className="text-[#FEBA4F]" /> Podatki kupca za pošiljanje po pošti
+                              </span>
+                              <button
+                                onClick={() => {
+                                  const text = `${buyerName}\n${buyerAddress}\n${buyerPostalCode} ${buyerCity}\n${buyerPhone ? 'Tel: ' + buyerPhone : ''}\n${buyerEmail ? 'Email: ' + buyerEmail : ''}`;
+                                  navigator.clipboard.writeText(text);
+                                  toast.success("Naslov kupca je skopiran v odložišče!");
+                                }}
+                                className="text-[10px] font-black uppercase tracking-wider text-slate-600 hover:text-[#0A1128] bg-white px-3 py-1 rounded-lg border border-slate-200 shadow-sm transition-colors"
+                              >
+                                Kopiraj naslov
+                              </button>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-xs font-bold text-slate-600">
+                              <div>
+                                <span className="text-slate-400 font-medium block text-[10px] uppercase">Prejemnik</span>
+                                <span className="text-[#0A1128] font-black">{buyerName}</span>
+                              </div>
+                              <div>
+                                <span className="text-slate-400 font-medium block text-[10px] uppercase">Naslov</span>
+                                <span className="text-[#0A1128]">{buyerAddress || "Naslov ni vnesen"}</span>
+                              </div>
+                              <div>
+                                <span className="text-slate-400 font-medium block text-[10px] uppercase">Kraj in Pošta</span>
+                                <span className="text-[#0A1128]">{buyerPostalCode} {buyerCity || "Kraj ni vnesen"}</span>
+                              </div>
+                              <div>
+                                <span className="text-slate-400 font-medium block text-[10px] uppercase">Kontakt</span>
+                                <span className="text-[#0A1128] truncate">{buyerPhone || buyerEmail || "Ni podatka"}</span>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto shrink-0">
+                        <div className="flex flex-col gap-3 flex-1 min-w-[180px]">
+                        <button
+                          onClick={() => {
+                            setSelectedItem(soldItem);
+                            setActiveView("detail");
+                            window.scrollTo({ top: 0, behavior: "instant" });
+                          }}
+                          className="bg-slate-100 text-[#0A1128] px-4 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] transition-all shadow-sm flex items-center justify-center gap-2"
+                        >
+                          Odpri dražbo
+                        </button>
+                        {soldItem.post_auction_status === "failed_1st" && (
+                          <>
+                            {soldItem.top_bids && soldItem.top_bids.length > 1 ? (
+                              <button
+                                onClick={() => handleOfferToSecondBidder(soldItem)}
+                                className="bg-blue-600 text-white px-8 py-3 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-blue-700 transition-all flex items-center justify-center gap-2"
+                              >
+                                Ponudi 2. ponudniku
+                              </button>
+                            ) : (
+                              <p className="text-xs text-red-500 font-bold text-center">Ni 2. ponudnika</p>
+                            )}
+                            <button
+                              onClick={() => handleMoveToArchive(soldItem)}
+                              className="bg-red-100 text-red-700 px-8 py-3 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-red-200 transition-all flex items-center justify-center gap-2"
+                            >
+                              Premakni v arhiv
+                            </button>
+                          </>
+                        )}
+
+                        {soldItem.payment_status === "paid" && (
+                          <button
+                            onClick={() => {
+                              setInvoiceModalData({
+                                isOpen: true,
+                                auction: soldItem,
+                                seller: userData,
+                                buyer: buyer
+                              });
+                            }}
+                            className="bg-slate-100 text-[#0A1128] border-2 border-slate-200 px-4 py-3.5 rounded-2xl font-black uppercase tracking-widest text-sm hover:border-slate-400 hover:bg-slate-200 transition-all flex items-center justify-center gap-2 mt-auto"
+                          >
+                            <FileText size={16} /> Račun
+                          </button>
+                        )}
+                        </div>
+                        <div className="flex flex-col gap-3 flex-1 min-w-[180px]">
+                        {/* Sporočila button: ONLY shown for personal pickup, NOT for postal shipping */}
+                        {!isPostalShipping ? (
+                          <button
+                            onClick={() => {
+                              setActiveConversationId(soldItem.id);
+                              setActiveView("messages");
+                              window.scrollTo({ top: 0, behavior: "instant" });
+                            }}
+                            className="bg-[#FEBA4F] text-[#0A1128] px-4 py-3.5 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#0A1128] hover:text-[#FEBA4F] transition-all flex items-center justify-center gap-2 shadow-sm"
+                          >
+                            <MessageSquare size={16} /> Sporočila
+                          </button>
+                        ) : (
+                          <div className="h-[52px] hidden sm:block"></div>
+                        )}
+
+                        <div className="flex flex-col items-center gap-2 mt-1">
+                          {soldItem.delivery_method ? (
+                            <div className="text-xs font-bold text-slate-500 bg-slate-50 px-3.5 py-1.5 rounded-xl border border-slate-100 flex items-center gap-1.5">
+                              {soldItem.delivery_method === "pickup" ? (
+                                <MapPin size={14} className="text-[#FEBA4F]" />
+                              ) : (
+                                <Truck size={14} className="text-[#FEBA4F]" />
+                              )}
+                              {soldItem.delivery_method === "pickup"
+                                ? "Osebni prevzem"
+                                : "Pošiljanje po pošti"}
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() =>
+                                setDeliveryMethodModal({
+                                  isOpen: true,
+                                  auctionId: soldItem.id,
+                                  deliveryMethod: null,
+                                })
+                              }
+                              className="text-xs font-bold text-[#0A1128] border-2 border-slate-200 px-4 py-2 rounded-xl hover:border-[#FEBA4F] hover:text-[#FEBA4F] transition-colors whitespace-nowrap"
+                            >
+                              Izberi način predaje
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      );
+      break;
+    case "myUnsold":
+      // Filter: seller is current user, auction has ended AND (no winner OR unpaid/unsold status)
+      // Keep only those whose status is not 'archived'/'deleted'
+      const nowMs = Date.now();
+      const currentUserUnsold = auctions.filter(
+        (a) =>
+          (a.sellerId === userData.id ||
+            (a as any).seller_id === userData.id) &&
+          (a.status === "completed" || new Date(a.endTime) <= new Date()) &&
+          (a.post_auction_status === "unsold" || a.post_auction_status === "unpaid" || a.post_auction_status === "failed_2nd" || a.post_auction_status === "rejected_2nd" || (!a.winnerId && !(a as any).winner_id)) &&
+          (a as any).status !== "archived" && (a as any).status !== "deleted"
+      ).filter(a => {
+        // Must be within 1 month from end time to be shown here
+        const endMs = new Date(a.endTime || (a as any).end_time).getTime();
+        const oneMonthMs = 30 * 24 * 60 * 60 * 1000;
+        return (nowMs - endMs) <= oneMonthMs;
+      });
+
+      content = (
+        <div className="max-w-[1600px] mx-auto py-16 px-6 animate-in">
+          <button
+            onClick={() => setActiveView("grid")}
+            className="flex items-center gap-2 text-slate-400 mb-10 font-black uppercase text-[10px] tracking-widest hover:text-[#0A1128] transition-colors"
+          >
+            <ArrowLeft size={16} /> Nazaj
+          </button>
+
+          <div className="bg-white rounded-[4rem] p-12 shadow-2xl border border-slate-100 min-h-[500px]">
+            <div className="flex items-center gap-6 mb-12">
+              <div className="bg-slate-100 p-4 rounded-3xl shadow-lg">
+                <MessageSquare size={40} className="text-slate-400" />
+              </div>
+              <div>
+                <h2 className="text-4xl font-black uppercase tracking-tighter text-[#0A1128]">
+                  {t('unsoldAuctions')}
+                </h2>
+                <p className="text-slate-400 font-bold mt-2">
+                  Dražbe, ki se niso uspešno zaključile s prodajo. Na voljo za ponovno objavo 1 mesec od zaključka.
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-6">
+              {currentUserUnsold.length === 0 ? (
+                <div className="py-12 text-center">
+                  <p className="text-slate-500 font-black uppercase tracking-widest text-lg">
+                    Seznam je prazen
+                  </p>
+                </div>
+              ) : (
+                currentUserUnsold.map((soldItem) => {
+                  const endMs = new Date(soldItem.endTime || (soldItem as any).end_time).getTime();
+                  const expireMs = endMs + 30 * 24 * 60 * 60 * 1000;
+                  const daysLeft = Math.max(0, Math.ceil((expireMs - nowMs) / (24 * 60 * 60 * 1000)));
+
+                  return (
+                    <div
+                      key={soldItem.id}
+                      className="flex flex-col md:flex-row items-center gap-8 p-6 rounded-[2.5rem] border-2 border-slate-100 hover:border-slate-300 transition-colors group relative"
+                    >
+                      <button 
+                        onClick={async () => {
+                          if (window.confirm("Ste prepričani, da želite dokončno izbrisati to dražbo? Te akcije ni mogoče razveljaviti.")) {
+                            try {
+                              await deleteDoc(doc(db, 'auctions', soldItem.id));
+                              toast.success("Dražba uspešno in trajno izbrisana.");
+                              fetchAuctions();
+                            } catch (e: any) {
+                              toast.error("Napaka pri brisanju: " + e.message);
+                            }
+                          }
+                        }}
+                        className="absolute top-4 right-4 p-2 text-slate-300 hover:text-red-500 transition-colors"
+                        title="Dokončno izbriši dražbo"
+                      >
+                        <Trash2 size={24} />
+                      </button>
+
+                      <SignedImg
+                        src={soldItem.images[0]}
+                        alt="Item"
+                        className="w-32 h-32 rounded-3xl object-cover shadow-md cursor-pointer group-hover:scale-105 transition-transform"
+                        onClick={() => {
+                          setSelectedItem(soldItem);
+                          setActiveView("detail");
+                          window.scrollTo({ top: 0, behavior: "instant" });
+                        }}
+                      />
+
+                      <div className="flex-1 text-center md:text-left">
+                        <h3
+                          className="text-2xl font-black uppercase tracking-tighter text-slate-500 mb-2 cursor-pointer hover:text-[#0A1128] transition-colors"
+                          onClick={() => {
+                            setSelectedItem(soldItem);
+                            setActiveView("detail");
+                            window.scrollTo({ top: 0, behavior: "instant" });
+                          }}
+                        >
+                          {soldItem.title[
+                            language as keyof typeof soldItem.title
+                          ] || soldItem.title.SLO}
+                        </h3>
+                        <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 text-sm font-bold text-slate-400">
+                          <span className="flex items-center gap-1.5">
+                            <Calendar size={16} /> Končano:{" "}
+                            {new Date(soldItem.endTime).toLocaleDateString(
+                              "sl-SI",
+                            )}
+                          </span>
+                          <span className={`flex items-center gap-1.5 ${daysLeft <= 3 ? 'text-red-500' : 'text-[#FEBA4F]'}`}>
+                            <Clock size={16} /> Poteče čez: {daysLeft} dni
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-3 w-full md:w-auto mt-4 md:mt-0">
+                        <button
+    onClick={() => setQuickRepublishItem(soldItem)}
+    className="bg-[#FEBA4F] text-[#0A1128] px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#0A1128] hover:text-[#FEBA4F] transition-all shadow-xl flex items-center justify-center gap-2"
+  >
+    <Upload size={16} /> Hitra objava
+  </button>
+  <button
+    onClick={() => {
+      setRepublishData(soldItem);
+      setActiveView("createAuction");
+      window.scrollTo({ top: 0, behavior: "instant" });
+    }}
+    className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl flex items-center justify-center gap-2"
+  >
+    <Upload size={16} /> Uredi in objavi
+  </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      );
+      break;
+    case "messages":
+      content = (
+        <MessagesView
+          userId={userData.id}
+          t={t}
+          language={language}
+          initialAuctionId={activeConversationId}
+          auctions={auctions}
+          onBack={() => {
+            setActiveView("grid");
+            setActiveConversationId(null);
+          }}
+          onOpenAuction={(auction) => {
+            setSelectedItem(auction);
+            setActiveView("detail");
+            window.scrollTo({ top: 0, behavior: "instant" });
+          }}
+          onPayAuction={(auction) => {
+            const currentBid = auction.currentBid || 0;
+            const fee = currentPlan === SubscriptionTier.FREE ? 0.05 : 0.03;
+            const totalToPay = currentBid * (1 + fee);
+            setCheckoutData({
+              amount: parseFloat(totalToPay.toFixed(2)),
+              title: `${t("paymentFor")}: ${auction.title[language as keyof typeof auction.title] || auction.title.SLO}`,
+              onSuccess: async () => {
+                setIsCheckoutOpen(false);
+                await setDoc(doc(db, 'auctions', auction.id), {
+                  payment_status: 'paid',
+                  paid_at: new Date().toISOString(),
+                  post_auction_status: 'paid'
+                }, { merge: true });
+                toast.success(t("paymentSuccessEmail") || "Plačilo uspešno!");
+                setTimeout(() => fetchAuctions(), 1000);
+              },
+              metadata: {
+                auction_id: auction.id,
+                buyer_id: userData.id,
+                seller_id: auction.sellerId || (auction as any).seller_id,
+                fee_percentage: fee * 100,
+                buyer_data: userData,
+              },
+            });
+            setIsCheckoutOpen(true);
+          }}
+        />
+      );
+      break;
+    case "watchlist":
+      content = (
+        <div className="max-w-[1600px] mx-auto py-16 px-6 animate-in">
+          <button
+            onClick={() => setActiveView("grid")}
+            className="flex items-center gap-2 text-slate-400 mb-10 font-black uppercase text-[10px] tracking-widest hover:text-[#0A1128] transition-colors"
+          >
+            <ArrowLeft size={16} /> Nazaj
+          </button>
+          <div className="bg-white rounded-[4rem] p-12 shadow-2xl border border-slate-100 min-h-[500px]">
+            <div className="flex items-center gap-6 mb-12">
+              <div className="bg-[#FEBA4F] p-4 rounded-3xl shadow-lg shadow-[#FEBA4F]/20">
+                <Eye size={40} className="text-[#0A1128]" />
+              </div>
+              <div>
+                <h2 className="text-4xl font-black uppercase tracking-tighter text-[#0A1128]">
+                  Opazovane dražbe
+                </h2>
+                <p className="text-slate-400 font-bold mt-2">
+                  Dražbe, ki jih spremljate
+                </p>
+              </div>
+            </div>
+
+            <div
+              className="grid gap-8 justify-center"
+              style={{
+                gridTemplateColumns: "repeat(auto-fit, minmax(320px, 320px))",
+              }}
+            >
+              {auctions
+                .filter((a) => watchedIds.includes(a.id))
+                .filter(
+                  (a) =>
+                    a.status === "active" && new Date(a.endTime) > new Date(),
+                )
+                .map((item) => (
+                  <AuctionCard
+                    key={item.id}
+                    item={item}
+                    t={t}
+                    language={language}
+                    isVerified={isVerified}
+                    currentUserId={userData.id}
+                    hasBid={bidAuctionIds.includes(item.id)}
+                    isWatched={true}
+                    onWatchToggle={() => toggleWatch(item.id)}
+                    onClick={() => {
+                      setSelectedItem(item);
+                      setActiveView("detail");
+                    }}
+                    onBidSubmit={handleBidSubmit}
+                    onSellerClick={(seller) => {
+                      setSelectedSeller(seller);
+                      setActiveView("sellerProfile");
+                    }}
+                  />
+                ))}
+              {auctions
+                .filter((a) => watchedIds.includes(a.id))
+                .filter(
+                  (a) =>
+                    a.status === "active" && new Date(a.endTime) > new Date(),
+                ).length === 0 && (
+                <div className="col-span-full py-20 text-center bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200">
+                  <Eye size={48} className="mx-auto mb-4 text-slate-300" />
+                  <p className="text-slate-500 font-black uppercase tracking-widest text-xs">
+                    Nimate opazovanih dražb
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+      break;
+    case "testSandbox":
+      content = (
+        <TestSandboxView
+          onBack={() => setActiveView("grid")}
+          userData={userData}
+          onRefreshUserData={fetchAuctions}
+          onOpenInvoiceModal={(auction, seller, buyer) => {
+            setInvoiceModalData({
+              isOpen: true,
+              auction,
+              seller,
+              buyer
+            });
+          }}
+          t={t}
+          language={language}
+          isVerified={isVerified}
+          onAuctionClick={(item) => {
+            window.scrollTo({ top: 0, behavior: "instant" });
+            setSelectedItem(item);
+            setActiveView("detail");
+          }}
+          onSelectPackage={(packageId) => {
+            window.scrollTo({ top: 0, behavior: "instant" });
+            setSelectedPackageId(packageId);
+            setActiveView("package");
+          }}
+          watchlist={watchedIds}
+          onWatchToggle={toggleWatch}
+          onBidSubmit={handleBidSubmit}
+          onSellerClick={(seller) => {
+            setSelectedSeller(seller);
+            setActiveView("sellerProfile");
+          }}
+        />
+      );
+      break;
+    default:
+      content = (
+        <div className="animate-in">
+          {activeView === "grid" &&
+            !selectedCategory &&
+            !searchQuery &&
+            !selectedRegion && (
+              <HeroCarousel
+                items={auctions}
+                onSelectItem={(item) => {
+                  window.scrollTo({ top: 0, behavior: "instant" });
+                  setSelectedItem(item);
+                  setActiveView("detail");
+                }}
+                t={t}
+                language={language}
+              />
+            )}
+          <div className="max-w-[1600px] mx-auto px-6 py-12">
+            <div
+              ref={auctionsSectionRef}
+              className="flex flex-col md:flex-row md:items-center justify-between gap-8 mb-12 scroll-mt-32"
+            >
+              <div className="flex items-center gap-4 flex-wrap">
+                <div className="bg-[#FEBA4F] w-2.5 h-10 rounded-full shadow-lg"></div>
+                <h2 className="text-3xl font-black text-[#0A1128] uppercase tracking-tighter italic">
+                  {activeView === "lastChance"
+                    ? t("lastChanceTitle")
+                    : selectedRegion
+                      ? `${t("regions")}: ${selectedRegion}`
+                      : selectedCategory
+                        ? `${t("category")}: ${getCategoryTranslation(selectedCategory, t)}`
+                        : searchQuery
+                          ? `${t("searchResults") || 'Rezultati'}: "${searchQuery}"`
+                          : t("activeAuctions")}
+                </h2>
+                {selectedRegion && (
+                  <button
+                    onClick={() => setSelectedRegion(null)}
+                    className="flex items-center gap-1.5 bg-[#0A1128] text-[#FEBA4F] hover:bg-[#FEBA4F] hover:text-[#0A1128] text-xs font-black uppercase px-3 py-1.5 rounded-full transition-all border border-[#FEBA4F]/30"
+                  >
+                    <span>{t("clearFilter") || "Počisti filter"}</span>
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-4">
+                <span className="text-[10px] font-black uppercase text-slate-400">
+                  {t("itemsPerPage")}
+                </span>
+                <select
+                  className="bg-white border-2 border-slate-100 rounded-xl px-4 py-2.5 text-xs font-black shadow-sm outline-none focus:border-[#FEBA4F] transition-colors cursor-pointer"
+                  value={baseItemsPerPage}
+                  onChange={(e) => {
+                    setBaseItemsPerPage(parseInt(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                >
+                  <option value="12">{t("showCount")?.replace("{n}", "12") || `${t("show") || "Prikaži"} ~12`}</option>
+                  <option value="24">{t("showCount")?.replace("{n}", "24") || `${t("show") || "Prikaži"} ~24`}</option>
+                  <option value="48">{t("showCount")?.replace("{n}", "48") || `${t("show") || "Prikaži"} ~48`}</option>
+                  <option value="96">{t("showCount")?.replace("{n}", "96") || `${t("show") || "Prikaži"} ~96`}</option>
+                </select>
+              </div>
+            </div>
+            {(() => {
+              const packageMap = new Map<string, { title: string; items: AuctionItem[] }>();
+              const standaloneItems: AuctionItem[] = [];
+
+              currentAuctions.forEach(item => {
+                if (item.is_package && item.package_id) {
+                  if (!packageMap.has(item.package_id)) {
+                    const pkgTitle = (item as any).package_title || 
+                      (typeof item.title === 'object' ? item.title[language] || item.title['SLO'] : item.title) || 
+                      "Paket dražb";
+                    const allPkgItems = auctions.filter(a => a.package_id === item.package_id && a.status === 'active');
+                    packageMap.set(item.package_id, {
+                      title: pkgTitle,
+                      items: allPkgItems.length > 0 ? allPkgItems : [item]
+                    });
+                  }
+                } else {
+                  standaloneItems.push(item);
+                }
+              });
+
+              return (
+                <div className="space-y-10">
+                  {/* Render Packages */}
+                  {Array.from(packageMap.entries()).map(([pkgId, pkgData]) => (
+                    <PackageCard
+                      key={pkgId}
+                      packageId={pkgId}
+                      title={pkgData.title}
+                      sellerName={pkgData.items[0]?.sellerName}
+                      items={pkgData.items}
+                      t={t}
+                      language={language}
+                      isVerified={isVerified}
+                      onSelectPackage={(id) => {
+                        window.scrollTo({ top: 0, behavior: "instant" });
+                        setSelectedPackageId(id);
+                        setActiveView("package");
+                      }}
+                      onAuctionClick={(item) => {
+                        window.scrollTo({ top: 0, behavior: "instant" });
+                        setSelectedItem(item);
+                        setActiveView("detail");
+                      }}
+                    />
+                  ))}
+
+                  {/* Render Standalone Auctions */}
+                  <div
+                    className="grid gap-8 justify-center"
+                    style={{
+                      gridTemplateColumns: "repeat(auto-fit, minmax(320px, 320px))",
+                    }}
+                  >
+                    {standaloneItems.map((item) => (
+                      <AuctionCard
+                        key={item.id}
+                        item={item}
+                        t={t}
+                        language={language}
+                        isVerified={isVerified}
+                        currentUserId={userData.id}
+                        hasBid={bidAuctionIds.includes(item.id)}
+                        isWatched={watchedIds.includes(item.id)}
+                        onWatchToggle={() => toggleWatch(item.id)}
+                        onClick={() => {
+                          window.scrollTo({ top: 0, behavior: "instant" });
+                          setSelectedItem(item);
+                          setActiveView("detail");
+                        }}
+                        onBidSubmit={handleBidSubmit}
+                        onSellerClick={(seller) => {
+                          setSelectedSeller(seller);
+                          setActiveView("sellerProfile");
+                          window.scrollTo({ top: 0, behavior: "instant" });
+                        }}
+                        onTimeUp={(auctionId) => {
+                          // Force a re-render so activeAuctions filter recalculates and removes this item
+                          setAuctions((prev) => [...prev]);
+                        }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+            {totalPages > 1 && (
+              <div className="mt-20 flex flex-col md:flex-row items-center justify-between gap-8 border-t-2 border-slate-100 pt-12">
+                <div className="flex flex-col gap-2">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                    {t("showing")} {indexOfFirstItem + 1} -{" "}
+                    {Math.min(indexOfLastItem, getFilteredAuctions.length)}{" "}
+                    {t("of")} {getFilteredAuctions.length} {t("auctions")}
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => handlePageChange(currentPage - 1)}
+                    disabled={currentPage === 1}
+                    className={`p-4 rounded-2xl border-2 transition-all ${currentPage === 1 ? "border-slate-50 text-slate-200" : "border-slate-100 text-[#0A1128] hover:border-[#FEBA4F]"}`}
+                  >
+                    <ChevronLeft size={20} />
+                  </button>
+                  <div className="flex items-center gap-2">
+                    {paginationNumbers.map((p, idx) =>
+                      typeof p === "string" ? (
+                        <span
+                          key={idx}
+                          className="px-3 text-slate-400 font-bold"
+                        >
+                          ...
+                        </span>
+                      ) : (
+                        <button
+                          key={idx}
+                          onClick={() => handlePageChange(p as number)}
+                          className={`w-12 h-12 rounded-2xl font-black text-sm transition-all shadow-sm ${currentPage === p ? "bg-[#0A1128] text-white scale-110" : "bg-white border-2 border-slate-50 text-slate-400 hover:border-slate-200"}`}
+                        >
+                          {p}
+                        </button>
+                      ),
+                    )}
+                  </div>
+                  <button
+                    onClick={() => handlePageChange(currentPage + 1)}
+                    disabled={currentPage === totalPages}
+                    className={`p-4 rounded-2xl border-2 transition-all ${currentPage === totalPages ? "border-slate-50 text-slate-200" : "border-slate-100 text-[#0A1128] hover:border-[#FEBA4F]"}`}
+                  >
+                    <ChevronRight size={20} />
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+  }
+
+  // Banner is active if user is logged in, not verified, and auth data has finished loading
+  const isBannerActive = !isAuthLoading && isLoggedIn && !isVerified;
+
+  // Sync isVerified state with userData as a fallback
+  useEffect(() => {
+    const userDataVerified = !!userData.is_verified;
+    if (isLoggedIn && isVerified !== userDataVerified) {
+      setIsVerified(userDataVerified);
+    }
+  }, [userData.is_verified, isLoggedIn, isVerified]);
+
+  const [dontShowTermsAgain, setDontShowTermsAgain] = useState(false);
+
+  async function handleBidSubmit(item: any, amount: number): Promise<"ok" | "outbid" | "error" | "login_required" | "cancelled"> {
+    if (!isLoggedIn) {
+      toast.error(t("login")); setActiveView("login"); return "login_required";
+    }
+    if ((userData as any).isBlocked || (userData as any).unpaidStrikes >= 3) {
+      toast.error("Vaš račun je blokiran za ponujanje zaradi preveč neplačanih dražb (3 opomini).");
+      return "error";
+    }
+    setPendingBid({ item, amount });
+    return new Promise((resolve) => {
+      bidResolverRef.current = resolve;
+      if (!hasAcceptedTerms && !localStorage.getItem("dontShowTermsAgain")) {
+        setShowTermsModal(true);
+      } else {
+        setShowConfirmBidModal(true);
+      }
+    });
+  };
+
+  function handleCancelTerms() {
+    setShowTermsModal(false);
+    setPendingBid(null);
+    if (bidResolverRef.current) bidResolverRef.current("cancelled");
+  };
+
+  function handleAcceptTerms() {
+    setHasAcceptedTerms(true);
+    if (dontShowTermsAgain) {
+      localStorage.setItem("dontShowTermsAgain", "true");
+    }
+    setShowTermsModal(false);
+    setShowConfirmBidModal(true);
+  }
+
+  function handleCancelConfirmBid() {
+    setShowConfirmBidModal(false);
+    setPendingBid(null);
+    if (bidResolverRef.current) bidResolverRef.current("cancelled");
+  };
+
+  async function handleConfirmBid(confirmedAmount?: number) {
+    if (!pendingBid) {
+      if (bidResolverRef.current) bidResolverRef.current("error");
+      return;
+    }
+    const item = pendingBid.item;
+    const amount = confirmedAmount !== undefined && !isNaN(confirmedAmount) && confirmedAmount > 0 
+      ? confirmedAmount 
+      : pendingBid.amount;
+    
+    setShowConfirmBidModal(false);
+    try {
+        const auctionRef = doc(db, 'auctions', item.id);
+        let previousLeaderId: string | null = null;
+        let finalCalculatedPrice = amount;
+
+        const finalWinnerId = await runTransaction(db, async (transaction) => {
+            const auctionDoc = await transaction.get(auctionRef);
+            if (!auctionDoc.exists()) {
+                throw new Error("Auction does not exist");
+            }
+            const data = auctionDoc.data();
+            const currentPrice = Number(data.current_price ?? data.currentBid ?? 0);
+            const currentWinner = data.winner_id || data.winnerId;
+            previousLeaderId = currentWinner || null;
+            const isCurrentWinner = currentWinner === userData.id;
+
+            if (amount <= currentPrice) {
+                throw new Error("Bid must be higher than current price");
+            }
+
+            // PROXY BIDDING LOGIC
+            const currentProxy = data.current_proxy_bid || data.currentProxyBid;
+            let newCurrentPrice = currentPrice;
+            let newWinnerId = userData.id;
+            let newProxyBid = { user_id: userData.id, amount: amount };
+            
+            const increment = getIncrement(currentPrice);
+            
+            if (currentProxy && currentProxy.user_id !== userData.id) {
+                if (amount > currentProxy.amount) {
+                    // New user outbids old proxy
+                    newCurrentPrice = Math.min(amount, currentProxy.amount + increment);
+                    newWinnerId = userData.id;
+                    newProxyBid = { user_id: userData.id, amount: amount };
+                } else if (amount === currentProxy.amount) {
+                    // Tie goes to earlier proxy
+                    newCurrentPrice = amount;
+                    newWinnerId = currentProxy.user_id;
+                    newProxyBid = currentProxy;
+                } else {
+                    // New user did not outbid old proxy
+                    newCurrentPrice = Math.min(currentProxy.amount, amount + increment);
+                    newWinnerId = currentProxy.user_id;
+                    newProxyBid = currentProxy;
+                }
+            } else if (isCurrentWinner || (currentProxy && currentProxy.user_id === userData.id)) {
+                // User is leading and increasing their max proxy bid; price stays current price unless this is their initial bid
+                newCurrentPrice = currentPrice; 
+                newWinnerId = userData.id;
+                newProxyBid = { user_id: userData.id, amount: amount };
+            } else {
+                 // No previous proxy, or starting fresh
+                 newCurrentPrice = Math.min(amount, currentPrice + increment);
+                 newWinnerId = userData.id;
+                 newProxyBid = { user_id: userData.id, amount: amount };
+            }
+            
+            finalCalculatedPrice = newCurrentPrice;
+            
+            const endTimeStr = data.end_time || data.endTime;
+            const endTime = endTimeStr ? new Date(endTimeStr).getTime() : 0;
+            const now = Date.now();
+            let newEndTimeStr = endTimeStr;
+            
+            if (endTime > now && endTime - now < 60 * 1000) {
+                // Extend by 1 minute if bid is in final 60 seconds
+                newEndTimeStr = new Date(now + 60 * 1000).toISOString();
+            }
+
+            // Update top bids to keep track of highest unique bidders
+            let topBids = data.top_bids || [];
+            topBids.push({ user_id: userData.id, amount, timestamp: new Date().toISOString() });
+            topBids.sort((a: any, b: any) => b.amount - a.amount);
+            
+            let uniqueTopBids: any[] = [];
+            let seenUsers = new Set();
+            for (let bid of topBids) {
+                if (!seenUsers.has(bid.user_id)) {
+                    uniqueTopBids.push(bid);
+                    seenUsers.add(bid.user_id);
+                }
+            }
+            uniqueTopBids = uniqueTopBids.slice(0, 3);
+            
+            const existingHistory = data.bidding_history || data.biddingHistory || [];
+            const newHistoryItem = {
+              user_id: userData.id,
+              userId: userData.id,
+              username: userData.username || userData.first_name || userData.email?.split('@')[0] || 'Uporabnik',
+              amount: amount,
+              created_at: new Date().toISOString(),
+              createdAt: new Date().toISOString()
+            };
+
+            transaction.update(auctionRef, { 
+                 current_price: newCurrentPrice, 
+                 currentBid: newCurrentPrice,
+                 winner_id: newWinnerId,
+                 winnerId: newWinnerId,
+                 current_proxy_bid: newProxyBid,
+                 currentProxyBid: newProxyBid,
+                 hidden_max_bid: newProxyBid.amount,
+                 hiddenMaxBid: newProxyBid.amount,
+                 bid_count: (data.bid_count || data.bidCount || 0) + 1, 
+                 bidCount: (data.bid_count || data.bidCount || 0) + 1,
+                 top_bids: uniqueTopBids,
+                 end_time: newEndTimeStr,
+                 endTime: newEndTimeStr,
+                 bidding_history: [...existingHistory, newHistoryItem],
+                 biddingHistory: [...existingHistory, newHistoryItem]
+            });
+            
+            return newWinnerId;
+        });
+        
+        let resultStatus: "ok" | "outbid" = "ok";
+        if (finalWinnerId !== userData.id) {
+            resultStatus = "outbid";
+            toast.error(t('bidOutbid') || "Ponudba je bila že presežena.");
+        } else {
+            toast.success("Ponudba uspešno oddana!");
+
+            // If we took the lead and replaced a previous bidder, trigger outbid email notification
+            if (previousLeaderId && previousLeaderId !== userData.id) {
+                notifyOutbidAction({
+                    auction_id: item.id,
+                    outbid_user_id: previousLeaderId,
+                    new_price: finalCalculatedPrice
+                }).catch(err => console.error("Outbid notify email error:", err));
+            }
+        }
+
+        if (bidResolverRef.current) bidResolverRef.current(resultStatus);
+        fetchAuctions();
+    } catch (e: any) {
+        console.error("Bid submission error:", e);
+        toast.error(e.message || "Error submitting bid");
+        if (bidResolverRef.current) bidResolverRef.current("error");
+    }
+    setPendingBid(null);
+  };
+
+  
+  const handleQuickRepublish = async () => {
+    if (!quickRepublishItem) return;
+    try {
+      const now = new Date();
+      const endTime = new Date(now.getTime() + quickRepublishDuration * 24 * 60 * 60 * 1000);
+      const auctionRef = doc(db, 'auctions', quickRepublishItem.id);
+      await updateDoc(auctionRef, {
+        status: 'active',
+        endTime: endTime.toISOString(),
+        end_time: endTime.toISOString(),
+        currentBid: quickRepublishItem.startingBid || quickRepublishItem.starting_price || 0,
+        current_price: quickRepublishItem.startingBid || quickRepublishItem.starting_price || 0,
+        bidCount: 0,
+        bid_count: 0,
+        biddingHistory: [],
+        top_bids: [],
+        winnerId: null,
+        winner_id: null,
+        payment_status: 'unpaid',
+        post_auction_status: null
+      });
+      toast.success("Dražba uspešno ponovno objavljena!");
+      setQuickRepublishItem(null);
+      fetchAuctions();
+    } catch (e: any) {
+      toast.error(e.message || "Napaka pri ponovni objavi");
+    }
+  };
+
+  
+  const handleOfferToSecondBidder = async (auction: any) => {
+    try {
+      const topBids = auction.top_bids || [];
+      const secondBid = topBids.length > 1 ? topBids[1] : null;
+      if (!secondBid) {
+        toast.error("Ni 2. najvišjega ponudnika za to dražbo.");
+        return;
+      }
+      
+      const now = new Date();
+      const deadline = new Date(now.getTime() + 48 * 60 * 60 * 1000).toISOString();
+      const auctionRef = doc(db, 'auctions', auction.id);
+      
+      await updateDoc(auctionRef, {
+        post_auction_status: 'offered_2nd',
+        second_highest_bidder_id: secondBid.user_id,
+        second_chance_deadline: deadline,
+        currentBid: secondBid.amount,
+        current_price: secondBid.amount
+      });
+      
+      toast.success("Dražba je bila ponujena 2. najvišjemu ponudniku. Ima 48 ur, da jo sprejme.");
+      fetchAuctions();
+    } catch (e: any) {
+      toast.error("Napaka pri ponujanju dražbe: " + e.message);
+    }
+  };
+
+  const handleMoveToArchive = async (auction: any) => {
+    try {
+      const auctionRef = doc(db, 'auctions', auction.id);
+      await updateDoc(auctionRef, {
+        post_auction_status: 'archived'
+      });
+      toast.success("Dražba premaknjena v arhiv.");
+      fetchAuctions();
+    } catch (e: any) {
+      toast.error("Napaka pri premikanju: " + e.message);
+    }
+  };
+
+  
+  const handleAcceptSecondChance = async (auction: any) => {
+    try {
+      const now = new Date();
+      const paymentDeadline = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
+      const auctionRef = doc(db, 'auctions', auction.id);
+      await updateDoc(auctionRef, {
+        post_auction_status: 'awaiting_payment_2nd',
+        payment_deadline: paymentDeadline,
+        winner_id: userData.id, // Update winner so it looks like they won
+        winnerId: userData.id
+      });
+      toast.success("Sprejeli ste ponudbo! Imate 24 ur za plačilo.");
+      fetchAuctions();
+    } catch (e: any) {
+      toast.error("Napaka: " + e.message);
+    }
+  };
+
+  const handleRejectSecondChance = async (auction: any) => {
+    try {
+      const auctionRef = doc(db, 'auctions', auction.id);
+      await updateDoc(auctionRef, {
+        post_auction_status: 'rejected_2nd'
+      });
+      toast.success("Zavrnili ste ponudbo. Dražba je zaključena.");
+      fetchAuctions();
+    } catch (e: any) {
+      toast.error("Napaka: " + e.message);
+    }
+  };
+
+  async function handleDeliveryMethodSubmit() {
+    if (!deliveryMethodModal.auctionId || !deliveryMethodModal.deliveryMethod) return;
+    try {
+      await updateDoc(doc(db, 'auctions', deliveryMethodModal.auctionId), {
+        delivery_method: deliveryMethodModal.deliveryMethod,
+        selected_delivery: deliveryMethodModal.deliveryMethod,
+      });
+      toast.success("Način predaje je bil uspešno posodobljen.");
+    } catch (e: any) {
+      console.error("Napaka pri posodabljanju načina predaje:", e);
+      toast.error("Napaka pri shranjevanju načina predaje: " + e.message);
+    } finally {
+      setDeliveryMethodModal({ isOpen: false, auctionId: "", deliveryMethod: null });
+      fetchAuctions();
+    }
+  };
+
+  function handleReceiptConfirmSubmit() {
+    setReceiptConfirmModal(prev => ({ ...prev, isOpen: false }));
+    fetchAuctions();
+  };
+
+  function handleRatingSubmit() {
+    setRatingModal(prev => ({ ...prev, isOpen: false }));
+    fetchAuctions();
+  };
+
+  if (isHydrating) {
+    return (
+      <div className="min-h-screen bg-[#f3f4f6] flex items-center justify-center">
+        <div className="w-12 h-12 border-4 border-[#0A1128] border-t-[#FEBA4F] rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
+  return (
+    <ChatProvider userId={userData.id} auctions={auctions} appWakeupTrigger={appWakeupTrigger}>
+      <div className="min-h-screen bg-[#f3f4f6] font-sans selection:bg-[#FEBA4F] selection:text-[#0A1128] overflow-x-hidden">
+        <Toaster
+          position="top-center"
+          duration={4000}
+          richColors
+          toastOptions={{
+            style: {
+              background: "#0A1128",
+              color: "#ffffff",
+              border: "1px solid #FEBA4F",
+              borderRadius: "1rem",
+              padding: "16px 20px",
+              fontSize: "14px",
+              fontWeight: "bold",
+              textTransform: "uppercase",
+              letterSpacing: "0.05em",
+            },
+            className: "shadow-2xl",
+          }}
+        />
+        <VerificationBanner
+          isVisible={isBannerActive}
+          onAction={() => {
+            window.scrollTo({ top: 0, behavior: "smooth" });
+            setActiveView("verification");
+          }}
+          t={t}
+        />
+        {isPollingStopped && (
+          <div className="bg-red-500 text-white text-center py-2 px-4 shadow-md font-bold text-sm sticky top-0 z-[6000] flex justify-center items-center gap-4 animate-in slide-in-from-top fade-in duration-300">
+            <span>Povezava s strežnikom je prekinjena.</span>
+            <button
+              onClick={() => window.location.reload()}
+              className="bg-white text-red-500 hover:bg-red-50 px-3 py-1 rounded-full text-xs uppercase tracking-wider transition-colors focus:ring-2 focus:ring-white focus:outline-none"
+            >
+              Osveži stran
+            </button>
+          </div>
+        )}
+        <Header
+          onHome={() => {
+            setActiveView("grid");
+            setSelectedRegion(null);
+            setSelectedCategory(null);
+            setSearchQuery("");
+          }}
+          onSearch={setSearchQuery}
+          onRegionSelect={(reg) => {
+            setSelectedRegion(reg);
+            setActiveView("grid");
+          }}
+          onCategorySelect={(cat) => {
+            setSelectedCategory(cat);
+            setActiveView("grid");
+          }}
+          onLastChance={() => {
+            setActiveView("lastChance");
+            setSelectedRegion(null);
+            setSelectedCategory(null);
+          }}
+          onLogin={() => {
+            window.scrollTo({ top: 0, behavior: "smooth" });
+            setActiveView("login");
+          }}
+          onLogout={handleLogout}
+          onSettings={(tab) => {
+            setSettingsTab(tab || 'profile');
+            window.scrollTo({ top: 0, behavior: "smooth" });
+            setActiveView("settings");
+          }}
+          onSubscriptions={() => {
+            window.scrollTo({ top: 0, behavior: "smooth" });
+            setActiveView("subscriptions");
+          }}
+          onCreateAuction={() => {
+            window.scrollTo({ top: 0, behavior: "smooth" });
+            setActiveView("createAuction");
+          }}
+          onMyWinnings={() => {
+            window.scrollTo({ top: 0, behavior: "smooth" });
+            setActiveView("winnings");
+          }}
+          onMyBids={() => {
+            window.scrollTo({ top: 0, behavior: "smooth" });
+            setActiveView("myBids");
+          }}
+          onMySold={() => {
+            window.scrollTo({ top: 0, behavior: "smooth" });
+            setActiveView("mySold");
+          }}
+          onMyUnsold={() => {
+            window.scrollTo({ top: 0, behavior: "smooth" });
+            setActiveView("myUnsold");
+          }}
+          onWatchlist={() => {
+            window.scrollTo({ top: 0, behavior: "smooth" });
+            setActiveView("watchlist");
+          }}
+          onMessages={() => {
+            window.scrollTo({ top: 0, behavior: "smooth" });
+            setActiveView("messages");
+          }}
+          activeView={activeView}
+          selectedRegion={selectedRegion}
+          selectedCategory={selectedCategory}
+          isLoggedIn={isLoggedIn}
+          isVerified={isVerified}
+          language={language}
+          onLanguageChange={setLanguage}
+          t={t}
+          auctions={auctions}
+          userEmail={userData.email}
+          userProfilePicture={
+            userData.profile_picture_url || userData.profilePicture
+          }
+          userWalletBalance={userData.wallet_balance || 0}
+        />
+        <main>{content}</main>
+        {(activeView === "grid" || activeView === "testSandbox") && (
+          <Footer
+            t={t}
+            onLegal={setActiveLegal}
+            onTestSandbox={() => {
+              window.scrollTo({ top: 0, behavior: "smooth" });
+              setActiveView("testSandbox");
+            }}
+          />
+        )}
+        {showTermsModal && (
+          <div className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-6 animate-in">
+            <div className="bg-white w-full max-w-xl rounded-[3rem] p-10 lg:p-14 shadow-2xl relative">
+              <button
+                onClick={handleCancelTerms}
+                className="absolute top-8 right-8 text-slate-400 hover:text-[#0A1128] transition-colors"
+              >
+                <X size={24} />
+              </button>
+              <div className="bg-[#FEBA4F] w-20 h-20 rounded-3xl flex items-center justify-center mb-8 shadow-lg shadow-[#FEBA4F]/20">
+                <ShieldCheck size={40} className="text-[#0A1128]" />
+              </div>
+              <h2 className="text-3xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">
+                Splošni pogoji poslovanja
+              </h2>
+              <p className="text-slate-500 font-bold leading-relaxed mb-6">
+                Z oddajo ponudbe potrjujete, da se strinjate s splošnimi pogoji
+                poslovanja platforme Drazba.si. Vaša ponudba je pravno
+                zavezujoča. V primeru, da zmagate na dražbi, ste dolžni predmet
+                prevzeti in plačati v skladu s pogoji prodajalca.
+              </p>
+              <label className="flex items-center gap-3 mb-10 cursor-pointer group">
+                <div
+                  className={`w-6 h-6 rounded-md border-2 flex items-center justify-center transition-all ${dontShowTermsAgain ? "bg-[#FEBA4F] border-[#FEBA4F]" : "border-slate-300 group-hover:border-[#FEBA4F]"}`}
+                >
+                  {dontShowTermsAgain && (
+                    <CheckCircle2 size={16} className="text-[#0A1128]" />
+                  )}
+                </div>
+                <span className="text-sm font-bold text-slate-600 select-none">
+                  Ne prikaži več tega obvestila
+                </span>
+                <input
+                  type="checkbox"
+                  className="hidden"
+                  checked={dontShowTermsAgain}
+                  onChange={(e) => setDontShowTermsAgain(e.target.checked)}
+                />
+              </label>
+              <button
+                onClick={handleAcceptTerms}
+                className="w-full bg-[#0A1128] text-white py-6 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl"
+              >
+                Strinjam se in potrjujem ponudbo
+              </button>
+            </div>
+          </div>
+        )}
+        {pendingBid && (
+          <ConfirmBidModal
+            isOpen={showConfirmBidModal}
+            onClose={handleCancelConfirmBid}
+            item={pendingBid.item}
+            initialBidAmount={pendingBid.amount}
+            currentPlan={currentPlan}
+            t={t}
+            onConfirm={handleConfirmBid}
+            userData={userData}
+          />
+        )}
+        {activeLegal && (
+          <LegalModal
+            type={activeLegal}
+            onClose={() => setActiveLegal(null)}
+            t={t}
+          />
+        )}
+
+        {/* Modals for delivery and rating */}
+        {deliveryMethodModal.isOpen && (
+          <div className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-6 animate-in">
+            <div className="bg-white w-full max-w-lg rounded-[3rem] p-10 shadow-2xl relative">
+              <button
+                onClick={() =>
+                  setDeliveryMethodModal({
+                    isOpen: false,
+                    auctionId: "",
+                    deliveryMethod: null,
+                  })
+                }
+                className="absolute top-8 right-8 text-slate-400 hover:text-[#0A1128] transition-colors"
+              >
+                <X size={24} />
+              </button>
+              <h2 className="text-2xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">
+                Način predaje
+              </h2>
+              <p className="text-slate-500 font-bold mb-8">
+                Izberite, na kakšen način boste predmet predali kupcu.
+              </p>
+              <div className="grid grid-cols-2 gap-4 mb-8">
+                <button
+                  onClick={() =>
+                    setDeliveryMethodModal((prev) => ({
+                      ...prev,
+                      deliveryMethod: "pickup",
+                    }))
+                  }
+                  className={`p-6 rounded-2xl border-4 transition-all flex flex-col items-center gap-3 ${deliveryMethodModal.deliveryMethod === "pickup" ? "border-[#FEBA4F] bg-[#FEBA4F]/10" : "border-slate-100 hover:border-slate-200 bg-white"}`}
+                >
+                  <MapPin
+                    size={32}
+                    className={
+                      deliveryMethodModal.deliveryMethod === "pickup"
+                        ? "text-[#FEBA4F]"
+                        : "text-slate-400"
+                    }
+                  />
+                  <span className="font-bold text-sm text-[#0A1128]">
+                    Osebni prevzem
+                  </span>
+                </button>
+                <button
+                  onClick={() =>
+                    setDeliveryMethodModal((prev) => ({
+                      ...prev,
+                      deliveryMethod: "post",
+                    }))
+                  }
+                  className={`p-6 rounded-2xl border-4 transition-all flex flex-col items-center gap-3 ${deliveryMethodModal.deliveryMethod === "post" ? "border-[#FEBA4F] bg-[#FEBA4F]/10" : "border-slate-100 hover:border-slate-200 bg-white"}`}
+                >
+                  <Truck
+                    size={32}
+                    className={
+                      deliveryMethodModal.deliveryMethod === "post"
+                        ? "text-[#FEBA4F]"
+                        : "text-slate-400"
+                    }
+                  />
+                  <span className="font-bold text-sm text-[#0A1128]">
+                    Pošiljanje po pošti
+                  </span>
+                </button>
+              </div>
+              <button
+                onClick={handleDeliveryMethodSubmit}
+                disabled={!deliveryMethodModal.deliveryMethod}
+                className="w-full bg-[#0A1128] text-white py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Potrdi izbiro
+              </button>
+            </div>
+          </div>
+        )}
+
+        {receiptConfirmModal.isOpen && (
+          <div className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-6 animate-in">
+            <div className="bg-white w-full max-w-md rounded-[3rem] p-10 shadow-2xl relative text-center">
+              <button
+                onClick={() =>
+                  setReceiptConfirmModal({
+                    isOpen: false,
+                    auctionId: "",
+                    sellerId: "",
+                  })
+                }
+                className="absolute top-8 right-8 text-slate-400 hover:text-[#0A1128] transition-colors"
+              >
+                <X size={24} />
+              </button>
+              <div className="bg-green-100 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6">
+                <CheckCircle2 size={40} className="text-green-600" />
+              </div>
+              <h2 className="text-2xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">
+                Potrditev prejema
+              </h2>
+              <p className="text-slate-500 font-bold mb-8">
+                S potrditvijo izjavljate, da ste predmet uspešno prevzeli.
+                Dejanja ni mogoče razveljaviti.
+              </p>
+              <div className="flex flex-col gap-3">
+                <button
+                  onClick={handleReceiptConfirmSubmit}
+                  className="w-full bg-[#0A1128] text-white py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all"
+                >
+                  Dokončno potrdi prejem
+                </button>
+                <button
+                  onClick={() =>
+                    setReceiptConfirmModal({
+                      isOpen: false,
+                      auctionId: "",
+                      sellerId: "",
+                    })
+                  }
+                  className="w-full bg-slate-100 text-slate-600 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-slate-200 transition-all"
+                >
+                  Prekliči
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {ratingModal.isOpen && (
+          <div className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-6 animate-in">
+            <div className="bg-white w-full max-w-lg rounded-[3rem] p-10 shadow-2xl relative">
+              <button
+                onClick={() =>
+                  setRatingModal({
+                    isOpen: false,
+                    auctionId: "",
+                    sellerId: "",
+                    rating: 0,
+                    comment: "",
+                  })
+                }
+                className="absolute top-8 right-8 text-slate-400 hover:text-[#0A1128] transition-colors"
+              >
+                <X size={24} />
+              </button>
+              <h2 className="text-2xl font-black text-[#0A1128] uppercase tracking-tighter mb-4 text-center">
+                Oceni prodajalca
+              </h2>
+              <p className="text-slate-500 font-bold mb-8 text-center">
+                Vaša ocena pomaga graditi zaupanje v skupnosti.
+              </p>
+
+              <div className="flex items-center justify-center gap-2 mb-8">
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <button
+                    key={star}
+                    onClick={() =>
+                      setRatingModal((prev) => ({ ...prev, rating: star }))
+                    }
+                    className="group transition-transform hover:scale-110"
+                  >
+                    <Star
+                      size={40}
+                      className={`${star <= ratingModal.rating ? "text-[#FEBA4F] fill-[#FEBA4F]" : "text-slate-200"} group-hover:text-[#FEBA4F] transition-colors`}
+                    />
+                  </button>
+                ))}
+              </div>
+
+              <div className="mb-8">
+                <label className="block text-sm font-black text-[#0A1128] uppercase tracking-widest mb-3">
+                  Komentar (izbirno)
+                </label>
+                <textarea
+                  value={ratingModal.comment}
+                  onChange={(e) =>
+                    setRatingModal((prev) => ({
+                      ...prev,
+                      comment: e.target.value,
+                    }))
+                  }
+                  className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold text-sm focus:outline-none focus:border-[#FEBA4F] transition-colors h-32 resize-none"
+                  placeholder="Vpišite vašo izkušnjo s prodajalcem..."
+                />
+              </div>
+
+              <button
+                onClick={handleRatingSubmit}
+                disabled={ratingModal.rating === 0}
+                className="w-full bg-[#0A1128] text-white py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Oddaj oceno
+              </button>
+            </div>
+          </div>
+        )}
+
+        {isCheckoutOpen && checkoutData && (
+          <CheckoutModal
+            isOpen={isCheckoutOpen}
+            t={t}
+            language={language}
+            amount={checkoutData.amount}
+            title={checkoutData.title}
+            onClose={() => setIsCheckoutOpen(false)}
+            onSuccess={checkoutData.onSuccess}
+            metadata={checkoutData.metadata}
+            userWalletBalance={userData.wallet_balance || 0}
+          />
+        )}
+
+        <MissingInvoiceDataModal
+          isOpen={appMissingInvoiceDataModal.isOpen}
+          onClose={() => setAppMissingInvoiceDataModal((prev) => ({ ...prev, isOpen: false }))}
+          onNavigateToSettings={() => {
+            setAppMissingInvoiceDataModal((prev) => ({ ...prev, isOpen: false }));
+            setSettingsTab('personal');
+            setActiveView("settings");
+          }}
+          missingFields={appMissingInvoiceDataModal.missingFields}
+          userType={appMissingInvoiceDataModal.userType}
+          t={t}
+        />
+
+        <InvoiceModal
+          isOpen={invoiceModalData.isOpen}
+          onClose={() => setInvoiceModalData((prev) => ({ ...prev, isOpen: false }))}
+          auction={invoiceModalData.auction}
+          seller={invoiceModalData.seller}
+          buyer={invoiceModalData.buyer}
+        />
+
+        {showBackToTop && (
+          <button
+            onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+            className="fixed bottom-12 right-12 bg-[#FEBA4F] text-[#0A1128] p-4 rounded-full shadow-2xl hover:scale-110 transition-transform z-50 border-2 border-[#0A1128]"
+          >
+            <ArrowUp size={24} strokeWidth={3} />
+          </button>
+        )}
+      </div>
+    </ChatProvider>
+  );
+};
+
+// --- ADDITIONAL COMPONENTS ---
+
+export default MainApp;
