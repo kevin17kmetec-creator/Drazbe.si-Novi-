@@ -69,7 +69,7 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
       const token = await executeRecaptcha('auth_submit');
       const captchaRes = await verifyCaptchaAction(token);
       if (!captchaRes.success) {
-        toast.error(captchaRes.error || "Zaznana je bila neobičajna dejavnost. Poskusite znova.");
+        toast.error(captchaRes.error || "Zaznana je bila neobičajna dejavnost. Prijava ni mogoča.");
         setLoading(false);
         return;
       }
@@ -217,7 +217,7 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
           const token = await executeRecaptcha('auth_reset');
           const captchaRes = await verifyCaptchaAction(token);
           if (!captchaRes.success) {
-            toast.error(captchaRes.error || "Zaznana je bila neobičajna dejavnost. Poskusite znova.");
+            toast.error(captchaRes.error || "Zaznana je bila neobičajna dejavnost. Prijava ni mogoča.");
             setLoading(false);
             return;
           }

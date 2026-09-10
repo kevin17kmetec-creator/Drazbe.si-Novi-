@@ -2714,13 +2714,13 @@ app.post("/api/auth/verify-captcha", async (req, res) => {
     if (!data.success || data.score < 0.5) {
       console.warn("reCAPTCHA failed or low score:", data);
       return res.status(400).json({ 
-        error: "Zaznana je bila neobičajna dejavnost. Poskusite znova.",
-        success: false,
-        score: data.score 
+        success: false, 
+        score: data.score, 
+        error: "Zaznana je bila neobičajna dejavnost. Prijava ni mogoča." 
       });
     }
 
-    res.json({ success: data.success, score: data.score });
+    return res.json({ success: true, score: data.score });
   } catch (err: any) {
     console.error("verify-captcha error:", err);
     res.status(500).json({ error: err.message });
