@@ -31,7 +31,9 @@ import {
   createAuctionAction, 
   confirmCheckoutSessionAction, 
   notifyOutbidAction,
-  checkAuctionsCronAction
+  checkAuctionsCronAction,
+  cancelSubscriptionAction,
+  confirmReceiptAction
 } from "@/src/actions/index";
 import {
   Search,
@@ -556,6 +558,12 @@ const MainApp: React.FC = () => {
     buyer: null
   });
 
+  useEffect(() => {
+    if (activeView !== "createAuction") {
+      setCreateMode("choice");
+    }
+  }, [activeView]);
+
   // URL and Path Preservation Hook
   useEffect(() => {
     if (activeView === 'winnings') {
@@ -869,11 +877,7 @@ const MainApp: React.FC = () => {
     SubscriptionTier.FREE,
   );
   const [isSubscriptionCanceled, setIsSubscriptionCanceled] = useState(false);
-  const nextBillingDate = useMemo(() => {
-    const date = new Date();
-    date.setMonth(date.getMonth() + 1);
-    return date;
-  }, []);
+  const [nextBillingDate, setNextBillingDate] = useState<Date | undefined>(undefined);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [checkoutData, setCheckoutData] = useState<{
     amount: number;
@@ -962,6 +966,19 @@ const MainApp: React.FC = () => {
             }));
             setIsVerified(data.is_verified || data.isVerified || false);
             setUserType(data.user_type || data.userType || null);
+            
+            const subTier = data.subscription_tier || data.subscription || SubscriptionTier.FREE;
+            setCurrentPlan(subTier as SubscriptionTier);
+            setIsSubscriptionCanceled(data.subscription_canceled || false);
+            if (data.subscription_valid_until) {
+              setNextBillingDate(new Date(data.subscription_valid_until));
+            } else if (data.subscription_paid_at) {
+              const date = new Date(data.subscription_paid_at);
+              date.setMonth(date.getMonth() + 1);
+              setNextBillingDate(date);
+            } else {
+              setNextBillingDate(undefined);
+            }
           } else {
             await setDoc(doc(db, 'users', user.uid), {
               id: user.uid,
@@ -1851,7 +1868,7 @@ const MainApp: React.FC = () => {
 
       const pkgTitle = (packageAuctions[0] as any)?.package_title || 
         (typeof packageAuctions[0]?.title === 'object' ? packageAuctions[0]?.title[language] || packageAuctions[0]?.title['SLO'] : packageAuctions[0]?.title) || 
-        "Paket dražb";
+        "Večpredmetna dražba";
       content = (
         <PackageView
           packageId={selectedPackageId || ""}
@@ -1953,7 +1970,7 @@ const MainApp: React.FC = () => {
                   <div className="bg-blue-50 w-20 h-20 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
                     <span className="text-4xl">📦</span>
                   </div>
-                  <h2 className="text-2xl font-bold mb-4">Paket dražb</h2>
+                  <h2 className="text-2xl font-bold mb-4">Večpredmetna dražba</h2>
                   <p className="text-gray-500 line-height-relaxed">
                     Združite več artiklov v en paket. Račun za provizijo se obračuna šele, ko poteče ZADNJA dražba v paketu. Vsi zmagani artikli istega kupca se združijo na 1 račun.
                   </p>
@@ -2256,11 +2273,19 @@ const MainApp: React.FC = () => {
           isVerified={isVerified}
           isCanceled={isSubscriptionCanceled}
           nextBillingDate={nextBillingDate}
-          onCancelSubscription={() => {
-            setIsSubscriptionCanceled(true);
-            toast.success(
-              "Avtomatska bremenitev je preklicana. Naročnina vam ostane veljavna do konca obračunskega obdobja.",
-            );
+          onCancelSubscription={async () => {
+            const token = await auth.currentUser?.getIdToken();
+            if (token) {
+              const res = await cancelSubscriptionAction(token);
+              if (res.success) {
+                setIsSubscriptionCanceled(true);
+                toast.success(
+                  "Avtomatska bremenitev je preklicana. Naročnina vam ostane veljavna do konca obračunskega obdobja."
+                );
+              } else {
+                toast.error(res.error || "Napaka pri preklicu naročnine.");
+              }
+            }
           }}
         />
       );
@@ -3260,7 +3285,7 @@ const MainApp: React.FC = () => {
                   if (!packageMap.has(item.package_id)) {
                     const pkgTitle = (item as any).package_title || 
                       (typeof item.title === 'object' ? item.title[language] || item.title['SLO'] : item.title) || 
-                      "Paket dražb";
+                      "Večpredmetna dražba";
                     const allPkgItems = auctions.filter(a => a.package_id === item.package_id && a.status === 'active');
                     packageMap.set(item.package_id, {
                       title: pkgTitle,
@@ -3716,9 +3741,22 @@ const MainApp: React.FC = () => {
     }
   };
 
-  function handleReceiptConfirmSubmit() {
-    setReceiptConfirmModal(prev => ({ ...prev, isOpen: false }));
-    fetchAuctions();
+  async function handleReceiptConfirmSubmit() {
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      if (!token) return;
+      const res = await confirmReceiptAction({ auction_id: receiptConfirmModal.auctionId }, token);
+      if (res.success) {
+        toast.success("Prejem uspešno potrjen. Sredstva so sproščena prodajalcu.");
+      } else {
+        toast.error(res.error || "Napaka pri potrditvi prejema.");
+      }
+    } catch (e) {
+      toast.error("Napaka pri potrditvi prejema.");
+    } finally {
+      setReceiptConfirmModal(prev => ({ ...prev, isOpen: false }));
+      fetchAuctions();
+    }
   };
 
   function handleRatingSubmit() {

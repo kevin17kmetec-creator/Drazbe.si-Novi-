@@ -60,7 +60,10 @@ export const CreateAuctionForm: React.FC<{
     const defaultEndDate = new Date();
     defaultEndDate.setDate(defaultEndDate.getDate() + 7);
     const defaultDateStr = getLocalDateStr(defaultEndDate);
-    const defaultTimeStr = "20:00";
+    const nowLocal = new Date();
+    const currentHour = String(nowLocal.getHours()).padStart(2, '0');
+    const currentMinute = String(nowLocal.getMinutes()).padStart(2, '0');
+    const defaultTimeStr = `${currentHour}:${currentMinute}`;
 
     const minDate = new Date();
     minDate.setDate(minDate.getDate() + 3);
@@ -433,6 +436,13 @@ export const CreateAuctionForm: React.FC<{
                 await onPublish(payload);
             }
         } catch (error: any) { 
+            if (error.correctedTimeStr) {
+                setFormData(prev => ({ ...prev, endTime: error.correctedTimeStr }));
+                setErrorMessage('');
+                toast.success(error.message, { duration: 5000 });
+                setUploading(false);
+                return;
+            }
             if (cancelRef.current || error?.message === 'CANCELED' || error?.code === 'storage/canceled') {
                 if (uploadedFilesRef.current.length > 0) {
                     const filesToDelete = [...uploadedFilesRef.current];

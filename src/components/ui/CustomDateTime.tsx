@@ -8,6 +8,9 @@ export const CustomDatePicker = ({ value, onChange, minDateStr, maxDateStr }) =>
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
+            // Check if click was on the scrollbar
+            if (event.clientX >= document.documentElement.clientWidth) return;
+            
             if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
                 setIsOpen(false);
             }
@@ -120,9 +123,29 @@ export const CustomDatePicker = ({ value, onChange, minDateStr, maxDateStr }) =>
 export const CustomTimePicker = ({ value, onChange }) => {
     const [isOpen, setIsOpen] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
+    const hoursContainerRef = useRef<HTMLDivElement>(null);
+    const minutesContainerRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        if (isOpen) {
+            setTimeout(() => {
+                const selectedHourBtn = hoursContainerRef.current?.querySelector('.bg-\\[\\#FEBA4F\\]');
+                if (selectedHourBtn) {
+                    selectedHourBtn.scrollIntoView({ block: 'center', behavior: 'auto' });
+                }
+                const selectedMinBtn = minutesContainerRef.current?.querySelector('.bg-\\[\\#FEBA4F\\]');
+                if (selectedMinBtn) {
+                    selectedMinBtn.scrollIntoView({ block: 'center', behavior: 'auto' });
+                }
+            }, 10);
+        }
+    }, [isOpen]);
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
+            // Check if click was on the scrollbar
+            if (event.clientX >= document.documentElement.clientWidth) return;
+            
             if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
                 setIsOpen(false);
             }
@@ -163,7 +186,7 @@ export const CustomTimePicker = ({ value, onChange }) => {
                 <div className="absolute top-full left-0 mt-2 w-full bg-white border border-slate-100 rounded-3xl shadow-2xl z-50 p-6 animate-in fade-in slide-in-from-top-2 flex gap-4">
                     <div className="flex-1">
                         <div className="text-[10px] font-black uppercase text-slate-400 mb-3 text-center">Ura</div>
-                        <div className="h-48 overflow-y-auto scrollbar-hide flex flex-col gap-1 pr-2" style={{ scrollbarWidth: 'none' }}>
+                        <div ref={hoursContainerRef} className="h-48 overflow-y-auto scrollbar-hide flex flex-col gap-1 pr-2" style={{ scrollbarWidth: 'none' }}>
                             {validHours.map(h => (
                                 <button
                                     key={h}
@@ -179,7 +202,7 @@ export const CustomTimePicker = ({ value, onChange }) => {
                     <div className="w-px bg-slate-100"></div>
                     <div className="flex-1">
                         <div className="text-[10px] font-black uppercase text-slate-400 mb-3 text-center">Minute</div>
-                        <div className="h-48 overflow-y-auto scrollbar-hide flex flex-col gap-1 pl-2" style={{ scrollbarWidth: 'none' }}>
+                        <div ref={minutesContainerRef} className="h-48 overflow-y-auto scrollbar-hide flex flex-col gap-1 pl-2" style={{ scrollbarWidth: 'none' }}>
                             {validMinutes.map(m => (
                                 <button
                                     key={m}

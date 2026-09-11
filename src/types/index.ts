@@ -120,6 +120,14 @@ export enum Category {
   Umetnine = 'Umetnine',
   Glasbila = 'Glasbila',
   Zbirateljstvo = 'Zbirateljstvo',
+  Orodja = 'Orodja in stroji',
+  Elektronika = 'Zabavna elektronika',
+  Knjige = 'Knjige in revije',
+  Zivali = 'Živali in oprema',
+  Navtika = 'Navtika',
+  Gostinstvo = 'Gostinska oprema',
+  Gradbenistvo = 'Gradbeništvo',
+  Starine = 'Starine in umetnine',
   Ostalo = 'Ostalo'
 }
 

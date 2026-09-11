@@ -159,6 +159,7 @@ export async function createCheckoutSessionAction(planOrParams?: any): Promise<{
       sessionMetadata = {
         type: 'subscription',
         planId,
+        package_id: planId,
       };
     } else if (typeof planOrParams === 'object' && planOrParams !== null) {
       planId = planOrParams.planId || planOrParams.tier;
@@ -182,7 +183,7 @@ export async function createCheckoutSessionAction(planOrParams?: any): Promise<{
 
       sessionMetadata = {
         type: planOrParams.type || (planId ? 'subscription' : 'auction'),
-        ...(planId ? { planId } : {}),
+        ...(planId ? { planId, package_id: planId } : {}),
         ...(planOrParams.auction_id ? { auction_id: planOrParams.auction_id } : {}),
         ...(planOrParams.buyer_id || planOrParams.user_id ? { buyer_id: planOrParams.buyer_id || planOrParams.user_id } : {}),
         ...(planOrParams.seller_id ? { seller_id: planOrParams.seller_id } : {}),
@@ -194,6 +195,8 @@ export async function createCheckoutSessionAction(planOrParams?: any): Promise<{
       }
     }
 
+    const isSub = sessionMetadata.type === 'subscription';
+
     const sessionParams: Stripe.Checkout.SessionCreateParams = {
       payment_method_types: ['card'],
       line_items: [
@@ -204,12 +207,14 @@ export async function createCheckoutSessionAction(planOrParams?: any): Promise<{
               name: title,
             },
             unit_amount: Math.round(amount * 100),
+            ...(isSub ? { recurring: { interval: 'month' } } : {}),
           },
           quantity: 1,
         },
       ],
       metadata: sessionMetadata,
-      mode: 'payment',
+      mode: isSub ? 'subscription' : 'payment',
+      ...(isSub ? { subscription_data: { metadata: sessionMetadata } } : {}),
       success_url: returnUrl.includes('/stripe-callback.html')
         ? `${returnUrl}?payment=success&session_id={CHECKOUT_SESSION_ID}`
         : `${returnUrl}${returnUrl.includes('?') ? '&' : '?'}payment=success&session_id={CHECKOUT_SESSION_ID}`,
@@ -369,3 +374,28 @@ export async function analyzeReceiptAction(params: {
 }
 
 
+
+/**
+ * Preklic naročnine
+ */
+export async function cancelSubscriptionAction(token: string): Promise<ActionResponse> {
+  'use server';
+  return safeApiCall('/api/cancel-subscription', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` }
+  });
+}
+
+/**
+ * Potrditev prejema predmeta
+ */
+export async function confirmReceiptAction(params: {
+  auction_id: string;
+}, token?: string): Promise<ActionResponse> {
+  'use server';
+  return safeApiCall('/api/auctions/confirm-receipt', {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    body: JSON.stringify(params),
+  });
+}

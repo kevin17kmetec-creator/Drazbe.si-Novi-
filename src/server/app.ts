@@ -385,12 +385,22 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
         const targetUserId = user_id || buyer_id;
         console.log('Processing subscription payment for user', targetUserId);
         if (targetUserId && package_id) {
+          const now = new Date();
+          const validUntil = new Date(now);
+          validUntil.setMonth(validUntil.getMonth() + 1);
+
           const updateData: any = {
             subscription_tier: package_id,
             subscription_active: true,
-            subscription_paid_at: new Date().toISOString()
+            subscription_paid_at: now.toISOString(),
+            subscription_valid_until: validUntil.toISOString(),
+            subscription_canceled: false
           };
           
+          if (isSession && sessionObj?.subscription) {
+            updateData.stripe_subscription_id = typeof sessionObj.subscription === 'string' ? sessionObj.subscription : (sessionObj.subscription as any).id;
+          }
+
           let paymentMethodId = null;
           let customerId = null;
           
@@ -1136,11 +1146,23 @@ app.post("/api/confirm-checkout-session", async (req, res) => {
         const targetUserId = metadata.user_id || effectiveBuyerId;
         const packageId = metadata.package_id || 'PRO';
         if (targetUserId) {
-          await adminDb.collection('users').doc(targetUserId).update({
+          const now = new Date();
+          const validUntil = new Date(now);
+          validUntil.setMonth(validUntil.getMonth() + 1);
+          
+          const updateData: any = {
             subscription_tier: packageId,
             subscription_active: true,
-            subscription_paid_at: new Date().toISOString()
-          });
+            subscription_paid_at: now.toISOString(),
+            subscription_valid_until: validUntil.toISOString(),
+            subscription_canceled: false
+          };
+
+          if (session?.subscription) {
+            updateData.stripe_subscription_id = typeof session.subscription === 'string' ? session.subscription : (session.subscription as any).id;
+          }
+
+          await adminDb.collection('users').doc(targetUserId).update(updateData);
         }
         return res.json({ success: true, type: 'subscription' });
       }
@@ -2496,6 +2518,25 @@ app.post("/api/auctions/create", async (req, res) => {
     if (!userDoc.exists()) return res.status(404).json({ error: "Uporabnik ne obstaja" });
 
     const userData = userDoc.data();
+    
+    const subTier = userData.subscription_tier || userData.subscription || 'FREE';
+    let limit = 5;
+    if (subTier === 'BASIC') limit = 50;
+    if (subTier === 'PRO') limit = Infinity;
+
+    if (limit !== Infinity && !itemData.id) {
+      const now = new Date();
+      const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+      const userAuctions = await adminDb.collection('auctions')
+        .where('seller_id', '==', user_id)
+        .where('created_at', '>=', firstDayOfMonth)
+        .get();
+      
+      if (userAuctions.size >= limit) {
+        return res.status(403).json({ error: `Dosegli ste mesečno omejitev objav za vaš naročniški paket (${limit}). Prosimo, nadgradite paket.` });
+      }
+    }
+
     if (userData.auction_blocked_until) {
       const blockedUntil = new Date(userData.auction_blocked_until);
       if (blockedUntil > new Date()) {
@@ -3031,5 +3072,91 @@ app.post("/api/cron/process-subscription-renewals", async (req, res) => {
   } catch (e: any) {
     console.error(e);
     res.status(500).json({ error: e.message });
+  }
+});
+
+app.post("/api/cancel-subscription", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const token = authHeader.split('Bearer ')[1];
+    const decodedToken = await adminAuth.verifyIdToken(token);
+    const userId = decodedToken.uid;
+
+    const userDoc = await adminDb.collection('users').doc(userId).get();
+    const userData = userDoc.data();
+    if (!userData) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    if (userData.stripe_subscription_id) {
+      const stripe = getStripe();
+      await stripe.subscriptions.update(userData.stripe_subscription_id, {
+        cancel_at_period_end: true
+      });
+    }
+
+    await adminDb.collection('users').doc(userId).update({
+      subscription_canceled: true
+    });
+
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error('Error in cancel-subscription:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/auctions/confirm-receipt", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const token = authHeader.split('Bearer ')[1];
+    const decodedToken = await adminAuth.verifyIdToken(token);
+    const buyerId = decodedToken.uid;
+    const { auction_id } = req.body;
+
+    const txSnap = await safeGetDocs(
+      adminDb.collection('transactions').where('auction_id', '==', auction_id)
+    );
+    if (txSnap.empty) {
+      return res.status(404).json({ error: 'Naročilo ni najdeno.' });
+    }
+
+    const txDoc = txSnap.docs[0];
+    const tx = txDoc.data();
+
+    if (tx.buyer_id !== buyerId) {
+      return res.status(403).json({ error: 'Nimate pravic za to dejanje.' });
+    }
+
+    if (tx.status !== 'SHIPPED' && tx.status !== 'HELD_IN_ESCROW' && tx.status !== 'DELIVERED') {
+      return res.status(400).json({ error: 'Naročila v trenutnem stanju ni mogoče potrditi.' });
+    }
+
+    await txDoc.ref.update({
+      status: 'COMPLETED',
+      completed_at: new Date().toISOString()
+    });
+
+    const releaseAmount = Number(tx.amount_total || tx.amount) - Number(tx.platform_fee || 0) - Number(tx.vat_amount || 0);
+    const releaseCents = Math.round(releaseAmount * 100);
+    
+    await releaseHeldFunds(tx.seller_id, releaseCents, 'release_' + txDoc.id, { auction_id: tx.auction_id, related_tx: txDoc.id });
+    
+    await adminDb.collection('auctions').doc(auction_id).update({
+      buyer_received: true,
+      post_auction_status: 'completed',
+      status: 'completed'
+    });
+
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error('Error in confirm-receipt:', err);
+    res.status(500).json({ error: err.message });
   }
 });

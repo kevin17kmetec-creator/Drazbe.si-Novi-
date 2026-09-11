@@ -204,31 +204,30 @@ export const SloveniaMap: React.FC<SloveniaMapProps> = ({
                   <text
                     y={-5}
                     textAnchor="middle"
-                    className={`font-black uppercase tracking-wider text-[11px] transition-colors duration-200 ${
-                      isHighlighted ? 'fill-[#0A1128]' : 'fill-white'
+                    className={`font-black uppercase tracking-wider text-[12px] transition-colors duration-200 ${
+                      isHighlighted ? 'fill-[#0A1128] stroke-white' : 'fill-white stroke-black'
                     }`}
                     style={{
-                      filter: isHighlighted ? 'none' : 'drop-shadow(0px 2px 3px rgba(0,0,0,0.95))',
-                      textShadow: isHighlighted ? 'none' : '0 1px 3px #000000'
+                      strokeWidth: '3px',
+                      paintOrder: 'stroke fill',
                     }}
                   >
                     {reg.displayName}
                   </text>
-
                   {/* Auction Count Badge */}
                   <text
                     y={11}
                     textAnchor="middle"
-                    className={`font-black text-[13px] tracking-tight transition-colors duration-200 ${
+                    className={`font-black text-[14px] tracking-tight transition-colors duration-200 ${
                       isHighlighted
-                        ? 'fill-[#0A1128]'
+                        ? 'fill-[#0A1128] stroke-white'
                         : reg.count > 0
-                        ? 'fill-[#FEBA4F]'
-                        : 'fill-slate-400'
+                        ? 'fill-[#FEBA4F] stroke-black'
+                        : 'fill-slate-300 stroke-black'
                     }`}
                     style={{
-                      filter: isHighlighted ? 'none' : 'drop-shadow(0px 2px 3px rgba(0,0,0,0.95))',
-                      textShadow: isHighlighted ? 'none' : '0 1px 3px #000000'
+                      strokeWidth: '3px',
+                      paintOrder: 'stroke fill',
                     }}
                   >
                     {reg.count}
