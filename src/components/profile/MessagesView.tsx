@@ -11,7 +11,7 @@ import {
   AlertCircle,
   RefreshCw,
   Lock,
-  CheckCircle2,
+  CheckCircle2, X,
   ExternalLink,
   CreditCard,
   Search,
@@ -22,6 +22,7 @@ import {
 import { AuctionItem } from '../../types';
 import { useChat } from "../../context/ChatContext";
 import { auth } from "../../lib/firebase";
+import { toast } from 'sonner';
 
 const AvatarImage: React.FC<{ src?: string; className: string; fallbackSize?: number }> = ({ src, className, fallbackSize = 20 }) => {
   const [error, setError] = useState(false);
@@ -73,6 +74,7 @@ export const MessagesView: React.FC<{
   } = useChat();
 
   const [newMessage, setNewMessage] = useState('');
+  const [pendingImages, setPendingImages] = useState<File[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -130,23 +132,32 @@ export const MessagesView: React.FC<{
     }, 2000);
   };
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!isAuctionPaid) return;
     const msg = newMessage.trim();
-    if (!msg) return;
-    sendMessage(msg).then(() => {
-      setNewMessage('');
-      scrollToBottom();
-    });
+    if (!msg && pendingImages.length === 0) return;
+
+    for (const file of pendingImages) {
+        await uploadImage(file);
+    }
+    setPendingImages([]);
+
+    if (msg) {
+        await sendMessage(msg);
+        setNewMessage('');
+    }
+    scrollToBottom();
   };
 
   const handleUploadImage = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!isAuctionPaid || !activeChat || !currentChatConv || !e.target.files || e.target.files.length === 0) return;
-    const file = e.target.files[0];
+    const newFiles = Array.from(e.target.files);
+    if (pendingImages.length + newFiles.length > 5) {
+       toast.error("Lahko pošljete največ 5 slik hkrati.");
+       return;
+    }
+    setPendingImages([...pendingImages, ...newFiles]);
     e.target.value = '';
-    uploadImage(file).then(() => {
-      scrollToBottom();
-    });
   };
 
   const sendQuickReply = (text: string) => {
@@ -553,11 +564,25 @@ export const MessagesView: React.FC<{
                 ) : (
                   /* UNLOCKED ACTIVE INPUT */
                   <div className="max-w-4xl mx-auto">
+                    {pendingImages.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mb-3">
+                        {pendingImages.map((file, idx) => (
+                          <div key={idx} className="relative inline-block mt-2">
+                            <img src={URL.createObjectURL(file)} className="h-16 w-16 object-cover rounded-xl border-2 border-slate-200" alt="Preview" />
+                            <button
+                              type="button"
+                              onClick={() => setPendingImages(pendingImages.filter((_, i) => i !== idx))}
+                              className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600 shadow-md"
+                            >
+                              <X size={12} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     <div className="flex items-end gap-2 sm:gap-3 bg-slate-50 p-2 sm:p-2.5 rounded-2xl border border-slate-200 focus-within:border-[#FEBA4F] focus-within:bg-white transition-all shadow-sm">
                       <input
-                        type="file"
-                        accept="image/*"
-                        ref={fileInputRef}
+                        type="file" multiple accept="image/*" ref={fileInputRef}
                         className="hidden"
                         onChange={handleUploadImage}
                         disabled={isSending}
@@ -588,7 +613,7 @@ export const MessagesView: React.FC<{
 
                       <button
                         onClick={handleSend}
-                        disabled={!newMessage.trim() || isSending}
+                        disabled={(!newMessage.trim() && pendingImages.length === 0) || isSending}
                         className="flex-shrink-0 w-10 h-10 rounded-xl bg-[#0A1128] text-white flex items-center justify-center hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none shadow-sm"
                         title="Pošlji sporočilo"
                       >

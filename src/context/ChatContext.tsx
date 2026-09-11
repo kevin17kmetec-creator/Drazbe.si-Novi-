@@ -519,14 +519,22 @@ export const ChatProvider: React.FC<{
     try {
       setIsSending(true);
       // Convert to base64 data url for instant inline image sharing
-      const reader = new FileReader();
-      reader.onload = async () => {
-        const base64 = reader.result as string;
-        if (base64) {
-          await sendMessage(`[IMAGE]${base64}`);
-        }
-      };
-      reader.readAsDataURL(file);
+      await new Promise<void>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = async () => {
+          try {
+            const base64 = reader.result as string;
+            if (base64) {
+              await sendMessage(`[IMAGE]${base64}`);
+            }
+            resolve();
+          } catch (err) {
+            reject(err);
+          }
+        };
+        reader.onerror = (error) => reject(error);
+        reader.readAsDataURL(file);
+      });
     } catch (e) {
       console.error("Error uploading image:", e);
       toast.error("Napaka pri nalaganju slike.");

@@ -13,14 +13,14 @@ import { checkUserInvoiceData, InvoiceDataCheckResult } from "../../lib/invoiceD
 import { MissingInvoiceDataModal } from "@/src/components/modals/MissingInvoiceDataModal";
 
 const REGION_LOCATIONS: Record<Region, string[]> = {
-    [Region.Prekmurje]: ['Murska Sobota', 'Lendava', 'Ljutomer', 'Beltinci', 'Gornja Radgona'],
-    [Region.Stajerska]: ['Maribor', 'Celje', 'Ptuj', 'Velenje', 'Slovenska Bistrica', 'Žalec'],
-    [Region.Koroska]: ['Slovenj Gradec', 'Ravne na Koroškem', 'Dravograd', 'Prevalje', 'Mežica'],
-    [Region.Gorenjska]: ['Kranj', 'Jesenice', 'Škofja Loka', 'Radovljica', 'Bled', 'Tržič'],
-    [Region.Primorska]: ['Koper', 'Nova Gorica', 'Izola', 'Piran', 'Postojna', 'Sežana'],
-    [Region.Notranjska]: ['Cerknica', 'Ilirska Bistrica', 'Pivka', 'Loška Dolina', 'Bloke'],
-    [Region.Dolenjska]: ['Novo mesto', 'Kočevje', 'Trebnje', 'Črnomelj', 'Ribnica', 'Metlika'],
-    [Region.Osrednjeslovenska]: ['Ljubljana', 'Domžale', 'Kamnik', 'Grosuplje', 'Vrhnika']
+    [Region.Prekmurje]: ['Murska Sobota', 'Lendava', 'Ljutomer', 'Beltinci', 'Gornja Radgona', 'Drugo'],
+    [Region.Stajerska]: ['Maribor', 'Celje', 'Ptuj', 'Velenje', 'Slovenska Bistrica', 'Žalec', 'Drugo'],
+    [Region.Koroska]: ['Slovenj Gradec', 'Ravne na Koroškem', 'Dravograd', 'Prevalje', 'Mežica', 'Drugo'],
+    [Region.Gorenjska]: ['Kranj', 'Jesenice', 'Škofja Loka', 'Radovljica', 'Bled', 'Tržič', 'Drugo'],
+    [Region.Primorska]: ['Koper', 'Nova Gorica', 'Izola', 'Piran', 'Postojna', 'Sežana', 'Drugo'],
+    [Region.Notranjska]: ['Cerknica', 'Ilirska Bistrica', 'Pivka', 'Loška Dolina', 'Bloke', 'Drugo'],
+    [Region.Dolenjska]: ['Novo mesto', 'Kočevje', 'Trebnje', 'Črnomelj', 'Ribnica', 'Metlika', 'Drugo'],
+    [Region.Osrednjeslovenska]: ['Ljubljana', 'Domžale', 'Kamnik', 'Grosuplje', 'Vrhnika', 'Drugo']
 };
 
 import { CustomDatePicker, CustomTimePicker } from "@/src/components/ui/CustomDateTime";
@@ -73,11 +73,26 @@ export const CreateAuctionForm: React.FC<{
     maxDate.setDate(maxDate.getDate() + 14);
     const maxDateStr = getLocalDateStr(maxDate);
 
+    const [customLocation, setCustomLocation] = useState(() => {
+        const initLoc = initialData?.location?.SLO || (typeof initialData?.location === 'string' ? initialData.location : '');
+        if (initLoc && REGION_LOCATIONS[initialData?.region as Region || Region.Stajerska] && !REGION_LOCATIONS[initialData?.region as Region || Region.Stajerska].includes(initLoc)) {
+            return initLoc;
+        }
+        return '';
+    });
+    
     const [formData, setFormData] = useState({ 
         title: initialData?.title?.SLO || (typeof initialData?.title === 'string' ? initialData.title : ''), 
         category: initialData?.category || Category.Ostalo, 
         region: initialData?.region || Region.Stajerska, 
-        location: initialData?.location?.SLO || (typeof initialData?.location === 'string' ? initialData.location : REGION_LOCATIONS[initialData?.region as Region || Region.Stajerska]?.[0] || ''),
+        location: (() => {
+            const initLoc = initialData?.location?.SLO || (typeof initialData?.location === 'string' ? initialData.location : '');
+            if (initLoc && REGION_LOCATIONS[initialData?.region as Region || Region.Stajerska]) {
+                if (REGION_LOCATIONS[initialData?.region as Region || Region.Stajerska].includes(initLoc)) return initLoc;
+                return 'Drugo';
+            }
+            return REGION_LOCATIONS[initialData?.region as Region || Region.Stajerska]?.[0] || '';
+        })(),
         condition: initialData?.condition?.SLO || (typeof initialData?.condition === 'string' ? initialData.condition : 'Rabljeno'),
         description: initialData?.description?.SLO || (typeof initialData?.description === 'string' ? initialData.description : ''), 
         startingPrice: initialData?.startingPrice?.toString() || initialData?.currentBid?.toString() || '1', 
@@ -128,7 +143,7 @@ export const CreateAuctionForm: React.FC<{
     }, [initialData]);
 
     useEffect(() => {
-        if (!REGION_LOCATIONS[formData.region].includes(formData.location)) {
+        if (!REGION_LOCATIONS[formData.region].includes(formData.location) && formData.location !== 'Drugo') {
             setFormData(prev => ({ ...prev, location: REGION_LOCATIONS[formData.region][0] }));
         }
     }, [formData.region]);
@@ -423,7 +438,11 @@ export const CreateAuctionForm: React.FC<{
                 category: formData.category,
                 region: formData.region,
                 condition: formData.condition,
-                location: { SLO: formData.location, EN: formData.location, DE: formData.location },
+                location: { 
+                    SLO: formData.location === 'Drugo' && customLocation.trim() !== '' ? customLocation.trim() : formData.location, 
+                    EN: formData.location === 'Drugo' && customLocation.trim() !== '' ? customLocation.trim() : formData.location, 
+                    DE: formData.location === 'Drugo' && customLocation.trim() !== '' ? customLocation.trim() : formData.location 
+                },
                 endTime: selectedEnd.toISOString(),
                 images: imageUrls,
                 delivery_option: formData.delivery_option,
@@ -437,7 +456,11 @@ export const CreateAuctionForm: React.FC<{
             }
         } catch (error: any) { 
             if (error.correctedTimeStr) {
-                setFormData(prev => ({ ...prev, endTime: error.correctedTimeStr }));
+                setFormData(prev => ({ 
+                    ...prev, 
+                    endTime: error.correctedTimeStr,
+                    ...(error.correctedDateStr ? { endDate: error.correctedDateStr } : {})
+                }));
                 setErrorMessage('');
                 toast.success(error.message, { duration: 5000 });
                 setUploading(false);
@@ -613,6 +636,15 @@ export const CreateAuctionForm: React.FC<{
                             <select value={formData.location} className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl py-4 px-6 font-bold text-lg text-[#0A1128] focus:ring-0 focus:border-[#FEBA4F] transition-all outline-none appearance-none cursor-pointer shadow-inner" onChange={e => setFormData({...formData, location: e.target.value})}>
                                 {REGION_LOCATIONS[formData.region].map(loc => <option key={loc} value={loc}>{loc}</option>)}
                             </select>
+                            {formData.location === 'Drugo' && (
+                                <input
+                                    type="text"
+                                    placeholder="Vnesite ime mesta ali vasi (neobvezno)"
+                                    value={customLocation}
+                                    onChange={(e) => setCustomLocation(e.target.value)}
+                                    className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl py-4 px-6 font-bold text-lg text-[#0A1128] focus:ring-0 focus:border-[#FEBA4F] transition-all outline-none shadow-inner mt-4"
+                                />
+                            )}
                         </div>
                     </div>
 

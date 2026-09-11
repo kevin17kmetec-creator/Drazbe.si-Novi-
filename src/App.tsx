@@ -259,6 +259,14 @@ const CATEGORY_URL_MAP: Record<Category, Record<string, string>> = {
   [Category.Umetnine]: { SLO: "umetnine", EN: "art", DE: "kunst" },
   [Category.Glasbila]: { SLO: "glasbila", EN: "musical-instruments", DE: "musikinstrumente" },
   [Category.Zbirateljstvo]: { SLO: "zbirateljstvo", EN: "collecting", DE: "sammeln" },
+  [Category.Orodja]: { SLO: "orodja-in-stroji", EN: "tools-and-machinery", DE: "werkzeuge-und-maschinen" },
+  [Category.Elektronika]: { SLO: "zabavna-elektronika", EN: "consumer-electronics", DE: "unterhaltungselektronik" },
+  [Category.Knjige]: { SLO: "knjige-in-revije", EN: "books-and-magazines", DE: "buecher-und-zeitschriften" },
+  [Category.Zivali]: { SLO: "zivali-in-oprema", EN: "animals-and-pet-supplies", DE: "tiere-und-tierbedarf" },
+  [Category.Navtika]: { SLO: "navtika", EN: "nautical", DE: "nautik" },
+  [Category.Gostinstvo]: { SLO: "gostinska-oprema", EN: "catering-equipment", DE: "gastronomiebedarf" },
+  [Category.Gradbenistvo]: { SLO: "gradbenistvo", EN: "construction", DE: "bauwesen" },
+  [Category.Starine]: { SLO: "starine-in-umetnine", EN: "antiques-and-art", DE: "antiquitaeten-und-kunst" },
   [Category.Ostalo]: { SLO: "ostalo", EN: "other", DE: "sonstiges" }
 };
 

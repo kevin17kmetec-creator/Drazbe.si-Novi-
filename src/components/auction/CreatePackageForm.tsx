@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { CreateAuctionForm } from "@/src/components/auction/CreateAuctionForm";
-import { Layers, Plus, Trash2, ArrowLeft, CheckCircle } from 'lucide-react';
+import { Layers, Plus, Trash2, ArrowLeft, CheckCircle, Edit3 } from 'lucide-react';
 import { toast } from 'sonner';
 import { db } from "@/src/lib/firebase";
 import { doc, setDoc, getDoc, deleteDoc } from "firebase/firestore";
@@ -11,8 +11,30 @@ export const CreatePackageForm: React.FC<any> = ({ onBack, t, language, onPublis
   const [packageTitle, setPackageTitle] = useState("");
   const [items, setItems] = useState<any[]>([]);
   const [isAddingItem, setIsAddingItem] = useState(false);
+  const [editingItemIndex, setEditingItemIndex] = useState<number | null>(null);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [isLoadingDraft, setIsLoadingDraft] = useState(true);
+
+  const [draftCreatedAt, setDraftCreatedAt] = useState<number | null>(null);
+  const [timeLeftStr, setTimeLeftStr] = useState("");
+  useEffect(() => {
+    if (!draftCreatedAt) return;
+    const updateCountdown = () => {
+      const remaining = 3 * 24 * 60 * 60 * 1000 - (Date.now() - draftCreatedAt);
+      if (remaining <= 0) {
+         setTimeLeftStr("Osnutek je potekel");
+         return;
+      }
+      const d = Math.floor(remaining / (1000 * 60 * 60 * 24));
+      const h = Math.floor((remaining / (1000 * 60 * 60)) % 24);
+      const m = Math.floor((remaining / 1000 / 60) % 60);
+      setTimeLeftStr(`Osnutek poteče čez: ${d}d ${h}h ${m}m`);
+    };
+    updateCountdown();
+    const int = setInterval(updateCountdown, 60000);
+    return () => clearInterval(int);
+  }, [draftCreatedAt]);
+
 
   // Load draft from DB
   useEffect(() => {
@@ -23,13 +45,14 @@ export const CreatePackageForm: React.FC<any> = ({ onBack, t, language, onPublis
         const snap = await getDoc(docRef);
         if (snap.exists()) {
           const data = snap.data();
-          const draftTime = data.updatedAt || data.createdAt || 0;
-          if (Date.now() - draftTime > 3 * 24 * 60 * 60 * 1000) {
+          const creationTime = data.createdAt || data.updatedAt || Date.now();
+          if (Date.now() - creationTime > 3 * 24 * 60 * 60 * 1000) {
             await deleteDoc(docRef);
           } else {
             setPackageTitle(data.packageTitle || "");
             setItems(data.items || []);
             if (data.packageId) setPackageId(data.packageId);
+            setDraftCreatedAt(creationTime);
           }
         }
       } catch (e) {
@@ -47,57 +70,71 @@ export const CreatePackageForm: React.FC<any> = ({ onBack, t, language, onPublis
     const saveDraft = async () => {
       if (items.length === 0 && !packageTitle) return;
       try {
-        await setDoc(doc(db, 'package_drafts', userData.id), {
+        const docRef = doc(db, 'package_drafts', userData.id);
+        const now = Date.now();
+        const payload: any = {
           packageId,
           packageTitle,
           items,
-          updatedAt: Date.now(),
-          createdAt: items.length === 1 ? Date.now() : undefined
-        }, { merge: true });
+          updatedAt: now,
+        };
+        if (!draftCreatedAt) {
+          payload.createdAt = now;
+          setDraftCreatedAt(now);
+        }
+        await setDoc(docRef, payload, { merge: true });
       } catch (e) {
         console.error("Napaka pri shranjevanju osnutka", e);
       }
     };
     const timer = setTimeout(saveDraft, 1000);
     return () => clearTimeout(timer);
-  }, [items, packageTitle, isLoadingDraft, userData?.id]);
+  }, [items, packageTitle, isLoadingDraft, userData?.id, draftCreatedAt]);
   
-  const handleClearDraft = async () => {
-    if (!userData?.id) return;
-    if (confirm("Ste prepričani, da želite izbrisati celoten osnutek večpredmetne dražbe?")) {
-        try {
-            await deleteDoc(doc(db, 'package_drafts', userData.id));
-            setItems([]);
-            setPackageTitle("");
-            setPackageId(crypto.randomUUID());
-            toast.success("Osnutek je bil uspešno izbrisan.");
-        } catch (e) {
-            toast.error("Napaka pri brisanju osnutka.");
-        }
-    }
-  };
+    const handleClearDraft = async () => {
+      if (!userData?.id) return;
+      if (confirm("Ste prepričani, da želite izbrisati celoten osnutek večpredmetne dražbe?")) {
+          try {
+              await deleteDoc(doc(db, 'package_drafts', userData.id));
+              setItems([]);
+              setPackageTitle("");
+              setPackageId(crypto.randomUUID());
+              setDraftCreatedAt(null);
+              toast.success("Osnutek je bil uspešno izbrisan.");
+          } catch (e) {
+              toast.error("Napaka pri brisanju osnutka.");
+          }
+      }
+    };
   
-  const validateEndTime = (newItemEndTime: string) => {
+  const validateEndTime = (newItemEndTime: string, skipIndex?: number) => {
       const newTime = new Date(newItemEndTime).getTime();
       if (isNaN(newTime)) throw new Error("Neveljaven čas dražbe.");
       
-      const allTimes = items.map(i => new Date(i.endTime).getTime());
+      const allTimes = items.filter((_, idx) => idx !== skipIndex).map(i => new Date(i.endTime).getTime());
       allTimes.sort((a, b) => a - b);
       
-      let correctedTimeStr = null;
+      const generateCorrection = (highestTime: number, baseMessage: string) => {
+          const nextAvailable = new Date(highestTime + 2 * 60 * 1000); // add 2 mins to highest
+          const y = nextAvailable.getFullYear();
+          const mo = String(nextAvailable.getMonth() + 1).padStart(2, '0');
+          const d = String(nextAvailable.getDate()).padStart(2, '0');
+          const h = String(nextAvailable.getHours()).padStart(2, '0');
+          const m = String(nextAvailable.getMinutes()).padStart(2, '0');
+          
+          const correctedTimeStr = `${h}:${m}`;
+          const correctedDateStr = `${y}-${mo}-${d}`;
+          
+          const err = new Error(`${baseMessage} Ura je bila avtomatsko popravljena na ${correctedDateStr} ${correctedTimeStr}.`);
+          (err as any).correctedTimeStr = correctedTimeStr;
+          (err as any).correctedDateStr = correctedDateStr;
+          return err;
+      };
+
       for (const t of allTimes) {
           if (Math.abs(t - newTime) < 2 * 60 * 1000) {
-              // Find the next available time slot (+2 minutes from the highest)
               const highestTime = allTimes.length > 0 ? allTimes[allTimes.length - 1] : newTime;
-              const nextAvailable = new Date(highestTime + 2 * 60 * 1000);
-              
-              const h = String(nextAvailable.getHours()).padStart(2, '0');
-              const m = String(nextAvailable.getMinutes()).padStart(2, '0');
-              correctedTimeStr = `${h}:${m}`;
-              
-              const err = new Error(`Razmik mora biti vsaj 2 minuti. Ura je bila avtomatsko popravljena na ${correctedTimeStr}.`);
-              (err as any).correctedTimeStr = correctedTimeStr;
-              throw err;
+              throw generateCorrection(highestTime, "Razmik mora biti vsaj 2 minuti.");
           }
       }
       
@@ -105,12 +142,12 @@ export const CreatePackageForm: React.FC<any> = ({ onBack, t, language, onPublis
       const sorted = [...allTimes, newTime].sort((a, b) => a - b);
       for (let i = 1; i < sorted.length; i++) {
           if (sorted[i] - sorted[i-1] > 10 * 60 * 1000) {
-              throw new Error("Dražbe v zbirki ne smejo biti narazen več kot 10 minut.");
+              const highestTime = allTimes.length > 0 ? allTimes[allTimes.length - 1] : newTime;
+              throw generateCorrection(highestTime, "Dražbe v zbirki ne smejo biti narazen več kot 10 minut.");
           }
       }
       
       // 3. Overall duration constraint
-      // E.g. max duration = (number of items) * 10 mins
       if (sorted.length > 1) {
           const totalDuration = sorted[sorted.length - 1] - sorted[0];
           if (totalDuration > sorted.length * 10 * 60 * 1000) {
@@ -119,21 +156,27 @@ export const CreatePackageForm: React.FC<any> = ({ onBack, t, language, onPublis
       }
   };
 
-  const handlePublishItemLocally = async (item: any) => {
+    const handlePublishItemLocally = async (item: any) => {
     try {
-        validateEndTime(item.endTime);
+        validateEndTime(item.endTime, editingItemIndex !== null ? editingItemIndex : undefined);
     } catch (err: any) {
         toast.error(err.message);
-        throw err; // Stop CreateAuctionForm from closing
+        throw err;
     }
     
-    // It's published live!
     try {
         if (onPublishItemDirectly) {
             await onPublishItemDirectly(item, packageTitle || "Neimenovana zbirka", packageId);
         }
-        setItems([...items, { ...item, is_published: true }]);
-        setIsAddingItem(false);
+        if (editingItemIndex !== null) {
+            const newItems = [...items];
+            newItems[editingItemIndex] = { ...item, is_published: true };
+            setItems(newItems);
+            setEditingItemIndex(null);
+        } else {
+            setItems([...items, { ...item, is_published: true }]);
+            setIsAddingItem(false);
+        }
         toast.success("Dražba je objavljena v živo in dodana v zbirko!");
     } catch (e: any) {
         toast.error("Napaka pri objavi dražbe.");
@@ -141,16 +184,23 @@ export const CreatePackageForm: React.FC<any> = ({ onBack, t, language, onPublis
     }
   };
   
-  const handleSaveDraftLocally = async (item: any) => {
+    const handleSaveDraftLocally = async (item: any) => {
       try {
-        validateEndTime(item.endTime);
+        validateEndTime(item.endTime, editingItemIndex !== null ? editingItemIndex : undefined);
       } catch (err: any) {
         toast.error(err.message);
         throw err;
       }
       
-      setItems([...items, { ...item, is_published: false }]);
-      setIsAddingItem(false);
+      if (editingItemIndex !== null) {
+          const newItems = [...items];
+          newItems[editingItemIndex] = { ...item, is_published: false };
+          setItems(newItems);
+          setEditingItemIndex(null);
+      } else {
+          setItems([...items, { ...item, is_published: false }]);
+          setIsAddingItem(false);
+      }
       toast.success("Dražba uspešno shranjena v osnutek zbirke.");
   };
 
@@ -176,7 +226,7 @@ export const CreatePackageForm: React.FC<any> = ({ onBack, t, language, onPublis
       setItems(items.filter((_, i) => i !== idx));
   };
 
-  if (isAddingItem) {
+  if (isAddingItem || editingItemIndex !== null) {
     return (
       <div className="bg-slate-50 min-h-screen">
         <div className="p-4 border-b bg-white flex justify-between items-center sticky top-0 z-50 shadow-sm">
@@ -189,7 +239,7 @@ export const CreatePackageForm: React.FC<any> = ({ onBack, t, language, onPublis
           </button>
         </div>
         <CreateAuctionForm 
-          onBack={() => setIsAddingItem(false)}
+          onBack={() => { setIsAddingItem(false); setEditingItemIndex(null); }}
           t={t}
           language={language}
           onPublish={handlePublishItemLocally}
@@ -198,6 +248,12 @@ export const CreatePackageForm: React.FC<any> = ({ onBack, t, language, onPublis
           isLoggedIn={isLoggedIn}
           userData={userData}
           onNavigateToSettings={onNavigateToSettings}
+          initialData={editingItemIndex !== null ? items[editingItemIndex] : (items.length > 0 ? {
+              category: items[0].category,
+              region: items[0].region,
+              location: items[0].location,
+              delivery_option: items[0].delivery_option
+          } : undefined)}
         />
       </div>
     );
@@ -209,12 +265,13 @@ export const CreatePackageForm: React.FC<any> = ({ onBack, t, language, onPublis
         <button onClick={onBack} className="p-3 bg-white hover:bg-slate-100 rounded-2xl border border-slate-200 transition-colors shadow-sm text-[#0A1128]">
           <ArrowLeft size={20} />
         </button>
-        <div>
+                <div>
           <h1 className="text-3xl font-black flex items-center gap-3 text-[#0A1128]">
             <Layers className="text-[#FEBA4F]" size={32} />
             Ustvari zbirko dražb
           </h1>
           <p className="text-slate-500 font-medium mt-1">Združite več tematskih dražb v enotno zbirko.</p>
+          {draftCreatedAt && <p className="text-sm font-bold text-red-500 mt-2 bg-red-50 inline-block px-3 py-1 rounded-full border border-red-100">{timeLeftStr}</p>}
         </div>
       </div>
 
@@ -269,9 +326,14 @@ export const CreatePackageForm: React.FC<any> = ({ onBack, t, language, onPublis
                  </div>
                </div>
                {!item.is_published && (
+                 <div className="flex">
+                   <button onClick={() => setEditingItemIndex(idx)} className="text-slate-400 hover:text-blue-500 p-2 transition-colors self-center bg-slate-50 hover:bg-blue-50 rounded-xl mr-2">
+                     <Edit3 size={20} />
+                   </button>
                    <button onClick={() => handleDeleteItem(idx)} className="text-slate-400 hover:text-red-500 p-2 transition-colors self-center bg-slate-50 hover:bg-red-50 rounded-xl">
                      <Trash2 size={20} />
                    </button>
+                 </div>
                )}
             </div>
           ))}

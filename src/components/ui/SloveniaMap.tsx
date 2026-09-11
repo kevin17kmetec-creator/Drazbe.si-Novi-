@@ -16,7 +16,9 @@ export const REGION_ALIAS_MAP: Record<string, { enumVal: Region; display: string
   "koroška": { enumVal: Region.Koroska, display: "KOROŠKA", shortDisplay: "KOROŠKA" },
   "gorenjska": { enumVal: Region.Gorenjska, display: "GORENJSKA", shortDisplay: "GORENJSKA" },
   "osrednjeslovenska": { enumVal: Region.Osrednjeslovenska, display: "OSREDNJESLOVENSKA", shortDisplay: "OSREDNJA" },
+  "osrednja": { enumVal: Region.Osrednjeslovenska, display: "OSREDNJESLOVENSKA", shortDisplay: "OSREDNJA" },
   "jugovzhodna slovenija": { enumVal: Region.Dolenjska, display: "JUGOVZHODNA SLOVENIJA", shortDisplay: "JV SLOVENIJA" },
+  "jv slovenija": { enumVal: Region.Dolenjska, display: "JUGOVZHODNA SLOVENIJA", shortDisplay: "JV SLOVENIJA" },
   "posavska": { enumVal: Region.Dolenjska, display: "POSAVSKA", shortDisplay: "POSAVSKA" },
   "dolenjska": { enumVal: Region.Dolenjska, display: "DOLENJSKA", shortDisplay: "DOLENJSKA" },
   "primorsko-notranjska": { enumVal: Region.Notranjska, display: "PRIMORSKO-NOTRANJSKA", shortDisplay: "NOTRANJSKA" },
@@ -25,6 +27,7 @@ export const REGION_ALIAS_MAP: Record<string, { enumVal: Region; display: string
   "goriska": { enumVal: Region.Primorska, display: "GORIŠKA", shortDisplay: "GORIŠKA" },
   "obalno-kraška": { enumVal: Region.Primorska, display: "OBALNO-KRAŠKA", shortDisplay: "OBALA" },
   "obalno-kraska": { enumVal: Region.Primorska, display: "OBALNO-KRAŠKA", shortDisplay: "OBALA" },
+  "obala": { enumVal: Region.Primorska, display: "OBALNO-KRAŠKA", shortDisplay: "OBALA" },
   "primorska": { enumVal: Region.Primorska, display: "PRIMORSKA", shortDisplay: "PRIMORSKA" }
 };
 
@@ -172,15 +175,15 @@ export const SloveniaMap: React.FC<SloveniaMapProps> = ({
           {/* Region Vector Paths */}
           <g>
             {renderedRegions.map((reg) => {
-              const isHovered = hoveredRegion?.name === reg.name;
+              const isHovered = hoveredRegion?.name === reg.name || hoveredRegion?.name === reg.displayName;
 
               return (
                 <path
                   key={reg.name}
                   d={reg.path}
                   className="cursor-pointer transition-all duration-200"
-                  onClick={() => onSelectRegion(reg.targetRegion)}
-                  onMouseEnter={() => setHoveredRegion({ name: reg.name, count: reg.count })}
+                  onClick={() => onSelectRegion(reg.isSelected ? "" : reg.targetRegion)}
+                  onMouseEnter={() => setHoveredRegion({ name: reg.displayName, count: reg.count })}
                   onMouseLeave={() => setHoveredRegion(null)}
                   fill={reg.isSelected ? '#FEBA4F' : isHovered ? '#FEBA4F' : '#0F1B3B'}
                   stroke={reg.isSelected ? '#FFFFFF' : isHovered ? '#FFFFFF' : '#eab308'}
@@ -195,7 +198,7 @@ export const SloveniaMap: React.FC<SloveniaMapProps> = ({
           <g className="pointer-events-none select-none">
             {renderedRegions.map((reg) => {
               const [cx, cy] = reg.centroid;
-              const isHovered = hoveredRegion?.name === reg.name;
+              const isHovered = hoveredRegion?.name === reg.name || hoveredRegion?.name === reg.displayName;
               const isHighlighted = reg.isSelected || isHovered;
 
               return (
@@ -255,22 +258,25 @@ export const SloveniaMap: React.FC<SloveniaMapProps> = ({
 
       {/* Quick region pill selectors at bottom */}
       <div className="mt-3 pt-3 border-t border-white/5 flex flex-wrap items-center justify-center gap-1.5">
-        {Object.values(Region).map((reg) => {
-          const isSelected = selectedRegion === reg || (selectedRegion && selectedRegion.toLowerCase() === reg.toLowerCase());
-          const count = typeof regionsData[reg] === 'number' ? regionsData[reg] : getCountForRegion(reg);
+        {renderedRegions.map((reg) => {
+          const isHovered = hoveredRegion?.name === reg.name || hoveredRegion?.name === reg.displayName;
           return (
             <button
-              key={reg}
-              onClick={() => onSelectRegion(reg)}
+              key={reg.name}
+              onClick={() => onSelectRegion(reg.isSelected ? "" : reg.targetRegion)}
+              onMouseEnter={() => setHoveredRegion({ name: reg.displayName, count: reg.count })}
+              onMouseLeave={() => setHoveredRegion(null)}
               className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 ${
-                isSelected
+                reg.isSelected
                   ? 'bg-[#FEBA4F] text-[#0A1128] shadow-md scale-105'
+                  : isHovered
+                  ? 'bg-white/15 text-white border-white/20 scale-105 shadow-sm'
                   : 'bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/5'
               }`}
             >
-              <span>{reg}</span>
-              <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded-full ${isSelected ? 'bg-[#0A1128]/20 text-[#0A1128]' : 'bg-white/10 text-[#FEBA4F]'}`}>
-                {count}
+              <span>{reg.displayName}</span>
+              <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded-full ${reg.isSelected ? 'bg-[#0A1128]/20 text-[#0A1128]' : 'bg-white/10 text-[#FEBA4F]'}`}>
+                {reg.count}
               </span>
             </button>
           );
