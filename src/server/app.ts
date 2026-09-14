@@ -2526,13 +2526,19 @@ app.post("/api/auctions/create", async (req, res) => {
 
     if (limit !== Infinity && !itemData.id) {
       const now = new Date();
-      const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+      const firstDayOfMonthMs = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
       const userAuctions = await adminDb.collection('auctions')
         .where('seller_id', '==', user_id)
-        .where('created_at', '>=', firstDayOfMonth)
         .get();
       
-      if (userAuctions.size >= limit) {
+      const monthlyCount = userAuctions.docs.filter(doc => {
+        const d = doc.data();
+        const createdVal = d.created_at || d.createdAt || d.end_time || d.endTime;
+        if (!createdVal) return false;
+        return new Date(createdVal).getTime() >= firstDayOfMonthMs;
+      }).length;
+
+      if (monthlyCount >= limit) {
         return res.status(403).json({ error: `Dosegli ste mesečno omejitev objav za vaš naročniški paket (${limit}). Prosimo, nadgradite paket.` });
       }
     }
@@ -2550,7 +2556,8 @@ app.post("/api/auctions/create", async (req, res) => {
       ...itemData,
       id: newDocRef.id,
       seller_id: user_id,
-      status: "active"
+      status: "active",
+      created_at: itemData.created_at || itemData.createdAt || new Date().toISOString()
     }, { merge: true });
 
     res.json({ success: true, id: newDocRef.id });
