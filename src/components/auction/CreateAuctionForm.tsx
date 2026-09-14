@@ -47,7 +47,7 @@ export const CreateAuctionForm: React.FC<{
     onNavigateToSettings?: (tab?: 'profile' | 'personal' | 'stripe') => void;
     onSaveDraft?: (data: any) => Promise<void>;
     isPackageMode?: boolean;
-}> = ({ onBack, t, language = 'SLO', onPublish, isLoggedIn, initialData, userData, onNavigateToSettings, onSaveDraft, isPackageMode }) => {
+}> = ({ onBack, t, language = 'SLO', onPublish, isLoggedIn, initialData, userData, auctions, onNavigateToSettings, onSaveDraft, isPackageMode }) => {
     const [isInvoiceDataModalOpen, setIsInvoiceDataModalOpen] = useState(false);
     const [invoiceCheckResult, setInvoiceCheckResult] = useState<InvoiceDataCheckResult | null>(null);
     const getLocalDateStr = (date: Date) => {
@@ -366,7 +366,7 @@ export const CreateAuctionForm: React.FC<{
     }, []);
 
     const handlePublish = async (e?: any, asDraft = false) => {
-        if (userData && auctions) {
+        if (!asDraft && userData && auctions) {
             const subTier = userData.subscription_tier || userData.subscription || "FREE";
             let userLimit = 5;
             if (subTier === "BASIC") userLimit = 50;
@@ -383,7 +383,7 @@ export const CreateAuctionForm: React.FC<{
             }
         }
 
-        if (isLoggedIn && userData) {
+        if (!asDraft && isLoggedIn && userData) {
             const invoiceCheck = checkUserInvoiceData(userData);
             if (!invoiceCheck.isComplete) {
                 setInvoiceCheckResult(invoiceCheck);

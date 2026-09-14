@@ -4004,7 +4004,6 @@ const MainApp: React.FC = () => {
             t={t}
             onConfirm={handleConfirmBid}
             userData={userData}
-              auctions={auctions}
           />
         )}
         {activeLegal && (
@@ -4221,8 +4220,6 @@ const MainApp: React.FC = () => {
             onSuccess={checkoutData.onSuccess}
             metadata={checkoutData.metadata}
             userWalletBalance={userData.wallet_balance || 0}
-          userData={userData}
-              auctions={auctions}
           />
         )}
         <MissingInvoiceDataModal

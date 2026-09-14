@@ -87,6 +87,8 @@ export interface AuctionItem {
   buyer_received?: boolean;
   is_package?: boolean;
   package_id?: string;
+  createdAt?: string | number | Date;
+  created_at?: string | number | Date;
 }
 
 export interface AuctionPackage {

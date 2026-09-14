@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { db, auth } from "@/src/lib/firebase";
 import { doc, setDoc, getDoc, deleteDoc, updateDoc } from "firebase/firestore";
 
-export const CreatePackageForm: React.FC<any> = ({ onBack, t, language, onPublishPackage, onPublishItemDirectly, isLoggedIn, userData, onNavigateToSettings }) => {
+export const CreatePackageForm: React.FC<any> = ({ onBack, t, language, onPublishPackage, onPublishItemDirectly, isLoggedIn, userData, auctions, onNavigateToSettings }) => {
   const [packageId, setPackageId] = useState(() => crypto.randomUUID());
   const [packageTitle, setPackageTitle] = useState("");
   const [items, setItems] = useState<any[]>([]);
@@ -357,6 +357,7 @@ export const CreatePackageForm: React.FC<any> = ({ onBack, t, language, onPublis
           isPackageMode={true}
           isLoggedIn={isLoggedIn}
           userData={userData}
+          auctions={auctions}
           onNavigateToSettings={onNavigateToSettings}
           initialData={editingItemIndex !== null ? items[editingItemIndex] : (items.length > 0 ? {
               category: items[0].category,

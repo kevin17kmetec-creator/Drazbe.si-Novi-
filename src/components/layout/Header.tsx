@@ -57,7 +57,7 @@ export const Header: React.FC<{
       const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
       monthlyAuctionsCount = auctions.filter(a => 
           a.sellerId === userData.id && 
-          new Date(a.createdAt).getTime() >= firstDayOfMonth
+          new Date((a as any).createdAt || (a as any).created_at || a.endTime).getTime() >= firstDayOfMonth
       ).length;
   }
 
