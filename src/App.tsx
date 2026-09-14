@@ -1411,6 +1411,9 @@ const MainApp: React.FC = () => {
           const res = await createAuctionAction({ itemData: payload, user_id: userData.id });
           if (res.success) {
              auctionIds.push(res.data?.id || itemData.id || crypto.randomUUID());
+          } else {
+             toast.error(`Napaka pri objavi '${payload.title.SLO}': ${res.error || 'Neznana napaka'}`);
+             throw new Error(res.error || "Failed to publish item");
           }
       }
       

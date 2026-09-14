@@ -94,8 +94,8 @@ export const Header: React.FC<{
             <div onClick={onHome} className="flex items-center cursor-pointer group">
               <img 
                 src="https://0iwzttasbg0fikhu.public.blob.vercel-storage.com/drazbeniksi-removebg-preview%281%29.png" 
-                alt="Drazba.si Logo" 
-                className="h-16 md:h-20 object-contain group-hover:scale-105 transition-transform" 
+                alt="Drazbenik.si Logo" 
+                className="h-35 md:h-42 object-contain group-hover:scale-105 transition-transform" 
               />
             </div>
             <div className="hidden md:flex flex-1 max-w-xl mx-8 relative">

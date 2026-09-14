@@ -2520,8 +2520,8 @@ app.post("/api/auctions/create", async (req, res) => {
     const userData = userDoc.data();
     
     const subTier = userData.subscription_tier || userData.subscription || 'FREE';
-    let limit = 5;
-    if (subTier === 'BASIC') limit = 50;
+    let limit = 500; // INCREASED FOR TESTING PHASE (was 5)
+    if (subTier === 'BASIC') limit = 500;
     if (subTier === 'PRO') limit = Infinity;
 
     if (limit !== Infinity && !itemData.id) {

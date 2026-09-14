@@ -12,8 +12,8 @@ export const Footer: React.FC<{
                 <div className="flex items-center mb-8 cursor-pointer group">
                   <img 
                     src="https://0iwzttasbg0fikhu.public.blob.vercel-storage.com/drazbeniksi-removebg-preview%281%29.png" 
-                    alt="Drazba.si Logo" 
-                    className="h-20 md:h-24 object-contain" 
+                    alt="Drazbenik.si Logo" 
+                    className="h-35 md:h-42 object-contain" 
                   />
                 </div>
                 <p className="text-slate-400 font-bold max-w-md leading-relaxed mb-8">{t('footerDesc')}</p>
