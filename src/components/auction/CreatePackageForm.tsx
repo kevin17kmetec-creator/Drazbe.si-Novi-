@@ -1,10 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { CreateAuctionForm } from "@/src/components/auction/CreateAuctionForm";
 import { Layers, Plus, Trash2, ArrowLeft, CheckCircle, Edit3 } from 'lucide-react';
 import { toast } from 'sonner';
-import { db } from "@/src/lib/firebase";
-import { doc, setDoc, getDoc, deleteDoc } from "firebase/firestore";
-import { useEffect } from 'react';
+import { db, auth } from "@/src/lib/firebase";
+import { doc, setDoc, getDoc, deleteDoc, updateDoc } from "firebase/firestore";
 
 export const CreatePackageForm: React.FC<any> = ({ onBack, t, language, onPublishPackage, onPublishItemDirectly, isLoggedIn, userData, onNavigateToSettings }) => {
   const [packageId, setPackageId] = useState(() => crypto.randomUUID());
@@ -17,6 +16,7 @@ export const CreatePackageForm: React.FC<any> = ({ onBack, t, language, onPublis
 
   const [draftCreatedAt, setDraftCreatedAt] = useState<number | null>(null);
   const [timeLeftStr, setTimeLeftStr] = useState("");
+
   useEffect(() => {
     if (!draftCreatedAt) return;
     const updateCountdown = () => {
@@ -35,77 +35,158 @@ export const CreatePackageForm: React.FC<any> = ({ onBack, t, language, onPublis
     return () => clearInterval(int);
   }, [draftCreatedAt]);
 
+  // Robust draft persistence helper
+  const persistDraft = async (
+    pkgId: string,
+    title: string,
+    itemList: any[],
+    createdVal?: number | null
+  ) => {
+    const userId = userData?.id || auth?.currentUser?.uid || 'guest';
+    const now = Date.now();
+    const cTime = createdVal || draftCreatedAt || now;
+    if (!draftCreatedAt && itemList.length > 0) {
+      setDraftCreatedAt(cTime);
+    }
 
-  // Load draft from DB
-  useEffect(() => {
-    if (!userData?.id) return;
-    const loadDraft = async () => {
-      try {
-        const docRef = doc(db, 'package_drafts', userData.id);
-        const snap = await getDoc(docRef);
-        if (snap.exists()) {
-          const data = snap.data();
-          const creationTime = data.createdAt || data.updatedAt || Date.now();
-          if (Date.now() - creationTime > 3 * 24 * 60 * 60 * 1000) {
-            await deleteDoc(docRef);
-          } else {
-            setPackageTitle(data.packageTitle || "");
-            setItems(data.items || []);
-            if (data.packageId) setPackageId(data.packageId);
-            setDraftCreatedAt(creationTime);
-          }
-        }
-      } catch (e) {
-        console.error("Napaka pri nalaganju osnutka", e);
-      } finally {
-        setIsLoadingDraft(false);
-      }
+    const payload = {
+      packageId: pkgId,
+      packageTitle: title,
+      items: itemList,
+      createdAt: cTime,
+      updatedAt: now,
     };
-    loadDraft();
+
+    // 1. Immediately save synchronously to localStorage
+    try {
+      localStorage.setItem(`drazbe_package_draft_${userId}`, JSON.stringify(payload));
+      localStorage.setItem('drazbe_package_draft_latest', JSON.stringify({ ...payload, userId }));
+    } catch (e) {
+      console.warn("LocalStorage save error:", e);
+    }
+
+    // 2. Persist to Firestore asynchronously
+    if (userId && userId !== 'guest') {
+      try {
+        const sanitized = JSON.parse(JSON.stringify(payload, (k, v) => (v === undefined ? null : v)));
+        const userRef = doc(db, 'users', userId);
+        await updateDoc(userRef, { package_draft: sanitized }).catch(() => null);
+        const draftDocRef = doc(db, 'package_drafts', userId);
+        await setDoc(draftDocRef, sanitized, { merge: true }).catch(() => null);
+      } catch (e) {
+        console.warn("Firestore draft save error:", e);
+      }
+    }
+  };
+
+  // Load draft immediately from localStorage and sync from Firestore
+  useEffect(() => {
+    const userId = userData?.id || auth?.currentUser?.uid || 'guest';
+    
+    // 1. Synchronously read from localStorage
+    let localData: any = null;
+    try {
+      const stored = localStorage.getItem(`drazbe_package_draft_${userId}`) || localStorage.getItem('drazbe_package_draft_latest');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        const creationTime = parsed.createdAt || parsed.updatedAt || Date.now();
+        if (Date.now() - creationTime > 3 * 24 * 60 * 60 * 1000) {
+          localStorage.removeItem(`drazbe_package_draft_${userId}`);
+          localStorage.removeItem('drazbe_package_draft_latest');
+        } else {
+          localData = parsed;
+          setPackageTitle(parsed.packageTitle || "");
+          setItems(parsed.items || []);
+          if (parsed.packageId) setPackageId(parsed.packageId);
+          setDraftCreatedAt(creationTime);
+        }
+      }
+    } catch (e) {
+      console.warn("LocalStorage load error:", e);
+    }
+
+    // 2. Fetch from Firestore to sync cloud data
+    if (userId && userId !== 'guest') {
+      const loadRemoteDraft = async () => {
+        try {
+          let remoteData: any = null;
+          try {
+            const snap = await getDoc(doc(db, 'package_drafts', userId));
+            if (snap.exists()) remoteData = snap.data();
+          } catch (e) {}
+
+          if (!remoteData) {
+            try {
+              const uSnap = await getDoc(doc(db, 'users', userId));
+              if (uSnap.exists() && uSnap.data()?.package_draft) {
+                remoteData = uSnap.data().package_draft;
+              }
+            } catch (e) {}
+          }
+
+          if (remoteData) {
+            const creationTime = remoteData.createdAt || remoteData.updatedAt || Date.now();
+            if (Date.now() - creationTime > 3 * 24 * 60 * 60 * 1000) {
+              await deleteDoc(doc(db, 'package_drafts', userId)).catch(() => null);
+              await updateDoc(doc(db, 'users', userId), { package_draft: null }).catch(() => null);
+              localStorage.removeItem(`drazbe_package_draft_${userId}`);
+              localStorage.removeItem('drazbe_package_draft_latest');
+            } else {
+              const remoteUpdated = remoteData.updatedAt || 0;
+              const localUpdated = localData?.updatedAt || 0;
+              if (remoteUpdated >= localUpdated) {
+                setPackageTitle(remoteData.packageTitle || "");
+                setItems(remoteData.items || []);
+                if (remoteData.packageId) setPackageId(remoteData.packageId);
+                setDraftCreatedAt(creationTime);
+                try {
+                  localStorage.setItem(`drazbe_package_draft_${userId}`, JSON.stringify(remoteData));
+                } catch (e) {}
+              }
+            }
+          }
+        } catch (e) {
+          console.error("Napaka pri nalaganju osnutka", e);
+        } finally {
+          setIsLoadingDraft(false);
+        }
+      };
+      loadRemoteDraft();
+    } else {
+      setIsLoadingDraft(false);
+    }
   }, [userData?.id]);
 
-  // Save draft to DB
+  // Debounced auto-save on package title changes
   useEffect(() => {
-    if (isLoadingDraft || !userData?.id) return;
-    const saveDraft = async () => {
-      if (items.length === 0 && !packageTitle) return;
-      try {
-        const docRef = doc(db, 'package_drafts', userData.id);
-        const now = Date.now();
-        const payload: any = {
-          packageId,
-          packageTitle,
-          items,
-          updatedAt: now,
-        };
-        if (!draftCreatedAt) {
-          payload.createdAt = now;
-          setDraftCreatedAt(now);
-        }
-        await setDoc(docRef, payload, { merge: true });
-      } catch (e) {
-        console.error("Napaka pri shranjevanju osnutka", e);
-      }
-    };
-    const timer = setTimeout(saveDraft, 1000);
+    if (isLoadingDraft) return;
+    if (items.length === 0 && !packageTitle) return;
+    const timer = setTimeout(() => {
+      persistDraft(packageId, packageTitle, items, draftCreatedAt);
+    }, 800);
     return () => clearTimeout(timer);
-  }, [items, packageTitle, isLoadingDraft, userData?.id, draftCreatedAt]);
+  }, [packageTitle]);
   
-    const handleClearDraft = async () => {
-      if (!userData?.id) return;
-      if (confirm("Ste prepričani, da želite izbrisati celoten osnutek večpredmetne dražbe?")) {
-          try {
-              await deleteDoc(doc(db, 'package_drafts', userData.id));
-              setItems([]);
-              setPackageTitle("");
-              setPackageId(crypto.randomUUID());
-              setDraftCreatedAt(null);
-              toast.success("Osnutek je bil uspešno izbrisan.");
-          } catch (e) {
-              toast.error("Napaka pri brisanju osnutka.");
-          }
+  const handleClearDraft = async () => {
+    const userId = userData?.id || auth?.currentUser?.uid || 'guest';
+    if (confirm("Ste prepričani, da želite izbrisati celoten osnutek večpredmetne dražbe?")) {
+      try {
+        localStorage.removeItem(`drazbe_package_draft_${userId}`);
+        localStorage.removeItem('drazbe_package_draft_latest');
+        if (userId && userId !== 'guest') {
+          await deleteDoc(doc(db, 'package_drafts', userId)).catch(() => null);
+          await updateDoc(doc(db, 'users', userId), { package_draft: null }).catch(() => null);
+        }
+        setItems([]);
+        setPackageTitle("");
+        setPackageId(crypto.randomUUID());
+        setDraftCreatedAt(null);
+        toast.success("Osnutek je bil uspešno izbrisan.");
+      } catch (e) {
+        toast.error("Napaka pri brisanju osnutka.");
       }
-    };
+    }
+  };
   
   const validateEndTime = (newItemEndTime: string, skipIndex?: number) => {
       const newTime = new Date(newItemEndTime).getTime();
@@ -157,26 +238,23 @@ export const CreatePackageForm: React.FC<any> = ({ onBack, t, language, onPublis
   };
 
     const handlePublishItemLocally = async (item: any) => {
-    try {
-        validateEndTime(item.endTime, editingItemIndex !== null ? editingItemIndex : undefined);
-    } catch (err: any) {
-        toast.error(err.message);
-        throw err;
-    }
+    validateEndTime(item.endTime, editingItemIndex !== null ? editingItemIndex : undefined);
     
     try {
         if (onPublishItemDirectly) {
             await onPublishItemDirectly(item, packageTitle || "Neimenovana zbirka", packageId);
         }
+        let newItems: any[];
         if (editingItemIndex !== null) {
-            const newItems = [...items];
+            newItems = [...items];
             newItems[editingItemIndex] = { ...item, is_published: true };
-            setItems(newItems);
             setEditingItemIndex(null);
         } else {
-            setItems([...items, { ...item, is_published: true }]);
+            newItems = [...items, { ...item, is_published: true }];
             setIsAddingItem(false);
         }
+        setItems(newItems);
+        await persistDraft(packageId, packageTitle, newItems, draftCreatedAt || Date.now());
         toast.success("Dražba je objavljena v živo in dodana v zbirko!");
     } catch (e: any) {
         toast.error("Napaka pri objavi dražbe.");
@@ -185,22 +263,19 @@ export const CreatePackageForm: React.FC<any> = ({ onBack, t, language, onPublis
   };
   
     const handleSaveDraftLocally = async (item: any) => {
-      try {
-        validateEndTime(item.endTime, editingItemIndex !== null ? editingItemIndex : undefined);
-      } catch (err: any) {
-        toast.error(err.message);
-        throw err;
-      }
+      validateEndTime(item.endTime, editingItemIndex !== null ? editingItemIndex : undefined);
       
+      let newItems: any[];
       if (editingItemIndex !== null) {
-          const newItems = [...items];
+          newItems = [...items];
           newItems[editingItemIndex] = { ...item, is_published: false };
-          setItems(newItems);
           setEditingItemIndex(null);
       } else {
-          setItems([...items, { ...item, is_published: false }]);
+          newItems = [...items, { ...item, is_published: false }];
           setIsAddingItem(false);
       }
+      setItems(newItems);
+      await persistDraft(packageId, packageTitle, newItems, draftCreatedAt || Date.now());
       toast.success("Dražba uspešno shranjena v osnutek zbirke.");
   };
 
@@ -215,15 +290,24 @@ export const CreatePackageForm: React.FC<any> = ({ onBack, t, language, onPublis
     }
     
     await onPublishPackage({ title: packageTitle, items, packageId });
+    const userId = userData?.id || auth?.currentUser?.uid || 'guest';
+    localStorage.removeItem(`drazbe_package_draft_${userId}`);
+    localStorage.removeItem('drazbe_package_draft_latest');
+    if (userId && userId !== 'guest') {
+      await deleteDoc(doc(db, 'package_drafts', userId)).catch(() => null);
+      await updateDoc(doc(db, 'users', userId), { package_draft: null }).catch(() => null);
+    }
   };
   
-  const handleDeleteItem = (idx: number) => {
+  const handleDeleteItem = async (idx: number) => {
       const item = items[idx];
       if (item.is_published) {
           toast.error("Objavljene dražbe ne morete izbrisati iz zbirke tukaj.");
           return;
       }
-      setItems(items.filter((_, i) => i !== idx));
+      const newItems = items.filter((_, i) => i !== idx);
+      setItems(newItems);
+      await persistDraft(packageId, packageTitle, newItems, draftCreatedAt);
   };
 
   if (isAddingItem || editingItemIndex !== null) {
@@ -234,7 +318,7 @@ export const CreatePackageForm: React.FC<any> = ({ onBack, t, language, onPublis
             <Layers className="text-[#FEBA4F]" />
             {items.length > 0 ? "Dodaj naslednjo dražbo v zbirko" : "Dodaj prvo dražbo v zbirko"}
           </h2>
-          <button onClick={() => setIsAddingItem(false)} className="text-red-500 font-bold px-4 py-2 hover:bg-red-50 rounded-xl transition-colors text-xs uppercase tracking-wider">
+          <button onClick={() => { setIsAddingItem(false); setEditingItemIndex(null); }} className="text-red-500 font-bold px-4 py-2 hover:bg-red-50 rounded-xl transition-colors text-xs uppercase tracking-wider">
              Prekliči dodajanje
           </button>
         </div>
@@ -250,9 +334,12 @@ export const CreatePackageForm: React.FC<any> = ({ onBack, t, language, onPublis
           onNavigateToSettings={onNavigateToSettings}
           initialData={editingItemIndex !== null ? items[editingItemIndex] : (items.length > 0 ? {
               category: items[0].category,
+              condition: items[0].condition,
               region: items[0].region,
               location: items[0].location,
-              delivery_option: items[0].delivery_option
+              delivery_option: items[0].delivery_option,
+              shipping_fee_type: items[0].shipping_fee_type,
+              shipping_cost: items[0].shipping_cost
           } : undefined)}
         />
       </div>
@@ -265,13 +352,20 @@ export const CreatePackageForm: React.FC<any> = ({ onBack, t, language, onPublis
         <button onClick={onBack} className="p-3 bg-white hover:bg-slate-100 rounded-2xl border border-slate-200 transition-colors shadow-sm text-[#0A1128]">
           <ArrowLeft size={20} />
         </button>
-                <div>
+        <div>
           <h1 className="text-3xl font-black flex items-center gap-3 text-[#0A1128]">
             <Layers className="text-[#FEBA4F]" size={32} />
             Ustvari zbirko dražb
           </h1>
           <p className="text-slate-500 font-medium mt-1">Združite več tematskih dražb v enotno zbirko.</p>
-          {draftCreatedAt && <p className="text-sm font-bold text-red-500 mt-2 bg-red-50 inline-block px-3 py-1 rounded-full border border-red-100">{timeLeftStr}</p>}
+          {draftCreatedAt && (
+            <div className="flex items-center gap-3 mt-2">
+              <p className="text-sm font-bold text-red-500 bg-red-50 inline-block px-3 py-1 rounded-full border border-red-100">{timeLeftStr}</p>
+              <button onClick={handleClearDraft} className="text-xs font-bold text-slate-400 hover:text-red-500 underline transition-colors">
+                Počisti osnutek
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

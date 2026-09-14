@@ -114,8 +114,44 @@ export const CreateAuctionForm: React.FC<{
     const [isCompressing, setIsCompressing] = useState(false);
     const [draggedItemIndex, setDraggedItemIndex] = useState<number | null>(null);
     const [zoomedImage, setZoomedImage] = useState<string | null>(null);
+    const [invalidFields, setInvalidFields] = useState<{
+        title?: boolean;
+        description?: boolean;
+        images?: boolean;
+        startingPrice?: boolean;
+        shipping_cost?: boolean;
+    }>({});
 
     useEffect(() => {
+        if (initialData) {
+            const initLoc = initialData.location?.SLO || (typeof initialData.location === 'string' ? initialData.location : '');
+            let locVal = initLoc;
+            let customVal = '';
+            const targetRegion = (initialData.region as Region) || Region.Stajerska;
+            if (initLoc && REGION_LOCATIONS[targetRegion]) {
+                if (REGION_LOCATIONS[targetRegion].includes(initLoc)) {
+                    locVal = initLoc;
+                } else {
+                    locVal = 'Drugo';
+                    customVal = initLoc;
+                }
+            }
+            setFormData(prev => ({
+                ...prev,
+                title: initialData.title?.SLO || (typeof initialData.title === 'string' ? initialData.title : prev.title),
+                category: initialData.category || prev.category,
+                condition: initialData.condition?.SLO || (typeof initialData.condition === 'string' ? initialData.condition : prev.condition),
+                region: initialData.region || prev.region,
+                location: locVal || prev.location,
+                delivery_option: initialData.delivery_option || prev.delivery_option,
+                shipping_fee_type: initialData.shipping_fee_type || prev.shipping_fee_type,
+                shipping_cost: initialData.shipping_cost !== undefined && initialData.shipping_cost !== null ? initialData.shipping_cost.toString() : prev.shipping_cost
+            }));
+            if (customVal) {
+                setCustomLocation(customVal);
+            }
+        }
+
         if (initialData?.created_at && initialData?.end_time) {
             const created = new Date(initialData.created_at);
             const ended = new Date(initialData.end_time);
@@ -155,6 +191,7 @@ export const CreateAuctionForm: React.FC<{
         }
         if (files.length === 0) return;
 
+        setInvalidFields(prev => ({ ...prev, images: false }));
         setIsCompressing(true);
         try {
             const compressedFiles = await Promise.all(
@@ -337,14 +374,43 @@ export const CreateAuctionForm: React.FC<{
             }
         }
 
-        if (!formData.title || !formData.description) return toast.error(t('enterAllData'));
-        if (existingImages.length + imageFiles.length < 3) return toast.error(t('minImagesError'));
-        if (existingImages.length + imageFiles.length > 10) return toast.error(t('maxImagesError'));
+        const errors: {
+            title?: boolean;
+            description?: boolean;
+            images?: boolean;
+            startingPrice?: boolean;
+            shipping_cost?: boolean;
+        } = {};
+
+        if (!formData.title || !formData.title.trim()) errors.title = true;
+        if (!formData.description || !formData.description.trim()) errors.description = true;
+        if (existingImages.length + imageFiles.length < 3) errors.images = true;
         
         const startingPriceNum = parseInt(formData.startingPrice);
         if (isNaN(startingPriceNum) || startingPriceNum < 1) {
-            return toast.error(t('priceMin1'));
+            errors.startingPrice = true;
         }
+
+        if (formData.delivery_option !== 'pickup_only' && formData.shipping_fee_type === 'fixed' && (!formData.shipping_cost || isNaN(Number(formData.shipping_cost)) || Number(formData.shipping_cost) <= 0)) {
+            errors.shipping_cost = true;
+        }
+
+        if (Object.keys(errors).length > 0) {
+            setInvalidFields(errors);
+            if (errors.title || errors.description) {
+                toast.error(t('enterAllData'));
+            } else if (errors.images) {
+                toast.error(t('minImagesError'));
+            } else if (errors.startingPrice) {
+                toast.error(t('priceMin1'));
+            } else if (errors.shipping_cost) {
+                toast.error("Vnesite znesek poštnine.");
+            }
+            return;
+        }
+
+        setInvalidFields({});
+        if (existingImages.length + imageFiles.length > 10) return toast.error(t('maxImagesError'));
 
         const selectedEnd = new Date(`${formData.endDate}T${formData.endTime}`);
         
@@ -537,11 +603,30 @@ export const CreateAuctionForm: React.FC<{
                 <div className="space-y-8">
                     <div className="space-y-4">
                         <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">{t('auctionTitle')}</label>
-                        <input type="text" placeholder={t('enterTitle')} className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl py-4 px-6 font-bold text-lg text-[#0A1128] focus:ring-0 focus:border-[#FEBA4F] transition-all outline-none shadow-inner" onChange={e => setFormData({...formData, title: e.target.value})} />
+                        <input 
+                            type="text" 
+                            placeholder={t('enterTitle')} 
+                            value={formData.title}
+                            className={`w-full bg-slate-50 border-2 ${invalidFields.title ? 'border-red-500 bg-red-50/20' : 'border-slate-200 focus:border-[#FEBA4F]'} rounded-2xl py-4 px-6 font-bold text-lg text-[#0A1128] focus:ring-0 transition-all outline-none shadow-inner`} 
+                            onChange={e => {
+                                setFormData({...formData, title: e.target.value});
+                                if (invalidFields.title) setInvalidFields(prev => ({ ...prev, title: false }));
+                            }} 
+                        />
+                        {invalidFields.title && <p className="text-red-500 text-xs font-bold mt-1 ml-2">Vnesite naslov dražbe.</p>}
                     </div>
                     <div className="space-y-4">
                         <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">{t('itemDescription')}</label>
-                        <textarea placeholder={t('describeItem')} className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl py-4 px-6 font-bold text-lg text-[#0A1128] h-40 focus:ring-0 focus:border-[#FEBA4F] transition-all outline-none resize-none shadow-inner" onChange={e => setFormData({...formData, description: e.target.value})} />
+                        <textarea 
+                            placeholder={t('describeItem')} 
+                            value={formData.description}
+                            className={`w-full bg-slate-50 border-2 ${invalidFields.description ? 'border-red-500 bg-red-50/20' : 'border-slate-200 focus:border-[#FEBA4F]'} rounded-2xl py-4 px-6 font-bold text-lg text-[#0A1128] h-40 focus:ring-0 transition-all outline-none resize-none shadow-inner`} 
+                            onChange={e => {
+                                setFormData({...formData, description: e.target.value});
+                                if (invalidFields.description) setInvalidFields(prev => ({ ...prev, description: false }));
+                            }} 
+                        />
+                        {invalidFields.description && <p className="text-red-500 text-xs font-bold mt-1 ml-2">Vnesite opis predmeta.</p>}
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                         <div className="space-y-4">
@@ -550,13 +635,17 @@ export const CreateAuctionForm: React.FC<{
                                 <input 
                                     type="text" 
                                     inputMode="numeric"
-                                    className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl py-4 pl-6 pr-12 font-bold text-lg text-[#0A1128] focus:ring-0 focus:border-[#FEBA4F] transition-all outline-none shadow-inner" 
+                                    className={`w-full bg-slate-50 border-2 ${invalidFields.startingPrice ? 'border-red-500 bg-red-50/20' : 'border-slate-200 focus:border-[#FEBA4F]'} rounded-2xl py-4 pl-6 pr-12 font-bold text-lg text-[#0A1128] focus:ring-0 transition-all outline-none shadow-inner`} 
                                     value={formData.startingPrice}
-                                    onChange={e => handleNumericChange('startingPrice', e.target.value)} 
+                                    onChange={e => {
+                                        handleNumericChange('startingPrice', e.target.value);
+                                        if (invalidFields.startingPrice) setInvalidFields(prev => ({ ...prev, startingPrice: false }));
+                                    }} 
                                     onBlur={handleStartingPriceBlur}
                                 />
                                 <span className="absolute right-6 font-black text-[#0A1128] pointer-events-none">€</span>
                             </div>
+                            {invalidFields.startingPrice && <p className="text-red-500 text-xs font-bold mt-1 ml-2">Začetna cena mora biti vsaj 1 €.</p>}
                         </div>
                         <div className="w-full mb-8">
                         <div className="space-y-4 p-6 bg-slate-50 rounded-2xl border border-slate-100">
@@ -589,12 +678,24 @@ export const CreateAuctionForm: React.FC<{
                                             
                                             {formData.shipping_fee_type === 'fixed' && (
                                                 <div className="pl-6 w-full sm:w-64 relative">
-                                                    <div className="relative flex items-stretch overflow-hidden rounded-xl border border-slate-200 focus-within:ring-2 focus-within:ring-[#FEBA4F] focus-within:border-[#FEBA4F] transition-all">
-                                                        <input type="number" min="0" step="0.01" value={formData.shipping_cost} onChange={(e) => setFormData({...formData, shipping_cost: e.target.value})} className="w-full bg-white py-2.5 px-4 text-sm font-bold outline-none" placeholder="Znesek (npr. 5.00)" />
+                                                    <div className={`relative flex items-stretch overflow-hidden rounded-xl border-2 ${invalidFields.shipping_cost ? 'border-red-500' : 'border-slate-200 focus-within:ring-2 focus-within:ring-[#FEBA4F] focus-within:border-[#FEBA4F]'} transition-all`}>
+                                                        <input 
+                                                            type="number" 
+                                                            min="0" 
+                                                            step="0.01" 
+                                                            value={formData.shipping_cost} 
+                                                            onChange={(e) => {
+                                                                setFormData({...formData, shipping_cost: e.target.value});
+                                                                if (invalidFields.shipping_cost) setInvalidFields(prev => ({ ...prev, shipping_cost: false }));
+                                                            }} 
+                                                            className="w-full bg-white py-2.5 px-4 text-sm font-bold outline-none" 
+                                                            placeholder="Znesek (npr. 5.00)" 
+                                                        />
                                                         <div className="bg-slate-100 border-l border-slate-200 px-4 py-2.5 text-slate-500 font-bold text-sm flex items-center select-none pointer-events-none">
                                                             €
                                                         </div>
                                                     </div>
+                                                    {invalidFields.shipping_cost && <p className="text-red-500 text-[11px] font-bold mt-1">Vnesite znesek poštnine.</p>}
                                                 </div>
                                             )}
                                         </div>
@@ -608,7 +709,7 @@ export const CreateAuctionForm: React.FC<{
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                         <div className="space-y-4">
                             <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">{t('category')}</label>
-                            <select className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl py-4 px-6 font-bold text-lg text-[#0A1128] focus:ring-0 focus:border-[#FEBA4F] transition-all outline-none appearance-none cursor-pointer shadow-inner" onChange={e => setFormData({...formData, category: e.target.value as Category})}>
+                            <select value={formData.category} className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl py-4 px-6 font-bold text-lg text-[#0A1128] focus:ring-0 focus:border-[#FEBA4F] transition-all outline-none appearance-none cursor-pointer shadow-inner" onChange={e => setFormData({...formData, category: e.target.value as Category})}>
                                 {Object.values(Category).map(c => <option key={c} value={c}>{getCategoryTranslation(c, t)}</option>)}
                             </select>
                         </div>
@@ -642,7 +743,7 @@ export const CreateAuctionForm: React.FC<{
                                     placeholder="Vnesite ime mesta ali vasi (neobvezno)"
                                     value={customLocation}
                                     onChange={(e) => setCustomLocation(e.target.value)}
-                                    className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl py-4 px-6 font-bold text-lg text-[#0A1128] focus:ring-0 focus:border-[#FEBA4F] transition-all outline-none shadow-inner mt-4"
+                                    className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl py-3.5 px-4 sm:px-5 font-semibold text-sm sm:text-base placeholder:text-xs sm:placeholder:text-sm text-[#0A1128] focus:ring-0 focus:border-[#FEBA4F] transition-all outline-none shadow-inner mt-2.5"
                                 />
                             )}
                         </div>
@@ -676,7 +777,13 @@ export const CreateAuctionForm: React.FC<{
                             onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
                             onDragLeave={() => setIsDragging(false)}
                             onDrop={(e) => { e.preventDefault(); setIsDragging(false); if(e.dataTransfer.files) handleFiles(Array.from(e.dataTransfer.files)); }}
-                            className={`p-12 border-4 border-dashed rounded-[2.5rem] text-center transition-all cursor-pointer relative group ${isDragging ? 'border-[#FEBA4F] bg-[#FEBA4F]/5 scale-[1.01]' : 'border-slate-100 bg-slate-50 hover:bg-white hover:border-slate-200'}`}
+                            className={`p-12 border-4 border-dashed rounded-[2.5rem] text-center transition-all cursor-pointer relative group ${
+                                invalidFields.images 
+                                    ? 'border-red-500 bg-red-50/20' 
+                                    : isDragging 
+                                        ? 'border-[#FEBA4F] bg-[#FEBA4F]/5 scale-[1.01]' 
+                                        : 'border-slate-100 bg-slate-50 hover:bg-white hover:border-slate-200'
+                            }`}
                         >
                             <input type="file" multiple accept="image/*" className="absolute inset-0 opacity-0 cursor-pointer z-10" onChange={e => e.target.files && handleFiles(Array.from(e.target.files))} />
                             <div className="flex flex-col items-center gap-4">
@@ -689,6 +796,7 @@ export const CreateAuctionForm: React.FC<{
                                 </div>
                             </div>
                         </div>
+                        {invalidFields.images && <p className="text-red-500 text-xs font-bold mt-2 ml-2">Naložite vsaj 3 slike predmeta.</p>}
                     </div>
 
                     {(existingImages.length > 0 || previews.length > 0) && (

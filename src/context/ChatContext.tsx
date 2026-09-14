@@ -17,7 +17,7 @@ import {
   limit
 } from "firebase/firestore";
 import { AuctionItem } from "../types";
-import { toast } from "sonner";
+import { toast } from "@/src/lib/toast";
 
 export interface Message {
   id: string;

@@ -111,7 +111,8 @@ import {
   Category,
 } from "./types";
 
-import { Toaster, toast } from "sonner";
+import { Toaster } from "sonner";
+import { toast } from "@/src/lib/toast";
 
 import { ChatProvider } from "./context/ChatContext";
 import { collection, onSnapshot, setDoc, doc, getDocs, getDoc, updateDoc, addDoc, deleteDoc, query, where, runTransaction } from "firebase/firestore";
@@ -569,8 +570,20 @@ const MainApp: React.FC = () => {
   useEffect(() => {
     if (activeView !== "createAuction") {
       setCreateMode("choice");
+    } else {
+      const uid = userData?.id || 'guest';
+      const stored = localStorage.getItem(`drazbe_package_draft_${uid}`) || localStorage.getItem('drazbe_package_draft_latest');
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          const creationTime = parsed.createdAt || parsed.updatedAt || Date.now();
+          if (Date.now() - creationTime <= 3 * 24 * 60 * 60 * 1000) {
+            setCreateMode("package");
+          }
+        } catch (e) {}
+      }
     }
-  }, [activeView]);
+  }, [activeView, userData?.id]);
 
   // URL and Path Preservation Hook
   useEffect(() => {
@@ -3787,6 +3800,10 @@ const MainApp: React.FC = () => {
           position="top-center"
           duration={4000}
           richColors
+          closeButton
+          expand={true}
+          visibleToasts={5}
+          gap={12}
           toastOptions={{
             style: {
               background: "#0A1128",
