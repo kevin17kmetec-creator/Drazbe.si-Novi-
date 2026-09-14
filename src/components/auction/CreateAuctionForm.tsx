@@ -43,6 +43,7 @@ export const CreateAuctionForm: React.FC<{
     isLoggedIn: boolean;
     initialData?: any;
     userData?: any;
+    auctions?: any[];
     onNavigateToSettings?: (tab?: 'profile' | 'personal' | 'stripe') => void;
     onSaveDraft?: (data: any) => Promise<void>;
     isPackageMode?: boolean;
@@ -365,6 +366,23 @@ export const CreateAuctionForm: React.FC<{
     }, []);
 
     const handlePublish = async (e?: any, asDraft = false) => {
+        if (userData && auctions) {
+            const subTier = userData.subscription_tier || userData.subscription || "FREE";
+            let userLimit = 5;
+            if (subTier === "BASIC") userLimit = 50;
+            if (subTier === "PRO") userLimit = Infinity;
+            const now = new Date();
+            const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+            const monthlyAuctionsCount = auctions.filter(a => 
+                a.sellerId === userData.id && 
+                new Date(a.createdAt).getTime() >= firstDayOfMonth
+            ).length;
+            if (!initialData?.id && monthlyAuctionsCount >= userLimit) {
+                toast.error(`Dosegli ste mesečno omejitev objav za vaš naročniški paket (${userLimit}). Prosimo, nadgradite paket v nastavitvah.`);
+                return;
+            }
+        }
+
         if (isLoggedIn && userData) {
             const invoiceCheck = checkUserInvoiceData(userData);
             if (!invoiceCheck.isComplete) {

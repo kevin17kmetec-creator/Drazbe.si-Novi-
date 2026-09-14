@@ -2025,6 +2025,7 @@ const MainApp: React.FC = () => {
               isLoggedIn={isLoggedIn}
               initialData={republishData}
               userData={userData}
+              auctions={auctions}
               onNavigateToSettings={(tab) => {
                 setSettingsTab(tab || 'personal');
                 setActiveView("settings");
@@ -2082,6 +2083,7 @@ const MainApp: React.FC = () => {
               }}
               isLoggedIn={isLoggedIn}
               userData={userData}
+              auctions={auctions}
               onNavigateToSettings={(tab) => {
                 setSettingsTab(tab || 'personal');
                 setActiveView("settings");
@@ -3931,6 +3933,7 @@ const MainApp: React.FC = () => {
             userData.profile_picture_url || userData.profilePicture
           }
           userWalletBalance={userData.wallet_balance || 0}
+          userData={userData}
         />
         <main>{content}</main>
         {(activeView === "grid" || activeView === "testSandbox") && (
@@ -4001,6 +4004,7 @@ const MainApp: React.FC = () => {
             t={t}
             onConfirm={handleConfirmBid}
             userData={userData}
+              auctions={auctions}
           />
         )}
         {activeLegal && (
@@ -4217,9 +4221,10 @@ const MainApp: React.FC = () => {
             onSuccess={checkoutData.onSuccess}
             metadata={checkoutData.metadata}
             userWalletBalance={userData.wallet_balance || 0}
+          userData={userData}
+              auctions={auctions}
           />
         )}
-
         <MissingInvoiceDataModal
           isOpen={appMissingInvoiceDataModal.isOpen}
           onClose={() => setAppMissingInvoiceDataModal((prev) => ({ ...prev, isOpen: false }))}

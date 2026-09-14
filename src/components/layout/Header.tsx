@@ -36,7 +36,8 @@ export const Header: React.FC<{
   userEmail?: string;
   userProfilePicture?: string;
   userWalletBalance?: number;
-}> = ({ onHome, onSearch, onRegionSelect, onCategorySelect, onLastChance, onLogin, onLogout, onSettings, onSubscriptions, onCreateAuction, onMyWinnings, onMyBids, onMySold, onMyUnsold, onWatchlist, onMessages, activeView, selectedRegion, selectedCategory, isLoggedIn, isAuthLoading, isVerified, language, onLanguageChange, t, auctions, newWinningsCount, userEmail, userProfilePicture, userWalletBalance }) => {
+  userData?: any;
+}> = ({ onHome, onSearch, onRegionSelect, onCategorySelect, onLastChance, onLogin, onLogout, onSettings, onSubscriptions, onCreateAuction, onMyWinnings, onMyBids, onMySold, onMyUnsold, onWatchlist, onMessages, activeView, selectedRegion, selectedCategory, isLoggedIn, isAuthLoading, isVerified, language, onLanguageChange, t, auctions, newWinningsCount, userEmail, userProfilePicture, userWalletBalance, userData }) => {
   const { unreadMessageCount } = useChat();
 
   const [isRegOpen, setIsRegOpen] = useState(false);
@@ -46,6 +47,20 @@ export const Header: React.FC<{
 
   // Profile badge MUST only show won auctions count, message badge is exclusively on messages button
   const wonAuctionsBadge = newWinningsCount || 0;
+  let monthlyAuctionsCount = 0;
+  let userLimit = 5;
+  if (userData && auctions) {
+      const subTier = userData.subscription_tier || userData.subscription || "FREE";
+      if (subTier === "BASIC") userLimit = 50;
+      if (subTier === "PRO") userLimit = Infinity;
+      const now = new Date();
+      const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+      monthlyAuctionsCount = auctions.filter(a => 
+          a.sellerId === userData.id && 
+          new Date(a.createdAt).getTime() >= firstDayOfMonth
+      ).length;
+  }
+
   const userMenuRef = useRef<HTMLDivElement>(null);
   const langMenuRef = useRef<HTMLDivElement>(null);
   const catMenuRef = useRef<HTMLDivElement>(null);
@@ -183,6 +198,24 @@ export const Header: React.FC<{
                   </button>
                   {isUserMenuOpen && (
                     <div className="absolute top-full right-0 mt-3 w-64 bg-white border border-slate-200 rounded-[2rem] shadow-2xl py-4 text-[#0A1128] overflow-hidden z-[100] animate-in">
+                        {userData && (
+                          <div className="px-6 py-4 border-b border-slate-100 mb-2 bg-slate-50">
+                              <div className="flex items-center justify-between mb-1">
+                                  <p className="text-[10px] font-black text-slate-400 uppercase">Objave ta mesec</p>
+                                  <p className="text-xs font-black text-[#0A1128]">
+                                      {monthlyAuctionsCount} / {userLimit === Infinity ? "∞" : userLimit}
+                                  </p>
+                              </div>
+                              {userLimit !== Infinity && (
+                                  <div className="w-full bg-slate-200 rounded-full h-1.5 mt-2 overflow-hidden">
+                                      <div 
+                                          className={`h-full rounded-full transition-all ${monthlyAuctionsCount >= userLimit ? "bg-red-500" : "bg-[#FEBA4F]"}`} 
+                                          style={{ width: `${Math.min(100, (monthlyAuctionsCount / userLimit) * 100)}%` }}
+                                      ></div>
+                                  </div>
+                              )}
+                          </div>
+                        )}
                         <div className="px-6 py-4 border-b border-slate-100 mb-2">
                             <p className="text-[10px] font-black text-slate-400 uppercase">{t('loggedInAs')}</p>
                             <p className="font-black text-xs truncate">{userEmail || 'Uporabnik Drazba.si'}</p>
