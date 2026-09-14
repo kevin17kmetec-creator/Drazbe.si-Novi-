@@ -26,6 +26,7 @@ export const Header: React.FC<{
   selectedRegion: Region | null;
   selectedCategory: Category | null;
   isLoggedIn: boolean;
+  isAuthLoading?: boolean;
   isVerified: boolean;
   language: string;
   onLanguageChange: (l: string) => void;
@@ -35,7 +36,7 @@ export const Header: React.FC<{
   userEmail?: string;
   userProfilePicture?: string;
   userWalletBalance?: number;
-}> = ({ onHome, onSearch, onRegionSelect, onCategorySelect, onLastChance, onLogin, onLogout, onSettings, onSubscriptions, onCreateAuction, onMyWinnings, onMyBids, onMySold, onMyUnsold, onWatchlist, onMessages, activeView, selectedRegion, selectedCategory, isLoggedIn, isVerified, language, onLanguageChange, t, auctions, newWinningsCount, userEmail, userProfilePicture, userWalletBalance }) => {
+}> = ({ onHome, onSearch, onRegionSelect, onCategorySelect, onLastChance, onLogin, onLogout, onSettings, onSubscriptions, onCreateAuction, onMyWinnings, onMyBids, onMySold, onMyUnsold, onWatchlist, onMessages, activeView, selectedRegion, selectedCategory, isLoggedIn, isAuthLoading, isVerified, language, onLanguageChange, t, auctions, newWinningsCount, userEmail, userProfilePicture, userWalletBalance }) => {
   const { unreadMessageCount } = useChat();
 
   const [isRegOpen, setIsRegOpen] = useState(false);
@@ -92,7 +93,7 @@ export const Header: React.FC<{
       <div className="max-w-[1600px] mx-auto px-6 h-28 flex items-center justify-between">
             <div onClick={onHome} className="flex items-center cursor-pointer group">
               <img 
-                src="https://lh3.googleusercontent.com/u/0/d/1yH_IHNJfoWXgrlrwESprp3gi29_MoYwi" 
+                src="https://0iwzttasbg0fikhu.public.blob.vercel-storage.com/drazbeniksi-removebg-preview%281%29.png" 
                 alt="Drazba.si Logo" 
                 className="h-16 md:h-20 object-contain group-hover:scale-105 transition-transform" 
               />
@@ -140,7 +141,9 @@ export const Header: React.FC<{
                   )}
               </div>
 
-              {isLoggedIn ? (
+              {isAuthLoading ? (
+                <div className="w-32 h-10 bg-white/10 rounded-2xl animate-pulse flex items-center justify-center text-white/50 text-xs font-bold">Nalaganje...</div>
+              ) : isLoggedIn ? (
                 <div className="flex items-center gap-3">
                   <button
                     onClick={() => {

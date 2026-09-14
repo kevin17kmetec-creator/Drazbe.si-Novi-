@@ -242,7 +242,7 @@ export const AuctionEmailTemplate: React.FC<AuctionEmailProps> = ({
             <Text style={footerText}>
               To je samodejno sistemsko obvestilo spletne platforme{' '}
               <Link href="https://drazba.si" target="_blank" style={footerLink}>
-                dražbe.si
+                dražbenik.si
               </Link>
               .
             </Text>
@@ -254,7 +254,7 @@ export const AuctionEmailTemplate: React.FC<AuctionEmailProps> = ({
               .
             </Text>
             <Text style={copyrightText}>
-              © {new Date().getFullYear()} dražbe.si. Vse pravice pridržane.
+              © {new Date().getFullYear()} dražbenik.si. Vse pravice pridržane.
             </Text>
           </Section>
         </Container>

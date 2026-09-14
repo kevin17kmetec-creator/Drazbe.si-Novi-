@@ -91,7 +91,7 @@ export async function generateInvoicePDF(transaction: any, buyer: any, seller: a
 
     // Party Electronic Identification note if tax IDs are not present/public
     if (!sellerTaxId || !buyerTaxId) {
-      doc.fontSize(8).text('Opomba o identifikaciji: Stranki sta elektronsko identificirani znotraj platforme dražbe.si.', { italic: true });
+      doc.fontSize(8).text('Opomba o identifikaciji: Stranki sta elektronsko identificirani znotraj platforme dražbenik.si.', { italic: true });
       doc.moveDown(0.5);
     }
 
@@ -179,7 +179,7 @@ export async function generateInvoicePDF(transaction: any, buyer: any, seller: a
       doc.text('• Prenos lastništva: Lastninska pravica in nevarnost naključnega uničenja preideta na kupca ob celotnem plačilu kupnine in prevzemu predmeta.');
       doc.text('• DDV izjava: Prodajalec je fizična oseba (C2C). DDV se v skladu z ZDDV-1 ne obračunava. Dokument služi kot dokazilo o sklenjeni pogodbi in plačilu.');
     }
-    doc.text('• Posredovanje: Platforma dražbe.si nastopa izključno kot tehnološki posrednik in ni pogodbena stranka prodajne pogodbe.');
+    doc.text('• Posredovanje: Platforma dražbenik.si nastopa izključno kot tehnološki posrednik in ni pogodbena stranka prodajne pogodbe.');
 
     // ==========================================
     // PAGE 2: INVOICE FOR PLATFORM FEE (Platform -> Buyer)
@@ -220,7 +220,7 @@ export async function generateInvoicePDF(transaction: any, buyer: any, seller: a
     doc.text(`Številka računa / Invoice No: ${feeDocNo}`);
     doc.text(`Datum izdaje in opravljene storitve / Date of issue & service: ${todayStr}`);
     
-    const paymentMethodText = transaction.payment_method === 'wallet' ? 'Sredstva na dražbe.si (Wallet)' : 'Spletno plačilo / Kartica';
+    const paymentMethodText = transaction.payment_method === 'wallet' ? 'Sredstva na dražbenik.si (Wallet)' : 'Spletno plačilo / Kartica';
     const paidAtDateStr = transaction.paid_at ? new Date(transaction.paid_at).toLocaleDateString('sl-SI') : todayStr;
     doc.text(`Način plačila / Payment Method: ${paymentMethodText}`);
     doc.text(`Status plačila / Payment Status: PLAČANO (${paidAtDateStr})`);

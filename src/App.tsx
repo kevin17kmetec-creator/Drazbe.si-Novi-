@@ -537,6 +537,7 @@ const MainApp: React.FC = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isVerified, setIsVerified] = useState(false);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const [showBannerDelayPassed, setShowBannerDelayPassed] = useState(false);
   const [userType, setUserType] = useState<"individual" | "business" | null>(
     null,
   );
@@ -1166,6 +1167,7 @@ const MainApp: React.FC = () => {
         return {
           ...d,
           endTime: new Date(d.end_time || d.endTime || Date.now()),
+          createdAt: d.created_at || d.createdAt || new Date(0).toISOString(),
           currentBid: d.current_price || d.currentBid,
           hiddenMaxBid: d.hidden_max_bid || d.hiddenMaxBid,
           bidCount: d.bid_count || d.bidCount,
@@ -1211,6 +1213,7 @@ const MainApp: React.FC = () => {
         return {
           ...d,
           endTime: new Date(d.end_time || d.endTime || Date.now()),
+          createdAt: d.created_at || d.createdAt || new Date(0).toISOString(),
           currentBid: d.current_price || d.currentBid,
           hiddenMaxBid: d.hidden_max_bid || d.hiddenMaxBid,
           bidCount: d.bid_count || d.bidCount,
@@ -1401,7 +1404,8 @@ const MainApp: React.FC = () => {
             shipping_cost: itemData.shipping_cost !== undefined ? itemData.shipping_cost : null,
             is_package: true,
             package_id: pkg.packageId,
-            package_title: pkg.title
+            package_title: pkg.title,
+            created_at: new Date().toISOString()
           };
           
           const res = await createAuctionAction({ itemData: payload, user_id: userData.id });
@@ -1512,7 +1516,8 @@ const MainApp: React.FC = () => {
         images: itemData.images,
         delivery_option: itemData.delivery_option || 'both',
         shipping_fee_type: itemData.shipping_fee_type || 'calculated',
-        shipping_cost: itemData.shipping_cost !== undefined ? itemData.shipping_cost : null
+        shipping_cost: itemData.shipping_cost !== undefined ? itemData.shipping_cost : null,
+        created_at: new Date().toISOString()
       };
 
       let publishSuccess = false;
@@ -1816,7 +1821,7 @@ const MainApp: React.FC = () => {
           return titleMatch || locationMatch;
         }
         return true;
-      });
+      }).sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
     }
     return filtered;
   }, [
@@ -3435,8 +3440,15 @@ const MainApp: React.FC = () => {
       );
   }
 
-  // Banner is active if user is logged in, not verified, and auth data has finished loading
-  const isBannerActive = !isAuthLoading && isLoggedIn && !isVerified;
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setShowBannerDelayPassed(true);
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Banner is active if user is logged in, not verified, auth data has finished loading, and 3s have passed
+  const isBannerActive = showBannerDelayPassed && !isAuthLoading && isLoggedIn && !isVerified;
 
   // Sync isVerified state with userData as a fallback
   useEffect(() => {
@@ -3905,6 +3917,7 @@ const MainApp: React.FC = () => {
           selectedRegion={selectedRegion}
           selectedCategory={selectedCategory}
           isLoggedIn={isLoggedIn}
+          isAuthLoading={isAuthLoading}
           isVerified={isVerified}
           language={language}
           onLanguageChange={setLanguage}

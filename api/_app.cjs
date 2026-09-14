@@ -863,7 +863,7 @@ var AuctionEmailTemplate = ({
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_components.Text, { style: footerText, children: [
           "To je samodejno sistemsko obvestilo spletne platforme",
           " ",
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_components.Link, { href: "https://drazba.si", target: "_blank", style: footerLink, children: "dra\u017Ebe.si" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_components.Link, { href: "https://drazba.si", target: "_blank", style: footerLink, children: "dra\u017Ebenik.si" }),
           "."
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_components.Text, { style: footerSubText, children: [
@@ -875,7 +875,7 @@ var AuctionEmailTemplate = ({
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_components.Text, { style: copyrightText, children: [
           "\xA9 ",
           (/* @__PURE__ */ new Date()).getFullYear(),
-          " dra\u017Ebe.si. Vse pravice pridr\u017Eane."
+          " dra\u017Ebenik.si. Vse pravice pridr\u017Eane."
         ] })
       ] })
     ] }) })
@@ -1083,17 +1083,17 @@ var AuthEmailTemplate = ({
   let highlightNote = "";
   switch (type) {
     case "verify_email":
-      previewText = "Potrdite svoj e-po\u0161tni naslov za drazbe.si";
+      previewText = "Potrdite svoj e-po\u0161tni naslov za drazbenik.si";
       badgeText = "POTRDITEV E-PO\u0160TE";
       badgeBg = "#3B82F6";
       badgeColor = "#FFFFFF";
-      headline = "Dobrodo\u0161li na drazbe.si!";
+      headline = "Dobrodo\u0161li na drazbenik.si!";
       subheadline = "Hvala za registracijo. Da bi lahko v celoti uporabljali platformo in sodelovali na dra\u017Ebah, prosimo potrdite svoj e-po\u0161tni naslov.";
       ctaText = "Potrdi e-po\u0161tni naslov";
       highlightNote = "Povezava je veljavna omejen \u010Das.";
       break;
     case "reset_password":
-      previewText = "Ponastavitev gesla za va\u0161 drazbe.si ra\u010Dun";
+      previewText = "Ponastavitev gesla za va\u0161 drazbenik.si ra\u010Dun";
       badgeText = "PONASTAVITEV GESLA";
       badgeBg = "#EF4444";
       badgeColor = "#FFFFFF";
@@ -1176,13 +1176,13 @@ var AuthEmailTemplate = ({
         /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_components2.Text, { style: footerText2, children: [
           "To je samodejno sistemsko obvestilo spletne platforme",
           " ",
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(import_components2.Link, { href: "https://drazba.si", target: "_blank", style: footerLink2, children: "dra\u017Ebe.si" }),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(import_components2.Link, { href: "https://drazba.si", target: "_blank", style: footerLink2, children: "dra\u017Ebenik.si" }),
           "."
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_components2.Text, { style: copyrightText2, children: [
           "\xA9 ",
           (/* @__PURE__ */ new Date()).getFullYear(),
-          " dra\u017Ebe.si. Vse pravice pridr\u017Eane."
+          " dra\u017Ebenik.si. Vse pravice pridr\u017Eane."
         ] })
       ] })
     ] }) })
@@ -1388,7 +1388,7 @@ async function generateInvoicePDF(transaction, buyer, seller, auction, salesInvo
     }
     doc.moveDown(0.5);
     if (!sellerTaxId || !buyerTaxId) {
-      doc.fontSize(8).text("Opomba o identifikaciji: Stranki sta elektronsko identificirani znotraj platforme dra\u017Ebe.si.", { italic: true });
+      doc.fontSize(8).text("Opomba o identifikaciji: Stranki sta elektronsko identificirani znotraj platforme dra\u017Ebenik.si.", { italic: true });
       doc.moveDown(0.5);
     }
     const getPlaceFromUser = (user) => {
@@ -1459,7 +1459,7 @@ async function generateInvoicePDF(transaction, buyer, seller, auction, salesInvo
       doc.text("\u2022 Prenos lastni\u0161tva: Lastninska pravica in nevarnost naklju\u010Dnega uni\u010Denja preideta na kupca ob celotnem pla\u010Dilu kupnine in prevzemu predmeta.");
       doc.text("\u2022 DDV izjava: Prodajalec je fizi\u010Dna oseba (C2C). DDV se v skladu z ZDDV-1 ne obra\u010Dunava. Dokument slu\u017Ei kot dokazilo o sklenjeni pogodbi in pla\u010Dilu.");
     }
-    doc.text("\u2022 Posredovanje: Platforma dra\u017Ebe.si nastopa izklju\u010Dno kot tehnolo\u0161ki posrednik in ni pogodbena stranka prodajne pogodbe.");
+    doc.text("\u2022 Posredovanje: Platforma dra\u017Ebenik.si nastopa izklju\u010Dno kot tehnolo\u0161ki posrednik in ni pogodbena stranka prodajne pogodbe.");
     doc.addPage();
     if (boldFont) doc.font("Roboto-Bold");
     doc.fontSize(20).text("RA\u010CUN ZA STORITEV / SERVICE INVOICE", { align: "center" });
@@ -1488,7 +1488,7 @@ async function generateInvoicePDF(transaction, buyer, seller, auction, salesInvo
     const feeDocNo = commissionInvoiceNo || `FEE-${transactionIdShort}`;
     doc.text(`\u0160tevilka ra\u010Duna / Invoice No: ${feeDocNo}`);
     doc.text(`Datum izdaje in opravljene storitve / Date of issue & service: ${todayStr}`);
-    const paymentMethodText = transaction.payment_method === "wallet" ? "Sredstva na dra\u017Ebe.si (Wallet)" : "Spletno pla\u010Dilo / Kartica";
+    const paymentMethodText = transaction.payment_method === "wallet" ? "Sredstva na dra\u017Ebenik.si (Wallet)" : "Spletno pla\u010Dilo / Kartica";
     const paidAtDateStr = transaction.paid_at ? new Date(transaction.paid_at).toLocaleDateString("sl-SI") : todayStr;
     doc.text(`Na\u010Din pla\u010Dila / Payment Method: ${paymentMethodText}`);
     doc.text(`Status pla\u010Dila / Payment Status: PLA\u010CANO (${paidAtDateStr})`);
@@ -1534,7 +1534,7 @@ function getBaseAppUrl() {
   return process.env.APP_URL || process.env.VITE_APP_URL || "https://drazba.si";
 }
 function getEmailFrom() {
-  return process.env.EMAIL_FROM || "dra\u017Ebe.si <obvestila@drazba.si>";
+  return process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazba.si>";
 }
 async function sendAuctionEmail(to, subject, templateProps) {
   if (!to || !to.includes("@")) {
@@ -1569,7 +1569,7 @@ async function sendAuctionEmail(to, subject, templateProps) {
 async function sendOutbidNotification(params) {
   const baseUrl = getBaseAppUrl();
   const auctionUrl = `${baseUrl}/?drazba=${params.auctionId}`;
-  const subject = `\u26A0\uFE0F Prese\u017Eena ponudba: ${params.auctionTitle} - dra\u017Ebe.si`;
+  const subject = `\u26A0\uFE0F Prese\u017Eena ponudba: ${params.auctionTitle} - dra\u017Ebenik.si`;
   return sendAuctionEmail(params.toEmail, subject, {
     type: "outbid",
     recipientName: params.recipientName || "Spo\u0161tovani uporabnik",
@@ -1583,7 +1583,7 @@ async function sendOutbidNotification(params) {
 async function sendEndingSoonNotification(params) {
   const baseUrl = getBaseAppUrl();
   const auctionUrl = `${baseUrl}/?drazba=${params.auctionId}`;
-  const subject = `\u23F3 Kmalu se izte\u010De: ${params.auctionTitle} - dra\u017Ebe.si`;
+  const subject = `\u23F3 Kmalu se izte\u010De: ${params.auctionTitle} - dra\u017Ebenik.si`;
   return sendAuctionEmail(params.toEmail, subject, {
     type: "ending_soon",
     recipientName: params.recipientName || "Spo\u0161tovani uporabnik",
@@ -1599,7 +1599,7 @@ async function sendAuctionWonNotification(params) {
   const baseUrl = getBaseAppUrl();
   const auctionUrl = `${baseUrl}/?drazba=${params.auctionId}`;
   const paymentUrl = `${baseUrl}/?tab=winnings&pay=${params.auctionId}`;
-  const subject = `\u{1F3C6} \u010Cestitamo! Zmagali ste na dra\u017Ebi: ${params.auctionTitle} - dra\u017Ebe.si`;
+  const subject = `\u{1F3C6} \u010Cestitamo! Zmagali ste na dra\u017Ebi: ${params.auctionTitle} - dra\u017Ebenik.si`;
   return sendAuctionEmail(params.toEmail, subject, {
     type: "won",
     recipientName: params.recipientName || "Zmagovalec",
@@ -1616,7 +1616,7 @@ async function sendPaymentReminderNotification(params) {
   const baseUrl = getBaseAppUrl();
   const auctionUrl = `${baseUrl}/?drazba=${params.auctionId}`;
   const paymentUrl = `${baseUrl}/?tab=winnings&pay=${params.auctionId}`;
-  const subject = `\u23F0 Zadnji opomnik za pla\u010Dilo: ${params.auctionTitle} - dra\u017Ebe.si`;
+  const subject = `\u23F0 Zadnji opomnik za pla\u010Dilo: ${params.auctionTitle} - dra\u017Ebenik.si`;
   return sendAuctionEmail(params.toEmail, subject, {
     type: "payment_reminder",
     recipientName: params.recipientName || "Spo\u0161tovani kupec",
@@ -2188,11 +2188,19 @@ app.post("/api/webhook", import_express.default.raw({ type: "application/json" }
         const targetUserId = user_id || buyer_id;
         console.log("Processing subscription payment for user", targetUserId);
         if (targetUserId && package_id) {
+          const now = /* @__PURE__ */ new Date();
+          const validUntil = new Date(now);
+          validUntil.setMonth(validUntil.getMonth() + 1);
           const updateData = {
             subscription_tier: package_id,
             subscription_active: true,
-            subscription_paid_at: (/* @__PURE__ */ new Date()).toISOString()
+            subscription_paid_at: now.toISOString(),
+            subscription_valid_until: validUntil.toISOString(),
+            subscription_canceled: false
           };
+          if (isSession && sessionObj?.subscription) {
+            updateData.stripe_subscription_id = typeof sessionObj.subscription === "string" ? sessionObj.subscription : sessionObj.subscription.id;
+          }
           let paymentMethodId = null;
           let customerId = null;
           if (isSession && sessionObj?.payment_intent) {
@@ -2811,11 +2819,20 @@ app.post("/api/confirm-checkout-session", async (req, res) => {
         const targetUserId = metadata.user_id || effectiveBuyerId;
         const packageId = metadata.package_id || "PRO";
         if (targetUserId) {
-          await adminDb.collection("users").doc(targetUserId).update({
+          const now = /* @__PURE__ */ new Date();
+          const validUntil = new Date(now);
+          validUntil.setMonth(validUntil.getMonth() + 1);
+          const updateData = {
             subscription_tier: packageId,
             subscription_active: true,
-            subscription_paid_at: (/* @__PURE__ */ new Date()).toISOString()
-          });
+            subscription_paid_at: now.toISOString(),
+            subscription_valid_until: validUntil.toISOString(),
+            subscription_canceled: false
+          };
+          if (session?.subscription) {
+            updateData.stripe_subscription_id = typeof session.subscription === "string" ? session.subscription : session.subscription.id;
+          }
+          await adminDb.collection("users").doc(targetUserId).update(updateData);
         }
         return res.json({ success: true, type: "subscription" });
       }
@@ -3037,7 +3054,7 @@ app.post("/api/stripe-account-link", async (req, res) => {
       email: user.email,
       business_type: businessType,
       business_profile: {
-        url: "https://drazbe.si",
+        url: "https://drazbenik.si",
         product_description: "Sodelovanje in prodaja na spletni platformi",
         mcc: "5999",
         support_email: user.email,
@@ -3338,7 +3355,7 @@ app.post("/api/payouts/withdraw", async (req, res) => {
         amount: amountInCents,
         currency: "eur",
         destination: stripeAccountId,
-        description: `Izpla\u010Dilo drazbe.si za uporabnika ${userId}`
+        description: `Izpla\u010Dilo drazbenik.si za uporabnika ${userId}`
       }, {
         idempotencyKey
       });
@@ -3574,9 +3591,9 @@ app.post("/api/test/send-email", async (req, res) => {
         settingsUrl: `${process.env.APP_URL || "https://drazba.si"}/?tab=settings`
       }));
       const emailResponse = await resendClient2.emails.send({
-        from: process.env.EMAIL_FROM || "dra\u017Ebe.si <obvestila@drazba.si>",
+        from: process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazba.si>",
         to: toEmail,
-        subject: `\u{1F9FE} Potrdilo o pla\u010Dilu in ra\u010Dun: ${auctionTitle} - dra\u017Ebe.si`,
+        subject: `\u{1F9FE} Potrdilo o pla\u010Dilu in ra\u010Dun: ${auctionTitle} - dra\u017Ebenik.si`,
         html: htmlContent,
         attachments
       });
@@ -3796,7 +3813,7 @@ app.post("/api/test/test-payout", async (req, res) => {
           amount: amountInCents,
           currency: "eur",
           destination: stripeAccountId,
-          description: `Testno izpla\u010Dilo drazbe.si za ${userId}`
+          description: `Testno izpla\u010Dilo drazbenik.si za ${userId}`
         }, {
           idempotencyKey
         });
@@ -3993,6 +4010,18 @@ app.post("/api/auctions/create", async (req, res) => {
     const userDoc = await safeGetDoc(adminDb.collection("users").doc(user_id));
     if (!userDoc.exists()) return res.status(404).json({ error: "Uporabnik ne obstaja" });
     const userData = userDoc.data();
+    const subTier = userData.subscription_tier || userData.subscription || "FREE";
+    let limit = 5;
+    if (subTier === "BASIC") limit = 50;
+    if (subTier === "PRO") limit = Infinity;
+    if (limit !== Infinity && !itemData.id) {
+      const now = /* @__PURE__ */ new Date();
+      const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+      const userAuctions = await adminDb.collection("auctions").where("seller_id", "==", user_id).where("created_at", ">=", firstDayOfMonth).get();
+      if (userAuctions.size >= limit) {
+        return res.status(403).json({ error: `Dosegli ste mese\u010Dno omejitev objav za va\u0161 naro\u010Dni\u0161ki paket (${limit}). Prosimo, nadgradite paket.` });
+      }
+    }
     if (userData.auction_blocked_until) {
       const blockedUntil = new Date(userData.auction_blocked_until);
       if (blockedUntil > /* @__PURE__ */ new Date()) {
@@ -4256,7 +4285,7 @@ app.post("/api/auth/send-verification", async (req, res) => {
       await resend.emails.send({
         from: process.env.EMAIL_FROM || "Drazba.si <obvestila@drazba.si>",
         to: email,
-        subject: "Potrdite svoj e-po\u0161tni naslov - dra\u017Ebe.si",
+        subject: "Potrdite svoj e-po\u0161tni naslov - dra\u017Ebenik.si",
         html: htmlContent
       });
     }
@@ -4283,7 +4312,7 @@ app.post("/api/auth/send-password-reset", async (req, res) => {
       await resend.emails.send({
         from: process.env.EMAIL_FROM || "Drazba.si <obvestila@drazba.si>",
         to: email,
-        subject: "Ponastavitev gesla - dra\u017Ebe.si",
+        subject: "Ponastavitev gesla - dra\u017Ebenik.si",
         html: htmlContent
       });
     }
@@ -4307,7 +4336,7 @@ app.post("/api/auth/send-email-changed", async (req, res) => {
       await resend.emails.send({
         from: process.env.EMAIL_FROM || "Drazba.si <obvestila@drazba.si>",
         to: email,
-        subject: "Sprememba e-po\u0161tnega naslova - dra\u017Ebe.si",
+        subject: "Sprememba e-po\u0161tnega naslova - dra\u017Ebenik.si",
         html: htmlContent
       });
     }
@@ -4331,7 +4360,7 @@ app.post("/api/auth/send-mfa-enrollment", async (req, res) => {
       await resend.emails.send({
         from: process.env.EMAIL_FROM || "Drazba.si <obvestila@drazba.si>",
         to: email,
-        subject: "Varnostno obvestilo (MFA) - dra\u017Ebe.si",
+        subject: "Varnostno obvestilo (MFA) - dra\u017Ebenik.si",
         html: htmlContent
       });
     }
@@ -4420,6 +4449,77 @@ app.post("/api/cron/process-subscription-renewals", async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
+  }
+});
+app.post("/api/cancel-subscription", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const token = authHeader.split("Bearer ")[1];
+    const decodedToken = await adminAuth.verifyIdToken(token);
+    const userId = decodedToken.uid;
+    const userDoc = await adminDb.collection("users").doc(userId).get();
+    const userData = userDoc.data();
+    if (!userData) {
+      return res.status(404).json({ error: "User not found" });
+    }
+    if (userData.stripe_subscription_id) {
+      const stripe = getStripe();
+      await stripe.subscriptions.update(userData.stripe_subscription_id, {
+        cancel_at_period_end: true
+      });
+    }
+    await adminDb.collection("users").doc(userId).update({
+      subscription_canceled: true
+    });
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Error in cancel-subscription:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+app.post("/api/auctions/confirm-receipt", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const token = authHeader.split("Bearer ")[1];
+    const decodedToken = await adminAuth.verifyIdToken(token);
+    const buyerId = decodedToken.uid;
+    const { auction_id } = req.body;
+    const txSnap = await safeGetDocs(
+      adminDb.collection("transactions").where("auction_id", "==", auction_id)
+    );
+    if (txSnap.empty) {
+      return res.status(404).json({ error: "Naro\u010Dilo ni najdeno." });
+    }
+    const txDoc = txSnap.docs[0];
+    const tx = txDoc.data();
+    if (tx.buyer_id !== buyerId) {
+      return res.status(403).json({ error: "Nimate pravic za to dejanje." });
+    }
+    if (tx.status !== "SHIPPED" && tx.status !== "HELD_IN_ESCROW" && tx.status !== "DELIVERED") {
+      return res.status(400).json({ error: "Naro\u010Dila v trenutnem stanju ni mogo\u010De potrditi." });
+    }
+    await txDoc.ref.update({
+      status: "COMPLETED",
+      completed_at: (/* @__PURE__ */ new Date()).toISOString()
+    });
+    const releaseAmount = Number(tx.amount_total || tx.amount) - Number(tx.platform_fee || 0) - Number(tx.vat_amount || 0);
+    const releaseCents = Math.round(releaseAmount * 100);
+    await releaseHeldFunds(tx.seller_id, releaseCents, "release_" + txDoc.id, { auction_id: tx.auction_id, related_tx: txDoc.id });
+    await adminDb.collection("auctions").doc(auction_id).update({
+      buyer_received: true,
+      post_auction_status: "completed",
+      status: "completed"
+    });
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Error in confirm-receipt:", err);
+    res.status(500).json({ error: err.message });
   }
 });
 // Annotate the CommonJS export names for ESM import in node:

@@ -38,18 +38,18 @@ export const AuthEmailTemplate: React.FC<AuthEmailProps> = ({
 
   switch (type) {
     case 'verify_email':
-      previewText = 'Potrdite svoj e-poštni naslov za drazbe.si';
+      previewText = 'Potrdite svoj e-poštni naslov za drazbenik.si';
       badgeText = 'POTRDITEV E-POŠTE';
       badgeBg = '#3B82F6';
       badgeColor = '#FFFFFF';
-      headline = 'Dobrodošli na drazbe.si!';
+      headline = 'Dobrodošli na drazbenik.si!';
       subheadline = 'Hvala za registracijo. Da bi lahko v celoti uporabljali platformo in sodelovali na dražbah, prosimo potrdite svoj e-poštni naslov.';
       ctaText = 'Potrdi e-poštni naslov';
       highlightNote = 'Povezava je veljavna omejen čas.';
       break;
 
     case 'reset_password':
-      previewText = 'Ponastavitev gesla za vaš drazbe.si račun';
+      previewText = 'Ponastavitev gesla za vaš drazbenik.si račun';
       badgeText = 'PONASTAVITEV GESLA';
       badgeBg = '#EF4444';
       badgeColor = '#FFFFFF';
@@ -154,12 +154,12 @@ export const AuthEmailTemplate: React.FC<AuthEmailProps> = ({
             <Text style={footerText}>
               To je samodejno sistemsko obvestilo spletne platforme{' '}
               <Link href="https://drazba.si" target="_blank" style={footerLink}>
-                dražbe.si
+                dražbenik.si
               </Link>
               .
             </Text>
             <Text style={copyrightText}>
-              © {new Date().getFullYear()} dražbe.si. Vse pravice pridržane.
+              © {new Date().getFullYear()} dražbenik.si. Vse pravice pridržane.
             </Text>
           </Section>
         </Container>

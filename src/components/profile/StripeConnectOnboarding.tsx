@@ -48,7 +48,7 @@ export const StripeConnectOnboarding: React.FC<Props> = ({ userId, isComplete, o
         <!DOCTYPE html>
         <html>
         <head>
-          <title>Dražbe.si - Stripe povezovanje</title>
+          <title>Dražbenik.si - Stripe povezovanje</title>
           <style>
             body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0A1128; color: #fff; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; text-align: center; }
             .loader { width: 36px; height: 36px; border: 3px solid rgba(254,186,79,0.2); border-top-color: #FEBA4F; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 16px; }

@@ -14,6 +14,7 @@ export const CreatePackageForm: React.FC<any> = ({ onBack, t, language, onPublis
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [isLoadingDraft, setIsLoadingDraft] = useState(true);
 
+  const [isPublishing, setIsPublishing] = useState(false);
   const [draftCreatedAt, setDraftCreatedAt] = useState<number | null>(null);
   const [timeLeftStr, setTimeLeftStr] = useState("");
 
@@ -289,13 +290,20 @@ export const CreatePackageForm: React.FC<any> = ({ onBack, t, language, onPublis
       return;
     }
     
-    await onPublishPackage({ title: packageTitle, items, packageId });
-    const userId = userData?.id || auth?.currentUser?.uid || 'guest';
-    localStorage.removeItem(`drazbe_package_draft_${userId}`);
-    localStorage.removeItem('drazbe_package_draft_latest');
-    if (userId && userId !== 'guest') {
-      await deleteDoc(doc(db, 'package_drafts', userId)).catch(() => null);
-      await updateDoc(doc(db, 'users', userId), { package_draft: null }).catch(() => null);
+    setIsPublishing(true);
+    try {
+      await onPublishPackage({ title: packageTitle, items, packageId });
+      const userId = userData?.id || auth?.currentUser?.uid || 'guest';
+      localStorage.removeItem(`drazbe_package_draft_${userId}`);
+      localStorage.removeItem('drazbe_package_draft_latest');
+      if (userId && userId !== 'guest') {
+        await deleteDoc(doc(db, 'package_drafts', userId)).catch(() => null);
+        await updateDoc(doc(db, 'users', userId), { package_draft: null }).catch(() => null);
+      }
+    } catch (error) {
+      toast.error("Prišlo je do napake pri objavi.");
+    } finally {
+      setIsPublishing(false);
     }
   };
   
@@ -437,10 +445,12 @@ export const CreatePackageForm: React.FC<any> = ({ onBack, t, language, onPublis
       <div className="flex justify-end pt-6 border-t border-slate-200">
         <button 
           onClick={handleSubmitPackage} 
-          disabled={items.length < 2 || !packageTitle} 
-          className="px-10 py-4 bg-[#FEBA4F] text-[#0A1128] hover:bg-[#0A1128] hover:text-[#FEBA4F] rounded-2xl font-black text-xs uppercase tracking-widest disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-xl hover:shadow-2xl"
+          disabled={items.length < 2 || !packageTitle || isPublishing} 
+          className="px-10 py-4 bg-[#FEBA4F] text-[#0A1128] hover:bg-[#0A1128] hover:text-[#FEBA4F] rounded-2xl font-black text-xs uppercase tracking-widest disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-xl hover:shadow-2xl flex items-center justify-center min-w-[200px]"
         >
-          {items.some(i => !i.is_published) ? "Objavi zbirko (" + items.filter(i => !i.is_published).length + " novih)" : "Shrani zbirko"}
+          {isPublishing ? (
+            <div className="w-5 h-5 border-2 border-[#0A1128] border-t-transparent rounded-full animate-spin"></div>
+          ) : items.some(i => !i.is_published) ? "Objavi zbirko (" + items.filter(i => !i.is_published).length + " novih)" : "Shrani zbirko"}
         </button>
       </div>
     </div>

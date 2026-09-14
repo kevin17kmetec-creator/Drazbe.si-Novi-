@@ -14,7 +14,7 @@ function getStripe(): Stripe | null {
 }
 
 /**
- * Server Actions za drazbe.si
+ * Server Actions za drazbenik.si
  * Zagotavljajo varno komunikacijo z backendom, preprečujejo JSON.parse napake
  * in omogočajo robustno obravnavo napak ter nalagalnih stanj.
  */
@@ -140,7 +140,7 @@ export async function createCheckoutSessionAction(planOrParams?: any): Promise<{
     let amount = 20;
     let title = 'Naročnina';
     let currency = 'eur';
-    let returnUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://www.drazbe.si';
+    let returnUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://www.drazbenik.si';
     let sessionMetadata: Record<string, any> = { type: 'subscription' };
     let customerEmail: string | undefined;
 
@@ -149,12 +149,12 @@ export async function createCheckoutSessionAction(planOrParams?: any): Promise<{
       const upper = planId.toUpperCase();
       if (upper.includes('PRO')) {
         amount = 50;
-        title = 'Naročnina Pro - drazbe.si';
+        title = 'Naročnina Pro - drazbenik.si';
       } else if (upper.includes('BASIC')) {
         amount = 20;
-        title = 'Naročnina Basic - drazbe.si';
+        title = 'Naročnina Basic - drazbenik.si';
       } else {
-        title = `Naročnina ${planId} - drazbe.si`;
+        title = `Naročnina ${planId} - drazbenik.si`;
       }
       sessionMetadata = {
         type: 'subscription',
@@ -173,9 +173,9 @@ export async function createCheckoutSessionAction(planOrParams?: any): Promise<{
       if (planOrParams.title) {
         title = planOrParams.title;
       } else if (planId) {
-        title = `Naročnina ${planId} - drazbe.si`;
+        title = `Naročnina ${planId} - drazbenik.si`;
       } else {
-        title = 'Plačilo - drazbe.si';
+        title = 'Plačilo - drazbenik.si';
       }
 
       if (planOrParams.currency) currency = planOrParams.currency;

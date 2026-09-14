@@ -1422,7 +1422,7 @@ app.post("/api/stripe-account-link", async (req, res) => {
       email: user.email,
       business_type: businessType,
       business_profile: {
-        url: 'https://drazbe.si',
+        url: 'https://drazbenik.si',
         product_description: 'Sodelovanje in prodaja na spletni platformi',
         mcc: '5999',
         support_email: user.email,
@@ -1779,7 +1779,7 @@ app.post("/api/payouts/withdraw", async (req, res) => {
         amount: amountInCents,
         currency: "eur",
         destination: stripeAccountId,
-        description: `Izplačilo drazbe.si za uporabnika ${userId}`
+        description: `Izplačilo drazbenik.si za uporabnika ${userId}`
       }, {
         idempotencyKey
       });
@@ -2042,9 +2042,9 @@ app.post("/api/test/send-email", async (req, res) => {
       }));
 
       const emailResponse = await resendClient.emails.send({
-        from: process.env.EMAIL_FROM || 'dražbe.si <obvestila@drazba.si>',
+        from: process.env.EMAIL_FROM || 'dražbenik.si <obvestila@drazba.si>',
         to: toEmail,
-        subject: `🧾 Potrdilo o plačilu in račun: ${auctionTitle} - dražbe.si`,
+        subject: `🧾 Potrdilo o plačilu in račun: ${auctionTitle} - dražbenik.si`,
         html: htmlContent,
         attachments
       });
@@ -2289,7 +2289,7 @@ app.post("/api/test/test-payout", async (req, res) => {
           amount: amountInCents,
           currency: "eur",
           destination: stripeAccountId,
-          description: `Testno izplačilo drazbe.si za ${userId}`
+          description: `Testno izplačilo drazbenik.si za ${userId}`
         }, {
           idempotencyKey
         });
@@ -2862,7 +2862,7 @@ app.post("/api/auth/send-verification", async (req, res) => {
       await resend.emails.send({
         from: process.env.EMAIL_FROM || 'Drazba.si <obvestila@drazba.si>',
         to: email,
-        subject: 'Potrdite svoj e-poštni naslov - dražbe.si',
+        subject: 'Potrdite svoj e-poštni naslov - dražbenik.si',
         html: htmlContent,
       });
     }
@@ -2894,7 +2894,7 @@ app.post("/api/auth/send-password-reset", async (req, res) => {
       await resend.emails.send({
         from: process.env.EMAIL_FROM || 'Drazba.si <obvestila@drazba.si>',
         to: email,
-        subject: 'Ponastavitev gesla - dražbe.si',
+        subject: 'Ponastavitev gesla - dražbenik.si',
         html: htmlContent,
       });
     }
@@ -2922,7 +2922,7 @@ app.post("/api/auth/send-email-changed", async (req, res) => {
       await resend.emails.send({
         from: process.env.EMAIL_FROM || 'Drazba.si <obvestila@drazba.si>',
         to: email,
-        subject: 'Sprememba e-poštnega naslova - dražbe.si',
+        subject: 'Sprememba e-poštnega naslova - dražbenik.si',
         html: htmlContent,
       });
     }
@@ -2950,7 +2950,7 @@ app.post("/api/auth/send-mfa-enrollment", async (req, res) => {
       await resend.emails.send({
         from: process.env.EMAIL_FROM || 'Drazba.si <obvestila@drazba.si>',
         to: email,
-        subject: 'Varnostno obvestilo (MFA) - dražbe.si',
+        subject: 'Varnostno obvestilo (MFA) - dražbenik.si',
         html: htmlContent,
       });
     }

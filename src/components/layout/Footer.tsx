@@ -11,7 +11,7 @@ export const Footer: React.FC<{
             <div className="col-span-1 md:col-span-2">
                 <div className="flex items-center mb-8 cursor-pointer group">
                   <img 
-                    src="https://lh3.googleusercontent.com/u/0/d/1yH_IHNJfoWXgrlrwESprp3gi29_MoYwi" 
+                    src="https://0iwzttasbg0fikhu.public.blob.vercel-storage.com/drazbeniksi-removebg-preview%281%29.png" 
                     alt="Drazba.si Logo" 
                     className="h-20 md:h-24 object-contain" 
                   />

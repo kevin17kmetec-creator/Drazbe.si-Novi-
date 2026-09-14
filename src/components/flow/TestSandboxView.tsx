@@ -1266,7 +1266,7 @@ export const TestSandboxView: React.FC<TestSandboxViewProps> = ({
                   <p className="font-bold text-sm text-slate-500">Datum opravljene storitve/dobave: {new Date().toLocaleDateString('sl-SI')}</p>
                 </div>
                 <div className="text-right">
-                  <div className="text-2xl font-black tracking-tight italic text-slate-400">dražbe.si</div>
+                  <div className="text-2xl font-black tracking-tight italic text-slate-400">dražbenik.si</div>
                   <p className="text-xs font-bold text-slate-400">Platforma za posredovanje</p>
                 </div>
               </div>
@@ -1300,7 +1300,7 @@ export const TestSandboxView: React.FC<TestSandboxViewProps> = ({
               {(!sellerData.taxId || !buyerData.taxId) && (
                 <div className="mb-8 p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600 flex items-center gap-2">
                   <span className="text-[#FEBA4F] font-bold">ℹ</span>
-                  <span><strong>Identifikacija:</strong> Stranki sta elektronsko identificirani znotraj platforme dražbe.si.</span>
+                  <span><strong>Identifikacija:</strong> Stranki sta elektronsko identificirani znotraj platforme dražbenik.si.</span>
                 </div>
               )}
 
@@ -1418,7 +1418,7 @@ export const TestSandboxView: React.FC<TestSandboxViewProps> = ({
                   </>
                 )}
                 <p className="text-[10px] text-slate-400">
-                  Platforma dražbe.si nastopa izključno kot tehnološki posrednik. Dokument je pravno veljaven brez žiga ali podpisa v skladu z ZZEPA.
+                  Platforma dražbenik.si nastopa izključno kot tehnološki posrednik. Dokument je pravno veljaven brez žiga ali podpisa v skladu z ZZEPA.
                 </p>
               </div>
             </div>

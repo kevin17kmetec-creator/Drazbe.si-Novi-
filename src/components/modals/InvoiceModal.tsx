@@ -201,7 +201,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                   <p className="font-bold text-sm" style={{ color: '#64748B' }}>Datum opravljene storitve/dobave: {paymentDate}</p>
                 </div>
                 <div className="text-right">
-                  <div className="text-2xl font-black tracking-tighter italic" style={{ color: '#CBD5E1' }}>dražbe.si</div>
+                  <div className="text-2xl font-black tracking-tighter italic" style={{ color: '#CBD5E1' }}>dražbenik.si</div>
                   <p className="text-xs font-bold mt-1" style={{ color: '#94A3B8' }}>Platforma za posredovanje</p>
                 </div>
               </div>
@@ -240,7 +240,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
               {(!sellerTaxId || !buyerTaxId) && (
                 <div className="mb-8 p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600 flex items-center gap-2">
                   <span className="text-[#FEBA4F] font-bold">ℹ</span>
-                  <span><strong>Identifikacija:</strong> Stranki sta elektronsko identificirani znotraj platforme dražbe.si.</span>
+                  <span><strong>Identifikacija:</strong> Stranki sta elektronsko identificirani znotraj platforme dražbenik.si.</span>
                 </div>
               )}
 
@@ -360,7 +360,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                 </>
               )}
               <p className="text-[11px] pt-1" style={{ color: '#94A3B8' }}>
-                Platforma dražbe.si nastopa izključno kot tehnološki posrednik in ni stranka v prodajni pogodbi. Ta dokument služi kot kupoprodajna pogodba in potrdilo o sklenjenem poslu ter plačilu med prodajalcem in kupcem, generirano samodejno s strani sistema po uspešnem zaključku dražbe.
+                Platforma dražbenik.si nastopa izključno kot tehnološki posrednik in ni stranka v prodajni pogodbi. Ta dokument služi kot kupoprodajna pogodba in potrdilo o sklenjenem poslu ter plačilu med prodajalcem in kupcem, generirano samodejno s strani sistema po uspešnem zaključku dražbe.
               </p>
             </div>
 

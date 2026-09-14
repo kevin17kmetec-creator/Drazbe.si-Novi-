@@ -22,7 +22,7 @@ export function getBaseAppUrl(): string {
 }
 
 export function getEmailFrom(): string {
-  return process.env.EMAIL_FROM || 'dražbe.si <obvestila@drazba.si>';
+  return process.env.EMAIL_FROM || 'dražbenik.si <obvestila@drazba.si>';
 }
 
 /**
@@ -82,7 +82,7 @@ export async function sendOutbidNotification(params: {
   const baseUrl = getBaseAppUrl();
   const auctionUrl = `${baseUrl}/?drazba=${params.auctionId}`;
 
-  const subject = `⚠️ Presežena ponudba: ${params.auctionTitle} - dražbe.si`;
+  const subject = `⚠️ Presežena ponudba: ${params.auctionTitle} - dražbenik.si`;
 
   return sendAuctionEmail(params.toEmail, subject, {
     type: 'outbid',
@@ -110,7 +110,7 @@ export async function sendEndingSoonNotification(params: {
   const baseUrl = getBaseAppUrl();
   const auctionUrl = `${baseUrl}/?drazba=${params.auctionId}`;
 
-  const subject = `⏳ Kmalu se izteče: ${params.auctionTitle} - dražbe.si`;
+  const subject = `⏳ Kmalu se izteče: ${params.auctionTitle} - dražbenik.si`;
 
   return sendAuctionEmail(params.toEmail, subject, {
     type: 'ending_soon',
@@ -140,7 +140,7 @@ export async function sendAuctionWonNotification(params: {
   const auctionUrl = `${baseUrl}/?drazba=${params.auctionId}`;
   const paymentUrl = `${baseUrl}/?tab=winnings&pay=${params.auctionId}`;
 
-  const subject = `🏆 Čestitamo! Zmagali ste na dražbi: ${params.auctionTitle} - dražbe.si`;
+  const subject = `🏆 Čestitamo! Zmagali ste na dražbi: ${params.auctionTitle} - dražbenik.si`;
 
   return sendAuctionEmail(params.toEmail, subject, {
     type: 'won',
@@ -171,7 +171,7 @@ export async function sendPaymentReminderNotification(params: {
   const auctionUrl = `${baseUrl}/?drazba=${params.auctionId}`;
   const paymentUrl = `${baseUrl}/?tab=winnings&pay=${params.auctionId}`;
 
-  const subject = `⏰ Zadnji opomnik za plačilo: ${params.auctionTitle} - dražbe.si`;
+  const subject = `⏰ Zadnji opomnik za plačilo: ${params.auctionTitle} - dražbenik.si`;
 
   return sendAuctionEmail(params.toEmail, subject, {
     type: 'payment_reminder',
