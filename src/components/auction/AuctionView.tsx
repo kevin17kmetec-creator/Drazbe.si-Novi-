@@ -210,7 +210,7 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                   onClick={(e) => { e.stopPropagation(); onWatchToggle?.(); }}
                   className={`flex flex-col items-center justify-center p-3 border rounded-2xl transition-all min-w-[80px] shrink-0 group ${isWatched ? 'bg-[#FEBA4F] border-[#FEBA4F]' : 'bg-slate-50 border-slate-200 hover:border-[#FEBA4F] hover:bg-white'}`}
                 >
-                  <Eye size={20} className={`${isWatched ? 'text-[#0A1128]' : 'text-slate-400 group-hover:text-[#FEBA4F]'} transition-colors`} fill={isWatched ? 'currentColor' : 'none'} />
+                  <Eye size={20} className={`${isWatched ? 'text-[#0A1128]' : 'text-slate-400 group-hover:text-[#FEBA4F]'} transition-colors`} />
                   <span className={`text-[9px] font-black uppercase tracking-widest ${isWatched ? 'text-[#0A1128]' : 'text-slate-500 group-hover:text-[#0A1128]'}`}>{t('watch')}</span>
                 </button>
               </div>
@@ -472,12 +472,20 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                 </div>
                 <div>
                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{t('region')}:</p>
-                  <p className="text-sm font-bold text-[#0A1128]">{item.region}</p>
+                  <p className="text-sm font-bold text-[#0A1128]">{item.region}{location && location !== item.region && location !== t('slovenia') ? ` - ${location}` : ''}</p>
                 </div>
                 {item.condition && (
                 <div>
                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{t('condition')}:</p>
                   <p className="text-sm font-bold text-[#0A1128]">{typeof item.condition === 'string' ? item.condition : item.condition[language] || item.condition['SLO']}</p>
+                </div>
+                )}
+                {item.delivery_option && (
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Način predaje:</p>
+                  <p className="text-sm font-bold text-[#0A1128]">
+                    {item.delivery_option === 'both' ? 'Oboje (izbere kupec)' : item.delivery_option === 'pickup_only' ? 'Samo osebni prevzem' : 'Samo pošiljanje'}
+                  </p>
                 </div>
                 )}
                 <div className="pt-4 border-t border-slate-100">

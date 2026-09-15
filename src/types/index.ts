@@ -134,14 +134,18 @@ export enum Category {
 }
 
 export enum Region {
-  Prekmurje = 'Prekmurje',
-  Stajerska = 'Štajerska',
+  Pomurska = 'Pomurska',
+  Podravska = 'Podravska',
   Koroska = 'Koroška',
+  Savinjska = 'Savinjska',
+  Zasavska = 'Zasavska',
+  Posavska = 'Posavska',
+  JugovzhodnaSlovenija = 'Jugovzhodna Slovenija',
+  Osrednjeslovenska = 'Osrednjeslovenska',
   Gorenjska = 'Gorenjska',
-  Primorska = 'Primorska',
-  Notranjska = 'Notranjska',
-  Dolenjska = 'Dolenjska',
-  Osrednjeslovenska = 'Osrednjeslovenska'
+  PrimorskoNotranjska = 'Primorsko-notranjska',
+  Goriska = 'Goriška',
+  ObalnoKraska = 'Obalno-kraška'
 }
 
 export type ViewState = 'grid' | 'detail' | 'login' | 'sellerProfile' | 'createAuction' | 'settings' | 'verification' | 'winnings' | 'lastChance' | 'subscriptions' | 'watchlist' | 'myBids' | 'mySold' | 'messages' | 'myUnsold' | 'myArchive' | 'testSandbox' | 'package';

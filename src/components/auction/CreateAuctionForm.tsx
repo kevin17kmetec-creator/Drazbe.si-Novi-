@@ -13,14 +13,18 @@ import { checkUserInvoiceData, InvoiceDataCheckResult } from "../../lib/invoiceD
 import { MissingInvoiceDataModal } from "@/src/components/modals/MissingInvoiceDataModal";
 
 const REGION_LOCATIONS: Record<Region, string[]> = {
-    [Region.Prekmurje]: ['Murska Sobota', 'Lendava', 'Ljutomer', 'Beltinci', 'Gornja Radgona', 'Drugo'],
-    [Region.Stajerska]: ['Maribor', 'Celje', 'Ptuj', 'Velenje', 'Slovenska Bistrica', 'Žalec', 'Drugo'],
+    [Region.Pomurska]: ['Murska Sobota', 'Lendava', 'Ljutomer', 'Gornja Radgona', 'Beltinci', 'Drugo'],
+    [Region.Podravska]: ['Maribor', 'Ptuj', 'Slovenska Bistrica', 'Ruše', 'Ormož', 'Drugo'],
     [Region.Koroska]: ['Slovenj Gradec', 'Ravne na Koroškem', 'Dravograd', 'Prevalje', 'Mežica', 'Drugo'],
+    [Region.Savinjska]: ['Celje', 'Velenje', 'Žalec', 'Šentjur', 'Slovenske Konjice', 'Drugo'],
+    [Region.Zasavska]: ['Trbovlje', 'Zagorje ob Savi', 'Hrastnik', 'Drugo'],
+    [Region.Posavska]: ['Krško', 'Brežice', 'Sevnica', 'Drugo'],
+    [Region.JugovzhodnaSlovenija]: ['Novo mesto', 'Kočevje', 'Trebnje', 'Črnomelj', 'Ribnica', 'Metlika', 'Drugo'],
+    [Region.Osrednjeslovenska]: ['Ljubljana', 'Domžale', 'Kamnik', 'Grosuplje', 'Vrhnika', 'Drugo'],
     [Region.Gorenjska]: ['Kranj', 'Jesenice', 'Škofja Loka', 'Radovljica', 'Bled', 'Tržič', 'Drugo'],
-    [Region.Primorska]: ['Koper', 'Nova Gorica', 'Izola', 'Piran', 'Postojna', 'Sežana', 'Drugo'],
-    [Region.Notranjska]: ['Cerknica', 'Ilirska Bistrica', 'Pivka', 'Loška Dolina', 'Bloke', 'Drugo'],
-    [Region.Dolenjska]: ['Novo mesto', 'Kočevje', 'Trebnje', 'Črnomelj', 'Ribnica', 'Metlika', 'Drugo'],
-    [Region.Osrednjeslovenska]: ['Ljubljana', 'Domžale', 'Kamnik', 'Grosuplje', 'Vrhnika', 'Drugo']
+    [Region.PrimorskoNotranjska]: ['Postojna', 'Ilirska Bistrica', 'Pivka', 'Cerknica', 'Loška Dolina', 'Drugo'],
+    [Region.Goriska]: ['Nova Gorica', 'Ajdovščina', 'Tolmin', 'Idrija', 'Bovec', 'Drugo'],
+    [Region.ObalnoKraska]: ['Koper', 'Izola', 'Piran', 'Sežana', 'Komen', 'Drugo']
 };
 
 import { CustomDatePicker, CustomTimePicker } from "@/src/components/ui/CustomDateTime";
@@ -76,7 +80,7 @@ export const CreateAuctionForm: React.FC<{
 
     const [customLocation, setCustomLocation] = useState(() => {
         const initLoc = initialData?.location?.SLO || (typeof initialData?.location === 'string' ? initialData.location : '');
-        if (initLoc && REGION_LOCATIONS[initialData?.region as Region || Region.Stajerska] && !REGION_LOCATIONS[initialData?.region as Region || Region.Stajerska].includes(initLoc)) {
+        if (initLoc && REGION_LOCATIONS[initialData?.region as Region || Region.Osrednjeslovenska] && !REGION_LOCATIONS[initialData?.region as Region || Region.Osrednjeslovenska].includes(initLoc)) {
             return initLoc;
         }
         return '';
@@ -85,14 +89,14 @@ export const CreateAuctionForm: React.FC<{
     const [formData, setFormData] = useState({ 
         title: initialData?.title?.SLO || (typeof initialData?.title === 'string' ? initialData.title : ''), 
         category: initialData?.category || Category.Ostalo, 
-        region: initialData?.region || Region.Stajerska, 
+        region: initialData?.region || Region.Osrednjeslovenska, 
         location: (() => {
             const initLoc = initialData?.location?.SLO || (typeof initialData?.location === 'string' ? initialData.location : '');
-            if (initLoc && REGION_LOCATIONS[initialData?.region as Region || Region.Stajerska]) {
-                if (REGION_LOCATIONS[initialData?.region as Region || Region.Stajerska].includes(initLoc)) return initLoc;
+            if (initLoc && REGION_LOCATIONS[initialData?.region as Region || Region.Osrednjeslovenska]) {
+                if (REGION_LOCATIONS[initialData?.region as Region || Region.Osrednjeslovenska].includes(initLoc)) return initLoc;
                 return 'Drugo';
             }
-            return REGION_LOCATIONS[initialData?.region as Region || Region.Stajerska]?.[0] || '';
+            return REGION_LOCATIONS[initialData?.region as Region || Region.Osrednjeslovenska]?.[0] || '';
         })(),
         condition: initialData?.condition?.SLO || (typeof initialData?.condition === 'string' ? initialData.condition : 'Rabljeno'),
         description: initialData?.description?.SLO || (typeof initialData?.description === 'string' ? initialData.description : ''), 
@@ -128,7 +132,7 @@ export const CreateAuctionForm: React.FC<{
             const initLoc = initialData.location?.SLO || (typeof initialData.location === 'string' ? initialData.location : '');
             let locVal = initLoc;
             let customVal = '';
-            const targetRegion = (initialData.region as Region) || Region.Stajerska;
+            const targetRegion = (initialData.region as Region) || Region.Osrednjeslovenska;
             if (initLoc && REGION_LOCATIONS[targetRegion]) {
                 if (REGION_LOCATIONS[targetRegion].includes(initLoc)) {
                     locVal = initLoc;
@@ -899,26 +903,26 @@ export const CreateAuctionForm: React.FC<{
                     
                     <div className={isPackageMode ? "grid grid-cols-1 md:grid-cols-2 gap-4" : ""}>
                         {isPackageMode && onSaveDraft && (
-                            <button onClick={(e) => handlePublish(e, true)} disabled={uploading} className="w-full bg-white border-2 border-slate-200 text-[#0A1128] py-6 md:py-8 rounded-[2rem] font-black uppercase tracking-widest text-sm md:text-lg hover:border-[#FEBA4F] transition-all shadow-sm flex items-center justify-center gap-3 active:scale-[0.98]">
+                            <button onClick={(e) => handlePublish(e, true)} disabled={uploading} className="w-full bg-white border-2 border-slate-200 text-[#0A1128] py-4 rounded-2xl font-black uppercase tracking-widest text-xs md:text-sm hover:border-[#FEBA4F] transition-all shadow-sm flex items-center justify-center gap-2 active:scale-[0.98]">
                                 {uploading ? (
-                                    <div className="w-6 h-6 border-4 border-[#0A1128]/20 border-t-[#0A1128] rounded-full animate-spin"></div>
+                                    <div className="w-5 h-5 border-4 border-[#0A1128]/20 border-t-[#0A1128] rounded-full animate-spin"></div>
                                 ) : (
                                     <>
-                                        <Layers size={24} className="text-slate-400" />
+                                        <Layers size={18} className="text-slate-400" />
                                         Shrani v zbirko (Osnutek)
                                     </>
                                 )}
                             </button>
                         )}
-                        <button onClick={(e) => handlePublish(e, false)} disabled={uploading} className="w-full bg-[#0A1128] text-white py-6 md:py-8 rounded-[2rem] font-black uppercase tracking-widest text-sm md:text-lg hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-2xl flex items-center justify-center gap-3 active:scale-[0.98]">
+                        <button onClick={(e) => handlePublish(e, false)} disabled={uploading} className="w-full bg-[#0A1128] text-white py-4 rounded-2xl font-black uppercase tracking-widest text-xs md:text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl flex items-center justify-center gap-2 active:scale-[0.98]">
                             {uploading ? (
                                 <>
-                                    <div className="w-6 h-6 border-4 border-white/20 border-t-white rounded-full animate-spin"></div>
+                                    <div className="w-5 h-5 border-4 border-white/20 border-t-white rounded-full animate-spin"></div>
                                     {t('processing')}
                                 </>
                             ) : (
                                 <>
-                                    <Gavel size={24} />
+                                    <Gavel size={18} />
                                     {isPackageMode ? 'Objavi zdaj v živo' : t('publishAuction')}
                                 </>
                             )}

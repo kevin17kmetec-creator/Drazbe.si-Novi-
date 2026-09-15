@@ -8,6 +8,7 @@ import { doc, setDoc, getDoc, deleteDoc, updateDoc } from "firebase/firestore";
 export const CreatePackageForm: React.FC<any> = ({ onBack, t, language, onPublishPackage, onPublishItemDirectly, isLoggedIn, userData, auctions, onNavigateToSettings }) => {
   const [packageId, setPackageId] = useState(() => crypto.randomUUID());
   const [packageTitle, setPackageTitle] = useState("");
+  const [showTitleError, setShowTitleError] = useState(false);
   const [items, setItems] = useState<any[]>([]);
   const [isAddingItem, setIsAddingItem] = useState(false);
   const [editingItemIndex, setEditingItemIndex] = useState<number | null>(null);
@@ -401,10 +402,13 @@ export const CreatePackageForm: React.FC<any> = ({ onBack, t, language, onPublis
         <label className="block text-xs font-black uppercase tracking-widest text-[#0A1128] mb-3">Naslov zbirke</label>
         <input 
           type="text" 
-          className="w-full border-2 border-slate-200 rounded-2xl p-4 focus:border-[#FEBA4F] outline-none text-lg font-bold text-[#0A1128] transition-colors shadow-inner" 
+          className={`w-full border-2 rounded-2xl p-4 outline-none text-lg font-bold text-[#0A1128] transition-colors shadow-inner ${showTitleError ? 'border-red-500 bg-red-50' : 'border-slate-200 focus:border-[#FEBA4F]'}`} 
           placeholder="Npr. Zbirka delavniške opreme in orodja" 
           value={packageTitle}
-          onChange={e => setPackageTitle(e.target.value)}
+          onChange={e => {
+            setPackageTitle(e.target.value);
+            setShowTitleError(false);
+          }}
         />
       </div>
 
@@ -415,6 +419,7 @@ export const CreatePackageForm: React.FC<any> = ({ onBack, t, language, onPublis
             onClick={() => {
                 if (!packageTitle && items.length === 0) {
                     toast.error("Prosimo, najprej vnesite naslov zbirke.");
+                    setShowTitleError(true);
                     return;
                 }
                 setIsAddingItem(true);

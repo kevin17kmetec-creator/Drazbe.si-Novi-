@@ -25,7 +25,7 @@ export const mockSandboxPackageItems: AuctionItem[] = [
     ],
     endTime: new Date(Date.now() + 1000 * 60 * 60 * 24 * 5 + 1000 * 60 * 42), // 5 days 42 min
     location: { SLO: 'Celje (Industrijska cona)', EN: 'Celje', DE: 'Cilli' },
-    region: Region.Stajerska,
+    region: Region.Osrednjeslovenska,
     condition: { SLO: 'Kot novo', EN: 'Like New', DE: 'Wie Neu' },
     specifications: {
       'Tehnični podatki': {
@@ -71,7 +71,7 @@ export const mockSandboxPackageItems: AuctionItem[] = [
     ],
     endTime: new Date(Date.now() + 1000 * 60 * 60 * 24 * 5 + 1000 * 60 * 42),
     location: { SLO: 'Celje (Industrijska cona)', EN: 'Celje', DE: 'Cilli' },
-    region: Region.Stajerska,
+    region: Region.Osrednjeslovenska,
     condition: { SLO: 'Novo', EN: 'New', DE: 'Neu' },
     specifications: {
       'Tehnični podatki': {
@@ -116,7 +116,7 @@ export const mockSandboxPackageItems: AuctionItem[] = [
     ],
     endTime: new Date(Date.now() + 1000 * 60 * 60 * 24 * 5 + 1000 * 60 * 42),
     location: { SLO: 'Celje (Industrijska cona)', EN: 'Celje', DE: 'Cilli' },
-    region: Region.Stajerska,
+    region: Region.Osrednjeslovenska,
     condition: { SLO: 'Novo', EN: 'New', DE: 'Neu' },
     specifications: {
       'Tehnični podatki': {
@@ -161,7 +161,7 @@ export const mockSandboxPackageItems: AuctionItem[] = [
     ],
     endTime: new Date(Date.now() + 1000 * 60 * 60 * 24 * 5 + 1000 * 60 * 42),
     location: { SLO: 'Celje (Industrijska cona)', EN: 'Celje', DE: 'Cilli' },
-    region: Region.Stajerska,
+    region: Region.Osrednjeslovenska,
     condition: { SLO: 'Kot novo', EN: 'Like New', DE: 'Wie Neu' },
     specifications: {
       'Tehnični podatki': {
@@ -205,7 +205,7 @@ export const mockSandboxPackageItems: AuctionItem[] = [
     ],
     endTime: new Date(Date.now() + 1000 * 60 * 60 * 24 * 5 + 1000 * 60 * 42),
     location: { SLO: 'Celje (Industrijska cona)', EN: 'Celje', DE: 'Cilli' },
-    region: Region.Stajerska,
+    region: Region.Osrednjeslovenska,
     condition: { SLO: 'Rabljeno', EN: 'Used', DE: 'Gebraucht' },
     specifications: {
       'Tehnični podatki': {
@@ -248,7 +248,7 @@ export const mockSandboxPackageItems: AuctionItem[] = [
     ],
     endTime: new Date(Date.now() + 1000 * 60 * 60 * 24 * 5 + 1000 * 60 * 42),
     location: { SLO: 'Celje (Industrijska cona)', EN: 'Celje', DE: 'Cilli' },
-    region: Region.Stajerska,
+    region: Region.Osrednjeslovenska,
     condition: { SLO: 'Kot novo', EN: 'Like New', DE: 'Wie Neu' },
     specifications: {
       'Tehnični podatki': {
@@ -292,7 +292,7 @@ export const mockSandboxPackageItems: AuctionItem[] = [
     ],
     endTime: new Date(Date.now() + 1000 * 60 * 60 * 24 * 5 + 1000 * 60 * 42),
     location: { SLO: 'Celje (Industrijska cona)', EN: 'Celje', DE: 'Cilli' },
-    region: Region.Stajerska,
+    region: Region.Osrednjeslovenska,
     condition: { SLO: 'Novo', EN: 'New', DE: 'Neu' },
     specifications: {
       'Tehnični podatki': {
@@ -428,7 +428,7 @@ export const mockSandboxStandaloneItems: AuctionItem[] = [
     ],
     endTime: new Date(Date.now() + 1000 * 60 * 185), // 3 hours 5 min
     location: { SLO: 'Maribor', EN: 'Maribor', DE: 'Marburg' },
-    region: Region.Stajerska,
+    region: Region.Osrednjeslovenska,
     condition: { SLO: 'Kot novo', EN: 'Like New', DE: 'Wie Neu' },
     specifications: {
       'Podatki o uri': {

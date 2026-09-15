@@ -123,7 +123,6 @@ import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 // --- CONFIGURATION ---
 
 import { translations, getCategoryTranslation } from "./lib/translations";
-import { REGION_ALIAS_MAP } from "@/src/components/ui/SloveniaMap";
 import {
   getIncrement,
   formatSeconds,
@@ -136,13 +135,7 @@ const matchesSelectedRegion = (itemRegion: string | undefined, selected: string 
   if (itemRegion === selected) return true;
   const itemLower = itemRegion.toLowerCase();
   const selLower = selected.toLowerCase();
-  if (itemLower === selLower) return true;
-  const itemAlias = REGION_ALIAS_MAP[itemLower];
-  const selAlias = REGION_ALIAS_MAP[selLower];
-  if (itemAlias && itemAlias.enumVal.toLowerCase() === selLower) return true;
-  if (selAlias && selAlias.enumVal.toLowerCase() === itemLower) return true;
-  if (itemAlias && selAlias && itemAlias.enumVal === selAlias.enumVal) return true;
-  return false;
+  return itemLower === selLower;
 };
 
 // --- MAIN APP COMPONENT ---
@@ -272,14 +265,18 @@ const CATEGORY_URL_MAP: Record<Category, Record<string, string>> = {
 };
 
 const REGION_URL_MAP: Record<Region, Record<string, string>> = {
-  [Region.Prekmurje]: { SLO: "prekmurje", EN: "prekmurje", DE: "uebermurgebiet" },
-  [Region.Stajerska]: { SLO: "stajerska", EN: "styria", DE: "steiermark" },
-  [Region.Koroska]: { SLO: "koroska", EN: "carinthia", DE: "kaernten" },
-  [Region.Gorenjska]: { SLO: "gorenjska", EN: "gorenjska", DE: "oberkrain" },
-  [Region.Primorska]: { SLO: "primorska", EN: "primorska", DE: "kuestenland" },
-  [Region.Notranjska]: { SLO: "notranjska", EN: "inner-carniola", DE: "innerkrain" },
-  [Region.Dolenjska]: { SLO: "dolenjska", EN: "lower-carniola", DE: "unterkrain" },
-  [Region.Osrednjeslovenska]: { SLO: "osrednjeslovenska", EN: "central-slovenia", DE: "zentralslowenische" }
+  [Region.Pomurska]: { SLO: "pomurska", EN: "pomurska", DE: "pomurska" },
+  [Region.Podravska]: { SLO: "podravska", EN: "podravska", DE: "podravska" },
+  [Region.Koroska]: { SLO: "koroska", EN: "koroska", DE: "koroska" },
+  [Region.Savinjska]: { SLO: "savinjska", EN: "savinjska", DE: "savinjska" },
+  [Region.Zasavska]: { SLO: "zasavska", EN: "zasavska", DE: "zasavska" },
+  [Region.Posavska]: { SLO: "posavska", EN: "posavska", DE: "posavska" },
+  [Region.JugovzhodnaSlovenija]: { SLO: "jugovzhodna-slovenija", EN: "jugovzhodna-slovenija", DE: "jugovzhodna-slovenija" },
+  [Region.Osrednjeslovenska]: { SLO: "osrednjeslovenska", EN: "osrednjeslovenska", DE: "osrednjeslovenska" },
+  [Region.Gorenjska]: { SLO: "gorenjska", EN: "gorenjska", DE: "gorenjska" },
+  [Region.PrimorskoNotranjska]: { SLO: "primorsko-notranjska", EN: "primorsko-notranjska", DE: "primorsko-notranjska" },
+  [Region.Goriska]: { SLO: "goriska", EN: "goriska", DE: "goriska" },
+  [Region.ObalnoKraska]: { SLO: "obalno-kraska", EN: "obalno-kraska", DE: "obalno-kraska" }
 };
 
 const QUERY_PARAM_MAP = {
@@ -542,6 +539,13 @@ const MainApp: React.FC = () => {
     null,
   );
   const [watchedIds, setWatchedIds] = useState<string[]>([]);
+  const [watchlistSnapshot, setWatchlistSnapshot] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (activeView === "watchlist") {
+      setWatchlistSnapshot(watchedIds);
+    }
+  }, [activeView, watchedIds.length === 0]);
   const [isPollingStopped, setIsPollingStopped] = useState(false);
   const [isHydrating, setIsHydrating] = useState(true);
   const [createMode, setCreateMode] = useState<"choice" | "single" | "package">("choice");
@@ -937,6 +941,14 @@ const MainApp: React.FC = () => {
           return;
         }
         setIsLoggedIn(true);
+        
+        // Optimistic fast update for remembered login
+        setUserData((prev: any) => ({
+          ...prev,
+          id: user.uid,
+          email: user.email || prev.email || '',
+        }));
+
         unsubscribeSnap = onSnapshot(doc(db, "users", user.uid), async (snap) => {
           const data: any = snap.exists() ? { id: snap.id, ...snap.data() } : null;
 
@@ -1016,6 +1028,7 @@ const MainApp: React.FC = () => {
             }));
             setIsVerified(false);
           }
+          setIsAuthLoading(false);
         });
       } else {
         setIsLoggedIn(false);
@@ -1035,8 +1048,8 @@ const MainApp: React.FC = () => {
           wallet_balance: 0
         } as any);
         if (unsubscribeSnap) { unsubscribeSnap(); unsubscribeSnap = null; }
+        setIsAuthLoading(false);
       }
-      setIsAuthLoading(false);
     });
 
     return () => {
@@ -3160,7 +3173,7 @@ const MainApp: React.FC = () => {
               }}
             >
               {auctions
-                .filter((a) => watchedIds.includes(a.id))
+                .filter((a) => Array.from(new Set([...watchedIds, ...watchlistSnapshot])).includes(a.id))
                 .filter(
                   (a) =>
                     a.status === "active" && new Date(a.endTime) > new Date(),
@@ -3174,7 +3187,7 @@ const MainApp: React.FC = () => {
                     isVerified={isVerified}
                     currentUserId={userData.id}
                     hasBid={bidAuctionIds.includes(item.id)}
-                    isWatched={true}
+                    isWatched={watchedIds.includes(item.id)}
                     onWatchToggle={() => toggleWatch(item.id)}
                     onClick={() => {
                       setSelectedItem(item);
@@ -3188,7 +3201,7 @@ const MainApp: React.FC = () => {
                   />
                 ))}
               {auctions
-                .filter((a) => watchedIds.includes(a.id))
+                .filter((a) => Array.from(new Set([...watchedIds, ...watchlistSnapshot])).includes(a.id))
                 .filter(
                   (a) =>
                     a.status === "active" && new Date(a.endTime) > new Date(),

@@ -3,34 +3,6 @@ import { RefreshCcw, MapPin } from 'lucide-react';
 import { Region } from "../../types";
 import { SLOVENIA_REGIONS_PATHS } from "../../lib/sloveniaMapData";
 
-// Mapping from statistical/GeoJSON names to traditional Region enum & aliases
-export const REGION_ALIAS_MAP: Record<string, { enumVal: Region; display: string; shortDisplay?: string }> = {
-  "pomurska": { enumVal: Region.Prekmurje, display: "POMURSKA", shortDisplay: "POMURSKA" },
-  "prekmurje": { enumVal: Region.Prekmurje, display: "PREKMURJE", shortDisplay: "PREKMURJE" },
-  "podravska": { enumVal: Region.Stajerska, display: "PODRAVSKA", shortDisplay: "PODRAVSKA" },
-  "savinjska": { enumVal: Region.Stajerska, display: "SAVINJSKA", shortDisplay: "SAVINJSKA" },
-  "zasavska": { enumVal: Region.Stajerska, display: "ZASAVSKA", shortDisplay: "ZASAVSKA" },
-  "stajerska": { enumVal: Region.Stajerska, display: "ŠTAJERSKA", shortDisplay: "ŠTAJERSKA" },
-  "štajerska": { enumVal: Region.Stajerska, display: "ŠTAJERSKA", shortDisplay: "ŠTAJERSKA" },
-  "koroska": { enumVal: Region.Koroska, display: "KOROŠKA", shortDisplay: "KOROŠKA" },
-  "koroška": { enumVal: Region.Koroska, display: "KOROŠKA", shortDisplay: "KOROŠKA" },
-  "gorenjska": { enumVal: Region.Gorenjska, display: "GORENJSKA", shortDisplay: "GORENJSKA" },
-  "osrednjeslovenska": { enumVal: Region.Osrednjeslovenska, display: "OSREDNJESLOVENSKA", shortDisplay: "OSREDNJA" },
-  "osrednja": { enumVal: Region.Osrednjeslovenska, display: "OSREDNJESLOVENSKA", shortDisplay: "OSREDNJA" },
-  "jugovzhodna slovenija": { enumVal: Region.Dolenjska, display: "JUGOVZHODNA SLOVENIJA", shortDisplay: "JV SLOVENIJA" },
-  "jv slovenija": { enumVal: Region.Dolenjska, display: "JUGOVZHODNA SLOVENIJA", shortDisplay: "JV SLOVENIJA" },
-  "posavska": { enumVal: Region.Dolenjska, display: "POSAVSKA", shortDisplay: "POSAVSKA" },
-  "dolenjska": { enumVal: Region.Dolenjska, display: "DOLENJSKA", shortDisplay: "DOLENJSKA" },
-  "primorsko-notranjska": { enumVal: Region.Notranjska, display: "PRIMORSKO-NOTRANJSKA", shortDisplay: "NOTRANJSKA" },
-  "notranjska": { enumVal: Region.Notranjska, display: "NOTRANJSKA", shortDisplay: "NOTRANJSKA" },
-  "goriška": { enumVal: Region.Primorska, display: "GORIŠKA", shortDisplay: "GORIŠKA" },
-  "goriska": { enumVal: Region.Primorska, display: "GORIŠKA", shortDisplay: "GORIŠKA" },
-  "obalno-kraška": { enumVal: Region.Primorska, display: "OBALNO-KRAŠKA", shortDisplay: "OBALA" },
-  "obalno-kraska": { enumVal: Region.Primorska, display: "OBALNO-KRAŠKA", shortDisplay: "OBALA" },
-  "obala": { enumVal: Region.Primorska, display: "OBALNO-KRAŠKA", shortDisplay: "OBALA" },
-  "primorska": { enumVal: Region.Primorska, display: "PRIMORSKA", shortDisplay: "PRIMORSKA" }
-};
-
 export interface SloveniaMapProps {
   regionsData?: Record<string, number>;
   onSelectRegion: (regionId: string) => void;
@@ -62,21 +34,9 @@ export const SloveniaMap: React.FC<SloveniaMapProps> = ({
       return regionsData[regionName];
     }
 
-    // Match via alias / traditional region enum
-    const aliasInfo = REGION_ALIAS_MAP[rawKey];
-    if (aliasInfo) {
-      if (typeof regionsData[aliasInfo.enumVal] === 'number') {
-        return regionsData[aliasInfo.enumVal];
-      }
-      const enumLower = aliasInfo.enumVal.toLowerCase();
-      if (typeof regionsData[enumLower] === 'number') {
-        return regionsData[enumLower];
-      }
-    }
-
     // Case insensitive lookup
     for (const [k, v] of Object.entries(regionsData)) {
-      if (k.toLowerCase() === rawKey || (aliasInfo && k.toLowerCase() === aliasInfo.enumVal.toLowerCase())) {
+      if (k.toLowerCase() === rawKey) {
         return v;
       }
     }
@@ -89,16 +49,7 @@ export const SloveniaMap: React.FC<SloveniaMapProps> = ({
     if (!selectedRegion) return false;
     const rawKey = regionName.toLowerCase();
     const selKey = selectedRegion.toLowerCase();
-    if (rawKey === selKey) return true;
-
-    const aliasInfo = REGION_ALIAS_MAP[rawKey];
-    if (aliasInfo && aliasInfo.enumVal.toLowerCase() === selKey) return true;
-    
-    const selAlias = REGION_ALIAS_MAP[selKey];
-    if (selAlias && selAlias.enumVal.toLowerCase() === rawKey) return true;
-    if (aliasInfo && selAlias && aliasInfo.enumVal === selAlias.enumVal) return true;
-
-    return false;
+    return rawKey === selKey;
   };
 
   const handleClearFilter = (e: React.MouseEvent) => {
@@ -106,22 +57,20 @@ export const SloveniaMap: React.FC<SloveniaMapProps> = ({
     onSelectRegion("");
   };
 
-  // Memoized region items with calculated counts and selected status for optimal performance
+  // Use the map data directly - exact 1:1 mapping with the 12 regions
   const renderedRegions = useMemo(() => {
     return SLOVENIA_REGIONS_PATHS.map((item) => {
       const regionName = item.name;
       const count = getCountForRegion(regionName);
       const isSelected = isRegionSelected(regionName);
-      const alias = REGION_ALIAS_MAP[regionName.toLowerCase()];
-      const displayName = alias?.shortDisplay || alias?.display || regionName.toUpperCase();
-      const targetRegion = alias?.enumVal || regionName;
+      const displayName = regionName.toUpperCase();
 
       return {
         ...item,
         count,
         isSelected,
         displayName,
-        targetRegion
+        targetRegion: regionName
       };
     });
   }, [regionsData, selectedRegion]);
@@ -175,11 +124,11 @@ export const SloveniaMap: React.FC<SloveniaMapProps> = ({
           {/* Region Vector Paths */}
           <g>
             {renderedRegions.map((reg) => {
-              const isHovered = hoveredRegion?.name === reg.name || hoveredRegion?.name === reg.displayName;
+              const isHovered = hoveredRegion?.name === reg.displayName;
 
               return (
                 <path
-                  key={reg.name}
+                  key={reg.targetRegion}
                   d={reg.path}
                   className="cursor-pointer transition-all duration-200"
                   onClick={() => onSelectRegion(reg.isSelected ? "" : reg.targetRegion)}
@@ -198,11 +147,11 @@ export const SloveniaMap: React.FC<SloveniaMapProps> = ({
           <g className="pointer-events-none select-none">
             {renderedRegions.map((reg) => {
               const [cx, cy] = reg.centroid;
-              const isHovered = hoveredRegion?.name === reg.name || hoveredRegion?.name === reg.displayName;
+              const isHovered = hoveredRegion?.name === reg.displayName;
               const isHighlighted = reg.isSelected || isHovered;
 
               return (
-                <g key={`label-${reg.name}`} transform={`translate(${cx}, ${cy})`}>
+                <g key={`label-${reg.targetRegion}`} transform={`translate(${cx}, ${cy})`}>
                   {/* Region Name */}
                   <text
                     y={-5}
@@ -259,10 +208,10 @@ export const SloveniaMap: React.FC<SloveniaMapProps> = ({
       {/* Quick region pill selectors at bottom */}
       <div className="mt-3 pt-3 border-t border-white/5 flex flex-wrap items-center justify-center gap-1.5">
         {renderedRegions.map((reg) => {
-          const isHovered = hoveredRegion?.name === reg.name || hoveredRegion?.name === reg.displayName;
+          const isHovered = hoveredRegion?.name === reg.displayName;
           return (
             <button
-              key={reg.name}
+              key={reg.targetRegion}
               onClick={() => onSelectRegion(reg.isSelected ? "" : reg.targetRegion)}
               onMouseEnter={() => setHoveredRegion({ name: reg.displayName, count: reg.count })}
               onMouseLeave={() => setHoveredRegion(null)}

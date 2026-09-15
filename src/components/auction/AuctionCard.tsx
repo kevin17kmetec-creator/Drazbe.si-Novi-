@@ -123,7 +123,7 @@ export const AuctionCard: React.FC<{
             onClick={(e) => { e.stopPropagation(); onWatchToggle(); }}
             className={`p-2 rounded-xl backdrop-blur-sm shadow-lg border transition-all ${isWatched ? 'bg-[#FEBA4F] border-[#FEBA4F] text-[#0A1128]' : 'bg-[#0A1128]/90 border-white/10 text-white hover:bg-white/10'}`}
           >
-            <Eye size={14} fill={isWatched ? 'currentColor' : 'none'} />
+            <Eye size={14} />
           </button>
           <div className="bg-[#FEBA4F] text-[#0A1128] backdrop-blur-sm px-4 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg">
             {item.region}
