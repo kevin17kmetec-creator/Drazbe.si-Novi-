@@ -1,5 +1,5 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
-import { User, Camera, CheckCircle2, AlertCircle, Shield, CreditCard, Building, MapPin, Key } from 'lucide-react';
+import { User, Camera, CheckCircle2, AlertCircle, Shield, CreditCard, Building, MapPin, Key, Bell } from 'lucide-react';
 import { toast } from 'sonner';
 import imageCompression from 'browser-image-compression';
 import { StripeConnectOnboarding } from "@/src/components/profile/StripeConnectOnboarding";
@@ -48,8 +48,8 @@ export const SettingsView: React.FC<{
   onVerify: () => void; 
   onStripeVerified: () => void;
   onRefreshUser?: () => Promise<void>;
-  activeTab?: 'profile' | 'personal' | 'stripe';
-  setActiveTab?: (tab: 'profile' | 'personal' | 'stripe') => void;
+  activeTab?: 'profile' | 'personal' | 'stripe' | 'notifications';
+  setActiveTab?: (tab: 'profile' | 'personal' | 'stripe' | 'notifications') => void;
 }> = ({ 
   t, 
   language, 
@@ -61,7 +61,7 @@ export const SettingsView: React.FC<{
   activeTab: propActiveTab,
   setActiveTab: propSetActiveTab
 }) => {
-  const [localActiveTab, setLocalActiveTab] = useState<'profile' | 'personal' | 'stripe'>('profile');
+  const [localActiveTab, setLocalActiveTab] = useState<'profile' | 'personal' | 'stripe' | 'notifications'>('profile');
   const [isWithdrawing, setIsWithdrawing] = useState(false);
   const activeTab = propActiveTab !== undefined ? propActiveTab : localActiveTab;
   const setActiveTab = propSetActiveTab !== undefined ? propSetActiveTab : setLocalActiveTab;
@@ -113,6 +113,12 @@ export const SettingsView: React.FC<{
     representative: user?.representative || '',
     countryCode: user?.country_code || user?.countryCode || 'SI',
     autoInvoiceGeneration: user?.auto_invoice_generation !== false, // default true
+    emailNotifications: user?.email_notifications || user?.emailNotifications || {
+      marketing: true,
+      bids: true,
+      messages: true,
+      invoices: true
+    },
   });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isFormDirtyRef = useRef(false);
@@ -143,6 +149,7 @@ export const SettingsView: React.FC<{
             representative: user.representative || '',
             countryCode: user.country_code || user.countryCode || 'SI',
             autoInvoiceGeneration: user.auto_invoice_generation ?? user.autoInvoiceGeneration ?? true,
+            emailNotifications: user.email_notifications || user.emailNotifications || { marketing: true, bids: true, messages: true, invoices: true }
           };
         } else {
           return {
@@ -252,6 +259,12 @@ export const SettingsView: React.FC<{
                 className={`flex items-center gap-4 px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-xs transition-all w-full text-left ${activeTab === 'stripe' ? 'bg-[#0A1128] text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50 hover:text-[#0A1128]'}`}
             >
                 <CreditCard size={18} /> {t('tabPaymentsPayouts')}
+            </button>
+            <button 
+                onClick={() => setActiveTab('notifications')}
+                className={`flex items-center gap-4 px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-xs transition-all w-full text-left ${activeTab === 'notifications' ? 'bg-[#0A1128] text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50 hover:text-[#0A1128]'}`}
+            >
+                <Bell size={18} /> {t('tabNotifications')}
             </button>
           </div>
         </div>
@@ -550,6 +563,108 @@ export const SettingsView: React.FC<{
                   t={t}
                   language={language}
                 />
+              </div>
+            )}
+
+            {activeTab === 'notifications' && (
+              <div className="animate-in fade-in slide-in-from-right-4">
+                <div className="mb-6">
+                    <h3 className="text-xl font-black uppercase tracking-tighter text-[#0A1128] mb-2 flex items-center gap-2">
+                        <Bell size={20} className="text-[#FEBA4F]"/> Obvestila
+                    </h3>
+                    <p className="text-slate-400 font-bold text-sm mb-8">Upravljajte s prejemanjem e-poštnih obvestil.</p>
+                </div>
+                
+                <div className="space-y-6">
+                    <label className="flex items-center justify-between p-6 bg-slate-50 rounded-2xl border border-slate-100 hover:border-[#FEBA4F]/30 transition-colors cursor-pointer">
+                        <div>
+                            <span className="block font-black text-[#0A1128] uppercase tracking-widest text-sm mb-1">Ponudbe na mojih dražbah</span>
+                            <span className="block text-slate-500 text-sm">Prejmite e-pošto, ko nekdo odda ponudbo na vaši dražbi.</span>
+                        </div>
+                        <input 
+                            type="checkbox"
+                            className="w-6 h-6 rounded border-slate-300 text-[#FEBA4F] focus:ring-[#FEBA4F]"
+                            checked={formData.emailNotifications?.bids !== false}
+                            onChange={(e) => {
+                                setFormData(prev => ({
+                                    ...prev,
+                                    emailNotifications: {
+                                        ...prev.emailNotifications,
+                                        bids: e.target.checked
+                                    }
+                                }));
+                                isFormDirtyRef.current = true;
+                            }}
+                        />
+                    </label>
+
+                    <label className="flex items-center justify-between p-6 bg-slate-50 rounded-2xl border border-slate-100 hover:border-[#FEBA4F]/30 transition-colors cursor-pointer">
+                        <div>
+                            <span className="block font-black text-[#0A1128] uppercase tracking-widest text-sm mb-1">Nova sporočila</span>
+                            <span className="block text-slate-500 text-sm">Prejmite e-pošto, ko vam uporabnik pošlje sporočilo.</span>
+                        </div>
+                        <input 
+                            type="checkbox"
+                            className="w-6 h-6 rounded border-slate-300 text-[#FEBA4F] focus:ring-[#FEBA4F]"
+                            checked={formData.emailNotifications?.messages !== false}
+                            onChange={(e) => {
+                                setFormData(prev => ({
+                                    ...prev,
+                                    emailNotifications: {
+                                        ...prev.emailNotifications,
+                                        messages: e.target.checked
+                                    }
+                                }));
+                                isFormDirtyRef.current = true;
+                            }}
+                        />
+                    </label>
+
+                    <label className="flex items-center justify-between p-6 bg-slate-50 rounded-2xl border border-slate-100 hover:border-[#FEBA4F]/30 transition-colors cursor-pointer">
+                        <div>
+                            <span className="block font-black text-[#0A1128] uppercase tracking-widest text-sm mb-1">Marketing in novice</span>
+                            <span className="block text-slate-500 text-sm">Prejmite e-pošto o novostih in akcijah.</span>
+                        </div>
+                        <input 
+                            type="checkbox"
+                            className="w-6 h-6 rounded border-slate-300 text-[#FEBA4F] focus:ring-[#FEBA4F]"
+                            checked={formData.emailNotifications?.marketing !== false}
+                            onChange={(e) => {
+                                setFormData(prev => ({
+                                    ...prev,
+                                    emailNotifications: {
+                                        ...prev.emailNotifications,
+                                        marketing: e.target.checked
+                                    }
+                                }));
+                                isFormDirtyRef.current = true;
+                            }}
+                        />
+                    </label>
+
+                    <label className="flex items-center justify-between p-6 bg-slate-100 rounded-2xl border border-slate-200 opacity-80 cursor-not-allowed">
+                        <div>
+                            <span className="block font-black text-[#0A1128] uppercase tracking-widest text-sm mb-1">Računi (Obvezno)</span>
+                            <span className="block text-slate-500 text-sm">Prejmite e-pošto z računom ob nakupu paketa ali uspešni prodaji. Tega obvestila ni mogoče izklopiti.</span>
+                        </div>
+                        <input 
+                            type="checkbox"
+                            className="w-6 h-6 rounded border-slate-300 text-slate-400 focus:ring-slate-400"
+                            checked={true}
+                            disabled
+                        />
+                    </label>
+
+                    <div className="flex justify-end mt-8">
+                        <button type="submit" disabled={isSaving} className="bg-[#FEBA4F] text-[#0A1128] px-12 py-4 rounded-[2rem] font-black uppercase tracking-widest text-sm hover:bg-[#0A1128] hover:text-white transition-all shadow-xl flex items-center justify-center min-w-[250px]">
+                            {isSaving ? (
+                                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                            ) : (
+                                "Shrani obvestila"
+                            )}
+                        </button>
+                    </div>
+                </div>
               </div>
             )}
 

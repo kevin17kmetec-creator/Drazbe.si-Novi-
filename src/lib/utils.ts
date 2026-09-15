@@ -57,3 +57,36 @@ export const formatSeconds = (totalSeconds: number) => {
   const ss = s.toString().padStart(2, '0');
   return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
 };
+
+export const getUserAuctionCycle = (auctions: any[], userId: string) => {
+    const userAuctions = auctions
+        .filter(a => a.sellerId === userId)
+        .map(a => new Date(a.createdAt || a.created_at || a.endTime).getTime())
+        .sort((a, b) => a - b);
+
+    if (userAuctions.length === 0) {
+        return { count: 0, resetDate: null };
+    }
+
+    const now = Date.now();
+    let currentCycleStart = userAuctions[0];
+    let currentCycleEnd = new Date(currentCycleStart);
+    currentCycleEnd.setMonth(currentCycleEnd.getMonth() + 1);
+    let currentCycleEndTime = currentCycleEnd.getTime();
+
+    for (let i = 0; i < userAuctions.length; i++) {
+        if (userAuctions[i] >= currentCycleEndTime) {
+            currentCycleStart = userAuctions[i];
+            currentCycleEnd = new Date(currentCycleStart);
+            currentCycleEnd.setMonth(currentCycleEnd.getMonth() + 1);
+            currentCycleEndTime = currentCycleEnd.getTime();
+        }
+    }
+
+    if (now >= currentCycleEndTime) {
+         return { count: 0, resetDate: null }; 
+    }
+
+    const countInCycle = userAuctions.filter(time => time >= currentCycleStart && time < currentCycleEndTime).length;
+    return { count: countInCycle, resetDate: currentCycleEnd };
+};

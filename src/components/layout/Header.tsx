@@ -4,6 +4,7 @@ import { ViewState, Region, Category, AuctionItem } from "../../types";
 import { useChat } from "../../context/ChatContext";
 import { SloveniaMap } from "@/src/components/ui/SloveniaMap";
 import { getCategoryTranslation } from "../../lib/translations";
+import { getUserAuctionCycle } from "../../lib/utils";
 
 export const Header: React.FC<{ 
   onHome: () => void;
@@ -49,16 +50,14 @@ export const Header: React.FC<{
   const wonAuctionsBadge = newWinningsCount || 0;
   let monthlyAuctionsCount = 0;
   let userLimit = 5;
+  let cycleResetDate: Date | null = null;
   if (userData && auctions) {
       const subTier = userData.subscription_tier || userData.subscription || "FREE";
       if (subTier === "BASIC") userLimit = 50;
       if (subTier === "PRO") userLimit = Infinity;
-      const now = new Date();
-      const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-      monthlyAuctionsCount = auctions.filter(a => 
-          a.sellerId === userData.id && 
-          new Date((a as any).createdAt || (a as any).created_at || a.endTime).getTime() >= firstDayOfMonth
-      ).length;
+      const cycleInfo = getUserAuctionCycle(auctions, userData.id);
+      monthlyAuctionsCount = cycleInfo.count;
+      cycleResetDate = cycleInfo.resetDate;
   }
 
   const userMenuRef = useRef<HTMLDivElement>(null);
@@ -201,24 +200,69 @@ export const Header: React.FC<{
                         {userData && (
                           <div className="px-6 py-4 border-b border-slate-100 mb-2 bg-slate-50">
                               <div className="flex items-center justify-between mb-1">
-                                  <p className="text-[10px] font-black text-slate-400 uppercase">Objave ta mesec</p>
+                                  <p className="text-[10px] font-black text-slate-400 uppercase">Objave v ciklu</p>
                                   <p className="text-xs font-black text-[#0A1128]">
                                       {monthlyAuctionsCount} / {userLimit === Infinity ? "∞" : userLimit}
                                   </p>
                               </div>
                               {userLimit !== Infinity && (
-                                  <div className="w-full bg-slate-200 rounded-full h-1.5 mt-2 overflow-hidden">
-                                      <div 
-                                          className={`h-full rounded-full transition-all ${monthlyAuctionsCount >= userLimit ? "bg-red-500" : "bg-[#FEBA4F]"}`} 
-                                          style={{ width: `${Math.min(100, (monthlyAuctionsCount / userLimit) * 100)}%` }}
-                                      ></div>
-                                  </div>
+                                  <>
+                                      <div className="w-full bg-slate-200 rounded-full h-1.5 mt-2 overflow-hidden">
+                                          <div 
+                                              className={`h-full rounded-full transition-all ${monthlyAuctionsCount >= userLimit ? "bg-red-500" : "bg-[#FEBA4F]"}`} 
+                                              style={{ width: `${Math.min(100, (monthlyAuctionsCount / userLimit) * 100)}%` }}
+                                          ></div>
+                                      </div>
+                                      {cycleResetDate && (
+                                          <p className="text-[10px] text-slate-500 mt-2">
+                                              Ponastavitev: {cycleResetDate.toLocaleDateString('sl-SI')}
+                                          </p>
+                                      )}
+                                  </>
                               )}
+                              {/* Letni pregled uporabe */}
+                              <div className="mt-4 pt-4 border-t border-slate-200">
+                                  <p className="text-[10px] font-black text-slate-400 uppercase mb-2">Letni pregled (Zakonodaja)</p>
+                                  {(() => {
+                                      const isBusiness = userData.user_type === 'business' || userData.userType === 'business' || userData.company_status === 'company' || userData.isCompany;
+                                      if (isBusiness) {
+                                          return <p className="text-[10px] text-slate-600">Podjetje: Zakonske omejitve prodaj (DAC7) za vas ne veljajo na enak način kot za fizične osebe.</p>;
+                                      } else {
+                                          const currentYear = new Date().getFullYear();
+                                          const firstDayOfYear = new Date(currentYear, 0, 1).getTime();
+                                          const annualAuctions = auctions.filter(a => 
+                                              a.sellerId === userData.id && 
+                                              new Date((a as any).createdAt || (a as any).created_at || a.endTime).getTime() >= firstDayOfYear
+                                          );
+                                          const soldAuctions = annualAuctions.filter(a => ['SOLD', 'COMPLETED', 'PAID'].includes(a.status));
+                                          const annualVolume = soldAuctions.reduce((sum, a) => sum + (a.currentBid || 0), 0);
+                                          
+                                          return (
+                                              <div className="flex flex-col gap-1 text-[10px] text-slate-600">
+                                                  <div className="flex justify-between">
+                                                      <span>Prodano predmetov:</span>
+                                                      <span className={soldAuctions.length >= 30 ? "text-red-500 font-bold" : ""}>{soldAuctions.length} / 30</span>
+                                                  </div>
+                                                  <div className="flex justify-between">
+                                                      <span>Skupna vrednost:</span>
+                                                      <span className={annualVolume >= 2000 ? "text-red-500 font-bold" : ""}>{annualVolume.toFixed(2)} € / 2.000 €</span>
+                                                  </div>
+                                                  <p className="text-[9px] text-slate-400 mt-1 leading-tight">Po preseženih limitih (DAC7) vas bomo morali poročati FURS-u.</p>
+                                              </div>
+                                          );
+                                      }
+                                  })()}
+                              </div>
                           </div>
                         )}
                         <div className="px-6 py-4 border-b border-slate-100 mb-2">
                             <p className="text-[10px] font-black text-slate-400 uppercase">{t('loggedInAs')}</p>
-                            <p className="font-black text-xs truncate">{userEmail || 'Uporabnik Drazba.si'}</p>
+                            <p className="font-black text-xs truncate">
+                                {(() => {
+                                    const name = userData?.username || userEmail || 'Uporabnik Drazba.si';
+                                    return name.charAt(0).toUpperCase() + name.slice(1).toLowerCase();
+                                })()}
+                            </p>
                         </div>
                         <button onClick={() => { onCreateAuction(); setIsUserMenuOpen(false); }} className="w-full flex items-center gap-3 px-6 py-4 hover:bg-slate-50 transition-colors text-xs font-black uppercase tracking-widest"><PlusCircle size={18} /> {t('createAuction')}</button>
                         <button onClick={() => { onMyWinnings(); setIsUserMenuOpen(false); }} className="w-full flex items-center gap-3 px-6 py-4 hover:bg-slate-50 transition-colors text-xs font-black uppercase tracking-widest"><Trophy size={18} /> {t('myWinnings')}

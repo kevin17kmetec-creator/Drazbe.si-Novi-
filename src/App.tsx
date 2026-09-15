@@ -549,7 +549,7 @@ const MainApp: React.FC = () => {
   const [isPollingStopped, setIsPollingStopped] = useState(false);
   const [isHydrating, setIsHydrating] = useState(true);
   const [createMode, setCreateMode] = useState<"choice" | "single" | "package">("choice");
-  const [settingsTab, setSettingsTab] = useState<'profile' | 'personal' | 'stripe'>('profile');
+  const [settingsTab, setSettingsTab] = useState<'profile' | 'personal' | 'stripe' | 'notifications'>('profile');
   const [appMissingInvoiceDataModal, setAppMissingInvoiceDataModal] = useState<{
     isOpen: boolean;
     missingFields: any[];
@@ -1724,6 +1724,8 @@ const MainApp: React.FC = () => {
           countryCode: data.countryCode || 'SI',
           auto_invoice_generation: data.autoInvoiceGeneration !== false,
           autoInvoiceGeneration: data.autoInvoiceGeneration !== false,
+          email_notifications: data.emailNotifications || { marketing: true, bids: true, messages: true, invoices: true },
+          emailNotifications: data.emailNotifications || { marketing: true, bids: true, messages: true, invoices: true },
           address: (userData as any)?.user_type === 'individual' || (!data.companyName && !data.companyStreet)
             ? `${data.street || ''}, ${data.postalCode || ''} ${data.city || ''}`.trim().replace(/^,|,$/g, '').trim()
             : `${data.companyStreet || ''}, ${data.companyPostalCode || ''} ${data.companyCity || ''}`.trim().replace(/^,|,$/g, '').trim(),

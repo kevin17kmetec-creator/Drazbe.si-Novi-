@@ -4,6 +4,7 @@ import { Layers, Plus, Trash2, ArrowLeft, CheckCircle, Edit3 } from 'lucide-reac
 import { toast } from 'sonner';
 import { db, auth } from "@/src/lib/firebase";
 import { doc, setDoc, getDoc, deleteDoc, updateDoc } from "firebase/firestore";
+import { getUserAuctionCycle } from "../../lib/utils";
 
 export const CreatePackageForm: React.FC<any> = ({ onBack, t, language, onPublishPackage, onPublishItemDirectly, isLoggedIn, userData, auctions, onNavigateToSettings }) => {
   const [packageId, setPackageId] = useState(() => crypto.randomUUID());
@@ -287,15 +288,11 @@ export const CreatePackageForm: React.FC<any> = ({ onBack, t, language, onPublis
         let userLimit = 5;
         if (subTier === "BASIC") userLimit = 50;
         if (subTier === "PRO") userLimit = Infinity;
-        const now = new Date();
-        const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-        const monthlyAuctionsCount = auctions.filter(a => 
-            a.sellerId === userData.id && 
-            new Date(a.createdAt).getTime() >= firstDayOfMonth
-        ).length;
+        const cycleInfo = getUserAuctionCycle(auctions, userData.id);
+        const monthlyAuctionsCount = cycleInfo.count;
         const newItemsCount = items.length;
         if (monthlyAuctionsCount + newItemsCount > userLimit) {
-            toast.error(`Z objavo te zbirke boste presegli mesečno omejitev objav (${userLimit}). Objavite lahko še največ ${Math.max(0, userLimit - monthlyAuctionsCount)} predmetov. Nadgradite paket.`);
+            toast.error(`Z objavo te zbirke boste presegli omejitev objav v trenutnem ciklu (${userLimit}). Objavite lahko še največ ${Math.max(0, userLimit - monthlyAuctionsCount)} predmetov. Nadgradite paket.`);
             return;
         }
     }

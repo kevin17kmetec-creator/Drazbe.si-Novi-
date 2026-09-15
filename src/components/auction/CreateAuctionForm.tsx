@@ -11,6 +11,7 @@ import { AuctionCard } from "@/src/components/auction/AuctionCard";
 import AuctionView from "@/src/components/auction/AuctionView";
 import { checkUserInvoiceData, InvoiceDataCheckResult } from "../../lib/invoiceDataCheck";
 import { MissingInvoiceDataModal } from "@/src/components/modals/MissingInvoiceDataModal";
+import { getUserAuctionCycle } from "../../lib/utils";
 
 const REGION_LOCATIONS: Record<Region, string[]> = {
     [Region.Pomurska]: ['Murska Sobota', 'Lendava', 'Ljutomer', 'Gornja Radgona', 'Beltinci', 'Drugo'],
@@ -375,14 +376,10 @@ export const CreateAuctionForm: React.FC<{
             let userLimit = 5;
             if (subTier === "BASIC") userLimit = 50;
             if (subTier === "PRO") userLimit = Infinity;
-            const now = new Date();
-            const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-            const monthlyAuctionsCount = auctions.filter(a => 
-                a.sellerId === userData.id && 
-                new Date(a.createdAt).getTime() >= firstDayOfMonth
-            ).length;
+            const cycleInfo = getUserAuctionCycle(auctions, userData.id);
+            const monthlyAuctionsCount = cycleInfo.count;
             if (!initialData?.id && monthlyAuctionsCount >= userLimit) {
-                toast.error(`Dosegli ste mesečno omejitev objav za vaš naročniški paket (${userLimit}). Prosimo, nadgradite paket v nastavitvah.`);
+                toast.error(`Dosegli ste omejitev objav v trenutnem ciklu za vaš naročniški paket (${userLimit}). Prosimo, nadgradite paket v nastavitvah.`);
                 return;
             }
         }

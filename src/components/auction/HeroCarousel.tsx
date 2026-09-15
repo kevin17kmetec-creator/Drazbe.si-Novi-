@@ -66,16 +66,25 @@ export const HeroCarousel: React.FC<{ items: AuctionItem[]; onSelectItem: (item:
       >
         {featuredItems.map((item, index) => (
           <div key={item.id} className="min-w-full h-full relative flex-shrink-0">
-            <img 
-              src={signedImages[item.id] || getImageUrl(item.images[0])} 
-              className="absolute inset-0 w-full h-full object-cover opacity-40" 
-              alt={item.title[language] || item.title['SLO']}
-              loading={index === 0 ? "eager" : "lazy"}
-              referrerPolicy="no-referrer"
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-[#0A1128] via-transparent to-transparent"></div>
+            <div className="absolute inset-0 flex">
+              {[0, 1, 2].map((imgIndex) => {
+                const imgSource = item.images[imgIndex] || item.images[0];
+                return (
+                  <div key={imgIndex} className="flex-1 h-full border-r border-[#0A1128]/20 last:border-0">
+                    <img 
+                      src={getImageUrl(imgSource)} 
+                      className="w-full h-full object-cover opacity-40" 
+                      alt={item.title[language] || item.title['SLO']}
+                      loading={index === 0 ? "eager" : "lazy"}
+                      referrerPolicy="no-referrer"
+                    />
+                  </div>
+                );
+              })}
+            </div>
+            <div className="absolute inset-0 bg-gradient-to-t from-[#0A1128] via-[#0A1128]/60 to-transparent"></div>
             
-            <div className="absolute inset-0 flex flex-col justify-center items-center text-center p-6 text-white max-w-4xl mx-auto z-10 pt-16">
+            <div className="absolute inset-0 flex flex-col justify-end items-center text-center p-6 text-white max-w-4xl mx-auto z-10 pb-24">
               <h2 className="text-5xl lg:text-7xl font-black mb-8 tracking-tighter uppercase italic">
                 {item.title[language] || item.title['SLO']}
               </h2>
