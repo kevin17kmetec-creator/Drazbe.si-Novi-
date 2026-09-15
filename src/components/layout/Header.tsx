@@ -220,39 +220,6 @@ export const Header: React.FC<{
                                       )}
                                   </>
                               )}
-                              {/* Letni pregled uporabe */}
-                              <div className="mt-4 pt-4 border-t border-slate-200">
-                                  <p className="text-[10px] font-black text-slate-400 uppercase mb-2">Letni pregled (Zakonodaja)</p>
-                                  {(() => {
-                                      const isBusiness = userData.user_type === 'business' || userData.userType === 'business' || userData.company_status === 'company' || userData.isCompany;
-                                      if (isBusiness) {
-                                          return <p className="text-[10px] text-slate-600">Podjetje: Zakonske omejitve prodaj (DAC7) za vas ne veljajo na enak način kot za fizične osebe.</p>;
-                                      } else {
-                                          const currentYear = new Date().getFullYear();
-                                          const firstDayOfYear = new Date(currentYear, 0, 1).getTime();
-                                          const annualAuctions = auctions.filter(a => 
-                                              a.sellerId === userData.id && 
-                                              new Date((a as any).createdAt || (a as any).created_at || a.endTime).getTime() >= firstDayOfYear
-                                          );
-                                          const soldAuctions = annualAuctions.filter(a => ['SOLD', 'COMPLETED', 'PAID'].includes(a.status));
-                                          const annualVolume = soldAuctions.reduce((sum, a) => sum + (a.currentBid || 0), 0);
-                                          
-                                          return (
-                                              <div className="flex flex-col gap-1 text-[10px] text-slate-600">
-                                                  <div className="flex justify-between">
-                                                      <span>Prodano predmetov:</span>
-                                                      <span className={soldAuctions.length >= 30 ? "text-red-500 font-bold" : ""}>{soldAuctions.length} / 30</span>
-                                                  </div>
-                                                  <div className="flex justify-between">
-                                                      <span>Skupna vrednost:</span>
-                                                      <span className={annualVolume >= 2000 ? "text-red-500 font-bold" : ""}>{annualVolume.toFixed(2)} € / 2.000 €</span>
-                                                  </div>
-                                                  <p className="text-[9px] text-slate-400 mt-1 leading-tight">Po preseženih limitih (DAC7) vas bomo morali poročati FURS-u.</p>
-                                              </div>
-                                          );
-                                      }
-                                  })()}
-                              </div>
                           </div>
                         )}
                         <div className="px-6 py-4 border-b border-slate-100 mb-2">

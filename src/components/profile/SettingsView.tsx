@@ -44,6 +44,7 @@ export const SettingsView: React.FC<{
   t: any; 
   language: string; 
   user: any; 
+  auctions?: any[];
   onSave: (data: any) => Promise<void>; 
   onVerify: () => void; 
   onStripeVerified: () => void;
@@ -54,6 +55,7 @@ export const SettingsView: React.FC<{
   t, 
   language, 
   user, 
+  auctions,
   onSave, 
   onVerify, 
   onStripeVerified,
@@ -114,7 +116,7 @@ export const SettingsView: React.FC<{
     countryCode: user?.country_code || user?.countryCode || 'SI',
     autoInvoiceGeneration: user?.auto_invoice_generation !== false, // default true
     emailNotifications: user?.email_notifications || user?.emailNotifications || {
-      marketing: true,
+      marketing: true, outbid: true, endingSoon: true, won: true, paymentReminder: true,
       bids: true,
       messages: true,
       invoices: true
@@ -149,7 +151,7 @@ export const SettingsView: React.FC<{
             representative: user.representative || '',
             countryCode: user.country_code || user.countryCode || 'SI',
             autoInvoiceGeneration: user.auto_invoice_generation ?? user.autoInvoiceGeneration ?? true,
-            emailNotifications: user.email_notifications || user.emailNotifications || { marketing: true, bids: true, messages: true, invoices: true }
+            emailNotifications: user.email_notifications || user.emailNotifications || { marketing: true, outbid: true, endingSoon: true, won: true, paymentReminder: true, bids: true, messages: true, invoices: true }
           };
         } else {
           return {
@@ -352,6 +354,36 @@ export const SettingsView: React.FC<{
                       </p>
                     </div>
                   </div>
+                  {userType === 'individual' && auctions && (
+                    <div className="mt-4 pt-4 border-t border-slate-200">
+                      <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">
+                        Letni pregled prodaje (DAC7)
+                      </h4>
+                      {(() => {
+                        const currentYear = new Date().getFullYear();
+                        const firstDayOfYear = new Date(currentYear, 0, 1).getTime();
+                        const annualAuctions = auctions.filter(a => 
+                            a.sellerId === user?.id && 
+                            new Date((a as any).createdAt || (a as any).created_at || a.endTime).getTime() >= firstDayOfYear
+                        );
+                        const soldAuctions = annualAuctions.filter(a => ['SOLD', 'COMPLETED', 'PAID'].includes(a.status));
+                        const annualVolume = soldAuctions.reduce((sum, a) => sum + (a.currentBid || 0), 0);
+                        return (
+                            <div className="flex flex-col gap-2 text-xs font-bold text-slate-600">
+                                <div className="flex justify-between items-center bg-white px-4 py-2 rounded-xl border border-slate-200">
+                                    <span>Prodano predmetov v letu {currentYear}:</span>
+                                    <span className={soldAuctions.length >= 30 ? "text-red-500 font-black" : "font-black text-[#0A1128]"}>{soldAuctions.length} / 30</span>
+                                </div>
+                                <div className="flex justify-between items-center bg-white px-4 py-2 rounded-xl border border-slate-200">
+                                    <span>Skupna vrednost prodanih predmetov:</span>
+                                    <span className={annualVolume >= 2000 ? "text-red-500 font-black" : "font-black text-[#0A1128]"}>{annualVolume.toFixed(2)} € / 2.000 €</span>
+                                </div>
+                                <p className="text-[9px] text-slate-400 mt-1 leading-tight font-normal">Po preseženih limitih (DAC7) vas bomo morali poročati FURS-u.</p>
+                            </div>
+                        );
+                      })()}
+                    </div>
+                  )}
                 </div>
 
                 <div className="mb-10">

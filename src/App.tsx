@@ -1724,8 +1724,8 @@ const MainApp: React.FC = () => {
           countryCode: data.countryCode || 'SI',
           auto_invoice_generation: data.autoInvoiceGeneration !== false,
           autoInvoiceGeneration: data.autoInvoiceGeneration !== false,
-          email_notifications: data.emailNotifications || { marketing: true, bids: true, messages: true, invoices: true },
-          emailNotifications: data.emailNotifications || { marketing: true, bids: true, messages: true, invoices: true },
+          email_notifications: data.emailNotifications || { marketing: true, outbid: true, endingSoon: true, won: true, paymentReminder: true, bids: true, messages: true, invoices: true },
+          emailNotifications: data.emailNotifications || { marketing: true, outbid: true, endingSoon: true, won: true, paymentReminder: true, bids: true, messages: true, invoices: true },
           address: (userData as any)?.user_type === 'individual' || (!data.companyName && !data.companyStreet)
             ? `${data.street || ''}, ${data.postalCode || ''} ${data.city || ''}`.trim().replace(/^,|,$/g, '').trim()
             : `${data.companyStreet || ''}, ${data.companyPostalCode || ''} ${data.companyCity || ''}`.trim().replace(/^,|,$/g, '').trim(),
@@ -2301,6 +2301,7 @@ const MainApp: React.FC = () => {
           t={t}
           language={language}
           user={userData}
+          auctions={auctions}
           onSave={handleSaveSettings}
           onVerify={() => setActiveView("verification")}
           onStripeVerified={handleStripeVerified}
