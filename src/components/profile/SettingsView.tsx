@@ -1,5 +1,5 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
-import { User, Camera, CheckCircle2, AlertCircle, Shield, CreditCard, Building, MapPin, Key, Bell } from 'lucide-react';
+import { User, Camera, CheckCircle2, AlertCircle, Shield, CreditCard, Building, MapPin, Key, Bell, X } from 'lucide-react';
 import { toast } from 'sonner';
 import imageCompression from 'browser-image-compression';
 import { StripeConnectOnboarding } from "@/src/components/profile/StripeConnectOnboarding";
@@ -65,11 +65,14 @@ export const SettingsView: React.FC<{
 }) => {
   const [localActiveTab, setLocalActiveTab] = useState<'profile' | 'personal' | 'stripe' | 'notifications'>('profile');
   const [isWithdrawing, setIsWithdrawing] = useState(false);
+  const [withdrawModalOpen, setWithdrawModalOpen] = useState(false);
+  const [withdrawAmount, setWithdrawAmount] = useState<number | ''>('');
   const activeTab = propActiveTab !== undefined ? propActiveTab : localActiveTab;
   const setActiveTab = propSetActiveTab !== undefined ? propSetActiveTab : setLocalActiveTab;
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [stripeStatusChecked, setStripeStatusChecked] = useState(false);
+  const isPasswordUser = auth.currentUser?.providerData?.some(p => p.providerId === 'password');
 
   useEffect(() => {
      if (user?.id && !stripeStatusChecked && activeTab === 'stripe') {
@@ -356,9 +359,6 @@ export const SettingsView: React.FC<{
                   </div>
                   {userType === 'individual' && auctions && (
                     <div className="mt-4 pt-4 border-t border-slate-200">
-                      <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">
-                        Letni pregled prodaje (DAC7)
-                      </h4>
                       {(() => {
                         const currentYear = new Date().getFullYear();
                         const firstDayOfYear = new Date(currentYear, 0, 1).getTime();
@@ -378,7 +378,6 @@ export const SettingsView: React.FC<{
                                     <span>Skupna vrednost prodanih predmetov:</span>
                                     <span className={annualVolume >= 2000 ? "text-red-500 font-black" : "font-black text-[#0A1128]"}>{annualVolume.toFixed(2)} € / 2.000 €</span>
                                 </div>
-                                <p className="text-[9px] text-slate-400 mt-1 leading-tight font-normal">Po preseženih limitih (DAC7) vas bomo morali poročati FURS-u.</p>
                             </div>
                         );
                       })()}
@@ -395,7 +394,13 @@ export const SettingsView: React.FC<{
                       </div>
                       <div>
                         <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{t('email')}</label>
-                        <input type="email" value={formData.email} disabled className="w-full bg-slate-100 border border-slate-200 rounded-xl px-4 py-3 font-bold text-slate-500 outline-none cursor-not-allowed" />
+                        <input 
+                          type="email" 
+                          value={formData.email} 
+                          disabled={!isPasswordUser}
+                          onChange={e => isPasswordUser && setFormData({...formData, email: e.target.value})}
+                          className={`w-full border border-slate-200 rounded-xl px-4 py-3 font-bold outline-none transition-colors ${!isPasswordUser ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-slate-50 focus:border-[#FEBA4F]'}`} 
+                        />
                       </div>
                     </div>
                 </div>
@@ -511,6 +516,87 @@ export const SettingsView: React.FC<{
 
             {activeTab === 'stripe' && (
               <div className="animate-in fade-in slide-in-from-right-4">
+                {withdrawModalOpen && (
+                  <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#0A1128]/60 backdrop-blur-sm">
+                    <div className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+                      <div className="flex justify-between items-center mb-6">
+                        <h3 className="text-xl font-black uppercase tracking-tighter text-[#0A1128]">Zahtevaj izplačilo</h3>
+                        <button onClick={() => setWithdrawModalOpen(false)} className="text-slate-400 hover:text-[#0A1128] transition-colors">
+                          <X size={24} />
+                        </button>
+                      </div>
+                      <p className="text-sm font-bold text-slate-500 mb-6">
+                        Vnesite znesek za izplačilo. Na voljo imate €{((user?.available_cents !== undefined ? user.available_cents / 100 : Number(user?.wallet_balance)) || 0).toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.
+                      </p>
+                      
+                      <div className="mb-6 relative">
+                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">€</span>
+                        <input 
+                          type="number" 
+                          value={withdrawAmount}
+                          onChange={(e) => setWithdrawAmount(e.target.value === '' ? '' : Number(e.target.value))}
+                          max={(user?.available_cents !== undefined ? user.available_cents / 100 : Number(user?.wallet_balance || 0))}
+                          min={1}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-2xl pl-10 pr-4 py-4 font-black text-lg outline-none focus:border-[#FEBA4F]" 
+                        />
+                      </div>
+
+                      <div className="flex gap-4 mb-8">
+                        <button 
+                          type="button"
+                          onClick={() => setWithdrawAmount(Number(((user?.available_cents !== undefined ? user.available_cents / 100 : Number(user?.wallet_balance || 0)) * 0.5).toFixed(2)))} 
+                          className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-[#0A1128] rounded-xl font-black uppercase tracking-widest text-xs transition-colors"
+                        >
+                          50% zneska
+                        </button>
+                        <button 
+                          type="button"
+                          onClick={() => setWithdrawAmount(Number((user?.available_cents !== undefined ? user.available_cents / 100 : Number(user?.wallet_balance || 0)).toFixed(2)))} 
+                          className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-[#0A1128] rounded-xl font-black uppercase tracking-widest text-xs transition-colors"
+                        >
+                          100% zneska
+                        </button>
+                      </div>
+
+                      <button 
+                        disabled={isWithdrawing || withdrawAmount === '' || Number(withdrawAmount) <= 0 || Number(withdrawAmount) > (user?.available_cents !== undefined ? user.available_cents / 100 : Number(user?.wallet_balance || 0))}
+                        onClick={async () => {
+                          setIsWithdrawing(true);
+                          try {
+                            const token = await auth.currentUser?.getIdToken();
+                            const res = await requestPayoutAction({
+                              user_id: user?.id,
+                              amount: Number(withdrawAmount),
+                            }, token);
+                            if (!res.success) {
+                              throw new Error(res.error || "Napaka pri izplačilu");
+                            }
+                            toast.success(t('payoutRequestSuccess') || "Zahtevek za izplačilo je bil uspešno izveden.");
+                            setWithdrawModalOpen(false);
+                            if (onRefreshUser) {
+                              await onRefreshUser();
+                            } else if (onStripeVerified) {
+                              onStripeVerified();
+                            }
+                          } catch (err: any) {
+                            console.error("Payout error:", err);
+                            toast.error(err.message || "Napaka pri izplačilu.");
+                          } finally {
+                            setIsWithdrawing(false);
+                          }
+                        }}
+                        className="w-full bg-[#FEBA4F] text-[#0A1128] py-4 rounded-2xl font-black uppercase tracking-widest text-sm transition-all hover:bg-[#0A1128] hover:text-white disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2"
+                      >
+                        {isWithdrawing ? (
+                          <>
+                            <div className="w-4 h-4 border-2 border-[#0A1128]/30 border-t-current rounded-full animate-spin" />
+                            <span>{t('loading') || 'Nalaganje...'}</span>
+                          </>
+                        ) : 'Potrdi izplačilo'}
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <div className="mb-6">
                     <h3 className="text-xl font-black uppercase tracking-tighter text-[#0A1128] mb-2 flex items-center gap-2">
                         <CreditCard size={20} className="text-[#FEBA4F]"/> {t('walletFunds')}
@@ -534,7 +620,7 @@ export const SettingsView: React.FC<{
                         <button 
                           type="button"
                           disabled={isWithdrawing}
-                          onClick={async () => {
+                          onClick={() => {
                             const balance = user?.available_cents !== undefined ? user.available_cents / 100 : Number(user?.wallet_balance || 0);
                             if (balance <= 0) {
                               toast.error(t('insufficientFunds') || "Ni zadostnih sredstev za izplačilo.");
@@ -544,28 +630,8 @@ export const SettingsView: React.FC<{
                               toast.error(t('connectStripeForPayout') || "Najprej povežite Stripe račun za prejem izplačil.");
                               return;
                             }
-                            setIsWithdrawing(true);
-                            try {
-                              const token = await auth.currentUser?.getIdToken();
-                              const res = await requestPayoutAction({
-                                user_id: user?.id,
-                                amount: balance,
-                              }, token);
-                              if (!res.success) {
-                                throw new Error(res.error || "Napaka pri izplačilu");
-                              }
-                              toast.success(t('payoutRequestSuccess') || "Zahtevek za izplačilo je bil uspešno izveden.");
-                              if (onRefreshUser) {
-                                await onRefreshUser();
-                              } else if (onStripeVerified) {
-                                onStripeVerified();
-                              }
-                            } catch (err: any) {
-                              console.error("Payout error:", err);
-                              toast.error(err.message || "Napaka pri izplačilu.");
-                            } finally {
-                              setIsWithdrawing(false);
-                            }
+                            setWithdrawAmount(balance);
+                            setWithdrawModalOpen(true);
                           }}
                           className={`bg-[#FEBA4F] text-[#0A1128] px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm transition-all shadow-xl flex items-center gap-2 ${isWithdrawing ? 'opacity-70 cursor-not-allowed' : 'hover:bg-white'}`}
                         >
@@ -608,84 +674,98 @@ export const SettingsView: React.FC<{
                 </div>
                 
                 <div className="space-y-6">
-                    <label className="flex items-center justify-between p-6 bg-slate-50 rounded-2xl border border-slate-100 hover:border-[#FEBA4F]/30 transition-colors cursor-pointer">
+                    
+                    <div className="flex items-center justify-between p-6 bg-slate-50 rounded-2xl border border-slate-100 hover:border-[#FEBA4F]/30 transition-colors">
                         <div>
                             <span className="block font-black text-[#0A1128] uppercase tracking-widest text-sm mb-1">Ponudbe na mojih dražbah</span>
                             <span className="block text-slate-500 text-sm">Prejmite e-pošto, ko nekdo odda ponudbo na vaši dražbi.</span>
                         </div>
-                        <input 
-                            type="checkbox"
-                            className="w-6 h-6 rounded border-slate-300 text-[#FEBA4F] focus:ring-[#FEBA4F]"
-                            checked={formData.emailNotifications?.bids !== false}
-                            onChange={(e) => {
+                        <button
+                            type="button"
+                            role="switch"
+                            aria-checked={formData.emailNotifications?.bids !== false}
+                            onClick={() => {
                                 setFormData(prev => ({
                                     ...prev,
                                     emailNotifications: {
                                         ...prev.emailNotifications,
-                                        bids: e.target.checked
+                                        bids: !(prev.emailNotifications?.bids !== false)
                                     }
                                 }));
                                 isFormDirtyRef.current = true;
                             }}
-                        />
-                    </label>
+                            className={`relative inline-flex h-8 w-14 items-center rounded-full transition-colors duration-300 focus:outline-none ${formData.emailNotifications?.bids !== false ? 'bg-[#FEBA4F]' : 'bg-slate-300'}`}
+                        >
+                            <span className={`inline-block h-6 w-6 transform rounded-full bg-white transition-transform duration-300 shadow-sm ${formData.emailNotifications?.bids !== false ? 'translate-x-7' : 'translate-x-1'}`} />
+                        </button>
+                    </div>
 
-                    <label className="flex items-center justify-between p-6 bg-slate-50 rounded-2xl border border-slate-100 hover:border-[#FEBA4F]/30 transition-colors cursor-pointer">
+                    <div className="flex items-center justify-between p-6 bg-slate-50 rounded-2xl border border-slate-100 hover:border-[#FEBA4F]/30 transition-colors">
                         <div>
                             <span className="block font-black text-[#0A1128] uppercase tracking-widest text-sm mb-1">Nova sporočila</span>
                             <span className="block text-slate-500 text-sm">Prejmite e-pošto, ko vam uporabnik pošlje sporočilo.</span>
                         </div>
-                        <input 
-                            type="checkbox"
-                            className="w-6 h-6 rounded border-slate-300 text-[#FEBA4F] focus:ring-[#FEBA4F]"
-                            checked={formData.emailNotifications?.messages !== false}
-                            onChange={(e) => {
+                        <button
+                            type="button"
+                            role="switch"
+                            aria-checked={formData.emailNotifications?.messages !== false}
+                            onClick={() => {
                                 setFormData(prev => ({
                                     ...prev,
                                     emailNotifications: {
                                         ...prev.emailNotifications,
-                                        messages: e.target.checked
+                                        messages: !(prev.emailNotifications?.messages !== false)
                                     }
                                 }));
                                 isFormDirtyRef.current = true;
                             }}
-                        />
-                    </label>
+                            className={`relative inline-flex h-8 w-14 items-center rounded-full transition-colors duration-300 focus:outline-none ${formData.emailNotifications?.messages !== false ? 'bg-[#FEBA4F]' : 'bg-slate-300'}`}
+                        >
+                            <span className={`inline-block h-6 w-6 transform rounded-full bg-white transition-transform duration-300 shadow-sm ${formData.emailNotifications?.messages !== false ? 'translate-x-7' : 'translate-x-1'}`} />
+                        </button>
+                    </div>
 
-                    <label className="flex items-center justify-between p-6 bg-slate-50 rounded-2xl border border-slate-100 hover:border-[#FEBA4F]/30 transition-colors cursor-pointer">
+                    <div className="flex items-center justify-between p-6 bg-slate-50 rounded-2xl border border-slate-100 hover:border-[#FEBA4F]/30 transition-colors">
                         <div>
                             <span className="block font-black text-[#0A1128] uppercase tracking-widest text-sm mb-1">Marketing in novice</span>
                             <span className="block text-slate-500 text-sm">Prejmite e-pošto o novostih in akcijah.</span>
                         </div>
-                        <input 
-                            type="checkbox"
-                            className="w-6 h-6 rounded border-slate-300 text-[#FEBA4F] focus:ring-[#FEBA4F]"
-                            checked={formData.emailNotifications?.marketing !== false}
-                            onChange={(e) => {
+                        <button
+                            type="button"
+                            role="switch"
+                            aria-checked={formData.emailNotifications?.marketing !== false}
+                            onClick={() => {
                                 setFormData(prev => ({
                                     ...prev,
                                     emailNotifications: {
                                         ...prev.emailNotifications,
-                                        marketing: e.target.checked
+                                        marketing: !(prev.emailNotifications?.marketing !== false)
                                     }
                                 }));
                                 isFormDirtyRef.current = true;
                             }}
-                        />
-                    </label>
+                            className={`relative inline-flex h-8 w-14 items-center rounded-full transition-colors duration-300 focus:outline-none ${formData.emailNotifications?.marketing !== false ? 'bg-[#FEBA4F]' : 'bg-slate-300'}`}
+                        >
+                            <span className={`inline-block h-6 w-6 transform rounded-full bg-white transition-transform duration-300 shadow-sm ${formData.emailNotifications?.marketing !== false ? 'translate-x-7' : 'translate-x-1'}`} />
+                        </button>
+                    </div>
 
-                    <label className="flex items-center justify-between p-6 bg-slate-100 rounded-2xl border border-slate-200 opacity-80 cursor-not-allowed">
+                    <div className="flex items-center justify-between p-6 bg-slate-100 rounded-2xl border border-slate-200 opacity-80 cursor-not-allowed">
                         <div>
                             <span className="block font-black text-[#0A1128] uppercase tracking-widest text-sm mb-1">Računi (Obvezno)</span>
                             <span className="block text-slate-500 text-sm">Prejmite e-pošto z računom ob nakupu paketa ali uspešni prodaji. Tega obvestila ni mogoče izklopiti.</span>
                         </div>
-                        <input 
-                            type="checkbox"
-                            className="w-6 h-6 rounded border-slate-300 text-slate-400 focus:ring-slate-400"
-                            checked={true}
-                            disabled
-                        />
-                    </label>
+                        <button
+                            type="button"
+                            role="switch"
+                            aria-checked={true}
+                            disabled={true}
+                            className="relative inline-flex h-8 w-14 items-center rounded-full transition-colors duration-300 focus:outline-none bg-[#FEBA4F] opacity-50 cursor-not-allowed"
+                        >
+                            <span className="inline-block h-6 w-6 transform rounded-full bg-white transition-transform duration-300 shadow-sm translate-x-7" />
+                        </button>
+                    </div>
+
 
                     <div className="flex justify-end mt-8">
                         <button type="submit" disabled={isSaving} className="bg-[#FEBA4F] text-[#0A1128] px-12 py-4 rounded-[2rem] font-black uppercase tracking-widest text-sm hover:bg-[#0A1128] hover:text-white transition-all shadow-xl flex items-center justify-center min-w-[250px]">
