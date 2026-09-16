@@ -1142,12 +1142,7 @@ const MainApp: React.FC = () => {
 
   // Private stream: Users
   useEffect(() => {
-    // Fire cron check on mount and every 5 minutes
-    checkAuctionsCronAction().catch(console.error);
-    const cronInterval = setInterval(() => {
-       checkAuctionsCronAction().catch(console.error);
-    }, 5 * 60 * 1000);
-    return () => clearInterval(cronInterval);
+    // OPTIMIZACIJA: Odstranjen client-side cron. Vercel cron bo samodejno klical endpoint 1-krat na dan.
   }, []);
   
   useEffect(() => {
@@ -1207,44 +1202,9 @@ const MainApp: React.FC = () => {
   }, [usersMap]);
 
   const fetchAuctions = async () => {
-    try {
-      const snap = await getDocs(collection(db, 'auctions'));
-      const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      const fetchedData: AuctionItem[] = data.map((d: any) => {
-        const seller = usersMap.get(d.seller_id) || {};
-        let sellerName = "";
-        if (seller.user_type === "business" && seller.company_name) {
-          sellerName = seller.company_name;
-        } else if (seller.username) {
-          sellerName = seller.username;
-        } else if (seller.first_name && seller.last_name) {
-          sellerName = `${seller.first_name} ${seller.last_name}`;
-        }
-
-        const isItemPaid = d.payment_status === "paid" || d.post_auction_status === "paid";
-
-        return {
-          ...d,
-          endTime: new Date(d.end_time || d.endTime || Date.now()),
-          createdAt: d.created_at || d.createdAt || new Date(0).toISOString(),
-          currentBid: d.current_price || d.currentBid,
-          hiddenMaxBid: d.hidden_max_bid || d.hiddenMaxBid,
-          bidCount: d.bid_count || d.bidCount,
-          winnerId: d.winner_id || d.winnerId,
-          winner_id: d.winner_id || d.winnerId,
-          sellerId: d.seller_id || d.sellerId,
-          payment_status: isItemPaid ? "paid" : (d.payment_status || "unpaid"),
-          post_auction_status: d.post_auction_status,
-          paid_at: d.paid_at,
-          sellerName: d.sellerName || sellerName,
-          delivery_method: d.delivery_method,
-          buyer_received: d.buyer_received,
-        };
-      });
-      setAuctions(fetchedData);
-    } catch (e) {
-      console.warn("Manual fetch auctions warning:", e);
-    }
+    // OPTIMIZATION: Removed redundant manual getDocs calls. 
+    // The active onSnapshot listener (unsubAuctions) already receives all real-time updates instantly.
+    // This dramatically reduces Firebase reads and prevents UI blocking/lag.
   };
 
   const refreshUserData = async (uid?: string) => {

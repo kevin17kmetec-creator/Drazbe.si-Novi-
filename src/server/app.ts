@@ -729,6 +729,11 @@ app.post("/api/place-bid", async (req, res) => {
         throw new Error("Dražba ne obstaja.");
       }
       const data = getDocSnapshotData(auctionDoc) || {};
+      
+      // VARNOSTNI PREGLED (SECURITY PATCH): Preprečimo lastniku dražbe, da bi licitiral na lasten predmet (Shill bidding)
+      if (data.seller_id === user_id || data.sellerId === user_id) {
+        throw new Error("Ne morete oddati ponudbe na lastno dražbo.");
+      }
       const currentPrice = Number(data.current_price ?? data.currentBid ?? 0);
       const prevWinnerId = data.winner_id || data.winnerId;
       const isCurrentWinner = prevWinnerId === user_id;
@@ -1360,7 +1365,8 @@ app.post("/api/stripe-account-session", async (req, res) => {
     const { user_id } = req.body;
     const stripe = getStripe();
 
-    const userDoc = await safeGetDoc(adminDb.collection('users').doc(user_id));
+    
+const userDoc = await safeGetDoc(adminDb.collection('users').doc(user_id));
     const user = userDoc.data();
     let accountId = user?.stripe_account_id;
 
@@ -2512,6 +2518,14 @@ app.post("/api/auctions/create", async (req, res) => {
       if (itemData.category) itemData.category = sanitizeString(itemData.category);
       if (itemData.region) itemData.region = sanitizeString(itemData.region);
       if (itemData.location) itemData.location = sanitizeString(itemData.location);
+      
+      // VARNOSTNI PREGLED (SECURITY PATCH): Preprečimo zlonameren vnos občutljivih polj
+      delete itemData.winner_id;
+      delete itemData.winnerId;
+      delete itemData.top_bids;
+      delete itemData.bidding_history;
+      delete itemData.payment_status;
+      delete itemData.post_auction_status;
     }
 
     const userDoc = await safeGetDoc(adminDb.collection('users').doc(user_id));
