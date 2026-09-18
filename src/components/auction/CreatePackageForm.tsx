@@ -6,7 +6,7 @@ import { db, auth } from "@/src/lib/firebase";
 import { doc, setDoc, getDoc, deleteDoc, updateDoc } from "firebase/firestore";
 import { getUserAuctionCycle } from "../../lib/utils";
 
-export const CreatePackageForm: React.FC<any> = ({ onBack, t, language, onPublishPackage, onPublishItemDirectly, isLoggedIn, userData, auctions, onNavigateToSettings }) => {
+export const CreatePackageForm: React.FC<any> = ({ initialData,  onBack, t, language, onPublishPackage, onPublishItemDirectly, isLoggedIn, userData, auctions, onNavigateToSettings }) => {
   const [packageId, setPackageId] = useState(() => crypto.randomUUID());
   const [packageTitle, setPackageTitle] = useState("");
   const [showTitleError, setShowTitleError] = useState(false);

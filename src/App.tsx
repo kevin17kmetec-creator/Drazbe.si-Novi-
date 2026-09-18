@@ -576,6 +576,8 @@ const MainApp: React.FC = () => {
     if (activeView !== "createAuction") {
       setCreateMode("choice");
     } else {
+      // Do not auto-switch to package draft if user is republishing
+      if (republishData) return;
       const uid = userData?.id || 'guest';
       const stored = localStorage.getItem(`drazbe_package_draft_${uid}`) || localStorage.getItem('drazbe_package_draft_latest');
       if (stored) {
@@ -588,7 +590,7 @@ const MainApp: React.FC = () => {
         } catch (e) {}
       }
     }
-  }, [activeView, userData?.id]);
+  }, [activeView, userData?.id, republishData]);
 
   // URL and Path Preservation Hook
   useEffect(() => {
@@ -1186,6 +1188,7 @@ const MainApp: React.FC = () => {
           post_auction_status: d.post_auction_status,
           paid_at: d.paid_at,
           sellerName: d.sellerName || sellerName,
+          seller: { id: d.seller_id || d.sellerId, name: { SLO: sellerName }, photoURL: seller.photoURL || seller.photoUrl || seller.photo_url || null, created_at: seller.created_at || seller.createdAt, sold_count: seller.sold_count, unpaid_penalties: seller.unpaid_penalties },
           delivery_method: d.delivery_method,
           buyer_received: d.buyer_received,
         };
@@ -2030,7 +2033,8 @@ const MainApp: React.FC = () => {
         } else {
           content = (
             <CreatePackageForm
-              onBack={() => setCreateMode("choice")}
+              initialData={republishData}
+              onBack={() => { setCreateMode("choice"); setRepublishData(null); }}
               t={t}
               language={language}
               onPublishPackage={handlePublishPackage}
@@ -2094,6 +2098,13 @@ const MainApp: React.FC = () => {
           <AuctionView
             item={auctions.find(a => a.id === selectedItem.id) || selectedItem}
             t={t}
+            onSellerClick={(sellerId) => {
+              const itemToUse = auctions.find(a => a.id === selectedItem.id) || selectedItem;
+              if ((itemToUse as any).seller) {
+                 setSelectedSeller((itemToUse as any).seller);
+                 setActiveView("sellerProfile");
+              }
+            }}
             language={language}
             isVerified={isVerified}
             isWatched={watchedIds.includes(selectedItem.id)}
@@ -2940,7 +2951,7 @@ const MainApp: React.FC = () => {
       // Filter: seller is current user, auction has ended AND (no winner OR unpaid/unsold status)
       // Keep only those whose status is not 'archived'/'deleted'
       const nowMs = Date.now();
-      const currentUserUnsold = auctions.filter(
+      const currentUserUnsoldRaw = auctions.filter(
         (a) =>
           (a.sellerId === userData.id ||
             (a as any).seller_id === userData.id) &&
@@ -2953,6 +2964,31 @@ const MainApp: React.FC = () => {
         const oneMonthMs = 30 * 24 * 60 * 60 * 1000;
         return (nowMs - endMs) <= oneMonthMs;
       });
+
+      // Združevanje v pakete
+      const currentUserUnsold: any[] = [];
+      const packageMap = new Map<string, any>();
+      
+      currentUserUnsoldRaw.forEach(item => {
+        const pId = item.package_id || (item as any).packageId;
+        if (pId) {
+          if (!packageMap.has(pId)) {
+            packageMap.set(pId, { type: 'package', package_id: pId, items: [] });
+          }
+          packageMap.get(pId).items.push(item);
+        } else {
+          currentUserUnsold.push({ type: 'single', item });
+        }
+      });
+      
+      packageMap.forEach(pkg => {
+        if (pkg.items.length >= 2) {
+          currentUserUnsold.push(pkg);
+        } else if (pkg.items.length === 1) {
+          currentUserUnsold.push({ type: 'single', item: pkg.items[0] });
+        }
+      });
+
 
       content = (
         <div className="max-w-[1600px] mx-auto py-16 px-6 animate-in">
@@ -2986,7 +3022,77 @@ const MainApp: React.FC = () => {
                   </p>
                 </div>
               ) : (
-                currentUserUnsold.map((soldItem) => {
+                currentUserUnsold.map((entry: any) => {
+                  if (entry.type === 'package') {
+                    const pkg = entry;
+                    const items = pkg.items;
+                    const firstItem = items[0];
+                    const endMs = new Date(firstItem.endTime || firstItem.end_time).getTime();
+                    const expireMs = endMs + 30 * 24 * 60 * 60 * 1000;
+                    const daysLeft = Math.max(0, Math.ceil((expireMs - nowMs) / (24 * 60 * 60 * 1000)));
+
+                    return (
+                      <div
+                        key={pkg.package_id}
+                        className="flex flex-col md:flex-row items-center gap-8 p-6 rounded-[2.5rem] border-2 border-slate-100 hover:border-blue-200 bg-blue-50/30 transition-colors group relative"
+                      >
+                        <button 
+                          onClick={async () => {
+                            if (window.confirm("Ste prepričani, da želite dokončno izbrisati te dražbe? Te akcije ni mogoče razveljaviti.")) {
+                              try {
+                                for (const item of items) {
+                                  await deleteDoc(doc(db, 'auctions', item.id));
+                                }
+                                toast.success("Dražbe uspešno in trajno izbrisane.");
+                                fetchAuctions();
+                              } catch (e: any) {
+                                toast.error("Napaka pri brisanju: " + e.message);
+                              }
+                            }
+                          }}
+                          className="absolute top-4 right-4 p-2 text-slate-300 hover:text-red-500 transition-colors"
+                          title="Dokončno izbriši dražbe"
+                        >
+                          <Trash2 size={24} />
+                        </button>
+                        <div className="relative w-32 h-32 cursor-pointer group-hover:scale-105 transition-transform" onClick={() => {}}>
+                           <SignedImg src={firstItem.images[0]} className="w-full h-full rounded-3xl object-cover shadow-md" alt="Package preview" />
+                           <div className="absolute -bottom-3 -right-3 bg-blue-600 text-white w-10 h-10 rounded-full flex items-center justify-center font-black border-4 border-white">
+                             {items.length}
+                           </div>
+                        </div>
+                        <div className="flex-1 text-center md:text-left">
+                          <div className="inline-block px-3 py-1 bg-blue-100 text-blue-700 text-[10px] font-black uppercase tracking-widest rounded-full mb-2">Neprodan paket</div>
+                          <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-500 mb-2">
+                            {items.length} neprodanih predmetov iz paketa
+                          </h3>
+                          <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 text-sm font-bold text-slate-400">
+                            <span className="flex items-center gap-1.5">
+                              <Calendar size={16} /> Končano: {new Date(firstItem.endTime).toLocaleDateString("sl-SI")}
+                            </span>
+                            <span className={`flex items-center gap-1.5 ${daysLeft <= 3 ? 'text-red-500' : 'text-[#FEBA4F]'}`}>
+                              <Clock size={16} /> Poteče čez: {daysLeft} dni
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex flex-col gap-3 w-full md:w-auto mt-4 md:mt-0">
+                          <button
+                            onClick={() => {
+                              setRepublishData({ type: 'package', items: items });
+                              setCreateMode('package');
+                              setActiveView("createAuction");
+                              window.scrollTo({ top: 0, behavior: "instant" });
+                            }}
+                            className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl flex items-center justify-center gap-2"
+                          >
+                            <Upload size={16} /> Uredi in objavi paket
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  const soldItem = entry.item;
                   const endMs = new Date(soldItem.endTime || (soldItem as any).end_time).getTime();
                   const expireMs = endMs + 30 * 24 * 60 * 60 * 1000;
                   const daysLeft = Math.max(0, Math.ceil((expireMs - nowMs) / (24 * 60 * 60 * 1000)));
@@ -3013,7 +3119,6 @@ const MainApp: React.FC = () => {
                       >
                         <Trash2 size={24} />
                       </button>
-
                       <SignedImg
                         src={soldItem.images[0]}
                         alt="Item"
@@ -3024,7 +3129,6 @@ const MainApp: React.FC = () => {
                           window.scrollTo({ top: 0, behavior: "instant" });
                         }}
                       />
-
                       <div className="flex-1 text-center md:text-left">
                         <h3
                           className="text-2xl font-black uppercase tracking-tighter text-slate-500 mb-2 cursor-pointer hover:text-[#0A1128] transition-colors"
@@ -3050,24 +3154,24 @@ const MainApp: React.FC = () => {
                           </span>
                         </div>
                       </div>
-
                       <div className="flex flex-col gap-3 w-full md:w-auto mt-4 md:mt-0">
                         <button
-    onClick={() => setQuickRepublishItem(soldItem)}
-    className="bg-[#FEBA4F] text-[#0A1128] px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#0A1128] hover:text-[#FEBA4F] transition-all shadow-xl flex items-center justify-center gap-2"
-  >
-    <Upload size={16} /> Hitra objava
-  </button>
-  <button
-    onClick={() => {
-      setRepublishData(soldItem);
-      setActiveView("createAuction");
-      window.scrollTo({ top: 0, behavior: "instant" });
-    }}
-    className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl flex items-center justify-center gap-2"
-  >
-    <Upload size={16} /> Uredi in objavi
-  </button>
+                          onClick={() => setQuickRepublishItem(soldItem)}
+                          className="bg-[#FEBA4F] text-[#0A1128] px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#0A1128] hover:text-[#FEBA4F] transition-all shadow-xl flex items-center justify-center gap-2"
+                        >
+                          <Upload size={16} /> Hitra objava
+                        </button>
+                        <button
+                          onClick={() => {
+                            setRepublishData(soldItem);
+                            setCreateMode('single');
+                            setActiveView("createAuction");
+                            window.scrollTo({ top: 0, behavior: "instant" });
+                          }}
+                          className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl flex items-center justify-center gap-2"
+                        >
+                          <Upload size={16} /> Uredi in objavi
+                        </button>
                       </div>
                     </div>
                   );

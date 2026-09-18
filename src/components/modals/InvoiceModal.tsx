@@ -30,24 +30,55 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
     if (!invoiceRef.current) return;
     setIsGenerating(true);
     try {
-      const canvas = await html2canvas(invoiceRef.current, {
-        scale: 2,
-        useCORS: true,
-        logging: false,
-        ignoreElements: (el) => el.tagName === 'IMG' // Prevent CORS issues from images
-      });
-      const imgData = canvas.toDataURL('image/jpeg', 1.0);
-      const pdf = new jsPDF({
-        orientation: 'portrait',
-        unit: 'mm',
-        format: 'a4'
-      });
-      
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
-      
-      pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
-      pdf.save(`Racun-${auction.id.substring(0, 8).toUpperCase()}.pdf`);
+      // Instead of html2canvas which fails on some CSS, we use a hidden iframe or print window to generate a clean vector PDF
+      const contentHtml = invoiceRef.current.innerHTML;
+      const printWindow = window.open('', '_blank');
+      if (printWindow) {
+        printWindow.document.write(`
+          <html>
+            <head>
+              <title>Račun</title>
+              <style>
+                @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;900&display=swap');
+                body {
+                  font-family: 'Plus Jakarta Sans', sans-serif;
+                  padding: 20px;
+                  color: #0A1128;
+                }
+                * {
+                  box-sizing: border-box;
+                }
+                table { width: 100%; border-collapse: collapse; }
+                th, td { padding: 12px; text-align: left; }
+                .text-right { text-align: right; }
+                .text-center { text-align: center; }
+                .flex { display: flex; }
+                .justify-between { justify-content: space-between; }
+                .mb-10 { margin-bottom: 40px; }
+                .mb-12 { margin-bottom: 48px; }
+                .p-12 { padding: 48px; }
+                .font-black { font-weight: 900; }
+                .font-bold { font-weight: 700; }
+                .text-sm { font-size: 14px; }
+                .text-xs { font-size: 12px; }
+                .uppercase { text-transform: uppercase; }
+              </style>
+            </head>
+            <body>
+              ${contentHtml}
+              <script>
+                window.onload = () => {
+                  setTimeout(() => {
+                    window.print();
+                    window.close();
+                  }, 500);
+                };
+              </script>
+            </body>
+          </html>
+        `);
+        printWindow.document.close();
+      }
     } catch (err) {
       console.error('Failed to generate PDF', err);
     } finally {

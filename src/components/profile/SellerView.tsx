@@ -74,7 +74,9 @@ const SellerView: React.FC<SellerViewProps> = ({
           {/* Profile Picture / Icon */}
           <div className="flex-shrink-0">
             <div className="w-32 h-32 lg:w-48 lg:h-48 rounded-[3rem] bg-slate-50 border-4 border-white shadow-xl flex items-center justify-center overflow-hidden relative group">
-              {seller.type === 'business' ? (
+              {(seller as any).photoURL ? (
+                <img src={(seller as any).photoURL} alt="Profile" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+              ) : seller.type === 'business' ? (
                 <Building2 size={64} className="text-slate-300 group-hover:scale-110 transition-transform" />
               ) : (
                 <User size={64} className="text-slate-300 group-hover:scale-110 transition-transform" />
@@ -98,6 +100,13 @@ const SellerView: React.FC<SellerViewProps> = ({
 
             <div className="flex flex-wrap items-center gap-6 text-slate-400 font-bold mb-8">
               <span className="flex items-center gap-2"><MapPin size={18} className="text-[#FEBA4F]" /> {seller?.location?.[language] || seller?.location?.['SLO'] || 'Neznano'}</span>
+              {(seller as any).created_at && (
+                <span className="flex items-center gap-2"><Calendar size={18} className="text-[#FEBA4F]" /> Član od: {new Date((seller as any).created_at).toLocaleDateString('sl-SI')}</span>
+              )}
+              <span className="flex items-center gap-2 text-green-500"><Award size={18} /> Prodanih dražb: {(seller as any).sold_count || pastAuctions.length || 0}</span>
+              {(seller as any).unpaid_penalties > 0 && (
+                <span className="flex items-center gap-2 text-red-500"><AlertCircle size={18} /> Neplačane dražbe (Penali): {(seller as any).unpaid_penalties} / 3</span>
+              )}
               <span className="flex items-center gap-2"><Calendar size={18} className="text-[#FEBA4F]" /> {t('memberSince')} {seller.memberSince}</span>
               <div className="flex items-center gap-1.5 bg-slate-50 px-3 py-1 rounded-lg">
                 <Star size={16} className="text-[#FEBA4F] fill-[#FEBA4F]" />
