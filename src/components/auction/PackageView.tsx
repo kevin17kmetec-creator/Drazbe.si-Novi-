@@ -40,7 +40,16 @@ export const PackageView: React.FC<PackageViewProps> = ({
   onBack
 }) => {
   const firstItem = items[0];
-  const seller = (firstItem as any)?.seller || (firstItem?.sellerName ? { name: { SLO: firstItem.sellerName, EN: firstItem.sellerName, DE: firstItem.sellerName } } : null);
+  const seller = (firstItem as any)?.seller || {
+    id: firstItem?.sellerId || (firstItem as any)?.seller_id || firstItem?.sellerName || 'seller',
+    name: { 
+      SLO: firstItem?.sellerName || 'Preverjen prodajalec', 
+      EN: firstItem?.sellerName || 'Verified seller', 
+      DE: firstItem?.sellerName || 'Geprüfter Verkäufer' 
+    },
+    company_name: firstItem?.sellerName || 'Preverjen prodajalec',
+    sellerName: firstItem?.sellerName || 'Preverjen prodajalec'
+  };
   const sellerDisplay = firstItem?.sellerName || 'Preverjen prodajalec';
 
   // Calculate package end time

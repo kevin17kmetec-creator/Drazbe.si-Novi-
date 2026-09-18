@@ -27,7 +27,7 @@ import React from 'react';
 import { AuctionEmailTemplate } from '../emails/AuctionEmailTemplate';
 import { AuthEmailTemplate } from '../emails/AuthEmailTemplate';
 import { GoogleGenAI } from "@google/genai";
-import { generateInvoicePDF } from '../lib/pdfGenerator';
+import { generateInvoicePDF, generateCertificatePDF } from '../lib/pdfGenerator';
 import {
   sendEndingSoonNotification,
   sendAuctionWonNotification,
@@ -2095,109 +2095,104 @@ app.post("/api/test/send-email", async (req, res) => {
 app.post("/api/test/generate-pdf", async (req, res) => {
   try {
     const {
-      relationshipType = "individual_individual",
+      relationshipType = "company_individual",
       sellerData = {},
       buyerData = {},
-      itemTitle = "Industrijski CNC obdelovalni center Haas VF-2",
-      itemPrice = 1250,
-      docType = "invoice"
+      itemTitle = "Paket orodja DeWalt (Komplet)",
+      itemPrice = 1200,
+      docType = "invoice",
+      transaction: customTx,
+      buyer: customBuyer,
+      seller: customSeller,
+      auction: customAuction,
+      salesInvoiceNo,
+      commissionInvoiceNo
     } = req.body;
 
-    const mockTx = {
+    const mockTx = customTx || {
       id: `TX-${Date.now().toString().substring(5)}`,
       amount_total: Number(itemPrice),
-      platform_fee: Math.round(Number(itemPrice) * 0.05 * 100) / 100,
-      vat_amount: Math.round(Number(itemPrice) * 0.05 * 0.22 * 100) / 100,
+      platform_fee: Math.round(Number(itemPrice) * 0.10 * 100) / 100,
+      vat_amount: Math.round(Number(itemPrice) * 0.10 * 0.22 * 100) / 100,
+      fee_total: Math.round(Number(itemPrice) * 0.10 * 1.22 * 100) / 100,
       vat_rate: 22,
       is_reverse_charge: relationshipType === 'company_company',
-      status: 'completed'
+      status: 'completed',
+      paid_at: new Date().toISOString()
     };
 
-    const mockAuction = {
-      id: `AUC-${Date.now().toString().substring(6)}`,
+    const mockAuction = customAuction || {
+      id: `AUCT-${Date.now().toString().substring(6)}`,
       title: { SLO: itemTitle, EN: itemTitle },
       currentBid: Number(itemPrice),
       delivery_method: 'pickup'
     };
 
-    let seller: any = { ...sellerData };
-    let buyer: any = { ...buyerData };
+    let seller: any = customSeller ? { ...customSeller } : { ...sellerData };
+    let buyer: any = customBuyer ? { ...customBuyer } : { ...buyerData };
 
-    if (relationshipType === 'individual_individual') {
-      seller = {
-        first_name: sellerData.first_name || 'Marko',
-        last_name: sellerData.last_name || 'Horvat',
-        address: sellerData.address || 'Celjska cesta 42, 3000 Celje',
-        company_status: 'individual',
-        user_type: 'individual'
-      };
-      buyer = {
-        first_name: buyerData.first_name || 'Luka',
-        last_name: buyerData.last_name || 'Kovačič',
-        address: buyerData.address || 'Tržaška cesta 12, 1000 Ljubljana',
-        company_status: 'individual',
-        user_type: 'individual'
-      };
-    } else if (relationshipType === 'company_individual') {
-      seller = {
-        company_name: sellerData.company_name || 'Strojegradnja d.o.o.',
-        tax_id: sellerData.tax_id || 'SI12345678',
-        registration_number: '8876543000',
-        address: sellerData.address || 'Industrijska cona 5, 2000 Maribor',
-        company_status: 'company',
-        user_type: 'business'
-      };
-      buyer = {
-        first_name: buyerData.first_name || 'Ana',
-        last_name: buyerData.last_name || 'Novak',
-        address: buyerData.address || 'Titova cesta 8, 2000 Maribor',
-        company_status: 'individual',
-        user_type: 'individual'
-      };
-    } else if (relationshipType === 'individual_company') {
-      seller = {
-        first_name: sellerData.first_name || 'Janez',
-        last_name: sellerData.last_name || 'Kranjc',
-        address: sellerData.address || 'Cesta v Gorice 14, 1000 Ljubljana',
-        company_status: 'individual',
-        user_type: 'individual'
-      };
-      buyer = {
-        company_name: buyerData.company_name || 'TechTrade d.o.o.',
-        tax_id: buyerData.tax_id || 'SI87654321',
-        registration_number: '9988776000',
-        address: buyerData.address || 'Letališka cesta 33, 1000 Ljubljana',
-        company_status: 'company',
-        user_type: 'business'
-      };
-    } else {
-      seller = {
-        company_name: sellerData.company_name || 'MetalOpus d.o.o.',
-        tax_id: sellerData.tax_id || 'SI98765432',
-        registration_number: '7766554000',
-        address: sellerData.address || 'Obrtna cona 12, 4000 Kranj',
-        company_status: 'company',
-        user_type: 'business'
-      };
-      buyer = {
-        company_name: buyerData.company_name || 'AvtoTech Solutions d.o.o.',
-        tax_id: buyerData.tax_id || 'SI45678901',
-        registration_number: '5544332000',
-        address: buyerData.address || 'Šmartinska cesta 152, 1000 Ljubljana',
-        company_status: 'company',
-        user_type: 'business'
-      };
+    if (!customSeller) {
+      if (relationshipType === 'individual_individual') {
+        seller = {
+          first_name: sellerData.first_name || 'Marko',
+          last_name: sellerData.last_name || 'Horvat',
+          address: sellerData.address || 'Celjska cesta 42, 3000 Celje',
+          company_status: 'individual',
+          user_type: 'individual'
+        };
+      } else if (relationshipType === 'individual_company') {
+        seller = {
+          first_name: sellerData.first_name || 'Janez',
+          last_name: sellerData.last_name || 'Kranjc',
+          address: sellerData.address || 'Cesta v Gorice 14, 1000 Ljubljana',
+          company_status: 'individual',
+          user_type: 'individual'
+        };
+      } else {
+        seller = {
+          company_name: sellerData.company_name || 'AvtoCenter d.o.o.',
+          tax_id: sellerData.tax_id || 'SI 12345678',
+          registration_number: sellerData.registration_number || '8876543000',
+          address: sellerData.address || 'Tržaška cesta 14, 2000 Maribor',
+          company_status: 'company',
+          user_type: 'business'
+        };
+      }
+    }
+
+    if (!customBuyer) {
+      if (relationshipType === 'company_company' || relationshipType === 'individual_company') {
+        buyer = {
+          company_name: buyerData.company_name || 'TechTrade d.o.o.',
+          tax_id: buyerData.tax_id || 'SI 87654321',
+          registration_number: buyerData.registration_number || '9988776000',
+          address: buyerData.address || 'Letališka cesta 33, 1000 Ljubljana',
+          company_status: 'company',
+          user_type: 'business'
+        };
+      } else {
+        buyer = {
+          first_name: buyerData.first_name || 'Marko',
+          last_name: buyerData.last_name || 'Novak',
+          address: buyerData.address || 'Dunajska cesta 105, 1000 Ljubljana',
+          company_status: 'individual',
+          user_type: 'individual'
+        };
+      }
     }
 
     let pdfBuffer: Buffer;
     let filename: string;
 
+    const sInvNo = salesInvoiceNo || `RAČ-${new Date().getFullYear()}-${mockAuction.id.substring(mockAuction.id.length - 5).toUpperCase()}`;
+    const cInvNo = commissionInvoiceNo || `PROV-${new Date().getFullYear()}-${mockTx.id.substring(mockTx.id.length - 5).toUpperCase()}`;
+
     if (docType === 'certificate') {
-      pdfBuffer = Buffer.from('');
+      pdfBuffer = await generateCertificatePDF(mockTx, buyer, seller);
       filename = `Potrdilo_${mockTx.id}.pdf`;
     } else {
-      pdfBuffer = await generateInvoicePDF(mockTx, buyer, seller, mockAuction, 'RAC-TEST-000001', 'PROV-TEST-000001');
-      filename = `Racun_${mockTx.id}.pdf`;
+      pdfBuffer = await generateInvoicePDF(mockTx, buyer, seller, mockAuction, sInvNo, cInvNo);
+      filename = `Racun_${sInvNo}.pdf`;
     }
 
     res.setHeader('Content-Type', 'application/pdf');

@@ -24,9 +24,25 @@ const SellerView: React.FC<SellerViewProps> = ({
   const [newReview, setNewReview] = useState({ rating: 5, comment: '', wouldRecommend: true });
   const [reviews, setReviews] = useState<Review[]>([]);
 
-  const sellerAuctions = useMemo(() => 
-    auctions.filter(a => a.sellerId === seller.id),
-  [seller.id, auctions]);
+  const sellerDisplayName = useMemo(() => {
+    if (!seller) return 'Neznan prodajalec';
+    if (typeof seller.name === 'string') return seller.name;
+    if (typeof seller.name === 'object' && seller.name !== null) {
+      return seller.name[language] || seller.name['SLO'] || (seller as any).company_name || (seller as any).sellerName || 'Neznan prodajalec';
+    }
+    return (seller as any).company_name || (seller as any).sellerName || (seller as any).username || 'Neznan prodajalec';
+  }, [seller, language]);
+
+  const sellerAuctions = useMemo(() => {
+    if (!seller) return [];
+    const sId = seller.id;
+    const sName = sellerDisplayName.toLowerCase().trim();
+    return auctions.filter(a => {
+      const matchId = sId && (a.sellerId === sId || (a as any).seller_id === sId);
+      const matchName = a.sellerName && a.sellerName.toLowerCase().trim() === sName;
+      return matchId || matchName;
+    });
+  }, [seller, sellerDisplayName, auctions]);
 
   const activeAuctions = useMemo(() => 
     sellerAuctions.filter(a => a.status === 'active'),
@@ -91,7 +107,7 @@ const SellerView: React.FC<SellerViewProps> = ({
           <div className="flex-1">
             <div className="flex flex-wrap items-center gap-4 mb-4">
               <h1 className="text-4xl lg:text-5xl font-black uppercase tracking-tighter text-[#0A1128] italic">
-                {seller?.name?.[language] || seller?.name?.['SLO'] || t('unknownSeller') || 'Neznan prodajalec'}
+                {sellerDisplayName}
               </h1>
               <div className="bg-[#FEBA4F]/10 text-[#FEBA4F] px-4 py-1.5 rounded-xl font-black uppercase text-[10px] tracking-widest border border-[#FEBA4F]/20">
                 {seller.type === 'business' ? t('businessSeller') : t('individualSeller')}

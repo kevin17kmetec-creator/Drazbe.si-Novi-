@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Layers, Clock, ChevronRight, Gavel, Sparkles } from 'lucide-react';
-import { AuctionItem } from '../../types';
+import { Layers, Clock, ChevronRight, Gavel, Sparkles, Building2 } from 'lucide-react';
+import { AuctionItem, Seller } from '../../types';
 import { formatSeconds } from "../../lib/utils";
 
 export interface PackageCardProps {
@@ -13,6 +13,7 @@ export interface PackageCardProps {
   isVerified: boolean;
   onSelectPackage: (packageId: string) => void;
   onAuctionClick: (item: AuctionItem) => void;
+  onSellerClick?: (seller: any) => void;
 }
 
 export const PackageCard: React.FC<PackageCardProps> = ({
@@ -24,7 +25,8 @@ export const PackageCard: React.FC<PackageCardProps> = ({
   language,
   isVerified,
   onSelectPackage,
-  onAuctionClick
+  onAuctionClick,
+  onSellerClick
 }) => {
   const [timeLeftStr, setTimeLeftStr] = useState('');
 
@@ -80,9 +82,26 @@ export const PackageCard: React.FC<PackageCardProps> = ({
               {title}
             </h2>
             {sellerName && (
-              <p className="text-xs font-bold text-slate-400 mt-0.5">
-                Prodajalec: <span className="text-[#FEBA4F]">{sellerName}</span>
-              </p>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const firstItem = items[0];
+                  const seller = (firstItem as any)?.seller || {
+                    id: firstItem?.sellerId || (firstItem as any)?.seller_id || sellerName,
+                    name: { SLO: sellerName, EN: sellerName, DE: sellerName },
+                    company_name: sellerName,
+                    sellerName: sellerName
+                  };
+                  onSellerClick?.(seller);
+                }}
+                className="text-xs font-bold text-slate-400 mt-0.5 hover:text-[#FEBA4F] transition-colors flex items-center gap-1.5 text-left cursor-pointer group/seller"
+              >
+                <span>Prodajalec:</span>
+                <span className="text-[#FEBA4F] group-hover/seller:underline underline-offset-2 flex items-center gap-1">
+                  <Building2 size={12} /> {sellerName}
+                </span>
+              </button>
             )}
           </div>
         </div>

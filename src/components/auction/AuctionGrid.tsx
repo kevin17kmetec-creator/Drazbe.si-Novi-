@@ -13,10 +13,11 @@ interface AuctionGridProps {
   language: string;
   isVerified: boolean;
   onSelectPackage?: (packageId: string) => void;
+  onSellerClick?: (seller: any) => void;
 }
 
 export const AuctionGrid: React.FC<AuctionGridProps> = ({
-  auctions, onAuctionClick, onWatchToggle, watchlist, t, language, isVerified, onSelectPackage
+  auctions, onAuctionClick, onWatchToggle, watchlist, t, language, isVerified, onSelectPackage, onSellerClick
 }) => {
   // Group package auctions and standalone auctions
   const packageGroups: Record<string, { title: string; items: AuctionItem[] }> = {};
@@ -61,6 +62,7 @@ export const AuctionGrid: React.FC<AuctionGridProps> = ({
                 isVerified={isVerified}
                 onSelectPackage={onSelectPackage || (() => {})}
                 onAuctionClick={onAuctionClick}
+                onSellerClick={onSellerClick}
               />
             );
           })}
@@ -79,6 +81,7 @@ export const AuctionGrid: React.FC<AuctionGridProps> = ({
             isWatched={watchlist.includes(item.id)}
             onWatchToggle={() => onWatchToggle(item.id)}
             onClick={() => onAuctionClick(item)} 
+            onSellerClick={onSellerClick}
           />
         ))}
       </div>

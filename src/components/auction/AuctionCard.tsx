@@ -138,7 +138,24 @@ export const AuctionCard: React.FC<{
       <div className="p-6 flex flex-col flex-1">
         <div className="mb-3 flex justify-between items-center">
             {(seller || item.sellerName) && (
-                <button onClick={(e) => { e.stopPropagation(); if (seller) onSellerClick?.(seller); }} className="text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-[#FEBA4F] transition-colors flex items-center gap-1.5">
+                <button 
+                  type="button"
+                  onClick={(e) => { 
+                    e.stopPropagation(); 
+                    const targetSeller = seller || {
+                      id: item.sellerId || (item as any).seller_id || item.sellerName,
+                      name: { 
+                        SLO: item.sellerName || 'Prodajalec', 
+                        EN: item.sellerName || 'Seller', 
+                        DE: item.sellerName || 'Verkäufer' 
+                      },
+                      company_name: item.sellerName,
+                      sellerName: item.sellerName
+                    };
+                    onSellerClick?.(targetSeller); 
+                  }} 
+                  className="text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-[#FEBA4F] transition-colors flex items-center gap-1.5 cursor-pointer"
+                >
                     <Building2 size={12} /> {seller ? (seller.name[language] || seller.name['SLO'] || t('unknownSeller')) : (item.sellerName && item.sellerName !== "Neznan prodajalec" ? item.sellerName : t('unknownSeller'))}
                 </button>
             )}
