@@ -142,23 +142,26 @@ export const PackageView: React.FC<PackageViewProps> = ({
         className="grid gap-8 justify-center" 
         style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 320px))' }}
       >
-        {items.map(item => (
-          <AuctionCard
-            key={item.id}
-            item={item}
-            t={t}
-            language={language}
-            isVerified={isVerified}
-            currentUserId={currentUserId}
-            hasBid={bidAuctionIds.includes(item.id)}
-            isWatched={watchlist.includes(item.id)}
-            onWatchToggle={() => onWatchToggle(item.id)}
-            onClick={() => onAuctionClick(item)}
-            onBidSubmit={onBidSubmit}
-            onSellerClick={onSellerClick}
-            onTimeUp={onTimeUp}
-          />
-        ))}
+        {items.map(item => {
+          const itemHasBid = bidAuctionIds.includes(item.id) || Boolean(currentUserId && (item as any).top_bids && (item as any).top_bids.some((b: any) => b.user_id === currentUserId));
+          return (
+            <AuctionCard
+              key={item.id}
+              item={item}
+              t={t}
+              language={language}
+              isVerified={isVerified}
+              currentUserId={currentUserId}
+              hasBid={itemHasBid}
+              isWatched={watchlist.includes(item.id)}
+              onWatchToggle={() => onWatchToggle(item.id)}
+              onClick={() => onAuctionClick(item)}
+              onBidSubmit={onBidSubmit}
+              onSellerClick={onSellerClick}
+              onTimeUp={onTimeUp}
+            />
+          );
+        })}
       </div>
     </div>
   );

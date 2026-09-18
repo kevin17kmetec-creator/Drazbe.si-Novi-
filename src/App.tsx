@@ -1371,6 +1371,21 @@ const MainApp: React.FC = () => {
       };
     }
 
+    const sellerId = targetSeller.id || targetSeller.sellerId || (targetSeller as any).seller_id;
+    const foundUser = sellerId ? usersMap.get(sellerId) : null;
+    if (foundUser) {
+      targetSeller = {
+        ...foundUser,
+        ...targetSeller,
+      };
+    }
+    if (sellerId && userData?.id === sellerId) {
+      targetSeller = {
+        ...userData,
+        ...targetSeller,
+      };
+    }
+
     const displayName = targetSeller.company_name || 
       targetSeller.username || 
       (targetSeller.first_name ? `${targetSeller.first_name} ${targetSeller.last_name || ''}`.trim() : '') || 
@@ -1388,17 +1403,75 @@ const MainApp: React.FC = () => {
     if (!targetSeller.location) {
       targetSeller.location = { SLO: 'Slovenija', EN: 'Slovenia', DE: 'Slowenien' };
     }
-    if (!targetSeller.rating) targetSeller.rating = 5.0;
-    if (!targetSeller.reviewCount) targetSeller.reviewCount = 14;
-    if (!targetSeller.totalSold) targetSeller.totalSold = targetSeller.sold_count || 28;
-    if (!targetSeller.positiveFeedback) targetSeller.positiveFeedback = 99;
-    if (targetSeller.verified === undefined) targetSeller.verified = true;
-    if (!targetSeller.memberSince) targetSeller.memberSince = '2024';
-    if (!targetSeller.type) targetSeller.type = targetSeller.user_type === 'individual' ? 'individual' : 'business';
+
+    // Resolve real profile photo
+    const realPhoto = targetSeller.photoURL || 
+      targetSeller.profile_picture_url || 
+      targetSeller.profilePicture || 
+      targetSeller.avatar_url || 
+      targetSeller.photoUrl || 
+      foundUser?.profile_picture_url || 
+      foundUser?.photoURL || 
+      (sellerId === userData?.id ? (userData?.profile_picture_url || (userData as any)?.photoURL) : null) || 
+      null;
+
+    targetSeller.photoURL = realPhoto;
+    targetSeller.profile_picture_url = realPhoto;
+    targetSeller.profilePicture = realPhoto;
+
+    // Real sold auctions calculation
+    const sellerAuctions = auctions.filter(a => 
+      (sellerId && (a.sellerId === sellerId || (a as any).seller_id === sellerId)) ||
+      (targetSeller.sellerName && a.sellerName === targetSeller.sellerName)
+    );
+    const completedAuctions = sellerAuctions.filter(a => 
+      a.status === 'completed' || 
+      a.payment_status === 'paid' || 
+      ((a.winnerId || (a as any).winner_id) && (new Date(a.endTime).getTime() <= Date.now() || (a as any).status === 'ended'))
+    );
+    
+    targetSeller.totalSold = targetSeller.sold_count !== undefined 
+      ? targetSeller.sold_count 
+      : completedAuctions.length;
+
+    // Member since date
+    const createdAtVal = targetSeller.created_at || targetSeller.createdAt || foundUser?.created_at || foundUser?.createdAt;
+    if (createdAtVal) {
+      const year = new Date(createdAtVal).getFullYear();
+      targetSeller.memberSince = isNaN(year) ? '' : year.toString();
+    } else {
+      targetSeller.memberSince = '';
+    }
+
+    targetSeller.verified = Boolean(targetSeller.is_verified ?? targetSeller.isVerified ?? foundUser?.is_verified ?? foundUser?.isVerified ?? false);
+    targetSeller.type = targetSeller.user_type === 'business' || targetSeller.type === 'business' ? 'business' : 'individual';
 
     setSelectedSeller(targetSeller);
     setActiveView("sellerProfile");
     window.scrollTo({ top: 0, behavior: "instant" });
+
+    // Also fetch fresh user document from Firestore if sellerId exists to ensure real-time photo & bio
+    if (sellerId) {
+      getDoc(doc(db, 'users', sellerId)).then((userDoc) => {
+        if (userDoc.exists()) {
+          const uData = userDoc.data();
+          const freshPhoto = uData.profile_picture_url || uData.profilePicture || uData.photoURL || null;
+          setSelectedSeller(prev => {
+            if (!prev || (prev.id !== sellerId && (prev as any).sellerId !== sellerId)) return prev;
+            return {
+              ...prev,
+              ...uData,
+              photoURL: freshPhoto || (prev as any).photoURL,
+              profile_picture_url: freshPhoto || (prev as any).profile_picture_url,
+              profilePicture: freshPhoto || (prev as any).profilePicture,
+              verified: Boolean(uData.is_verified ?? uData.isVerified ?? (prev as any).verified)
+            };
+          });
+        }
+      }).catch((err) => {
+        console.warn('Could not fetch seller user doc:', err);
+      });
+    }
   };
 
   
@@ -1977,7 +2050,10 @@ const MainApp: React.FC = () => {
           language={language}
           isVerified={isVerified}
           watchlist={watchedIds}
+          currentUserId={userData?.id || auth.currentUser?.uid}
+          bidAuctionIds={bidAuctionIds}
           onWatchToggle={toggleWatch}
+          onBidSubmit={handleBidSubmit}
           onSellerClick={(seller) => navigateToSellerProfile(seller)}
           onAuctionClick={(item) => {
             window.scrollTo({ top: 0, behavior: "instant" });
@@ -3501,6 +3577,8 @@ const MainApp: React.FC = () => {
                       t={t}
                       language={language}
                       isVerified={isVerified}
+                      currentUserId={userData?.id || auth.currentUser?.uid}
+                      bidAuctionIds={bidAuctionIds}
                       onSelectPackage={(id) => {
                         window.scrollTo({ top: 0, behavior: "instant" });
                         setSelectedPackageId(id);

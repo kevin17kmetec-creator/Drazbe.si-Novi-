@@ -11,6 +11,8 @@ export interface PackageCardProps {
   t: any;
   language: string;
   isVerified: boolean;
+  currentUserId?: string;
+  bidAuctionIds?: string[];
   onSelectPackage: (packageId: string) => void;
   onAuctionClick: (item: AuctionItem) => void;
   onSellerClick?: (seller: any) => void;
@@ -24,6 +26,8 @@ export const PackageCard: React.FC<PackageCardProps> = ({
   t,
   language,
   isVerified,
+  currentUserId,
+  bidAuctionIds,
   onSelectPackage,
   onAuctionClick,
   onSellerClick
@@ -59,9 +63,24 @@ export const PackageCard: React.FC<PackageCardProps> = ({
   const displayItems = items.slice(0, 3);
   const remainingCount = items.length - displayItems.length;
 
+  const userBiddedItems = items.filter(it => 
+    bidAuctionIds?.includes(it.id) || 
+    Boolean(currentUserId && (it as any).top_bids && (it as any).top_bids.some((b: any) => b.user_id === currentUserId))
+  );
+
+  let borderClass = "border border-white/10 hover:border-[#FEBA4F]/40";
+  if (userBiddedItems.length > 0) {
+    const isAllWinning = userBiddedItems.every(it => 
+      currentUserId && (it.winnerId === currentUserId || (it as any).winner_id === currentUserId)
+    );
+    borderClass = isAllWinning 
+      ? "border-green-500 border-2 ring-2 ring-green-500/20" 
+      : "border-red-500 border-2 ring-2 ring-red-500/20";
+  }
+
   return (
     <div 
-      className="col-span-full bg-[#0A1128] text-white rounded-[2.5rem] p-6 sm:p-8 shadow-2xl border border-white/10 hover:border-[#FEBA4F]/40 transition-all duration-300 relative overflow-hidden group"
+      className={`col-span-full bg-[#0A1128] text-white rounded-[2.5rem] p-6 sm:p-8 shadow-2xl transition-all duration-300 relative overflow-hidden group ${borderClass}`}
     >
       {/* Top Header */}
       <div className="flex flex-wrap items-center justify-between gap-4 pb-6 border-b border-white/10 relative z-10">

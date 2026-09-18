@@ -2,10 +2,49 @@ import PDFDocument from 'pdfkit';
 import fs from 'fs';
 import path from 'path';
 
-function getFontPath(filename: string): string {
-  const localPath = path.join(process.cwd(), 'public', 'fonts', filename);
-  if (fs.existsSync(localPath)) return localPath;
-  return '';
+let cachedRegularFont: Buffer | null = null;
+let cachedBoldFont: Buffer | null = null;
+
+function loadFontBuffer(filename: string): Buffer | null {
+  const searchPaths = [
+    path.join(process.cwd(), 'public', 'fonts', filename),
+    path.join(process.cwd(), 'dist', 'fonts', filename),
+    path.join(__dirname, '..', '..', 'public', 'fonts', filename),
+    path.join(__dirname, '..', 'public', 'fonts', filename),
+    path.join(__dirname, 'public', 'fonts', filename),
+    path.join(__dirname, 'fonts', filename),
+    path.resolve('public', 'fonts', filename),
+    path.resolve('dist', 'fonts', filename),
+    path.resolve('/app/applet/public/fonts', filename)
+  ];
+
+  for (const p of searchPaths) {
+    try {
+      if (fs.existsSync(p)) {
+        const buf = fs.readFileSync(p);
+        if (buf && buf.length > 1000) {
+          return buf;
+        }
+      }
+    } catch {
+      // Continue search
+    }
+  }
+  return null;
+}
+
+function getRegularFont(): Buffer | null {
+  if (!cachedRegularFont) {
+    cachedRegularFont = loadFontBuffer('Roboto-Regular.ttf');
+  }
+  return cachedRegularFont;
+}
+
+function getBoldFont(): Buffer | null {
+  if (!cachedBoldFont) {
+    cachedBoldFont = loadFontBuffer('Roboto-Bold.ttf');
+  }
+  return cachedBoldFont;
 }
 
 function formatEuro(amount: number): string {
@@ -72,15 +111,16 @@ export async function generateInvoicePDF(
   commissionInvoiceNo?: string
 ): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ margin: 45, size: 'A4' });
+    const doc = new PDFDocument({ margin: 40, size: 'A4' });
     const buffers: Buffer[] = [];
 
-    const regularFont = getFontPath('Roboto-Regular.ttf');
-    const boldFont = getFontPath('Roboto-Bold.ttf');
+    const regBuf = getRegularFont();
+    const boldBuf = getBoldFont();
+    const hasCustomFonts = Boolean(regBuf && boldBuf);
 
-    if (regularFont && boldFont) {
-      doc.registerFont('Roboto', regularFont);
-      doc.registerFont('Roboto-Bold', boldFont);
+    if (hasCustomFonts) {
+      doc.registerFont('Roboto', regBuf!);
+      doc.registerFont('Roboto-Bold', boldBuf!);
       doc.font('Roboto');
     }
 
@@ -139,176 +179,223 @@ export async function generateInvoicePDF(
     const colorLight = '#94A3B8';
     const colorBorder = '#E2E8F0';
 
+    // Helper font setters
+    const setBold = () => {
+      if (hasCustomFonts) doc.font('Roboto-Bold');
+      else doc.font('Helvetica-Bold');
+    };
+    const setRegular = () => {
+      if (hasCustomFonts) doc.font('Roboto');
+      else doc.font('Helvetica');
+    };
+
     // ==========================================
     // PAGE 1: RAČUN / INVOICE (PRODAJALEC -> KUPEC)
     // ==========================================
 
     // Top Header: Title on Left, Logo on Right
-    if (boldFont) doc.font('Roboto-Bold');
-    doc.fontSize(22).fillColor(colorDark).text(isC2B ? 'KUPOPRODAJNA POGODBA' : !isSellerBusiness ? 'KUPOPRODAJNA POGODBA / RAČUN' : 'RAČUN / INVOICE', 45, 45);
+    setBold();
+    const docTitle = isC2B ? 'KUPOPRODAJNA POGODBA' : !isSellerBusiness ? 'KUPOPRODAJNA POGODBA / RAČUN' : 'RAČUN / INVOICE';
+    doc.fontSize(20).fillColor(colorDark).text(docTitle, 40, 42);
 
-    // Right logo
-    doc.fontSize(18).fillColor(colorLight).text('dražbenik.si', 360, 45, { width: 190, align: 'right' });
-    if (regularFont) doc.font('Roboto');
-    doc.fontSize(8.5).fillColor(colorLight).text('Platforma za posredovanje', 360, 68, { width: 190, align: 'right' });
+    // Right logo: dražbenik.si
+    setBold();
+    doc.fontSize(18).fillColor(colorLight).text('dražbenik.si', 360, 42, { width: 195, align: 'right' });
+    setRegular();
+    doc.fontSize(8.5).fillColor(colorLight).text('Platforma za posredovanje', 360, 65, { width: 195, align: 'right' });
 
     // Meta below title
-    let yPos = 75;
-    doc.fontSize(9).fillColor(colorMuted);
-    doc.text(`Številka dokumenta: ${docNo}`, 45, yPos);
-    yPos += 14;
-    doc.text(`Kraj izdaje: ${sellerPlace}`, 45, yPos);
-    yPos += 14;
-    doc.text(`Datum izdaje / sklenitve: ${paymentDate}`, 45, yPos);
-    yPos += 14;
-    doc.text(`Datum opravljene storitve/dobave: ${paymentDate}`, 45, yPos);
+    let yPos = 72;
+    setRegular();
+    doc.fontSize(8.5).fillColor(colorMuted);
+    
+    setRegular();
+    doc.fillColor(colorMuted).text('Številka dokumenta: ', 40, yPos, { continued: true });
+    setBold();
+    doc.fillColor(colorDark).text(docNo);
+    yPos += 13;
+
+    setRegular();
+    doc.fillColor(colorMuted).text('Kraj izdaje: ', 40, yPos, { continued: true });
+    setBold();
+    doc.fillColor(colorDark).text(sellerPlace);
+    yPos += 13;
+
+    setRegular();
+    doc.fillColor(colorMuted).text('Datum izdaje / sklenitve: ', 40, yPos, { continued: true });
+    setBold();
+    doc.fillColor(colorDark).text(paymentDate);
+    yPos += 13;
+
+    setRegular();
+    doc.fillColor(colorMuted).text('Datum opravljene storitve/dobave: ', 40, yPos, { continued: true });
+    setBold();
+    doc.fillColor(colorDark).text(paymentDate);
 
     // Horizontal Divider Line
-    yPos += 22;
-    doc.strokeColor(colorBorder).lineWidth(1).moveTo(45, yPos).lineTo(550, yPos).stroke();
+    yPos += 20;
+    doc.strokeColor(colorBorder).lineWidth(1).moveTo(40, yPos).lineTo(555, yPos).stroke();
 
     // Two Columns: IZDAJATELJ and PREJEMNIK
-    yPos += 15;
-    const colLeft = 45;
+    yPos += 14;
+    const colLeft = 40;
     const colRight = 310;
 
-    if (boldFont) doc.font('Roboto-Bold');
-    doc.fontSize(8).fillColor(colorLight).text('IZDAJATELJ (PRODAJALEC)', colLeft, yPos);
+    setBold();
+    doc.fontSize(7.5).fillColor(colorLight).text('IZDAJATELJ (PRODAJALEC)', colLeft, yPos);
     doc.text('PREJEMNIK (KUPEC)', colRight, yPos);
 
-    yPos += 14;
-    // Seller Info
-    doc.fontSize(11).fillColor(colorDark).text(sellerName, colLeft, yPos, { width: 240 });
-    // Buyer Info
+    yPos += 13;
+    setBold();
+    doc.fontSize(10.5).fillColor(colorDark).text(sellerName, colLeft, yPos, { width: 240 });
     doc.text(buyerName, colRight, yPos, { width: 240 });
 
-    yPos += 16;
-    if (regularFont) doc.font('Roboto');
+    yPos += 15;
+    setRegular();
     doc.fontSize(8.5).fillColor(colorMuted).text(sellerAddress, colLeft, yPos, { width: 240 });
     doc.text(buyerAddress, colRight, yPos, { width: 240 });
 
-    yPos += 14;
+    yPos += 13;
     doc.text(`Davčna številka: ${sellerTaxId ? sellerTaxId : 'Ni navedena'}`, colLeft, yPos);
     doc.text(`Davčna številka: ${buyerTaxId ? buyerTaxId : 'Ni navedena'}`, colRight, yPos);
 
-    if (sellerRegNo) {
-      yPos += 13;
-      doc.text(`Matična številka: ${sellerRegNo}`, colLeft, yPos);
+    if (sellerRegNo || buyerRegNo) {
+      yPos += 12;
+      if (sellerRegNo) doc.text(`Matična številka: ${sellerRegNo}`, colLeft, yPos);
+      if (buyerRegNo) doc.text(`Matična številka: ${buyerRegNo}`, colRight, yPos);
     }
 
     // Horizontal Divider
-    yPos += 20;
-    doc.strokeColor(colorBorder).lineWidth(1).moveTo(45, yPos).lineTo(550, yPos).stroke();
+    yPos += 18;
+    doc.strokeColor(colorBorder).lineWidth(1).moveTo(40, yPos).lineTo(555, yPos).stroke();
 
-    // Identification note box
+    // Identification note box (crisp vector badge)
     yPos += 12;
-    doc.roundedRect(45, yPos, 505, 24, 4).fillAndStroke('#F8FAFC', '#E2E8F0');
-    if (boldFont) doc.font('Roboto-Bold');
-    doc.fontSize(8).fillColor('#2563EB').text('ℹ', 55, yPos + 7, { continued: true });
-    if (boldFont) doc.font('Roboto-Bold');
-    doc.fillColor(colorDark).text('  Identifikacija: ', { continued: true });
-    if (regularFont) doc.font('Roboto');
+    doc.roundedRect(40, yPos, 515, 24, 4).fillAndStroke('#F8FAFC', '#E2E8F0');
+    
+    // Draw small blue circle badge
+    const badgeCenterX = 53;
+    const badgeCenterY = yPos + 12;
+    doc.circle(badgeCenterX, badgeCenterY, 5.5).fillColor('#2563EB').fill();
+    setBold();
+    doc.fontSize(7).fillColor('#FFFFFF').text('i', badgeCenterX - 1.8, badgeCenterY - 4, { lineBreak: false });
+
+    setBold();
+    doc.fontSize(8).fillColor(colorDark).text('Identifikacija: ', 66, yPos + 7, { continued: true });
+    setRegular();
     doc.fillColor(colorMuted).text('Stranki sta elektronsko identificirani znotraj platforme dražbenik.si.');
 
-    // Table
-    yPos += 40;
-    if (boldFont) doc.font('Roboto-Bold');
-    doc.fontSize(8.5).fillColor(colorDark);
-    doc.text('OPIS', 45, yPos);
+    // Table Header
+    yPos += 38;
+    setBold();
+    doc.fontSize(8).fillColor(colorDark);
+    doc.text('OPIS', 40, yPos);
     doc.text('KOLIČINA', 260, yPos, { width: 70, align: 'center' });
-    doc.text('CENA (€)', 350, yPos, { width: 80, align: 'right' });
-    doc.text('SKUPAJ (€)', 450, yPos, { width: 100, align: 'right' });
+    doc.text('CENA (€)', 355, yPos, { width: 85, align: 'right' });
+    doc.text('SKUPAJ (€)', 455, yPos, { width: 100, align: 'right' });
 
-    yPos += 14;
-    doc.strokeColor(colorDark).lineWidth(1.5).moveTo(45, yPos).lineTo(550, yPos).stroke();
+    yPos += 13;
+    doc.strokeColor(colorDark).lineWidth(1.5).moveTo(40, yPos).lineTo(555, yPos).stroke();
 
     // Item Row
-    yPos += 12;
-    doc.fontSize(10).fillColor(colorDark).text(itemTitle, 45, yPos, { width: 220 });
-    doc.text('1', 260, yPos, { width: 70, align: 'center' });
-    doc.text(formatEuro(itemPrice), 350, yPos, { width: 80, align: 'right' });
-    doc.text(formatEuro(itemPrice), 450, yPos, { width: 100, align: 'right' });
+    yPos += 10;
+    setBold();
+    doc.fontSize(9.5).fillColor(colorDark).text(itemTitle, 40, yPos, { width: 220 });
+    setRegular();
+    doc.fontSize(9).text('1', 260, yPos, { width: 70, align: 'center' });
+    doc.text(formatEuro(itemPrice), 355, yPos, { width: 85, align: 'right' });
+    setBold();
+    doc.text(formatEuro(itemPrice), 455, yPos, { width: 100, align: 'right' });
 
-    yPos += 14;
-    if (regularFont) doc.font('Roboto');
-    doc.fontSize(8).fillColor(colorLight).text(`ID dražbe: ${auctionId}`, 45, yPos);
+    yPos += 13;
+    setRegular();
+    doc.fontSize(7.5).fillColor(colorLight).text(`ID dražbe: ${auctionId}`, 40, yPos);
 
     // Delivery method banner
-    yPos += 16;
-    doc.roundedRect(45, yPos, 505, 18, 3).fill('#F8FAFC');
-    doc.fontSize(8).fillColor(colorMuted).text(`Način predaje: ${deliveryMethod}`, 55, yPos + 5);
+    yPos += 15;
+    doc.roundedRect(40, yPos, 515, 18, 3).fill('#F8FAFC');
+    doc.fontSize(8).fillColor(colorMuted).text(`Način predaje: ${deliveryMethod}`, 50, yPos + 5);
 
     yPos += 24;
-    doc.strokeColor(colorBorder).lineWidth(1).moveTo(45, yPos).lineTo(550, yPos).stroke();
+    doc.strokeColor(colorBorder).lineWidth(1).moveTo(40, yPos).lineTo(555, yPos).stroke();
 
     // Subtotals Box (Right aligned)
-    yPos += 16;
-    const totalsLeft = 320;
-    const totalsValueRight = 550;
+    yPos += 14;
+    const totalsLeft = 325;
+    const totalsValueRight = 555;
 
     if (isVatApplicable) {
+      setRegular();
       doc.fontSize(8.5).fillColor(colorMuted).text('Osnova za DDV (22%):', totalsLeft, yPos);
+      setBold();
       doc.fontSize(8.5).fillColor(colorDark).text(`${formatEuro(vatBase)} €`, totalsLeft + 120, yPos, { width: 110, align: 'right' });
-      yPos += 16;
+      yPos += 15;
 
+      setRegular();
       doc.fontSize(8.5).fillColor(colorMuted).text('Znesek DDV (22%):', totalsLeft, yPos);
+      setBold();
       doc.fontSize(8.5).fillColor(colorDark).text(`${formatEuro(vatAmount)} €`, totalsLeft + 120, yPos, { width: 110, align: 'right' });
-      yPos += 16;
+      yPos += 15;
     } else {
+      setRegular();
       doc.fontSize(8.5).fillColor(colorMuted).text('Kupnina / Znesek:', totalsLeft, yPos);
+      setBold();
       doc.fontSize(8.5).fillColor(colorDark).text(`${formatEuro(itemPrice)} €`, totalsLeft + 120, yPos, { width: 110, align: 'right' });
-      yPos += 16;
+      yPos += 15;
 
+      setRegular();
       doc.fontSize(8.5).fillColor(colorMuted).text('DDV:', totalsLeft, yPos);
+      setBold();
       doc.fontSize(8.5).fillColor(colorDark).text('Ni obračunan', totalsLeft + 120, yPos, { width: 110, align: 'right' });
-      yPos += 16;
+      yPos += 15;
     }
 
     doc.strokeColor(colorDark).lineWidth(1.5).moveTo(totalsLeft, yPos).lineTo(totalsValueRight, yPos).stroke();
-    yPos += 8;
+    yPos += 7;
 
-    if (boldFont) doc.font('Roboto-Bold');
-    doc.fontSize(10.5).fillColor(colorDark).text('SKUPAJ ZA PLAČILO:', totalsLeft, yPos);
-    doc.text(`${formatEuro(itemPrice)} €`, totalsLeft + 120, yPos, { width: 110, align: 'right' });
+    setBold();
+    doc.fontSize(10).fillColor(colorDark).text('SKUPAJ ZA PLAČILO:', totalsLeft, yPos);
+    doc.fontSize(10.5).text(`${formatEuro(itemPrice)} €`, totalsLeft + 120, yPos, { width: 110, align: 'right' });
 
     // Legal Footer at bottom of Page 1
-    const footerY = 660;
-    doc.strokeColor(colorBorder).lineWidth(1).moveTo(45, footerY).lineTo(550, footerY).stroke();
+    const footerY = 665;
+    doc.strokeColor(colorBorder).lineWidth(1).moveTo(40, footerY).lineTo(555, footerY).stroke();
 
-    let footY = footerY + 12;
-    if (boldFont) doc.font('Roboto-Bold');
-    doc.fontSize(7.5).fillColor(colorDark).text('Jamstvo za neskladnost blaga (ZVPot-1): ', 45, footY, { continued: true });
-    if (regularFont) doc.font('Roboto');
+    let footY = footerY + 11;
+    setBold();
+    doc.fontSize(7.5).fillColor(colorDark).text('Jamstvo za neskladnost blaga (ZVPot-1): ', 40, footY, { continued: true });
+    setRegular();
     doc.fillColor(colorMuted).text('Za blago veljajo zakonska jamstva za neskladnost blaga v skladu z ZVPot-1.');
 
-    footY += 14;
-    if (boldFont) doc.font('Roboto-Bold');
-    doc.fontSize(7.5).fillColor(colorDark).text('Prenos lastništva: ', 45, footY, { continued: true });
-    if (regularFont) doc.font('Roboto');
+    footY += 13;
+    setBold();
+    doc.fontSize(7.5).fillColor(colorDark).text('Prenos lastništva: ', 40, footY, { continued: true });
+    setRegular();
     doc.fillColor(colorMuted).text('Lastninska pravica in nevarnost naključnega uničenja preideta na kupca ob celotnem plačilu kupnine in prevzemu predmeta.');
 
-    footY += 14;
-    if (boldFont) doc.font('Roboto-Bold');
-    doc.fontSize(7.5).fillColor(colorDark).text('Pravna opomba in DDV: ', 45, footY, { continued: true });
-    if (regularFont) doc.font('Roboto');
+    footY += 13;
+    setBold();
+    doc.fontSize(7.5).fillColor(colorDark).text('Pravna opomba in DDV: ', 40, footY, { continued: true });
+    setRegular();
     doc.fillColor(colorMuted).text(
       isSellerBusiness
         ? 'V ceno je vključen 22% DDV v skladu z Zakonom o davku na dodano vrednost (ZDDV-1).'
         : 'DDV ni obračunan na podlagi 1. odstavka 94. člena ZDDV-1 (prodajalec je fizična oseba).'
     );
 
-    footY += 16;
+    footY += 15;
+    setRegular();
     doc.fontSize(7).fillColor(colorLight).text(
       'Platforma dražbenik.si nastopa izključno kot tehnološki posrednik in ni stranka v prodajni pogodbi. Ta dokument služi kot kupoprodajna pogodba in potrdilo o sklenjenem poslu ter plačilu med prodajalcem in kupcem, generirano samodejno s strani sistema po uspešnem zaključku dražbe.',
-      45,
+      40,
       footY,
-      { width: 505 }
+      { width: 515 }
     );
 
     // ==========================================
     // PAGE 2: RAČUN ZA STORITEV / SERVICE INVOICE (PLATFORMA -> KUPEC)
     // ==========================================
-    doc.addPage({ margin: 45, size: 'A4' });
+    doc.addPage({ margin: 40, size: 'A4' });
 
     const feeDocNo = commissionInvoiceNo || `PROV-${(transaction.id || auction.id || '000000').substring(0, 8).toUpperCase()}`;
     const feeBase = Number(transaction.platform_fee || (itemPrice * 0.10) / 1.22);
@@ -316,125 +403,131 @@ export async function generateInvoicePDF(
     const feeTotal = Number(transaction.fee_total || feeBase + feeVat);
 
     // Centered Title
-    if (boldFont) doc.font('Roboto-Bold');
-    doc.fontSize(16).fillColor(colorDark).text('RAČUN ZA STORITEV / SERVICE INVOICE', 45, 45, { width: 505, align: 'center' });
+    setBold();
+    doc.fontSize(16).fillColor(colorDark).text('RAČUN ZA STORITEV / SERVICE INVOICE', 40, 42, { width: 515, align: 'center' });
 
     // Top Divider Line
-    let p2Y = 80;
-    doc.strokeColor(colorBorder).lineWidth(1).moveTo(45, p2Y).lineTo(550, p2Y).stroke();
+    let p2Y = 75;
+    doc.strokeColor(colorBorder).lineWidth(1).moveTo(40, p2Y).lineTo(555, p2Y).stroke();
 
     // Two Columns: IZDAJATELJ (PLATFORMA) & PREJEMNIK STORITVE (KUPEC)
-    p2Y += 14;
-    if (boldFont) doc.font('Roboto-Bold');
-    doc.fontSize(8).fillColor(colorLight).text('IZDAJATELJ (PLATFORMA)', colLeft, p2Y);
+    p2Y += 13;
+    setBold();
+    doc.fontSize(7.5).fillColor(colorLight).text('IZDAJATELJ (PLATFORMA)', colLeft, p2Y);
     doc.text('PREJEMNIK STORITVE (KUPEC)', colRight, p2Y);
 
-    p2Y += 14;
-    doc.fontSize(11).fillColor(colorDark).text('Dizain d.o.o.', colLeft, p2Y, { width: 240 });
+    p2Y += 13;
+    setBold();
+    doc.fontSize(10.5).fillColor(colorDark).text('Dizain d.o.o.', colLeft, p2Y, { width: 240 });
     doc.text(buyerName, colRight, p2Y, { width: 240 });
 
-    p2Y += 16;
-    if (regularFont) doc.font('Roboto');
+    p2Y += 15;
+    setRegular();
     doc.fontSize(8.5).fillColor(colorMuted).text('Karantanska ulica 28, 2000 Maribor', colLeft, p2Y, { width: 240 });
     doc.text(buyerAddress, colRight, p2Y, { width: 240 });
 
-    p2Y += 14;
+    p2Y += 13;
     doc.text('Davčna številka: SI57008060', colLeft, p2Y);
     doc.text(`Davčna številka: ${buyerTaxId ? buyerTaxId : 'Ni navedena'}`, colRight, p2Y);
 
-    p2Y += 13;
+    p2Y += 12;
     doc.text('Matična številka: 9093494000', colLeft, p2Y);
     if (buyerRegNo) {
       doc.text(`Matična številka: ${buyerRegNo}`, colRight, p2Y);
     }
 
     // Bottom Divider Line
-    p2Y += 20;
-    doc.strokeColor(colorBorder).lineWidth(1).moveTo(45, p2Y).lineTo(550, p2Y).stroke();
+    p2Y += 18;
+    doc.strokeColor(colorBorder).lineWidth(1).moveTo(40, p2Y).lineTo(555, p2Y).stroke();
 
     // Invoice Meta Information
-    p2Y += 16;
-    if (boldFont) doc.font('Roboto-Bold');
-    doc.fontSize(8.5).fillColor(colorMuted);
-    doc.text(`Številka računa: `, colLeft, p2Y, { continued: true });
-    if (regularFont) doc.font('Roboto');
+    p2Y += 14;
+    setRegular();
+    doc.fontSize(8.5).fillColor(colorMuted).text('Številka računa: ', colLeft, p2Y, { continued: true });
+    setBold();
     doc.fillColor(colorDark).text(feeDocNo);
 
-    p2Y += 14;
-    if (boldFont) doc.font('Roboto-Bold');
-    doc.fillColor(colorMuted).text(`Datum izdaje in opravljene storitve: `, colLeft, p2Y, { continued: true });
-    if (regularFont) doc.font('Roboto');
+    p2Y += 13;
+    setRegular();
+    doc.fillColor(colorMuted).text('Datum izdaje in opravljene storitve: ', colLeft, p2Y, { continued: true });
+    setBold();
     doc.fillColor(colorDark).text(paymentDate);
 
-    p2Y += 14;
-    if (boldFont) doc.font('Roboto-Bold');
-    doc.fillColor(colorMuted).text(`Način plačila: `, colLeft, p2Y, { continued: true });
-    if (regularFont) doc.font('Roboto');
+    p2Y += 13;
+    setRegular();
+    doc.fillColor(colorMuted).text('Način plačila: ', colLeft, p2Y, { continued: true });
+    setBold();
     doc.fillColor(colorDark).text('Spletno plačilo / Kartica');
 
-    p2Y += 14;
-    if (boldFont) doc.font('Roboto-Bold');
-    doc.fillColor(colorMuted).text(`Status plačila: `, colLeft, p2Y, { continued: true });
-    if (regularFont) doc.font('Roboto');
-    doc.fillColor('#166534').text(`PLAČANO (${paymentDate})`);
+    p2Y += 13;
+    setRegular();
+    doc.fillColor(colorMuted).text('Status plačila: ', colLeft, p2Y, { continued: true });
+    setBold();
+    doc.fillColor('#059669').text(`PLAČANO (${paymentDate})`);
 
     // Table Header
-    p2Y += 30;
-    if (boldFont) doc.font('Roboto-Bold');
-    doc.fontSize(8.5).fillColor(colorDark);
-    doc.text('OPIS', 45, p2Y);
-    doc.text('OSNOVA (€)', 450, p2Y, { width: 100, align: 'right' });
+    p2Y += 28;
+    setBold();
+    doc.fontSize(8).fillColor(colorDark);
+    doc.text('OPIS', 40, p2Y);
+    doc.text('OSNOVA (€)', 455, p2Y, { width: 100, align: 'right' });
 
-    p2Y += 14;
-    doc.strokeColor(colorDark).lineWidth(1.5).moveTo(45, p2Y).lineTo(550, p2Y).stroke();
+    p2Y += 13;
+    doc.strokeColor(colorDark).lineWidth(1.5).moveTo(40, p2Y).lineTo(555, p2Y).stroke();
 
     // Service Row
-    p2Y += 12;
-    doc.fontSize(10).fillColor(colorDark).text('Provizija platforme za uporabo sistema', 45, p2Y, { width: 350 });
-    doc.text(formatEuro(feeBase), 450, p2Y, { width: 100, align: 'right' });
+    p2Y += 10;
+    setBold();
+    doc.fontSize(9.5).fillColor(colorDark).text('Provizija platforme za uporabo sistema', 40, p2Y, { width: 350 });
+    setRegular();
+    doc.fontSize(9).text(formatEuro(feeBase), 455, p2Y, { width: 100, align: 'right' });
 
-    p2Y += 14;
-    if (regularFont) doc.font('Roboto');
-    doc.fontSize(8).fillColor(colorLight).text(`Dražba: ${itemTitle}`, 45, p2Y);
+    yPos += 13;
+    setRegular();
+    doc.fontSize(7.5).fillColor(colorLight).text(`Dražba: ${itemTitle}`, 40, p2Y + 14);
 
-    p2Y += 18;
-    doc.strokeColor(colorBorder).lineWidth(1).moveTo(45, p2Y).lineTo(550, p2Y).stroke();
+    p2Y += 28;
+    doc.strokeColor(colorBorder).lineWidth(1).moveTo(40, p2Y).lineTo(555, p2Y).stroke();
 
     // Platform Fee Totals Box (Right aligned)
-    p2Y += 18;
+    p2Y += 15;
+    setRegular();
     doc.fontSize(8.5).fillColor(colorMuted).text('Osnova / Base:', totalsLeft, p2Y);
+    setBold();
     doc.fontSize(8.5).fillColor(colorDark).text(`${formatEuro(feeBase)} €`, totalsLeft + 120, p2Y, { width: 110, align: 'right' });
 
-    p2Y += 16;
+    p2Y += 15;
+    setRegular();
     doc.fontSize(8.5).fillColor(colorMuted).text('DDV / VAT (22%):', totalsLeft, p2Y);
+    setBold();
     doc.fontSize(8.5).fillColor(colorDark).text(`${formatEuro(feeVat)} €`, totalsLeft + 120, p2Y, { width: 110, align: 'right' });
 
-    p2Y += 16;
+    p2Y += 15;
     doc.strokeColor(colorDark).lineWidth(1.5).moveTo(totalsLeft, p2Y).lineTo(totalsValueRight, p2Y).stroke();
-    p2Y += 8;
+    p2Y += 7;
 
-    if (boldFont) doc.font('Roboto-Bold');
-    doc.fontSize(10.5).fillColor(colorDark).text('SKUPAJ PROVIZIJA:', totalsLeft, p2Y);
-    doc.text(`${formatEuro(feeTotal)} €`, totalsLeft + 120, p2Y, { width: 110, align: 'right' });
+    setBold();
+    doc.fontSize(10).fillColor(colorDark).text('SKUPAJ PROVIZIJA:', totalsLeft, p2Y);
+    doc.fontSize(10.5).text(`${formatEuro(feeTotal)} €`, totalsLeft + 120, p2Y, { width: 110, align: 'right' });
 
     // Footer on Page 2
     const p2FooterY = 690;
-    doc.strokeColor(colorBorder).lineWidth(1).moveTo(45, p2FooterY).lineTo(550, p2FooterY).stroke();
+    doc.strokeColor(colorBorder).lineWidth(1).moveTo(40, p2FooterY).lineTo(555, p2FooterY).stroke();
 
-    let p2FootY = p2FooterY + 14;
-    if (regularFont) doc.font('Roboto');
+    let p2FootY = p2FooterY + 12;
+    setRegular();
     doc.fontSize(7.5).fillColor(colorMuted).text(
       'Dizain d.o.o. je registriran izdajatelj računa za posredniške storitve platforme dražbenik.si. V ceno storitve je vključen 22% DDV.',
-      45,
+      40,
       p2FootY,
-      { width: 505 }
+      { width: 515 }
     );
-    p2FootY += 14;
+    p2FootY += 13;
     doc.fontSize(7).fillColor(colorLight).text(
       'Dokument je generiran elektronsko in je veljaven brez žiga ali podpisa v skladu z ZZEPA ter 84. členom Zakona o davku na dodano vrednost (ZDDV-1).',
-      45,
+      40,
       p2FootY,
-      { width: 505 }
+      { width: 515 }
     );
 
     doc.end();
@@ -443,15 +536,16 @@ export async function generateInvoicePDF(
 
 export async function generateCertificatePDF(transaction: any, buyer: any, seller: any): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ margin: 50 });
+    const doc = new PDFDocument({ margin: 40, size: 'A4' });
     const buffers: Buffer[] = [];
 
-    const regularFont = getFontPath('Roboto-Regular.ttf');
-    const boldFont = getFontPath('Roboto-Bold.ttf');
+    const regBuf = getRegularFont();
+    const boldBuf = getBoldFont();
+    const hasCustomFonts = Boolean(regBuf && boldBuf);
 
-    if (regularFont && boldFont) {
-      doc.registerFont('Roboto', regularFont);
-      doc.registerFont('Roboto-Bold', boldFont);
+    if (hasCustomFonts) {
+      doc.registerFont('Roboto', regBuf!);
+      doc.registerFont('Roboto-Bold', boldBuf!);
       doc.font('Roboto');
     }
 
@@ -462,36 +556,52 @@ export async function generateCertificatePDF(transaction: any, buyer: any, selle
     });
     doc.on('error', (err) => reject(err));
 
-    if (boldFont) doc.font('Roboto-Bold');
-    doc.fontSize(20).text('POTRDILO O NAKUPU / PURCHASE CERTIFICATE', { align: 'center' });
-    if (regularFont) doc.font('Roboto');
+    const setBold = () => {
+      if (hasCustomFonts) doc.font('Roboto-Bold');
+      else doc.font('Helvetica-Bold');
+    };
+    const setRegular = () => {
+      if (hasCustomFonts) doc.font('Roboto');
+      else doc.font('Helvetica');
+    };
+
+    setBold();
+    doc.fontSize(18).fillColor('#0A1128').text('POTRDILO O NAKUPU / PURCHASE CERTIFICATE', { align: 'center' });
+    setRegular();
     doc.moveDown();
 
-    doc.fontSize(10).text('dražbenik.si');
+    doc.fontSize(10).fillColor('#94A3B8').text('dražbenik.si', { align: 'center' });
     doc.moveDown();
 
+    setRegular();
+    doc.fontSize(9).fillColor('#475569');
     doc.text(`Številka potrdila / Certificate No: CERT-${(transaction.id || '').substring(0, 8).toUpperCase()}`);
     doc.text(`Datum / Date: ${new Date().toLocaleDateString('sl-SI')}`);
     doc.moveDown();
 
-    doc.fontSize(12).text('Kupec / Buyer:', { underline: true });
-    doc.fontSize(10).text(`${buyer.first_name || ''} ${buyer.last_name || ''}`.trim() || buyer.name || 'Kupec');
+    setBold();
+    doc.fontSize(11).fillColor('#0A1128').text('Kupec / Buyer:');
+    setRegular();
+    doc.fontSize(9.5).fillColor('#475569').text(`${buyer.first_name || ''} ${buyer.last_name || ''}`.trim() || buyer.name || 'Kupec');
     doc.moveDown();
 
-    doc.fontSize(12).text('Prodajalec / Seller:', { underline: true });
-    doc.fontSize(10).text(`${seller.first_name || ''} ${seller.last_name || ''}`.trim() || seller.name || 'Prodajalec');
+    setBold();
+    doc.fontSize(11).fillColor('#0A1128').text('Prodajalec / Seller:');
+    setRegular();
+    doc.fontSize(9.5).fillColor('#475569').text(`${seller.first_name || ''} ${seller.last_name || ''}`.trim() || seller.name || 'Prodajalec');
     if (seller.company_status === 'company') {
       doc.text(`Podjetje / Company: ${seller.company_name || 'N/A'}`);
     }
     doc.moveDown();
 
     const amount = Number(transaction.amount_total || 0);
-    doc.fontSize(12).text('Podrobnosti transakcije / Transaction Details:', { underline: true });
-    doc.fontSize(10);
-    doc.text(`Znesek nakupa / Purchase Amount: €${amount.toFixed(2)}`);
+    setBold();
+    doc.fontSize(11).fillColor('#0A1128').text('Podrobnosti transakcije / Transaction Details:');
+    setRegular();
+    doc.fontSize(9.5).fillColor('#475569').text(`Znesek nakupa / Purchase Amount: €${amount.toFixed(2)}`);
 
     doc.moveDown();
-    doc.fontSize(9).text('To potrdilo služi kot informativni dokaz o uspešno zaključeni dražbi in plačilu.', { italic: true });
+    doc.fontSize(8.5).fillColor('#94A3B8').text('To potrdilo služi kot informativni dokaz o uspešno zaključeni dražbi in plačilu.');
 
     doc.end();
   });

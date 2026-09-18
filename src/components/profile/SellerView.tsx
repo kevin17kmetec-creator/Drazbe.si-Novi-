@@ -1,10 +1,13 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Star, MapPin, Calendar, Building2, User, CheckCircle2, 
   TrendingUp, History, MessageSquare, ArrowLeft, ShieldCheck,
   Award, Package, ThumbsUp, AlertCircle
 } from 'lucide-react';
-import { Seller, AuctionItem, Review, Region } from '../../types';
+import { collection, query, where, getDocs, addDoc } from 'firebase/firestore';
+import { toast } from 'sonner';
+import { Seller, AuctionItem, Review } from '../../types';
+import { db, auth } from '../../lib/firebase';
 
 interface SellerViewProps {
   seller: Seller;
@@ -23,6 +26,8 @@ const SellerView: React.FC<SellerViewProps> = ({
   const [activeTab, setActiveTab] = useState<'active' | 'past' | 'reviews'>('active');
   const [newReview, setNewReview] = useState({ rating: 5, comment: '', wouldRecommend: true });
   const [reviews, setReviews] = useState<Review[]>([]);
+  const [isLoadingReviews, setIsLoadingReviews] = useState(false);
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
 
   const sellerDisplayName = useMemo(() => {
     if (!seller) return 'Neznan prodajalec';
@@ -32,6 +37,16 @@ const SellerView: React.FC<SellerViewProps> = ({
     }
     return (seller as any).company_name || (seller as any).sellerName || (seller as any).username || 'Neznan prodajalec';
   }, [seller, language]);
+
+  const sellerAvatar = useMemo(() => {
+    if (!seller) return null;
+    return (seller as any).photoURL || 
+      (seller as any).profile_picture_url || 
+      (seller as any).profilePicture || 
+      (seller as any).avatar_url || 
+      (seller as any).photoUrl || 
+      null;
+  }, [seller]);
 
   const sellerAuctions = useMemo(() => {
     if (!seller) return [];
@@ -45,32 +60,186 @@ const SellerView: React.FC<SellerViewProps> = ({
   }, [seller, sellerDisplayName, auctions]);
 
   const activeAuctions = useMemo(() => 
-    sellerAuctions.filter(a => a.status === 'active'),
+    sellerAuctions.filter(a => a.status === 'active' && new Date(a.endTime) > new Date()),
   [sellerAuctions]);
 
   const pastAuctions = useMemo(() => 
-    sellerAuctions.filter(a => a.status === 'completed'),
+    sellerAuctions.filter(a => 
+      a.status === 'completed' || 
+      (a as any).status === 'ended' || 
+      new Date(a.endTime) <= new Date()
+    ),
   [sellerAuctions]);
 
-  const canLeaveReview = isLoggedIn && currentUserWinnings.some(w => w.sellerId === seller.id);
+  const totalSoldCount = useMemo(() => {
+    if (!seller) return 0;
+    if ((seller as any).sold_count !== undefined && (seller as any).sold_count !== null) {
+      return Number((seller as any).sold_count);
+    }
+    const soldList = sellerAuctions.filter(a => 
+      a.status === 'completed' || 
+      a.payment_status === 'paid' || 
+      (Boolean(a.winnerId || (a as any).winner_id) && (new Date(a.endTime).getTime() <= Date.now() || (a as any).status === 'ended'))
+    );
+    return soldList.length;
+  }, [seller, sellerAuctions]);
 
-  const handleAddReview = (e: React.FormEvent) => {
+  // Load real reviews from Firestore
+  useEffect(() => {
+    if (!seller?.id) {
+      setReviews([]);
+      return;
+    }
+
+    let isMounted = true;
+    setIsLoadingReviews(true);
+
+    const fetchRealReviews = async () => {
+      try {
+        const reviewsRef = collection(db, 'reviews');
+        // Check for seller_id match
+        const q1 = query(reviewsRef, where('seller_id', '==', seller.id));
+        const snap1 = await getDocs(q1);
+        
+        let loadedReviews: Review[] = [];
+        snap1.forEach(docSnap => {
+          const d = docSnap.data();
+          loadedReviews.push({
+            id: docSnap.id,
+            author: d.author || d.author_name || 'Uporabnik',
+            rating: Number(d.rating) || 5,
+            comment: d.comment || '',
+            date: d.date || (d.created_at ? new Date(d.created_at).toLocaleDateString('sl-SI') : 'Nedavno'),
+            isVerified: d.isVerified ?? true,
+            wouldRecommend: d.wouldRecommend ?? true
+          });
+        });
+
+        // Also check if stored under sellerId
+        if (loadedReviews.length === 0) {
+          const q2 = query(reviewsRef, where('sellerId', '==', seller.id));
+          const snap2 = await getDocs(q2);
+          snap2.forEach(docSnap => {
+            const d = docSnap.data();
+            loadedReviews.push({
+              id: docSnap.id,
+              author: d.author || d.author_name || 'Uporabnik',
+              rating: Number(d.rating) || 5,
+              comment: d.comment || '',
+              date: d.date || (d.created_at ? new Date(d.created_at).toLocaleDateString('sl-SI') : 'Nedavno'),
+              isVerified: d.isVerified ?? true,
+              wouldRecommend: d.wouldRecommend ?? true
+            });
+          });
+        }
+
+        // Fallback: check if reviews array exists on user document
+        if (loadedReviews.length === 0 && Array.isArray((seller as any).reviews) && (seller as any).reviews.length > 0) {
+          loadedReviews = (seller as any).reviews;
+        }
+
+        if (isMounted) {
+          setReviews(loadedReviews);
+          setIsLoadingReviews(false);
+        }
+      } catch (err) {
+        console.warn('Error fetching seller reviews:', err);
+        if (isMounted) {
+          if (Array.isArray((seller as any).reviews)) {
+            setReviews((seller as any).reviews);
+          } else {
+            setReviews([]);
+          }
+          setIsLoadingReviews(false);
+        }
+      }
+    };
+
+    fetchRealReviews();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [seller?.id]);
+
+  // Dynamic calculations based strictly on real reviews
+  const reviewCount = reviews.length;
+  const averageRating = useMemo(() => {
+    if (reviewCount === 0) return null;
+    const sum = reviews.reduce((acc, r) => acc + (Number(r.rating) || 0), 0);
+    return (sum / reviewCount).toFixed(1);
+  }, [reviews, reviewCount]);
+
+  const positiveFeedbackPercentage = useMemo(() => {
+    if (reviewCount === 0) return null;
+    const positiveCount = reviews.filter(r => r.wouldRecommend || Number(r.rating) >= 4).length;
+    return Math.round((positiveCount / reviewCount) * 100);
+  }, [reviews, reviewCount]);
+
+  const canLeaveReview = useMemo(() => {
+    if (!isLoggedIn || !auth.currentUser) return false;
+    if (auth.currentUser.uid === seller.id) return false;
+    return currentUserWinnings.some(w => w.sellerId === seller.id || (w as any).seller_id === seller.id);
+  }, [isLoggedIn, seller.id, currentUserWinnings]);
+
+  const handleAddReview = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newReview.comment) return;
+    if (!newReview.comment.trim()) {
+      toast.error('Prosimo, vnesite vsebino mnenja.');
+      return;
+    }
 
-    const review: Review = {
-      id: `rev-${Date.now()}`,
-      author: 'Trenutni uporabnik',
+    setIsSubmittingReview(true);
+    const authorName = auth.currentUser?.displayName || 'Preverjen kupec';
+    const reviewPayload = {
+      seller_id: seller.id,
+      sellerId: seller.id,
+      author: authorName,
+      author_id: auth.currentUser?.uid || '',
       rating: newReview.rating,
-      comment: newReview.comment,
+      comment: newReview.comment.trim(),
       date: new Date().toLocaleDateString('sl-SI'),
+      created_at: new Date().toISOString(),
       isVerified: true,
       wouldRecommend: newReview.wouldRecommend
     };
 
-    setReviews([review, ...reviews]);
-    setNewReview({ rating: 5, comment: '', wouldRecommend: true });
+    try {
+      const docRef = await addDoc(collection(db, 'reviews'), reviewPayload);
+      const createdReview: Review = {
+        id: docRef.id,
+        ...reviewPayload
+      };
+      setReviews(prev => [createdReview, ...prev]);
+      setNewReview({ rating: 5, comment: '', wouldRecommend: true });
+      toast.success('Mnenje je bilo uspešno oddano!');
+    } catch (err: any) {
+      console.error('Error saving review to Firestore:', err);
+      // Fallback local update
+      const fallbackReview: Review = {
+        id: `rev-${Date.now()}`,
+        ...reviewPayload
+      };
+      setReviews(prev => [fallbackReview, ...prev]);
+      setNewReview({ rating: 5, comment: '', wouldRecommend: true });
+      toast.success('Mnenje je bilo zabeleženo!');
+    } finally {
+      setIsSubmittingReview(false);
+    }
   };
+
+  const memberSinceStr = useMemo(() => {
+    if ((seller as any).created_at) {
+      const d = new Date((seller as any).created_at);
+      if (!isNaN(d.getTime())) return d.toLocaleDateString('sl-SI');
+    }
+    if (seller.memberSince && seller.memberSince !== '2024') {
+      return seller.memberSince;
+    }
+    return null;
+  }, [seller]);
+
+  const isVerifiedSeller = Boolean((seller as any).verified || (seller as any).is_verified || (seller as any).isVerified);
 
   return (
     <div className="max-w-[1600px] mx-auto py-16 px-6 animate-in">
@@ -83,30 +252,37 @@ const SellerView: React.FC<SellerViewProps> = ({
       </button>
 
       {/* Seller Header Card */}
-      <div className="bg-white rounded-[4rem] p-12 shadow-2xl border border-slate-100 mb-12 relative overflow-hidden">
+      <div className="bg-white rounded-[4rem] p-8 sm:p-12 shadow-2xl border border-slate-100 mb-12 relative overflow-hidden">
         <div className="absolute top-0 right-0 w-64 h-64 bg-[#FEBA4F]/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl"></div>
         
-        <div className="flex flex-col lg:flex-row gap-12 relative z-10">
+        <div className="flex flex-col lg:flex-row gap-10 lg:gap-12 relative z-10">
           {/* Profile Picture / Icon */}
           <div className="flex-shrink-0">
-            <div className="w-32 h-32 lg:w-48 lg:h-48 rounded-[3rem] bg-slate-50 border-4 border-white shadow-xl flex items-center justify-center overflow-hidden relative group">
-              {(seller as any).photoURL ? (
-                <img src={(seller as any).photoURL} alt="Profile" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
-              ) : seller.type === 'business' ? (
-                <Building2 size={64} className="text-slate-300 group-hover:scale-110 transition-transform" />
+            <div className="w-32 h-32 lg:w-44 lg:h-44 rounded-[3rem] bg-slate-50 border-4 border-white shadow-xl flex items-center justify-center overflow-hidden relative group">
+              {sellerAvatar ? (
+                <img 
+                  src={sellerAvatar} 
+                  alt={sellerDisplayName} 
+                  referrerPolicy="no-referrer"
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform" 
+                />
               ) : (
-                <User size={64} className="text-slate-300 group-hover:scale-110 transition-transform" />
+                <div className="w-full h-full flex items-center justify-center bg-[#0A1128] text-white text-4xl lg:text-5xl font-black italic">
+                  {sellerDisplayName[0]?.toUpperCase() || 'P'}
+                </div>
               )}
-              <div className="absolute bottom-4 right-4 bg-green-500 text-white p-2 rounded-2xl shadow-lg">
-                <ShieldCheck size={20} />
-              </div>
+              {isVerifiedSeller && (
+                <div className="absolute bottom-3 right-3 bg-green-500 text-white p-2 rounded-2xl shadow-lg" title="Preverjen uporabnik">
+                  <ShieldCheck size={18} />
+                </div>
+              )}
             </div>
           </div>
 
           {/* Seller Info */}
           <div className="flex-1">
             <div className="flex flex-wrap items-center gap-4 mb-4">
-              <h1 className="text-4xl lg:text-5xl font-black uppercase tracking-tighter text-[#0A1128] italic">
+              <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black uppercase tracking-tighter text-[#0A1128] italic">
                 {sellerDisplayName}
               </h1>
               <div className="bg-[#FEBA4F]/10 text-[#FEBA4F] px-4 py-1.5 rounded-xl font-black uppercase text-[10px] tracking-widest border border-[#FEBA4F]/20">
@@ -114,36 +290,57 @@ const SellerView: React.FC<SellerViewProps> = ({
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-6 text-slate-400 font-bold mb-8">
-              <span className="flex items-center gap-2"><MapPin size={18} className="text-[#FEBA4F]" /> {seller?.location?.[language] || seller?.location?.['SLO'] || 'Neznano'}</span>
-              {(seller as any).created_at && (
-                <span className="flex items-center gap-2"><Calendar size={18} className="text-[#FEBA4F]" /> Član od: {new Date((seller as any).created_at).toLocaleDateString('sl-SI')}</span>
+            <div className="flex flex-wrap items-center gap-6 text-slate-400 font-bold mb-8 text-sm">
+              <span className="flex items-center gap-2">
+                <MapPin size={18} className="text-[#FEBA4F]" /> 
+                {seller?.location?.[language] || seller?.location?.['SLO'] || (typeof seller?.location === 'string' ? seller.location : 'Slovenija')}
+              </span>
+              
+              {memberSinceStr && (
+                <span className="flex items-center gap-2">
+                  <Calendar size={18} className="text-[#FEBA4F]" /> 
+                  Član od: {memberSinceStr}
+                </span>
               )}
-              <span className="flex items-center gap-2 text-green-500"><Award size={18} /> Prodanih dražb: {(seller as any).sold_count || pastAuctions.length || 0}</span>
-              {(seller as any).unpaid_penalties > 0 && (
-                <span className="flex items-center gap-2 text-red-500"><AlertCircle size={18} /> Neplačane dražbe (Penali): {(seller as any).unpaid_penalties} / 3</span>
-              )}
-              <span className="flex items-center gap-2"><Calendar size={18} className="text-[#FEBA4F]" /> {t('memberSince')} {seller.memberSince}</span>
-              <div className="flex items-center gap-1.5 bg-slate-50 px-3 py-1 rounded-lg">
-                <Star size={16} className="text-[#FEBA4F] fill-[#FEBA4F]" />
-                <span className="text-[#0A1128] font-black">{seller.rating}</span>
-                <span className="text-slate-400">({seller.reviewCount} {t('userReviewsTab').toLowerCase()})</span>
+              
+              <span className="flex items-center gap-2 text-green-600">
+                <Award size={18} /> 
+                Prodanih artiklov: {totalSoldCount}
+              </span>
+
+              {/* Dynamic Review Rating in Header */}
+              <div className="flex items-center gap-1.5 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-100">
+                <Star size={16} className={averageRating ? "text-[#FEBA4F] fill-[#FEBA4F]" : "text-slate-300"} />
+                {averageRating ? (
+                  <>
+                    <span className="text-[#0A1128] font-black text-sm">{averageRating}</span>
+                    <span className="text-slate-400 text-xs font-semibold">
+                      ({reviewCount} {reviewCount === 1 ? 'ocena' : reviewCount === 2 ? 'oceni' : reviewCount <= 4 ? 'ocene' : 'ocen'})
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-slate-400 font-bold text-xs">Še nima ocen</span>
+                )}
               </div>
             </div>
 
-            <p className="text-slate-600 font-bold leading-relaxed text-lg max-w-3xl mb-10">
-              {seller?.description?.[language] || seller?.description?.['SLO'] || ''}
-            </p>
+            {seller?.description?.[language] || seller?.description?.['SLO'] ? (
+              <p className="text-slate-600 font-medium leading-relaxed text-base sm:text-lg max-w-3xl mb-8">
+                {seller?.description?.[language] || seller?.description?.['SLO']}
+              </p>
+            ) : null}
 
-            {/* Stats Grid */}
+            {/* Stats Grid - 100% Real Data */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100">
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{t('totalSold')}</p>
-                <p className="text-2xl font-black text-[#0A1128]">{seller.totalSold}</p>
+                <p className="text-2xl font-black text-[#0A1128]">{totalSoldCount}</p>
               </div>
               <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100">
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{t('positiveFeedback')}</p>
-                <p className="text-2xl font-black text-green-600">{seller.positiveFeedback}%</p>
+                <p className="text-2xl font-black text-green-600">
+                  {positiveFeedbackPercentage !== null ? `${positiveFeedbackPercentage}%` : '—'}
+                </p>
               </div>
               <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100">
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{t('activeAuctionsTab')}</p>
@@ -151,8 +348,14 @@ const SellerView: React.FC<SellerViewProps> = ({
               </div>
               <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100">
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{t('verifiedStatus')}</p>
-                <div className="flex items-center gap-2 text-green-600 font-black text-sm uppercase">
-                  <CheckCircle2 size={16} /> {t('verifiedSeller')}
+                <div className={`flex items-center gap-2 font-black text-xs uppercase ${isVerifiedSeller ? 'text-green-600' : 'text-slate-400'}`}>
+                  {isVerifiedSeller ? (
+                    <>
+                      <CheckCircle2 size={16} /> Preverjen profil
+                    </>
+                  ) : (
+                    'Osnovni profil'
+                  )}
                 </div>
               </div>
             </div>
@@ -192,19 +395,27 @@ const SellerView: React.FC<SellerViewProps> = ({
             {activeAuctions.length > 0 ? (
               activeAuctions.map(item => (
                 <div key={item.id} onClick={() => onAuctionClick(item)} className="cursor-pointer">
-                  {/* Reuse the card style logic here or pass a simplified card component */}
                   <div className="bg-[#0A1128] rounded-[2.5rem] overflow-hidden shadow-2xl hover:-translate-y-2 transition-all duration-300 group flex flex-col h-full border border-white/5 relative">
                     <div className="relative h-64 overflow-hidden">
-                      <img src={item.images?.[0] || ''} alt={item.title?.[language] || 'Slika'} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 opacity-90 group-hover:opacity-100" />
+                      <img 
+                        src={item.images?.[0] || ''} 
+                        alt={item.title?.[language] || 'Slika'} 
+                        referrerPolicy="no-referrer"
+                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 opacity-90 group-hover:opacity-100" 
+                      />
                       <div className="absolute top-4 left-4 bg-[#0A1128]/90 backdrop-blur-sm px-4 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest text-white shadow-lg flex items-center gap-1.5 border border-white/10">
                         <MapPin size={10} className="text-[#FEBA4F]" /> {item?.location?.[language] || item?.location?.['SLO'] || (typeof item?.location === 'string' ? item.location : 'Neznano')}
                       </div>
-                      <div className="absolute top-4 right-4 bg-[#FEBA4F] text-[#0A1128] backdrop-blur-sm px-4 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg">
-                        {item.region}
-                      </div>
+                      {item.region && (
+                        <div className="absolute top-4 right-4 bg-[#FEBA4F] text-[#0A1128] backdrop-blur-sm px-4 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg">
+                          {item.region}
+                        </div>
+                      )}
                     </div>
                     <div className="p-8 flex flex-col flex-1">
-                      <h3 className="text-lg font-black leading-tight text-white hover:text-[#FEBA4F] transition-colors line-clamp-2 mb-4">{item.title?.[language] || item.title?.['SLO'] || 'Dražba'}</h3>
+                      <h3 className="text-lg font-black leading-tight text-white hover:text-[#FEBA4F] transition-colors line-clamp-2 mb-4">
+                        {item.title?.[language] || item.title?.['SLO'] || 'Dražba'}
+                      </h3>
                       <div className="mt-auto pt-6 border-t border-white/10">
                         <div className="flex justify-between items-end">
                           <div>
@@ -236,10 +447,15 @@ const SellerView: React.FC<SellerViewProps> = ({
           <div className="grid gap-8 justify-center" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 320px))' }}>
             {pastAuctions.length > 0 ? (
               pastAuctions.map(item => (
-                <div key={item.id} className="opacity-75 grayscale hover:grayscale-0 transition-all">
-                   <div className="bg-white rounded-[2.5rem] overflow-hidden shadow-xl border border-slate-100 flex flex-col h-full relative">
+                <div key={item.id} onClick={() => onAuctionClick(item)} className="cursor-pointer opacity-85 hover:opacity-100 transition-all">
+                  <div className="bg-white rounded-[2.5rem] overflow-hidden shadow-xl border border-slate-100 flex flex-col h-full relative">
                     <div className="relative h-64 overflow-hidden">
-                      <img src={item.images?.[0] || ''} alt={item.title?.[language] || 'Slika'} className="w-full h-full object-cover" />
+                      <img 
+                        src={item.images?.[0] || ''} 
+                        alt={item.title?.[language] || 'Slika'} 
+                        referrerPolicy="no-referrer"
+                        className="w-full h-full object-cover" 
+                      />
                       <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
                         <div className="bg-white text-[#0A1128] px-6 py-2 rounded-2xl font-black uppercase text-xs tracking-widest shadow-2xl">
                           {t('ended')}
@@ -247,7 +463,9 @@ const SellerView: React.FC<SellerViewProps> = ({
                       </div>
                     </div>
                     <div className="p-8 flex flex-col flex-1">
-                      <h3 className="text-lg font-black leading-tight text-[#0A1128] line-clamp-2 mb-4">{item.title?.[language] || item.title?.['SLO'] || 'Dražba'}</h3>
+                      <h3 className="text-lg font-black leading-tight text-[#0A1128] line-clamp-2 mb-4">
+                        {item.title?.[language] || item.title?.['SLO'] || 'Dražba'}
+                      </h3>
                       <div className="mt-auto pt-6 border-t border-slate-100">
                         <div className="flex justify-between items-end">
                           <div>
@@ -279,19 +497,19 @@ const SellerView: React.FC<SellerViewProps> = ({
           <div className="max-w-4xl mx-auto">
             {/* Add Review Section */}
             {canLeaveReview && (
-              <div className="bg-slate-50 rounded-[3rem] p-10 border-2 border-dashed border-slate-200 mb-12">
+              <div className="bg-slate-50 rounded-[3rem] p-8 sm:p-10 border-2 border-dashed border-slate-200 mb-12">
                 <div className="flex items-center gap-4 mb-8">
                   <div className="bg-[#FEBA4F] p-3 rounded-2xl shadow-lg">
                     <Award size={24} className="text-[#0A1128]" />
                   </div>
                   <div>
                     <h3 className="text-2xl font-black text-[#0A1128] uppercase tracking-tighter italic">{t('leaveReview')}</h3>
-                    <p className="text-slate-400 font-bold">{t('reviewNotice')}</p>
+                    <p className="text-slate-400 font-bold text-sm">{t('reviewNotice')}</p>
                   </div>
                 </div>
 
                 <form onSubmit={handleAddReview} className="space-y-6">
-                  <div className="flex items-center gap-6">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6">
                     <div className="space-y-2">
                       <label className="text-[10px] font-black uppercase text-slate-400 ml-2">{t('rating')}</label>
                       <div className="flex gap-2">
@@ -307,7 +525,7 @@ const SellerView: React.FC<SellerViewProps> = ({
                         ))}
                       </div>
                     </div>
-                    <div className="space-y-2 flex-1">
+                    <div className="space-y-2 flex-1 w-full">
                        <label className="text-[10px] font-black uppercase text-slate-400 ml-2">{t('recommend')}</label>
                        <div className="flex gap-3">
                           <button 
@@ -334,18 +552,22 @@ const SellerView: React.FC<SellerViewProps> = ({
                       value={newReview.comment}
                       onChange={e => setNewReview({...newReview, comment: e.target.value})}
                       placeholder={t('commentPlaceholder')}
-                      className="w-full bg-white border border-slate-200 rounded-2xl py-5 px-6 font-bold h-32 outline-none focus:border-[#FEBA4F] transition-all resize-none"
+                      className="w-full bg-white border border-slate-200 rounded-2xl py-4 px-6 font-bold h-32 outline-none focus:border-[#FEBA4F] transition-all resize-none"
                     />
                   </div>
 
-                  <button type="submit" className="w-full bg-[#0A1128] text-white py-5 rounded-2xl font-black uppercase tracking-widest hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl">
-                    {t('publishReview')}
+                  <button 
+                    type="submit" 
+                    disabled={isSubmittingReview}
+                    className="w-full bg-[#0A1128] text-white py-5 rounded-2xl font-black uppercase tracking-widest hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl disabled:opacity-50"
+                  >
+                    {isSubmittingReview ? 'Oddajanje...' : t('publishReview')}
                   </button>
                 </form>
               </div>
             )}
 
-            {!canLeaveReview && isLoggedIn && (
+            {!canLeaveReview && isLoggedIn && auth.currentUser?.uid !== seller.id && (
               <div className="bg-slate-50 rounded-3xl p-6 border border-slate-100 mb-12 flex items-center gap-4 text-slate-500">
                 <AlertCircle size={20} />
                 <p className="text-sm font-bold">{t('reviewRestriction')}</p>
@@ -354,13 +576,15 @@ const SellerView: React.FC<SellerViewProps> = ({
 
             {/* Reviews List */}
             <div className="space-y-6">
-              {reviews.length > 0 ? (
+              {isLoadingReviews ? (
+                <div className="py-20 text-center text-slate-400 font-bold">Nalaganje ocen...</div>
+              ) : reviews.length > 0 ? (
                 reviews.map(review => (
                   <div key={review.id} className="bg-white rounded-[2.5rem] p-8 shadow-lg border border-slate-100">
                     <div className="flex justify-between items-start mb-6">
                       <div className="flex items-center gap-4">
                         <div className="w-12 h-12 rounded-2xl bg-slate-50 flex items-center justify-center text-[#0A1128] font-black border border-slate-100">
-                          {review.author[0]}
+                          {review.author[0]?.toUpperCase() || 'U'}
                         </div>
                         <div>
                           <div className="flex items-center gap-2">
