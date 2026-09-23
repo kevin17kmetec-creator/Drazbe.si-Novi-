@@ -121,7 +121,10 @@ const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
     <ErrorBoundary>
-      <GoogleReCaptchaProvider reCaptchaKey={process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY || ""}>
+      <GoogleReCaptchaProvider 
+        reCaptchaKey={process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY || ""}
+        useEnterprise={true}
+      >
         <App />
       </GoogleReCaptchaProvider>
     </ErrorBoundary>

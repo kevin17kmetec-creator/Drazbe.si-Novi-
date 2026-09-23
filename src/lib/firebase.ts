@@ -3,7 +3,7 @@ import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getDatabase } from 'firebase/database';
 import { getStorage } from 'firebase/storage';
-import { initializeAppCheck, ReCaptchaV3Provider } from 'firebase/app-check';
+import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-check';
 
 const firebaseConfig = {
   apiKey: "AIzaSyAIBpZLRkpmgUION6mLrz5Us04Sk4LRrso",
@@ -21,8 +21,19 @@ if (typeof window !== 'undefined') {
   const siteKey = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY;
   if (siteKey) {
     try {
+      // V razvojnem okolju, Cloud Run predogledu (*.run.app) ali na localhostu omogočimo debug token,
+      // da se preprečijo 400 AppCheck napake zaradi neskladja domen v reCAPTCHA Enterprise
+      if (
+        process.env.NODE_ENV !== 'production' ||
+        window.location.hostname === 'localhost' ||
+        window.location.hostname.includes('run.app')
+      ) {
+        // @ts-ignore
+        self.FIREBASE_APPCHECK_DEBUG_TOKEN = (typeof self !== 'undefined' && (self as any).FIREBASE_APPCHECK_DEBUG_TOKEN) || true;
+      }
+
       initializeAppCheck(app, {
-        provider: new ReCaptchaV3Provider(siteKey),
+        provider: new ReCaptchaEnterpriseProvider(siteKey),
         isTokenAutoRefreshEnabled: true
       });
     } catch (err) {

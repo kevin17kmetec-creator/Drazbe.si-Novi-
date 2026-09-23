@@ -79,6 +79,12 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
       if (!sent && password) {
         try {
           const cred = await signInWithEmailAndPassword(auth, targetEmail, password);
+          if (cred.user.emailVerified) {
+            await signOut(auth);
+            toast.info("Vaš e-poštni naslov je že potrjen! Lahko se prijavite.");
+            setUnverifiedEmail(null);
+            return;
+          }
           await sendEmailVerification(cred.user);
           await signOut(auth);
           sent = true;
@@ -168,8 +174,33 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
           onLoginSuccess();
       } else {
           // REGISTRACIJA
-          const cred = await createUserWithEmailAndPassword(auth, email, password);
-          const user = cred.user;
+          let user: any = null;
+          let isExistingUnverified = false;
+
+          try {
+            const cred = await createUserWithEmailAndPassword(auth, email, password);
+            user = cred.user;
+          } catch (createErr: any) {
+            if (createErr.code === "auth/email-already-in-use") {
+              // Preverimo, ali gre za predhodno nepotrjen račun s tem geslom
+              try {
+                const loginCred = await signInWithEmailAndPassword(auth, email, password);
+                if (!loginCred.user.emailVerified) {
+                  user = loginCred.user;
+                  isExistingUnverified = true;
+                  console.log("Najden nepotrjen obstoječi račun. Pošiljam novo potrditveno povezavo.");
+                } else {
+                  await signOut(auth);
+                  throw createErr;
+                }
+              } catch (signInErr: any) {
+                setUnverifiedEmail(email);
+                throw createErr;
+              }
+            } else {
+              throw createErr;
+            }
+          }
           
           let emailSent = false;
           let sendError = "";
@@ -187,7 +218,7 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
           }
 
           // 2. Če Resend ni poslal (npr. manjkajoč service account na strežniku), pošlji neposredno prek Firebase Client Auth
-          if (!emailSent) {
+          if (!emailSent && user) {
             try {
               await sendEmailVerification(user);
               emailSent = true;
@@ -198,14 +229,14 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
           }
 
           // 3. Če pošiljanje e-pošte NI uspelo:
-          // STROGO NAVODILO:
-          // "Zelim tudi da dodas, da v bilo katerem koraku se registracija zalomi ne zelim da teh podatkov shranis in naredis uspesne registracije."
           if (!emailSent) {
-            try {
-              // Izbrišemo začasnega Firebase Auth uporabnika, da sprostimo e-poštni naslov in preprečimo neveljaven račun
-              await deleteUser(user);
-            } catch (delErr) {
-              console.error("Napaka pri brisanju nepopolnega uporabnika:", delErr);
+            if (!isExistingUnverified && user) {
+              try {
+                // Izbrišemo začasnega Firebase Auth uporabnika, da sprostimo e-poštni naslov in preprečimo neveljaven račun
+                await deleteUser(user);
+              } catch (delErr) {
+                console.error("Napaka pri brisanju nepopolnega uporabnika:", delErr);
+              }
             }
             await signOut(auth);
             toast.error(`Registracija ni uspela: potrditvenega e-poštnega sporočila ni bilo mogoče poslati (${sendError}). Nobeni podatki niso bili shranjeni. Prosimo, poskusite znova.`);
@@ -214,10 +245,13 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
           }
 
           // 4. E-pošta je bila uspešno poslana!
-          // Uporabnika takoj odjavimo. Podatki niso potrjeni, dokler uporabnik ne potrdi e-poštnega naslova.
           await signOut(auth);
           setUnverifiedEmail(email);
-          toast.success("Registracija je v teku! Na vaš e-poštni naslov smo poslali potrditveno povezavo. Registracija bo zaključena in veljavna šele, ko kliknete povezavo v prejetem sporočilu.");
+          if (isExistingUnverified) {
+            toast.success("Ta e-poštni naslov je bil predhodno že vnesen, vendar še ni bil potrjen. Na vaš naslov smo poslali novo potrditveno povezavo! Prosimo, kliknite povezavo v sporočilu za dokončanje registracije.");
+          } else {
+            toast.success("Registracija je v teku! Na vaš e-poštni naslov smo poslali potrditveno povezavo. Registracija bo zaključena in veljavna šele, ko kliknete povezavo v prejetem sporočilu.");
+          }
           setIsLogin(true);
       }
     } catch (error: any) {
