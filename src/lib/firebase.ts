@@ -18,27 +18,30 @@ const firebaseConfig = {
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
 if (typeof window !== 'undefined') {
-  const siteKey = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY;
-  if (siteKey) {
-    try {
-      // V razvojnem okolju, Cloud Run predogledu (*.run.app) ali na localhostu omogočimo debug token,
-      // da se preprečijo 400 AppCheck napake zaradi neskladja domen v reCAPTCHA Enterprise
-      if (
-        process.env.NODE_ENV !== 'production' ||
-        window.location.hostname === 'localhost' ||
-        window.location.hostname.includes('run.app')
-      ) {
-        // @ts-ignore
-        self.FIREBASE_APPCHECK_DEBUG_TOKEN = (typeof self !== 'undefined' && (self as any).FIREBASE_APPCHECK_DEBUG_TOKEN) || true;
-      }
+  try {
+    const siteKey = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY;
+    if (siteKey) {
+      try {
+        // V razvojnem okolju, Cloud Run predogledu (*.run.app) ali na localhostu omogočimo debug token
+        if (
+          process.env.NODE_ENV !== 'production' ||
+          window.location.hostname === 'localhost' ||
+          window.location.hostname.includes('run.app')
+        ) {
+          // @ts-ignore
+          self.FIREBASE_APPCHECK_DEBUG_TOKEN = (typeof self !== 'undefined' && (self as any).FIREBASE_APPCHECK_DEBUG_TOKEN) || true;
+        }
 
-      initializeAppCheck(app, {
-        provider: new ReCaptchaEnterpriseProvider(siteKey),
-        isTokenAutoRefreshEnabled: true
-      });
-    } catch (err) {
-      console.warn("AppCheck initialization error:", err);
+        initializeAppCheck(app, {
+          provider: new ReCaptchaEnterpriseProvider(siteKey),
+          isTokenAutoRefreshEnabled: true
+        });
+      } catch (innerErr) {
+        console.warn("AppCheck provider initialization caught and bypassed:", innerErr);
+      }
     }
+  } catch (err) {
+    console.warn("AppCheck initialization caught and bypassed:", err);
   }
 }
 

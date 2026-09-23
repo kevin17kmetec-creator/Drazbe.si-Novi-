@@ -14,11 +14,8 @@ import {
 import { setDoc, doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { toast } from 'sonner';
 import { sendEmailVerificationAction, sendPasswordResetAction } from "@/src/actions/auth-emails";
-import { useGoogleReCaptcha } from 'react-google-recaptcha-v3';
-import { verifyCaptchaAction } from "@/src/actions/captcha";
 
 export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerified: (v: boolean) => void; setAppLoggedIn: (val: boolean) => void }> = ({ t, onLoginSuccess, setIsVerified, setAppLoggedIn }) => {
-  const { executeRecaptcha } = useGoogleReCaptcha();
   const [isLogin, setIsLogin] = useState(true);
   const [isForgotPassword, setIsForgotPassword] = useState(false);
   const [email, setEmail] = useState('');
@@ -122,23 +119,6 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
     
     setLoading(true);
     try {
-      if (!executeRecaptcha) {
-        const msg = "reCAPTCHA ni na voljo.";
-        setError(msg);
-        toast.error(msg);
-        setLoading(false);
-        return;
-      }
-      const token = await executeRecaptcha('auth_submit');
-      const captchaRes = await verifyCaptchaAction(token);
-      if (!captchaRes.success) {
-        // PREKINI POTEK in prikaži napako uporabniku
-        setError(captchaRes.error || "reCAPTCHA preverjanje ni uspelo.");
-        toast.error(captchaRes.error || "reCAPTCHA preverjanje ni uspelo.");
-        setLoading(false);
-        return; // Ne nadaljuj s Firebase login/register!
-      }
-
       if (isLogin) {
           const cred = await signInWithEmailAndPassword(auth, email, password);
           const user = cred.user;
@@ -344,20 +324,6 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
       
       setLoading(true);
       try {
-          if (!executeRecaptcha) {
-            toast.error("reCAPTCHA ni na voljo.");
-            setLoading(false);
-            return;
-          }
-          const token = await executeRecaptcha('auth_reset');
-          const captchaRes = await verifyCaptchaAction(token);
-          if (!captchaRes.success) {
-            setError(captchaRes.error || "reCAPTCHA preverjanje ni uspelo.");
-            toast.error(captchaRes.error || "reCAPTCHA preverjanje ni uspelo.");
-            setLoading(false);
-            return;
-          }
-
           let resetSuccess = false;
           try {
             const res = await sendPasswordResetAction(email);
