@@ -4202,7 +4202,7 @@ const MainApp: React.FC = () => {
               </h2>
               <p className="text-slate-500 font-bold leading-relaxed mb-6">
                 Z oddajo ponudbe potrjujete, da se strinjate s splošnimi pogoji
-                poslovanja platforme Drazba.si. Vaša ponudba je pravno
+                poslovanja platforme dražbenik.si. Vaša ponudba je pravno
                 zavezujoča. V primeru, da zmagate na dražbi, ste dolžni predmet
                 prevzeti in plačati v skladu s pogoji prodajalca.
               </p>

@@ -25,7 +25,7 @@ export interface AuthEmailProps {
 export const AuthEmailTemplate: React.FC<AuthEmailProps> = ({
   type = 'verify_email',
   recipientName = 'Uporabnik',
-  actionUrl = 'https://drazba.si',
+  actionUrl = 'https://drazbenik.si',
 }) => {
   let previewText = '';
   let badgeText = '';
@@ -153,7 +153,7 @@ export const AuthEmailTemplate: React.FC<AuthEmailProps> = ({
           <Section style={footerSection}>
             <Text style={footerText}>
               To je samodejno sistemsko obvestilo spletne platforme{' '}
-              <Link href="https://drazba.si" target="_blank" style={footerLink}>
+              <Link href="https://drazbenik.si" target="_blank" style={footerLink}>
                 dražbenik.si
               </Link>
               .

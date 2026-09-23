@@ -42,7 +42,7 @@ export const Footer: React.FC<{
             <div>
                 <h4 className="font-black uppercase tracking-widest text-xs mb-8 text-[#FEBA4F]">{t('contact')}</h4>
                 <ul className="space-y-4 text-sm font-bold text-slate-400">
-                    <li className="flex items-center gap-3"><Mail size={16} /> info@drazba.si</li>
+                    <li className="flex items-center gap-3"><Mail size={16} /> info@drazbenik.si</li>
                     <li className="flex items-center gap-3"><Phone size={16} /> +386 1 234 5678</li>
                     <li className="flex items-center gap-3"><MapPin size={16} /> Slovenska cesta 1, Ljubljana</li>
                 </ul>

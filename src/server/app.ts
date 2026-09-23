@@ -609,7 +609,7 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
       if (buyer.email && process.env.RESEND_API_KEY) {
         try {
           const auctionTitleText = auctionDataPdf?.title?.SLO || auctionDataPdf?.title?.EN || 'Predmet dražbe';
-          const auctionUrl = `${process.env.APP_URL || 'https://drazba.si'}/?drazba=${auction_id}`;
+          const auctionUrl = `${process.env.APP_URL || 'https://drazbenik.si'}/?drazba=${auction_id}`;
           
           const htmlContent = await render(React.createElement(AuctionEmailTemplate, {
             type: 'payment_success',
@@ -618,14 +618,14 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
             auctionImageUrl: auctionDataPdf?.images?.[0]?.url,
             currentPrice: transaction.amount_total,
             auctionUrl,
-            settingsUrl: `${process.env.APP_URL || 'https://drazba.si'}/?tab=settings`,
+            settingsUrl: `${process.env.APP_URL || 'https://drazbenik.si'}/?tab=settings`,
           }));
 
           const resendClient = new Resend(process.env.RESEND_API_KEY);
           await resendClient.emails.send({
-            from: process.env.EMAIL_FROM || 'Drazba.si <obvestila@drazba.si>',
+            from: process.env.EMAIL_FROM || 'dražbenik.si <obvestila@drazbenik.si>',
             to: buyer.email,
-            subject: `Potrdilo o plačilu in dokumenti: ${auctionTitleText} - Drazba.si`,
+            subject: `Potrdilo o plačilu in dokumenti: ${auctionTitleText} - dražbenik.si`,
             html: htmlContent,
             attachments
           });
@@ -2043,12 +2043,12 @@ app.post("/api/test/send-email", async (req, res) => {
         recipientName: recipientName || 'Uporabnik',
         auctionTitle: auctionTitle,
         currentPrice: currentPrice,
-        auctionUrl: `${process.env.APP_URL || 'https://drazba.si'}/?drazba=${auctionId}`,
-        settingsUrl: `${process.env.APP_URL || 'https://drazba.si'}/?tab=settings`,
+        auctionUrl: `${process.env.APP_URL || 'https://drazbenik.si'}/?drazba=${auctionId}`,
+        settingsUrl: `${process.env.APP_URL || 'https://drazbenik.si'}/?tab=settings`,
       }));
 
       const emailResponse = await resendClient.emails.send({
-        from: process.env.EMAIL_FROM || 'dražbenik.si <obvestila@drazba.si>',
+        from: process.env.EMAIL_FROM || 'dražbenik.si <obvestila@drazbenik.si>',
         to: toEmail,
         subject: `🧾 Potrdilo o plačilu in račun: ${auctionTitle} - dražbenik.si`,
         html: htmlContent,
@@ -2391,7 +2391,7 @@ app.post("/api/test/add-test-funds", async (req, res) => {
       currency: "eur",
       payment_method: "pm_card_visa",
       confirm: true,
-      return_url: "https://drazba.si/test-sandbox",
+      return_url: "https://drazbenik.si/test-sandbox",
       payment_method_types: ['card'],
       description: "Platform test balance funding",
       metadata: {
@@ -2865,7 +2865,7 @@ app.post("/api/auth/send-email-change", async (req, res) => {
     if (!email || !newEmail) return res.status(400).json({ error: "Manjkajo podatki" });
 
     const actionUrl = await adminAuth.generateVerifyAndChangeEmailLink(email, newEmail, {
-      url: `${process.env.APP_URL || 'https://drazba.si'}/?tab=settings`
+      url: `${process.env.APP_URL || 'https://drazbenik.si'}/?tab=settings`
     });
 
     if (process.env.RESEND_API_KEY) {
@@ -2877,7 +2877,7 @@ app.post("/api/auth/send-email-change", async (req, res) => {
       }));
 
       await resend.emails.send({
-        from: process.env.EMAIL_FROM || 'Drazba.si <obvestila@drazba.si>',
+        from: process.env.EMAIL_FROM || 'dražbenik.si <obvestila@drazbenik.si>',
         to: newEmail,
         subject: 'Potrdite spremembo e-poštnega naslova - dražbenik.si',
         html: htmlContent,
@@ -2896,11 +2896,16 @@ app.post("/api/auth/send-verification", async (req, res) => {
     const { email, displayName } = req.body;
     if (!email) return res.status(400).json({ error: "Manjka e-poštni naslov" });
 
-    const actionUrl = await adminAuth.generateEmailVerificationLink(email, {
-      url: `${process.env.APP_URL || 'https://drazba.si'}/?tab=settings`
-    });
+    let actionUrl: string | null = null;
+    try {
+      actionUrl = await adminAuth.generateEmailVerificationLink(email, {
+        url: `${process.env.APP_URL || 'https://drazbenik.si'}/?tab=settings`
+      });
+    } catch (authErr: any) {
+      console.warn("adminAuth.generateEmailVerificationLink ni uspel:", authErr.message);
+    }
 
-    if (process.env.RESEND_API_KEY) {
+    if (actionUrl && process.env.RESEND_API_KEY) {
       const resend = new Resend(process.env.RESEND_API_KEY);
       const htmlContent = await render(React.createElement(AuthEmailTemplate, {
         type: 'verify_email',
@@ -2908,18 +2913,30 @@ app.post("/api/auth/send-verification", async (req, res) => {
         recipientName: displayName || email.split('@')[0],
       }));
 
-      await resend.emails.send({
-        from: process.env.EMAIL_FROM || 'Drazba.si <obvestila@drazba.si>',
+      const sendRes = await resend.emails.send({
+        from: process.env.EMAIL_FROM || 'dražbenik.si <obvestila@drazbenik.si>',
         to: email,
         subject: 'Potrdite svoj e-poštni naslov - dražbenik.si',
         html: htmlContent,
       });
+
+      if (sendRes.error) {
+        console.error("Resend error sending verification email:", sendRes.error);
+        return res.status(500).json({ error: sendRes.error.message, fallbackToClient: true });
+      }
+
+      return res.json({ success: true, method: 'resend' });
     }
 
-    res.json({ success: true });
+    // Če actionUrl ni bil uspešno generiran ali Resend ni na voljo, sporočimo klientu za uporabo Client SDK
+    return res.json({ 
+      success: false, 
+      fallbackToClient: true, 
+      message: "adminAuth ni na voljo za generiranje povezave. Uporabite Firebase Client SDK." 
+    });
   } catch (err: any) {
     console.error("send-verification error:", err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: err.message, fallbackToClient: true });
   }
 });
 
@@ -2928,11 +2945,16 @@ app.post("/api/auth/send-password-reset", async (req, res) => {
     const { email } = req.body;
     if (!email) return res.status(400).json({ error: "Manjka e-poštni naslov" });
 
-    const actionUrl = await adminAuth.generatePasswordResetLink(email, {
-      url: `${process.env.APP_URL || 'https://drazba.si'}/`
-    });
+    let actionUrl: string | null = null;
+    try {
+      actionUrl = await adminAuth.generatePasswordResetLink(email, {
+        url: `${process.env.APP_URL || 'https://drazbenik.si'}/`
+      });
+    } catch (authErr: any) {
+      console.warn("adminAuth.generatePasswordResetLink ni uspel:", authErr.message);
+    }
 
-    if (process.env.RESEND_API_KEY) {
+    if (actionUrl && process.env.RESEND_API_KEY) {
       const resend = new Resend(process.env.RESEND_API_KEY);
       const htmlContent = await render(React.createElement(AuthEmailTemplate, {
         type: 'reset_password',
@@ -2940,18 +2962,29 @@ app.post("/api/auth/send-password-reset", async (req, res) => {
         recipientName: email.split('@')[0],
       }));
 
-      await resend.emails.send({
-        from: process.env.EMAIL_FROM || 'Drazba.si <obvestila@drazba.si>',
+      const sendRes = await resend.emails.send({
+        from: process.env.EMAIL_FROM || 'dražbenik.si <obvestila@drazbenik.si>',
         to: email,
         subject: 'Ponastavitev gesla - dražbenik.si',
         html: htmlContent,
       });
+
+      if (sendRes.error) {
+        console.error("Resend send error:", sendRes.error);
+        return res.status(500).json({ error: sendRes.error.message, fallbackToClient: true });
+      }
+
+      return res.json({ success: true, method: 'resend' });
     }
 
-    res.json({ success: true });
+    return res.json({ 
+      success: false, 
+      fallbackToClient: true, 
+      message: "adminAuth ni na voljo za ponastavitev gesla, uporabi Firebase Client SDK." 
+    });
   } catch (err: any) {
     console.error("send-password-reset error:", err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: err.message, fallbackToClient: true });
   }
 });
 
@@ -2964,12 +2997,12 @@ app.post("/api/auth/send-email-changed", async (req, res) => {
       const resend = new Resend(process.env.RESEND_API_KEY);
       const htmlContent = await render(React.createElement(AuthEmailTemplate, {
         type: 'email_changed',
-        actionUrl: `${process.env.APP_URL || 'https://drazba.si'}/?tab=settings`,
+        actionUrl: `${process.env.APP_URL || 'https://drazbenik.si'}/?tab=settings`,
         recipientName: email.split('@')[0],
       }));
 
       await resend.emails.send({
-        from: process.env.EMAIL_FROM || 'Drazba.si <obvestila@drazba.si>',
+        from: process.env.EMAIL_FROM || 'dražbenik.si <obvestila@drazbenik.si>',
         to: email,
         subject: 'Sprememba e-poštnega naslova - dražbenik.si',
         html: htmlContent,
@@ -2992,12 +3025,12 @@ app.post("/api/auth/send-mfa-enrollment", async (req, res) => {
       const resend = new Resend(process.env.RESEND_API_KEY);
       const htmlContent = await render(React.createElement(AuthEmailTemplate, {
         type: 'mfa_enrollment',
-        actionUrl: `${process.env.APP_URL || 'https://drazba.si'}/?tab=settings`,
+        actionUrl: `${process.env.APP_URL || 'https://drazbenik.si'}/?tab=settings`,
         recipientName: email.split('@')[0],
       }));
 
       await resend.emails.send({
-        from: process.env.EMAIL_FROM || 'Drazba.si <obvestila@drazba.si>',
+        from: process.env.EMAIL_FROM || 'dražbenik.si <obvestila@drazbenik.si>',
         to: email,
         subject: 'Varnostno obvestilo (MFA) - dražbenik.si',
         html: htmlContent,

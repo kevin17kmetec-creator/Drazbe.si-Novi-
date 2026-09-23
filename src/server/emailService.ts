@@ -18,11 +18,11 @@ export function getResend(): Resend | null {
 }
 
 export function getBaseAppUrl(): string {
-  return process.env.APP_URL || process.env.VITE_APP_URL || 'https://drazba.si';
+  return process.env.APP_URL || process.env.VITE_APP_URL || 'https://drazbenik.si';
 }
 
 export function getEmailFrom(): string {
-  return process.env.EMAIL_FROM || 'dražbenik.si <obvestila@drazba.si>';
+  return process.env.EMAIL_FROM || 'dražbenik.si <obvestila@drazbenik.si>';
 }
 
 /**

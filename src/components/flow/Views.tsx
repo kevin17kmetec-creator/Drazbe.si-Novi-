@@ -1,7 +1,7 @@
 
 import React, { useState, useRef } from 'react';
 import { 
-  ArrowLeft, Eye, Trophy, Gavel, Clock, CreditCard as CardIcon, 
+  ArrowLeft, Eye, EyeOff, Trophy, Gavel, Clock, CreditCard as CardIcon, 
   Lock, Zap, Settings, Camera, User, Building2, CheckCircle2, AlertCircle, Trash2
 } from 'lucide-react';
 import { AuctionItem, SubscriptionTier, Seller, Category, Region } from '../../types';
@@ -282,6 +282,7 @@ export const AuthView = ({ mode, setMode, onAuthSuccess, t }: { mode: 'login' | 
   const { executeRecaptcha } = useGoogleReCaptcha();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -336,7 +337,25 @@ export const AuthView = ({ mode, setMode, onAuthSuccess, t }: { mode: 'login' | 
             </div>
           )}
           <input type="email" required className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 px-6 font-bold focus:ring-2 focus:ring-[#FEBA4F] outline-none" placeholder={t('email')} onChange={e => setEmail(e.target.value)} />
-          <input type="password" required className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 px-6 font-bold focus:ring-2 focus:ring-[#FEBA4F] outline-none" placeholder={t('password')} onChange={e => setPassword(e.target.value)} />
+          <div className="relative">
+            <input 
+              type={showPassword ? "text" : "password"} 
+              required 
+              className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 pl-6 pr-14 font-bold focus:ring-2 focus:ring-[#FEBA4F] outline-none" 
+              placeholder={t('password')} 
+              value={password}
+              onChange={e => setPassword(e.target.value)} 
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(prev => !prev)}
+              className="absolute right-4 top-1/2 -translate-y-1/2 p-2 text-slate-400 hover:text-[#0A1128] transition-colors focus:outline-none"
+              aria-label={showPassword ? "Skrij geslo" : "Pokaži geslo"}
+              title={showPassword ? "Skrij geslo" : "Pokaži geslo"}
+            >
+              {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+            </button>
+          </div>
           <button type="submit" disabled={loading} className="w-full bg-[#0A1128] text-white py-6 rounded-[2rem] font-black uppercase tracking-widest hover:bg-[#FEBA4F] transition-all shadow-xl">{loading ? t('processing') : (mode === 'login' ? t('login') : t('createAccount'))}</button>
           <button type="button" onClick={() => setMode(mode === 'login' ? 'register' : 'login')} className="w-full text-xs font-black uppercase tracking-widest text-slate-400 hover:text-[#0A1128] mt-4">{mode === 'login' ? t('noAccountRegister') : t('haveAccountLogin')}</button>
         </form>

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
-import { User, Camera, CheckCircle2, AlertCircle, Shield, CreditCard, Building, MapPin, Key, Bell, X } from 'lucide-react';
+import { User, Camera, CheckCircle2, AlertCircle, Shield, CreditCard, Building, MapPin, Key, Bell, X, Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
 import imageCompression from 'browser-image-compression';
 import { StripeConnectOnboarding } from "@/src/components/profile/StripeConnectOnboarding";
@@ -73,6 +73,11 @@ export const SettingsView: React.FC<{
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [stripeStatusChecked, setStripeStatusChecked] = useState(false);
   const isPasswordUser = auth.currentUser?.providerData?.some(p => p.providerId === 'password');
+
+  // Password visibility states
+  const [showOldPassword, setShowOldPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   useEffect(() => {
      if (user?.id && !stripeStatusChecked && activeTab === 'stripe') {
@@ -410,15 +415,72 @@ export const SettingsView: React.FC<{
                   <div className="space-y-4">
                     <div>
                       <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{t('oldPassword')}</label>
-                      <input type="password" placeholder="••••••••" value={formData.oldPassword} onChange={e => setFormData({...formData, oldPassword: e.target.value})} autoComplete="new-password" data-lpignore="true" className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 font-bold outline-none focus:border-[#FEBA4F]" />
+                      <div className="relative">
+                        <input 
+                          type={showOldPassword ? "text" : "password"} 
+                          placeholder="••••••••" 
+                          value={formData.oldPassword} 
+                          onChange={e => setFormData({...formData, oldPassword: e.target.value})} 
+                          autoComplete="new-password" 
+                          data-lpignore="true" 
+                          className="w-full bg-white border border-slate-200 rounded-xl pl-4 pr-12 py-3 font-bold outline-none focus:border-[#FEBA4F]" 
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowOldPassword(prev => !prev)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-[#0A1128] transition-colors focus:outline-none"
+                          aria-label={showOldPassword ? "Skrij geslo" : "Pokaži geslo"}
+                          title={showOldPassword ? "Skrij geslo" : "Pokaži geslo"}
+                        >
+                          {showOldPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                        </button>
+                      </div>
                     </div>
                     <div>
                       <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{t('newPassword')}</label>
-                      <input type="password" placeholder="••••••••" value={formData.newPassword} onChange={e => setFormData({...formData, newPassword: e.target.value})} autoComplete="new-password" data-lpignore="true" className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 font-bold outline-none focus:border-[#FEBA4F]" />
+                      <div className="relative">
+                        <input 
+                          type={showNewPassword ? "text" : "password"} 
+                          placeholder="••••••••" 
+                          value={formData.newPassword} 
+                          onChange={e => setFormData({...formData, newPassword: e.target.value})} 
+                          autoComplete="new-password" 
+                          data-lpignore="true" 
+                          className="w-full bg-white border border-slate-200 rounded-xl pl-4 pr-12 py-3 font-bold outline-none focus:border-[#FEBA4F]" 
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowNewPassword(prev => !prev)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-[#0A1128] transition-colors focus:outline-none"
+                          aria-label={showNewPassword ? "Skrij geslo" : "Pokaži geslo"}
+                          title={showNewPassword ? "Skrij geslo" : "Pokaži geslo"}
+                        >
+                          {showNewPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                        </button>
+                      </div>
                     </div>
                     <div>
                       <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{t('confirmNewPassword')}</label>
-                      <input type="password" placeholder="••••••••" value={formData.confirmPassword} onChange={e => setFormData({...formData, confirmPassword: e.target.value})} autoComplete="new-password" data-lpignore="true" className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 font-bold outline-none focus:border-[#FEBA4F]" />
+                      <div className="relative">
+                        <input 
+                          type={showConfirmPassword ? "text" : "password"} 
+                          placeholder="••••••••" 
+                          value={formData.confirmPassword} 
+                          onChange={e => setFormData({...formData, confirmPassword: e.target.value})} 
+                          autoComplete="new-password" 
+                          data-lpignore="true" 
+                          className="w-full bg-white border border-slate-200 rounded-xl pl-4 pr-12 py-3 font-bold outline-none focus:border-[#FEBA4F]" 
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowConfirmPassword(prev => !prev)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-[#0A1128] transition-colors focus:outline-none"
+                          aria-label={showConfirmPassword ? "Skrij geslo" : "Pokaži geslo"}
+                          title={showConfirmPassword ? "Skrij geslo" : "Pokaži geslo"}
+                        >
+                          {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>

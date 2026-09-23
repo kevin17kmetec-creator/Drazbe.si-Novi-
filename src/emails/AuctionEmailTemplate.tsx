@@ -43,9 +43,9 @@ export const AuctionEmailTemplate: React.FC<AuctionEmailProps> = ({
   originalPrice,
   endTime,
   paymentDeadline,
-  auctionUrl = 'https://drazba.si',
+  auctionUrl = 'https://drazbenik.si',
   paymentUrl,
-  settingsUrl = 'https://drazba.si/?tab=settings',
+  settingsUrl = 'https://drazbenik.si/?tab=settings',
   bidDifference,
   formattedAmount,
 }) => {
@@ -124,7 +124,7 @@ export const AuctionEmailTemplate: React.FC<AuctionEmailProps> = ({
       headline = 'Vaše plačilo je bilo uspešno!';
       subheadline = `Plačilo za dražbo "${auctionTitle}" je bilo uspešno obdelano. V priponki tega sporočila vam pošiljamo račun za opravljeno storitev ter potrdilo o nakupu (kupoprodajno pogodbo).`;
       ctaText = 'Ogled dražbe';
-      ctaUrl = auctionUrl || 'https://drazba.si';
+      ctaUrl = auctionUrl || 'https://drazbenik.si';
       priceLabel = 'Plačan znesek:';
       highlightNote = 'Dokumenti so priloženi k temu sporočilu v PDF obliki.';
       break;
@@ -144,7 +144,7 @@ export const AuctionEmailTemplate: React.FC<AuctionEmailProps> = ({
             <Row>
               <Column align="center">
                 <Text style={logoText}>
-                  dražbe<span style={logoAccent}>.si</span>
+                  dražbenik<span style={logoAccent}>.si</span>
                 </Text>
                 <Text style={taglineText}>Slovenska dražbena platforma</Text>
               </Column>
@@ -241,7 +241,7 @@ export const AuctionEmailTemplate: React.FC<AuctionEmailProps> = ({
           <Section style={footerSection}>
             <Text style={footerText}>
               To je samodejno sistemsko obvestilo spletne platforme{' '}
-              <Link href="https://drazba.si" target="_blank" style={footerLink}>
+              <Link href="https://drazbenik.si" target="_blank" style={footerLink}>
                 dražbenik.si
               </Link>
               .

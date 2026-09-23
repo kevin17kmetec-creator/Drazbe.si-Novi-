@@ -1,7 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { User, CheckCircle2, AlertCircle, ShieldCheck, XCircle, ArrowLeft } from 'lucide-react';
+import { User, CheckCircle2, AlertCircle, ShieldCheck, XCircle, ArrowLeft, Eye, EyeOff } from 'lucide-react';
 import { auth, db } from "../../lib/firebase";
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
+import { 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword, 
+  signInWithPopup, 
+  GoogleAuthProvider, 
+  signOut, 
+  sendEmailVerification, 
+  deleteUser, 
+  sendPasswordResetEmail 
+} from 'firebase/auth';
 import { setDoc, doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { toast } from 'sonner';
 import { sendEmailVerificationAction, sendPasswordResetAction } from "@/src/actions/auth-emails";
@@ -18,6 +27,14 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
   const [rememberMe, setRememberMe] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Password visibility state
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  // Unverified email / resend state
+  const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null);
+  const [resendingVerification, setResendingVerification] = useState(false);
 
   // Password validation state
   const [hasUppercase, setHasUppercase] = useState(false);
@@ -45,6 +62,42 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
   const strengthColor = strength <= 1 ? 'bg-red-500' : strength === 2 ? 'bg-amber-500' : strength === 3 ? 'bg-green-400' : 'bg-green-600';
   const strengthText = strength <= 1 ? t('weak') : strength === 2 ? t('moderate') : strength === 3 ? t('good') : t('excellent');
 
+  const handleResendVerification = async () => {
+    const targetEmail = unverifiedEmail || email;
+    if (!targetEmail) {
+      toast.error("Vnesite svoj e-poštni naslov za ponovno pošiljanje.");
+      return;
+    }
+    setResendingVerification(true);
+    try {
+      let sent = false;
+      try {
+        const res = await sendEmailVerificationAction(targetEmail, targetEmail.split('@')[0]);
+        if (res.success) sent = true;
+      } catch (e) {}
+
+      if (!sent && password) {
+        try {
+          const cred = await signInWithEmailAndPassword(auth, targetEmail, password);
+          await sendEmailVerification(cred.user);
+          await signOut(auth);
+          sent = true;
+        } catch (e: any) {
+          console.error("Ponovno pošiljanje prek odjemalca:", e);
+        }
+      }
+
+      if (sent) {
+        toast.success("Novo potrditveno sporočilo je bilo poslano! Preverite svoj e-poštni predal (tudi mapo z vsiljeno pošto).");
+      } else {
+        toast.error("Za ponovno pošiljanje vnesite tudi svoje geslo.");
+      }
+    } catch (err: any) {
+      toast.error("Napaka pri pošiljanju: " + err.message);
+    } finally {
+      setResendingVerification(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -85,46 +138,86 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
           const user = cred.user;
           
           if (!user.emailVerified) {
+              setUnverifiedEmail(email);
               await signOut(auth);
-              toast.error("Vaš e-poštni naslov še ni potrjen. Prosimo, preverite svojo e-pošto in kliknite na potrditveno povezavo.");
+              toast.error("Vaš e-poštni naslov še ni potrjen! Registracija še ni zaključena. Prosimo, preverite svojo e-pošto in kliknite na potrditveno povezavo.");
               setLoading(false);
               return;
           }
 
+          setUnverifiedEmail(null);
+
+          // E-pošta JE potrjena! Šele ZDAJ uradno potrdimo registracijo in uporabniški račun v Firestore:
           if (user) {
-              (async () => {
-                  try {
-                      await setDoc(doc(db, "users", user.uid), { remember_me: rememberMe }, { merge: true });
-                  } catch (e) {
-                      console.warn("Background update error:", e);
-                  }
-              })();
+              try {
+                  await setDoc(doc(db, "users", user.uid), { 
+                    id: user.uid,
+                    email: user.email,
+                    is_verified: true,
+                    email_verified: true,
+                    registration_confirmed: true,
+                    registration_confirmed_at: new Date().toISOString(),
+                    remember_me: rememberMe,
+                    updated_at: new Date().toISOString()
+                  }, { merge: true });
+              } catch (e) {
+                  console.warn("Background update error:", e);
+              }
           }
+          toast.success("Prijava uspešna!");
           onLoginSuccess();
       } else {
+          // REGISTRACIJA
           const cred = await createUserWithEmailAndPassword(auth, email, password);
           const user = cred.user;
           
-          const emailRes = await sendEmailVerificationAction(email, email.split('@')[0]);
-          if (!emailRes.success) {
-             console.error("Napaka pri pošiljanju potrditvene e-pošte:", emailRes.error);
-             toast.error("Registracija uspešna, vendar e-pošte ni bilo mogoče poslati. Obrnite se na podporo.");
-          } else {
-             toast.success("Registracija uspešna! Na vaš e-poštni naslov smo poslali potrditveno povezavo. Prosimo, potrdite jo pred prvo prijavo.");
+          let emailSent = false;
+          let sendError = "";
+
+          // 1. Poskusi prek Resend strežniške storitve
+          try {
+            const emailRes = await sendEmailVerificationAction(email, email.split('@')[0]);
+            if (emailRes.success) {
+              emailSent = true;
+            } else {
+              console.warn("Strežniški klic za potrditev ni uspel, uporabljam Firebase Client SDK:", emailRes.error);
+            }
+          } catch (serverErr: any) {
+            console.warn("Izjema pri pošiljanju potrditve:", serverErr);
           }
-          
-          if (user) {
-              await setDoc(doc(db, "users", user.uid), {
-                   id: user.uid,
-                   email: email,
-                   is_verified: false,
-                   unpaid_strikes: 0,
-                   subscription: "FREE"
-               }, { merge: true });
+
+          // 2. Če Resend ni poslal (npr. manjkajoč service account na strežniku), pošlji neposredno prek Firebase Client Auth
+          if (!emailSent) {
+            try {
+              await sendEmailVerification(user);
+              emailSent = true;
+            } catch (fbErr: any) {
+              console.error("Firebase sendEmailVerification napaka:", fbErr);
+              sendError = fbErr.message || "Neuspešno pošiljanje potrditvenega sporočila.";
+            }
           }
-          
+
+          // 3. Če pošiljanje e-pošte NI uspelo:
+          // STROGO NAVODILO:
+          // "Zelim tudi da dodas, da v bilo katerem koraku se registracija zalomi ne zelim da teh podatkov shranis in naredis uspesne registracije."
+          if (!emailSent) {
+            try {
+              // Izbrišemo začasnega Firebase Auth uporabnika, da sprostimo e-poštni naslov in preprečimo neveljaven račun
+              await deleteUser(user);
+            } catch (delErr) {
+              console.error("Napaka pri brisanju nepopolnega uporabnika:", delErr);
+            }
+            await signOut(auth);
+            toast.error(`Registracija ni uspela: potrditvenega e-poštnega sporočila ni bilo mogoče poslati (${sendError}). Nobeni podatki niso bili shranjeni. Prosimo, poskusite znova.`);
+            setLoading(false);
+            return;
+          }
+
+          // 4. E-pošta je bila uspešno poslana!
+          // Uporabnika takoj odjavimo. Podatki niso potrjeni, dokler uporabnik ne potrdi e-poštnega naslova.
           await signOut(auth);
-          
+          setUnverifiedEmail(email);
+          toast.success("Registracija je v teku! Na vaš e-poštni naslov smo poslali potrditveno povezavo. Registracija bo zaključena in veljavna šele, ko kliknete povezavo v prejetem sporočilu.");
           setIsLogin(true);
       }
     } catch (error: any) {
@@ -139,6 +232,8 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
             errorMsg.includes("invalid-credential")
         ) {
             toast.error("Prijavni podatki ne obstajajo ali pa so nepravilni.");
+        } else if (errorCode === "auth/email-already-in-use") {
+            toast.error("Ta e-poštni naslov je že registriran. Če še niste potrdili naslova, se poskusite prijaviti ali zahtevajte ponovno pošiljanje povezave.");
         } else {
             toast.error(t("authError") + " " + errorMsg);
         }
@@ -229,15 +324,27 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
             return;
           }
 
-          const res = await sendPasswordResetAction(email);
-          if (!res.success) throw new Error(res.error || "Napaka pri pošiljanju ponastavitvene e-pošte");
+          let resetSuccess = false;
+          try {
+            const res = await sendPasswordResetAction(email);
+            if (res.success) resetSuccess = true;
+          } catch (e) {}
+
+          if (!resetSuccess) {
+            try {
+              await sendPasswordResetEmail(auth, email);
+              resetSuccess = true;
+            } catch (fbErr: any) {
+              throw new Error(fbErr.message || "Napaka pri pošiljanju ponastavitvene e-pošte");
+            }
+          }
           
           toast.success(t('resetLinkSent') || 'Povezava za ponastavitev je poslana na vaš e-mail.');
           setIsForgotPassword(false);
-          } catch (error: any) {
+      } catch (error: any) {
         let errorMsg = error.message || JSON.stringify(error);
         toast.error(t("authError") + " " + errorMsg);
-    } finally { setLoading(false); }
+      } finally { setLoading(false); }
   };
 
   if (isForgotPassword) {
@@ -273,10 +380,43 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
               <span>{error}</span>
             </div>
           )}
-          <input type="email" required className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 px-6 font-bold focus:ring-2 focus:ring-[#FEBA4F] outline-none" placeholder={t('email')} onChange={e => setEmail(e.target.value)} />
+
+          {unverifiedEmail && (
+            <div className="bg-amber-50 border border-amber-200 text-amber-900 p-4 rounded-2xl text-xs font-bold space-y-2">
+              <p>Čakate na potrditev e-poštnega naslova za <strong>{unverifiedEmail}</strong>. Pred prijavo potrdite svoj naslov preko prejete povezave.</p>
+              <button
+                type="button"
+                disabled={resendingVerification}
+                onClick={handleResendVerification}
+                className="text-[#0A1128] underline hover:text-[#FEBA4F] font-black uppercase tracking-wider transition-colors disabled:opacity-50"
+              >
+                {resendingVerification ? "Pošiljam..." : "Pošlji potrditveno povezavo ponovno"}
+              </button>
+            </div>
+          )}
+
+          <input type="email" required className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 px-6 font-bold focus:ring-2 focus:ring-[#FEBA4F] outline-none" placeholder={t('email')} value={email} onChange={e => setEmail(e.target.value)} />
           
           <div className="space-y-2">
-              <input type="password" required className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 px-6 font-bold focus:ring-2 focus:ring-[#FEBA4F] outline-none" placeholder={t('password')} onChange={e => setPassword(e.target.value)} />
+              <div className="relative">
+                <input 
+                  type={showPassword ? "text" : "password"} 
+                  required 
+                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 pl-6 pr-14 font-bold focus:ring-2 focus:ring-[#FEBA4F] outline-none" 
+                  placeholder={t('password')} 
+                  value={password}
+                  onChange={e => setPassword(e.target.value)} 
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(prev => !prev)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 p-2 text-slate-400 hover:text-[#0A1128] transition-colors focus:outline-none"
+                  aria-label={showPassword ? "Skrij geslo" : "Pokaži geslo"}
+                  title={showPassword ? "Skrij geslo" : "Pokaži geslo"}
+                >
+                  {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                </button>
+              </div>
               
               {!isLogin && password.length > 0 && (
                   <div className="px-2 animate-in fade-in slide-in-from-top-2">
@@ -308,13 +448,25 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
 
           {!isLogin && (
               <div className="space-y-2">
-                  <input 
-                      type="password" 
-                      required 
-                      className={`w-full bg-slate-50 border ${!passwordsMatch ? 'border-red-500 focus:ring-red-500' : 'border-slate-200 focus:ring-[#FEBA4F]'} rounded-2xl py-4 px-6 font-bold focus:ring-2 outline-none`} 
-                      placeholder={t('confirmPassword')} 
-                      onChange={e => setConfirmPassword(e.target.value)} 
-                  />
+                  <div className="relative">
+                    <input 
+                        type={showConfirmPassword ? "text" : "password"} 
+                        required 
+                        className={`w-full bg-slate-50 border ${!passwordsMatch ? 'border-red-500 focus:ring-red-500' : 'border-slate-200 focus:ring-[#FEBA4F]'} rounded-2xl py-4 pl-6 pr-14 font-bold focus:ring-2 outline-none`} 
+                        placeholder={t('confirmPassword')} 
+                        value={confirmPassword}
+                        onChange={e => setConfirmPassword(e.target.value)} 
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmPassword(prev => !prev)}
+                      className="absolute right-4 top-1/2 -translate-y-1/2 p-2 text-slate-400 hover:text-[#0A1128] transition-colors focus:outline-none"
+                      aria-label={showConfirmPassword ? "Skrij geslo" : "Pokaži geslo"}
+                      title={showConfirmPassword ? "Skrij geslo" : "Pokaži geslo"}
+                    >
+                      {showConfirmPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                    </button>
+                  </div>
                   {!passwordsMatch && <p className="text-red-500 text-xs font-bold px-2">{t('passwordsNotMatch')}</p>}
               </div>
           )}

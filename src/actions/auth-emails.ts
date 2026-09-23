@@ -4,6 +4,7 @@ interface ActionResponse<T = any> {
   success: boolean;
   data?: T;
   error?: string;
+  fallbackToClient?: boolean;
 }
 
 function getBaseUrl(): string {
@@ -33,16 +34,23 @@ async function safeAuthApiCall<T = any>(endpoint: string, payload: any): Promise
 
     if (!res.ok) {
       let errorMsg = `Napaka strežnika (${res.status})`;
+      let fallbackToClient = false;
       try {
         const errData = await res.json();
         errorMsg = errData.error || errData.message || errorMsg;
+        fallbackToClient = !!errData.fallbackToClient;
       } catch (e) {}
-      return { success: false, error: errorMsg };
+      return { success: false, error: errorMsg, fallbackToClient };
     }
 
-    return { success: true };
+    const data = await res.json().catch(() => ({}));
+    if (data.fallbackToClient) {
+      return { success: false, fallbackToClient: true, error: data.message };
+    }
+
+    return { success: true, data };
   } catch (err: any) {
-    return { success: false, error: err?.message || 'Napaka pri povezavi s strežnikom.' };
+    return { success: false, fallbackToClient: true, error: err?.message || 'Napaka pri povezavi s strežnikom.' };
   }
 }
 
