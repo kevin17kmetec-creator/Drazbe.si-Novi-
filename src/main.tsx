@@ -2,7 +2,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App.tsx';
-import { GoogleReCaptchaProvider } from 'react-google-recaptcha-v3';
 
 // =========================================================================
 // GLOBAL ERROR HANDLERS & SENTRY NOISE REDUCTION
@@ -121,12 +120,7 @@ const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
     <ErrorBoundary>
-      <GoogleReCaptchaProvider 
-        reCaptchaKey={process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY || ""}
-        useEnterprise={true}
-      >
-        <App />
-      </GoogleReCaptchaProvider>
+      <App />
     </ErrorBoundary>
   </React.StrictMode>
 );
