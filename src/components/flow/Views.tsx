@@ -9,7 +9,7 @@ import { AuctionCard } from "@/src/components/auction/AuctionCard";
 import AuctionView from "@/src/components/auction/AuctionView";
 import { HeroCarousel } from "@/src/components/auction/HeroCarousel";
 import { auth, db } from "../../lib/firebase";
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification } from 'firebase/auth';
 import { setDoc, doc } from 'firebase/firestore';
 import { toast } from 'sonner';
 
@@ -294,7 +294,16 @@ export const AuthView = ({ mode, setMode, onAuthSuccess, t }: { mode: 'login' | 
           if (error) throw error;
       } else {
           let error = null;
-          try { await createUserWithEmailAndPassword(auth, email, password); } catch (e) { error = e; }
+          try { 
+            const userCred = await createUserWithEmailAndPassword(auth, email, password); 
+            try {
+              await sendEmailVerification(userCred.user);
+            } catch (emailErr) {
+              console.warn("Verifikacijski mail ni bil poslan:", emailErr);
+            }
+          } catch (e) { 
+            error = e; 
+          }
           if (error) throw error;
       }
       onAuthSuccess();

@@ -8,7 +8,6 @@ import {
   GoogleAuthProvider, 
   signOut, 
   sendEmailVerification, 
-  deleteUser, 
   sendPasswordResetEmail 
 } from 'firebase/auth';
 import { setDoc, doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
@@ -152,88 +151,62 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
           }
           toast.success("Prijava uspešna!");
           onLoginSuccess();
-      } else {
+       } else {
           // REGISTRACIJA
-          let user: any = null;
-          let isExistingUnverified = false;
-
           try {
-            const cred = await createUserWithEmailAndPassword(auth, email, password);
-            user = cred.user;
-          } catch (createErr: any) {
-            if (createErr.code === "auth/email-already-in-use") {
-              // Preverimo, ali gre za predhodno nepotrjen račun s tem geslom
-              try {
-                const loginCred = await signInWithEmailAndPassword(auth, email, password);
-                if (!loginCred.user.emailVerified) {
-                  user = loginCred.user;
-                  isExistingUnverified = true;
-                  console.log("Najden nepotrjen obstoječi račun. Pošiljam novo potrditveno povezavo.");
-                } else {
-                  await signOut(auth);
-                  throw createErr;
-                }
-              } catch (signInErr: any) {
-                setUnverifiedEmail(email);
-                throw createErr;
-              }
-            } else {
-              throw createErr;
-            }
-          }
-          
-          let emailSent = false;
-          let sendError = "";
+            // 1. Ustvari uporabnika v Firebase Auth
+            const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+            const user = userCredential.user;
 
-          // 1. Poskusi prek Resend strežniške storitve
-          try {
-            const emailRes = await sendEmailVerificationAction(email, email.split('@')[0]);
-            if (emailRes.success) {
-              emailSent = true;
-            } else {
-              console.warn("Strežniški klic za potrditev ni uspel, uporabljam Firebase Client SDK:", emailRes.error);
-            }
-          } catch (serverErr: any) {
-            console.warn("Izjema pri pošiljanju potrditve:", serverErr);
-          }
-
-          // 2. Če Resend ni poslal (npr. manjkajoč service account na strežniku), pošlji neposredno prek Firebase Client Auth
-          if (!emailSent && user) {
+            // Shranimo osnovne podatke uporabnika v bazo
             try {
-              await sendEmailVerification(user);
-              emailSent = true;
-            } catch (fbErr: any) {
-              console.error("Firebase sendEmailVerification napaka:", fbErr);
-              sendError = fbErr.message || "Neuspešno pošiljanje potrditvenega sporočila.";
+              await setDoc(doc(db, 'users', user.uid), {
+                id: user.uid,
+                email: user.email,
+                is_verified: false,
+                created_at: new Date().toISOString(),
+                subscription: 'FREE'
+              }, { merge: true });
+            } catch (dbErr) {
+              console.warn("Napaka pri shranjevanju uporabnika v bazo:", dbErr);
             }
-          }
 
-          // 3. Če pošiljanje e-pošte NI uspelo:
-          if (!emailSent) {
-            if (!isExistingUnverified && user) {
-              try {
-                // Izbrišemo začasnega Firebase Auth uporabnika, da sprostimo e-poštni naslov in preprečimo neveljaven račun
-                await deleteUser(user);
-              } catch (delErr) {
-                console.error("Napaka pri brisanju nepopolnega uporabnika:", delErr);
+            // 2. V ločenem try/catch bloku poskusi poslati verifikacijski mail
+            let emailSent = false;
+            try {
+              // Poskusi s strežniško storitvijo ali Firebase Client SDK
+              const emailRes = await sendEmailVerificationAction(email, email.split('@')[0]).catch(() => null);
+              if (emailRes && emailRes.success) {
+                emailSent = true;
+              } else {
+                await sendEmailVerification(user);
+                emailSent = true;
               }
+            } catch (emailError) {
+              console.warn("Verifikacijski mail ni bil poslan (zaradi rate-limita ali napake):", emailError);
+              // NE MEČI NAPAKE TUKAJ! Račun JE uspešno ustvarjen.
             }
-            await signOut(auth);
-            toast.error(`Registracija ni uspela: potrditvenega e-poštnega sporočila ni bilo mogoče poslati (${sendError}). Nobeni podatki niso bili shranjeni. Prosimo, poskusite znova.`);
-            setLoading(false);
-            return;
-          }
 
-          // 4. E-pošta je bila uspešno poslana!
-          await signOut(auth);
-          setUnverifiedEmail(email);
-          if (isExistingUnverified) {
-            toast.success("Ta e-poštni naslov je bil predhodno že vnesen, vendar še ni bil potrjen. Na vaš naslov smo poslali novo potrditveno povezavo! Prosimo, kliknite povezavo v sporočilu za dokončanje registracije.");
-          } else {
-            toast.success("Registracija je v teku! Na vaš e-poštni naslov smo poslali potrditveno povezavo. Registracija bo zaključena in veljavna šele, ko kliknete povezavo v prejetem sporočilu.");
+            // 3. Uporabnika vseeno registriraj in ga preusmeri dalje!
+            if (emailSent) {
+              toast.success("Vaš račun je uspešno ustvarjen! Na vaš e-poštni naslov smo poslali potrditveno povezavo.");
+            } else {
+              toast.info("Vaš račun je ustvarjen. Potrditveni mail bo poslan kasneje ali pa ga ponovno zahtevajte v nastavitvah profila.");
+            }
+
+            onLoginSuccess();
+          } catch (authError: any) {
+            console.error("Registracija spodletela:", authError);
+            const errorCode = authError.code || "";
+            if (errorCode === "auth/email-already-in-use") {
+              toast.error("Ta e-poštni naslov je že registriran. Prosimo, prijavite se.");
+            } else if (errorCode === "auth/weak-password") {
+              toast.error("Geslo je prešibko. Vsebovati mora vsaj 6 znakov.");
+            } else {
+              toast.error(t("authError") + " " + (authError.message || ""));
+            }
           }
-          setIsLogin(true);
-      }
+       }
     } catch (error: any) {
         let errorCode = error.code || "";
         let errorMsg = error.message || JSON.stringify(error);
