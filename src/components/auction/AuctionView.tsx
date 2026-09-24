@@ -6,7 +6,7 @@ import {
   MessageSquare
 } from 'lucide-react';
 import { doc, onSnapshot } from 'firebase/firestore';
-import { db } from "../../lib/firebase";
+import { db, registerSnapshotListener } from "../../lib/firebase";
 import { getIncrement, calculateMarginalPlatformFee } from "../../lib/utils";
 
 const TimeBox = ({ value, label }: { value: number, label: string }) => (
@@ -38,11 +38,17 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
 
   useEffect(() => {
     if (!item?.id) return;
-    const unsub = onSnapshot(doc(db, 'auctions', item.id), (snap) => {
+    const unsub = registerSnapshotListener(onSnapshot(doc(db, 'auctions', item.id), (snap) => {
       if (snap.exists()) {
         setAuctionData((prev: any) => ({ ...prev, id: snap.id, ...snap.data() }));
       }
-    });
+    }, (error) => {
+      if (error.code === 'permission-denied') {
+        console.warn("Dostop do dražbe ni dovoljen.");
+      } else {
+        console.error("Firestore napaka:", error);
+      }
+    }));
     return () => unsub();
   }, [item?.id]);
 

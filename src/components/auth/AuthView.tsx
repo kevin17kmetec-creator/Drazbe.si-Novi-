@@ -1,12 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { User, CheckCircle2, AlertCircle, ShieldCheck, XCircle, ArrowLeft, Eye, EyeOff } from 'lucide-react';
-import { auth, db } from "../../lib/firebase";
+import { auth, db, safeSignOut } from "../../lib/firebase";
 import { 
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword, 
   signInWithPopup, 
   GoogleAuthProvider, 
-  signOut, 
   sendEmailVerification, 
   sendPasswordResetEmail 
 } from 'firebase/auth';
@@ -76,13 +75,13 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
         try {
           const cred = await signInWithEmailAndPassword(auth, targetEmail, password);
           if (cred.user.emailVerified) {
-            await signOut(auth);
+            await safeSignOut(auth);
             toast.info("Vaš e-poštni naslov je že potrjen! Lahko se prijavite.");
             setUnverifiedEmail(null);
             return;
           }
           await sendEmailVerification(cred.user);
-          await signOut(auth);
+          await safeSignOut(auth);
           sent = true;
         } catch (e: any) {
           console.error("Ponovno pošiljanje prek odjemalca:", e);
@@ -124,7 +123,7 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
           
           if (!user.emailVerified) {
               setUnverifiedEmail(email);
-              await signOut(auth);
+              await safeSignOut(auth);
               toast.error("Vaš e-poštni naslov še ni potrjen! Registracija še ni zaključena. Prosimo, preverite svojo e-pošto in kliknite na potrditveno povezavo.");
               setLoading(false);
               return;
@@ -240,7 +239,7 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
       // Check if user already has a password provider linked
       const hasPassword = result.user.providerData.some(p => p.providerId === 'password');
       if (hasPassword) {
-          await signOut(auth);
+          await safeSignOut(auth);
           toast.error("Ta e-mail je že registriran. Prosimo, prijavite se z e-mailom in geslom.");
           setLoading(false);
           return;
@@ -259,7 +258,7 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
       });
       
       if (passwordAccountExists) {
-          await signOut(auth);
+          await safeSignOut(auth);
           toast.error("Ta e-mail je že registriran. Prosimo, prijavite se z e-mailom in geslom.");
           setLoading(false);
           return;

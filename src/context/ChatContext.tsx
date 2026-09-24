@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
-import { auth, db } from "../lib/firebase";
+import { auth, db, registerSnapshotListener } from "../lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import {
   collection,
@@ -281,13 +281,13 @@ export const ChatProvider: React.FC<{
     const convRef = collection(db, "conversations");
     const q = query(convRef, or(where("participant_one", "==", effectiveUserId), where("participant_two", "==", effectiveUserId)));
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const unsubscribe = registerSnapshotListener(onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       buildConversations(data);
     }, (error) => {
       console.warn("Firestore conversations snapshot warning:", error);
       buildConversations([]);
-    });
+    }));
 
     return () => {
       isMounted = false;
@@ -353,7 +353,7 @@ export const ChatProvider: React.FC<{
       where("conversation_id", "==", activeConversationId)
     );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const unsubscribe = registerSnapshotListener(onSnapshot(q, (snapshot) => {
       if (!isMounted) return;
       const loadedMsgs: Message[] = snapshot.docs.map(d => {
         const data = d.data();
@@ -392,7 +392,7 @@ export const ChatProvider: React.FC<{
     }, (error) => {
       console.error("Error loading messages:", error);
       if (isMounted) setLoadingMessages(false);
-    });
+    }));
 
     return () => {
       isMounted = false;
@@ -412,7 +412,7 @@ export const ChatProvider: React.FC<{
     const msgRef = collection(db, "messages");
     const q = query(msgRef, where("is_read", "==", false), limit(300));
 
-    const unsub = onSnapshot(q, (snapshot) => {
+    const unsub = registerSnapshotListener(onSnapshot(q, (snapshot) => {
       const counts: Record<string, number> = {};
       let total = 0;
 
@@ -428,7 +428,7 @@ export const ChatProvider: React.FC<{
       setUnreadMessageCount(total);
     }, (e) => {
       console.warn("Unread snapshot error:", e);
-    });
+    }));
 
     return () => unsub();
   }, [effectiveUserId, conversations]);

@@ -116,8 +116,8 @@ import { toast } from "@/src/lib/toast";
 
 import { ChatProvider } from "./context/ChatContext";
 import { collection, onSnapshot, setDoc, doc, getDocs, getDoc, updateDoc, addDoc, deleteDoc, query, where, runTransaction } from "firebase/firestore";
-import { db, auth, storage } from "./lib/firebase";
-import { onAuthStateChanged, signOut, updatePassword } from "firebase/auth";
+import { db, auth, storage, safeSignOut, cleanupAllListeners, registerSnapshotListener } from "./lib/firebase";
+import { onAuthStateChanged, updatePassword } from "firebase/auth";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 // --- CONFIGURATION ---
@@ -933,25 +933,28 @@ const MainApp: React.FC = () => {
 
   const lastSessionCheckRef = useRef(0);
   const isCheckingSessionRef = useRef(false);
+  const [user, setUser] = useState<any>(auth.currentUser);
 
   useEffect(() => {
     let unsubscribeSnap: (() => void) | null = null;
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        if (!user.emailVerified && user.providerData.some(p => p.providerId === "password")) {
-          await signOut(auth);
+    const unsubscribe = onAuthStateChanged(auth, async (authUser) => {
+      if (authUser) {
+        if (!authUser.emailVerified && authUser.providerData.some(p => p.providerId === "password")) {
+          cleanupAllListeners();
+          await safeSignOut(auth);
           return;
         }
+        setUser(authUser);
         setIsLoggedIn(true);
         
         // Optimistic fast update for remembered login
         setUserData((prev: any) => ({
           ...prev,
-          id: user.uid,
-          email: user.email || prev.email || '',
+          id: authUser.uid,
+          email: authUser.email || prev.email || '',
         }));
 
-        unsubscribeSnap = onSnapshot(doc(db, "users", user.uid), async (snap) => {
+        unsubscribeSnap = registerSnapshotListener(onSnapshot(doc(db, "users", authUser.uid), async (snap) => {
           const data: any = snap.exists() ? { id: snap.id, ...snap.data() } : null;
 
           if (data) {
@@ -1025,14 +1028,22 @@ const MainApp: React.FC = () => {
             
             setUserData((prev) => ({
               ...prev,
-              id: user.uid,
-              email: user.email,
+              id: authUser.uid,
+              email: authUser.email,
             }));
             setIsVerified(false);
           }
           setIsAuthLoading(false);
-        });
+        }, (error) => {
+          if (error.code === 'permission-denied') {
+            console.warn("Dostop do uporabniškega profila ni dovoljen.");
+          } else {
+            console.error("User snapshot error:", error);
+          }
+          setIsAuthLoading(false);
+        }));
       } else {
+        setUser(null);
         setIsLoggedIn(false);
         setIsVerified(false);
         setUserData({
@@ -1148,61 +1159,71 @@ const MainApp: React.FC = () => {
   }, []);
   
   useEffect(() => {
-    if (!isLoggedIn) return;
-    const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
+    if (!user) return;
+    const unsubUsers = registerSnapshotListener(onSnapshot(collection(db, 'users'), (snap) => {
       setUsersMap(new Map(snap.docs.map(d => [d.id, d.data()])));
     }, (error) => {
-      console.error('Users snapshot error:', error);
-    });
+      if (error.code === 'permission-denied') {
+        console.warn("Dostop do uporabnikov ni dovoljen.");
+      } else {
+        console.error('Users snapshot error:', error);
+      }
+    }));
     return () => unsubUsers();
-  }, [isLoggedIn]);
+  }, [user]);
 
-  // Public stream: Auctions
+  // Stream: Auctions (poslušalec se sproži SAMO takrat, ko je uporabnik prijavljen)
   useEffect(() => {
-    const unsubAuctions = onSnapshot(collection(db, 'auctions'), (snap) => {
-      const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      const fetchedData: AuctionItem[] = data.map((d: any) => {
-        const seller = usersMap.get(d.seller_id) || {};
-        let sellerName = "";
-        if (seller.user_type === "business" && seller.company_name) {
-          sellerName = seller.company_name;
-        } else if (seller.username) {
-          sellerName = seller.username;
-        } else if (seller.first_name && seller.last_name) {
-          sellerName = `${seller.first_name} ${seller.last_name}`;
+    if (!user) return;
+    const unsubscribe = registerSnapshotListener(onSnapshot(collection(db, "auctions"), 
+      (snap) => {
+        const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const fetchedData: AuctionItem[] = data.map((d: any) => {
+          const seller = usersMap.get(d.seller_id) || {};
+          let sellerName = "";
+          if (seller.user_type === "business" && seller.company_name) {
+            sellerName = seller.company_name;
+          } else if (seller.username) {
+            sellerName = seller.username;
+          } else if (seller.first_name && seller.last_name) {
+            sellerName = `${seller.first_name} ${seller.last_name}`;
+          }
+
+          const isItemPaid = d.payment_status === "paid" || d.post_auction_status === "paid";
+
+          return {
+            ...d,
+            endTime: new Date(d.end_time || d.endTime || Date.now()),
+            createdAt: d.created_at || d.createdAt || new Date(0).toISOString(),
+            currentBid: d.current_price || d.currentBid,
+            hiddenMaxBid: d.hidden_max_bid || d.hiddenMaxBid,
+            bidCount: d.bid_count || d.bidCount,
+            winnerId: d.winner_id || d.winnerId,
+            winner_id: d.winner_id || d.winnerId,
+            sellerId: d.seller_id || d.sellerId,
+            payment_status: isItemPaid ? "paid" : (d.payment_status || "unpaid"),
+            post_auction_status: d.post_auction_status,
+            paid_at: d.paid_at,
+            sellerName: d.sellerName || sellerName,
+            seller: { id: d.seller_id || d.sellerId, name: { SLO: sellerName }, photoURL: seller.photoURL || seller.photoUrl || seller.photo_url || null, created_at: seller.created_at || seller.createdAt, sold_count: seller.sold_count, unpaid_penalties: seller.unpaid_penalties },
+            delivery_method: d.delivery_method,
+            buyer_received: d.buyer_received,
+          };
+        });
+
+        setAuctions(fetchedData);
+      },
+      (error) => {
+        if (error.code === 'permission-denied') {
+          console.warn("Dostop do dražb ni dovoljen.");
+        } else {
+          console.error("Firestore napaka:", error);
         }
+      }
+    ));
 
-        const isItemPaid = d.payment_status === "paid" || d.post_auction_status === "paid";
-
-        return {
-          ...d,
-          endTime: new Date(d.end_time || d.endTime || Date.now()),
-          createdAt: d.created_at || d.createdAt || new Date(0).toISOString(),
-          currentBid: d.current_price || d.currentBid,
-          hiddenMaxBid: d.hidden_max_bid || d.hiddenMaxBid,
-          bidCount: d.bid_count || d.bidCount,
-          winnerId: d.winner_id || d.winnerId,
-          winner_id: d.winner_id || d.winnerId,
-          sellerId: d.seller_id || d.sellerId,
-          payment_status: isItemPaid ? "paid" : (d.payment_status || "unpaid"),
-          post_auction_status: d.post_auction_status,
-          paid_at: d.paid_at,
-          sellerName: d.sellerName || sellerName,
-          seller: { id: d.seller_id || d.sellerId, name: { SLO: sellerName }, photoURL: seller.photoURL || seller.photoUrl || seller.photo_url || null, created_at: seller.created_at || seller.createdAt, sold_count: seller.sold_count, unpaid_penalties: seller.unpaid_penalties },
-          delivery_method: d.delivery_method,
-          buyer_received: d.buyer_received,
-        };
-      });
-
-      setAuctions(fetchedData);
-    }, (error) => {
-      if (error.code === 'permission-denied') { console.warn('Auctions snapshot permission denied (expected if not logged in).'); } else { console.error('Auctions snapshot error:', error); }
-    });
-
-    return () => {
-      unsubAuctions();
-    };
-  }, [usersMap]);
+    return () => unsubscribe();
+  }, [user, usersMap]);
 
   const fetchAuctions = async () => {
     // OPTIMIZATION: Removed redundant manual getDocs calls. 
@@ -1688,6 +1709,7 @@ const MainApp: React.FC = () => {
   const handleLogout = useCallback(async () => {
     // Clear state immediately for better UX
     setIsLoggedIn(false);
+    setUser(null);
     setIsVerified(false);
     setUserType(null);
     setUserData({
@@ -1700,7 +1722,8 @@ const MainApp: React.FC = () => {
     setActiveView("grid");
 
     try {
-      await signOut(auth);
+      cleanupAllListeners();
+      await safeSignOut(auth);
       toast.success(t("loggedOut"));
     } catch (err) {
       console.error("Error signing out:", err);

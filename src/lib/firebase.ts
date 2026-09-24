@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
+import { getAuth, signOut } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getDatabase } from 'firebase/database';
 import { getStorage } from 'firebase/storage';
@@ -21,3 +21,35 @@ export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const rtdb = getDatabase(app);
 export const storage = getStorage(app);
+
+// Listener cleanup registry to prevent AbortError upon signOut
+type UnsubscribeFn = () => void;
+const activeListeners = new Set<UnsubscribeFn>();
+
+export function registerSnapshotListener(unsubscribe: UnsubscribeFn): UnsubscribeFn {
+  activeListeners.add(unsubscribe);
+  return () => {
+    activeListeners.delete(unsubscribe);
+    try {
+      unsubscribe();
+    } catch {
+      // ignore
+    }
+  };
+}
+
+export function cleanupAllListeners(): void {
+  activeListeners.forEach((unsub) => {
+    try {
+      unsub();
+    } catch (e) {
+      console.warn("Error unsubscribing listener before signOut:", e);
+    }
+  });
+  activeListeners.clear();
+}
+
+export async function safeSignOut(authInstance = auth): Promise<void> {
+  cleanupAllListeners();
+  return signOut(authInstance);
+}
