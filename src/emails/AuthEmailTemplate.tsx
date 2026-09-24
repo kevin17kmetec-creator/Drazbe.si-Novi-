@@ -25,7 +25,7 @@ export interface AuthEmailProps {
 export const AuthEmailTemplate: React.FC<AuthEmailProps> = ({
   type = 'verify_email',
   recipientName = 'Uporabnik',
-  actionUrl = 'https://drazbenik.si',
+  actionUrl = 'https://drazbe.eu',
 }) => {
   let previewText = '';
   let badgeText = '';
@@ -38,18 +38,18 @@ export const AuthEmailTemplate: React.FC<AuthEmailProps> = ({
 
   switch (type) {
     case 'verify_email':
-      previewText = 'Potrdite svoj e-poštni naslov za drazbenik.si';
+      previewText = 'Potrdite svoj e-poštni naslov za dražbenik.si';
       badgeText = 'POTRDITEV E-POŠTE';
       badgeBg = '#3B82F6';
       badgeColor = '#FFFFFF';
-      headline = 'Dobrodošli na drazbenik.si!';
+      headline = 'Dobrodošli na dražbenik.si!';
       subheadline = 'Hvala za registracijo. Da bi lahko v celoti uporabljali platformo in sodelovali na dražbah, prosimo potrdite svoj e-poštni naslov.';
       ctaText = 'Potrdi e-poštni naslov';
       highlightNote = 'Povezava je veljavna omejen čas.';
       break;
 
     case 'reset_password':
-      previewText = 'Ponastavitev gesla za vaš drazbenik.si račun';
+      previewText = 'Ponastavitev gesla za vaš dražbenik.si račun';
       badgeText = 'PONASTAVITEV GESLA';
       badgeBg = '#EF4444';
       badgeColor = '#FFFFFF';
@@ -153,7 +153,7 @@ export const AuthEmailTemplate: React.FC<AuthEmailProps> = ({
           <Section style={footerSection}>
             <Text style={footerText}>
               To je samodejno sistemsko obvestilo spletne platforme{' '}
-              <Link href="https://drazbenik.si" target="_blank" style={footerLink}>
+              <Link href="https://drazbe.eu" target="_blank" style={footerLink}>
                 dražbenik.si
               </Link>
               .

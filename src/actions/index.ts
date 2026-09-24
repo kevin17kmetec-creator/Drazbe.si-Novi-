@@ -140,7 +140,9 @@ export async function createCheckoutSessionAction(planOrParams?: any): Promise<{
     let amount = 20;
     let title = 'Naročnina';
     let currency = 'eur';
-    let returnUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://www.drazbenik.si';
+    let returnUrl = (process.env.NEXT_PUBLIC_APP_URL && !process.env.NEXT_PUBLIC_APP_URL.includes('drazbenik.si')) 
+      ? process.env.NEXT_PUBLIC_APP_URL 
+      : 'https://drazbe.eu';
     let sessionMetadata: Record<string, any> = { type: 'subscription' };
     let customerEmail: string | undefined;
 

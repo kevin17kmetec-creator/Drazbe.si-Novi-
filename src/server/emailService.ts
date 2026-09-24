@@ -18,7 +18,11 @@ export function getResend(): Resend | null {
 }
 
 export function getBaseAppUrl(): string {
-  return process.env.APP_URL || process.env.VITE_APP_URL || 'https://drazbenik.si';
+  const configured = process.env.APP_URL || process.env.VITE_APP_URL || process.env.NEXT_PUBLIC_APP_URL;
+  if (configured && !configured.includes('drazbenik.si')) {
+    return configured;
+  }
+  return 'https://drazbe.eu';
 }
 
 export function getEmailFrom(): string {

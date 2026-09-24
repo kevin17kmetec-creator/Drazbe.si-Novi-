@@ -701,9 +701,9 @@ var AuctionEmailTemplate = ({
   originalPrice,
   endTime,
   paymentDeadline,
-  auctionUrl = "https://drazbenik.si",
+  auctionUrl = "https://drazbe.eu",
   paymentUrl,
-  settingsUrl = "https://drazbenik.si/?tab=settings",
+  settingsUrl = "https://drazbe.eu/?tab=settings",
   bidDifference,
   formattedAmount
 }) => {
@@ -775,7 +775,7 @@ var AuctionEmailTemplate = ({
       headline = "Va\u0161e pla\u010Dilo je bilo uspe\u0161no!";
       subheadline = `Pla\u010Dilo za dra\u017Ebo "${auctionTitle}" je bilo uspe\u0161no obdelano. V priponki tega sporo\u010Dila vam po\u0161iljamo ra\u010Dun za opravljeno storitev ter potrdilo o nakupu (kupoprodajno pogodbo).`;
       ctaText = "Ogled dra\u017Ebe";
-      ctaUrl = auctionUrl || "https://drazbenik.si";
+      ctaUrl = auctionUrl || "https://drazbe.eu";
       priceLabel = "Pla\u010Dan znesek:";
       highlightNote = "Dokumenti so prilo\u017Eeni k temu sporo\u010Dilu v PDF obliki.";
       break;
@@ -864,7 +864,7 @@ var AuctionEmailTemplate = ({
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_components.Text, { style: footerText, children: [
           "To je samodejno sistemsko obvestilo spletne platforme",
           " ",
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_components.Link, { href: "https://drazbenik.si", target: "_blank", style: footerLink, children: "dra\u017Ebenik.si" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_components.Link, { href: "https://drazbe.eu", target: "_blank", style: footerLink, children: "dra\u017Ebenik.si" }),
           "."
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_components.Text, { style: footerSubText, children: [
@@ -1072,7 +1072,7 @@ var import_jsx_runtime2 = require("react/jsx-runtime");
 var AuthEmailTemplate = ({
   type = "verify_email",
   recipientName = "Uporabnik",
-  actionUrl = "https://drazbenik.si"
+  actionUrl = "https://drazbe.eu"
 }) => {
   let previewText = "";
   let badgeText = "";
@@ -1084,17 +1084,17 @@ var AuthEmailTemplate = ({
   let highlightNote = "";
   switch (type) {
     case "verify_email":
-      previewText = "Potrdite svoj e-po\u0161tni naslov za drazbenik.si";
+      previewText = "Potrdite svoj e-po\u0161tni naslov za dra\u017Ebenik.si";
       badgeText = "POTRDITEV E-PO\u0160TE";
       badgeBg = "#3B82F6";
       badgeColor = "#FFFFFF";
-      headline = "Dobrodo\u0161li na drazbenik.si!";
+      headline = "Dobrodo\u0161li na dra\u017Ebenik.si!";
       subheadline = "Hvala za registracijo. Da bi lahko v celoti uporabljali platformo in sodelovali na dra\u017Ebah, prosimo potrdite svoj e-po\u0161tni naslov.";
       ctaText = "Potrdi e-po\u0161tni naslov";
       highlightNote = "Povezava je veljavna omejen \u010Das.";
       break;
     case "reset_password":
-      previewText = "Ponastavitev gesla za va\u0161 drazbenik.si ra\u010Dun";
+      previewText = "Ponastavitev gesla za va\u0161 dra\u017Ebenik.si ra\u010Dun";
       badgeText = "PONASTAVITEV GESLA";
       badgeBg = "#EF4444";
       badgeColor = "#FFFFFF";
@@ -1130,7 +1130,7 @@ var AuthEmailTemplate = ({
     /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(import_components2.Body, { style: main2, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_components2.Container, { style: container2, children: [
       /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(import_components2.Section, { style: headerSection2, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(import_components2.Row, { children: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_components2.Column, { align: "center", children: [
         /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_components2.Text, { style: logoText2, children: [
-          "dra\u017Ebe",
+          "dra\u017Ebenik",
           /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { style: logoAccent2, children: ".si" })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(import_components2.Text, { style: taglineText2, children: "Slovenska dra\u017Ebena platforma" })
@@ -1177,7 +1177,7 @@ var AuthEmailTemplate = ({
         /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_components2.Text, { style: footerText2, children: [
           "To je samodejno sistemsko obvestilo spletne platforme",
           " ",
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(import_components2.Link, { href: "https://drazbenik.si", target: "_blank", style: footerLink2, children: "dra\u017Ebenik.si" }),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(import_components2.Link, { href: "https://drazbe.eu", target: "_blank", style: footerLink2, children: "dra\u017Ebenik.si" }),
           "."
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_components2.Text, { style: copyrightText2, children: [
@@ -1793,7 +1793,11 @@ function getResend() {
   return resendClient;
 }
 function getBaseAppUrl() {
-  return process.env.APP_URL || process.env.VITE_APP_URL || "https://drazbenik.si";
+  const configured = process.env.APP_URL || process.env.VITE_APP_URL || process.env.NEXT_PUBLIC_APP_URL;
+  if (configured && !configured.includes("drazbenik.si")) {
+    return configured;
+  }
+  return "https://drazbe.eu";
 }
 function getEmailFrom() {
   return process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>";
@@ -2628,7 +2632,8 @@ app.post("/api/webhook", import_express.default.raw({ type: "application/json" }
       if (buyer.email && process.env.RESEND_API_KEY) {
         try {
           const auctionTitleText = auctionDataPdf?.title?.SLO || auctionDataPdf?.title?.EN || "Predmet dra\u017Ebe";
-          const auctionUrl = `${process.env.APP_URL || "https://drazbenik.si"}/?drazba=${auction_id}`;
+          const baseAppUrl = process.env.APP_URL && !process.env.APP_URL.includes("drazbenik.si") ? process.env.APP_URL : "https://drazbe.eu";
+          const auctionUrl = `${baseAppUrl}/?drazba=${auction_id}`;
           const htmlContent = await (0, import_render2.render)(import_react2.default.createElement(AuctionEmailTemplate, {
             type: "payment_success",
             recipientName: buyer.first_name || buyer.name || "uporabnik",
@@ -2636,7 +2641,7 @@ app.post("/api/webhook", import_express.default.raw({ type: "application/json" }
             auctionImageUrl: auctionDataPdf?.images?.[0]?.url,
             currentPrice: transaction.amount_total,
             auctionUrl,
-            settingsUrl: `${process.env.APP_URL || "https://drazbenik.si"}/?tab=settings`
+            settingsUrl: `${baseAppUrl}/?tab=settings`
           }));
           const resendClient2 = new import_resend2.Resend(process.env.RESEND_API_KEY);
           await resendClient2.emails.send({
@@ -3319,7 +3324,7 @@ app.post("/api/stripe-account-link", async (req, res) => {
       email: user.email,
       business_type: businessType,
       business_profile: {
-        url: "https://drazbenik.si",
+        url: "https://drazbe.eu",
         product_description: "Sodelovanje in prodaja na spletni platformi",
         mcc: "5999",
         support_email: user.email,
@@ -3847,13 +3852,14 @@ app.post("/api/test/send-email", async (req, res) => {
         { filename: `racun_${mockTransaction.id}.pdf`, content: invoiceBuffer }
       ];
       const resendClient2 = new import_resend2.Resend(resendApiKey);
+      const baseAppUrl = process.env.APP_URL && !process.env.APP_URL.includes("drazbenik.si") ? process.env.APP_URL : "https://drazbe.eu";
       const htmlContent = await (0, import_render2.render)(import_react2.default.createElement(AuctionEmailTemplate, {
         type: "payment_success",
         recipientName: recipientName || "Uporabnik",
         auctionTitle,
         currentPrice,
-        auctionUrl: `${process.env.APP_URL || "https://drazbenik.si"}/?drazba=${auctionId}`,
-        settingsUrl: `${process.env.APP_URL || "https://drazbenik.si"}/?tab=settings`
+        auctionUrl: `${baseAppUrl}/?drazba=${auctionId}`,
+        settingsUrl: `${baseAppUrl}/?tab=settings`
       }));
       const emailResponse = await resendClient2.emails.send({
         from: process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>",
@@ -4158,7 +4164,7 @@ app.post("/api/test/add-test-funds", async (req, res) => {
       currency: "eur",
       payment_method: "pm_card_visa",
       confirm: true,
-      return_url: "https://drazbenik.si/test-sandbox",
+      return_url: "https://drazbe.eu/test-sandbox",
       payment_method_types: ["card"],
       description: "Platform test balance funding",
       metadata: {
@@ -4509,12 +4515,24 @@ app.post("/api/orders/:id/open-dispute", async (req, res) => {
 app.post("/api/auth/verify-captcha", async (req, res) => {
   return res.json({ success: true, score: 1 });
 });
+function getAppBaseUrl(req) {
+  const origin = req?.get("origin");
+  if (origin && !origin.includes("drazbenik.si")) {
+    return origin;
+  }
+  const configured = process.env.APP_URL || process.env.VITE_APP_URL || process.env.NEXT_PUBLIC_APP_URL;
+  if (configured && !configured.includes("drazbenik.si")) {
+    return configured;
+  }
+  return "https://drazbe.eu";
+}
 app.post("/api/auth/send-email-change", async (req, res) => {
   try {
     const { email, newEmail, displayName } = req.body;
     if (!email || !newEmail) return res.status(400).json({ error: "Manjkajo podatki" });
+    const baseAppUrl = getAppBaseUrl(req);
     const actionUrl = await adminAuth.generateVerifyAndChangeEmailLink(email, newEmail, {
-      url: `${process.env.APP_URL || "https://drazbenik.si"}/?tab=settings`
+      url: `${baseAppUrl}/?tab=settings`
     });
     if (process.env.RESEND_API_KEY) {
       const resend = new import_resend2.Resend(process.env.RESEND_API_KEY);
@@ -4576,7 +4594,7 @@ app.post("/api/auth/send-verification", async (req, res) => {
         error: `Napaka baze pri pripravi potrditve: ${dbErr.message}`
       });
     }
-    const baseAppUrl = process.env.APP_URL || process.env.VITE_APP_URL || "https://drazbe.si";
+    const baseAppUrl = getAppBaseUrl(req);
     const actionUrl = `${baseAppUrl}/?verify_token=${token}&email=${encodeURIComponent(cleanEmail)}`;
     const htmlContent = await (0, import_render2.render)(import_react2.default.createElement(AuthEmailTemplate, {
       type: "verify_email",
@@ -4584,11 +4602,11 @@ app.post("/api/auth/send-verification", async (req, res) => {
       recipientName: displayName || cleanEmail.split("@")[0]
     }));
     const resend = new import_resend2.Resend(apiKey);
-    const fromEmail = process.env.EMAIL_FROM || "dra\u017Ebe.si <obvestila@drazba.si>";
+    const fromEmail = process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>";
     const sendRes = await resend.emails.send({
       from: fromEmail,
       to: cleanEmail,
-      subject: "Potrdite svoj e-po\u0161tni naslov - drazbe.si",
+      subject: "Potrdite svoj e-po\u0161tni naslov - dra\u017Ebenik.si",
       html: htmlContent
     });
     if (sendRes.error) {
@@ -4668,9 +4686,10 @@ app.post("/api/auth/send-password-reset", async (req, res) => {
     const { email } = req.body;
     if (!email) return res.status(400).json({ error: "Manjka e-po\u0161tni naslov" });
     let actionUrl = null;
+    const baseAppUrl = getAppBaseUrl(req);
     try {
       actionUrl = await adminAuth.generatePasswordResetLink(email, {
-        url: `${process.env.APP_URL || "https://drazbenik.si"}/`
+        url: `${baseAppUrl}/`
       });
     } catch (authErr) {
       console.warn("adminAuth.generatePasswordResetLink ni uspel:", authErr.message);
@@ -4708,11 +4727,12 @@ app.post("/api/auth/send-email-changed", async (req, res) => {
   try {
     const { email } = req.body;
     if (!email) return res.status(400).json({ error: "Manjka e-po\u0161tni naslov" });
+    const baseAppUrl = getAppBaseUrl(req);
     if (process.env.RESEND_API_KEY) {
       const resend = new import_resend2.Resend(process.env.RESEND_API_KEY);
       const htmlContent = await (0, import_render2.render)(import_react2.default.createElement(AuthEmailTemplate, {
         type: "email_changed",
-        actionUrl: `${process.env.APP_URL || "https://drazbenik.si"}/?tab=settings`,
+        actionUrl: `${baseAppUrl}/?tab=settings`,
         recipientName: email.split("@")[0]
       }));
       await resend.emails.send({
@@ -4732,11 +4752,12 @@ app.post("/api/auth/send-mfa-enrollment", async (req, res) => {
   try {
     const { email } = req.body;
     if (!email) return res.status(400).json({ error: "Manjka e-po\u0161tni naslov" });
+    const baseAppUrl = getAppBaseUrl(req);
     if (process.env.RESEND_API_KEY) {
       const resend = new import_resend2.Resend(process.env.RESEND_API_KEY);
       const htmlContent = await (0, import_render2.render)(import_react2.default.createElement(AuthEmailTemplate, {
         type: "mfa_enrollment",
-        actionUrl: `${process.env.APP_URL || "https://drazbenik.si"}/?tab=settings`,
+        actionUrl: `${baseAppUrl}/?tab=settings`,
         recipientName: email.split("@")[0]
       }));
       await resend.emails.send({

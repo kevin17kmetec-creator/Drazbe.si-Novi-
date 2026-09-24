@@ -43,9 +43,9 @@ export const AuctionEmailTemplate: React.FC<AuctionEmailProps> = ({
   originalPrice,
   endTime,
   paymentDeadline,
-  auctionUrl = 'https://drazbenik.si',
+  auctionUrl = 'https://drazbe.eu',
   paymentUrl,
-  settingsUrl = 'https://drazbenik.si/?tab=settings',
+  settingsUrl = 'https://drazbe.eu/?tab=settings',
   bidDifference,
   formattedAmount,
 }) => {
@@ -124,7 +124,7 @@ export const AuctionEmailTemplate: React.FC<AuctionEmailProps> = ({
       headline = 'Vaše plačilo je bilo uspešno!';
       subheadline = `Plačilo za dražbo "${auctionTitle}" je bilo uspešno obdelano. V priponki tega sporočila vam pošiljamo račun za opravljeno storitev ter potrdilo o nakupu (kupoprodajno pogodbo).`;
       ctaText = 'Ogled dražbe';
-      ctaUrl = auctionUrl || 'https://drazbenik.si';
+      ctaUrl = auctionUrl || 'https://drazbe.eu';
       priceLabel = 'Plačan znesek:';
       highlightNote = 'Dokumenti so priloženi k temu sporočilu v PDF obliki.';
       break;
@@ -241,7 +241,7 @@ export const AuctionEmailTemplate: React.FC<AuctionEmailProps> = ({
           <Section style={footerSection}>
             <Text style={footerText}>
               To je samodejno sistemsko obvestilo spletne platforme{' '}
-              <Link href="https://drazbenik.si" target="_blank" style={footerLink}>
+              <Link href="https://drazbe.eu" target="_blank" style={footerLink}>
                 dražbenik.si
               </Link>
               .

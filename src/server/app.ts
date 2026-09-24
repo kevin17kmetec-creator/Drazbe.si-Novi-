@@ -610,7 +610,8 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
       if (buyer.email && process.env.RESEND_API_KEY) {
         try {
           const auctionTitleText = auctionDataPdf?.title?.SLO || auctionDataPdf?.title?.EN || 'Predmet dražbe';
-          const auctionUrl = `${process.env.APP_URL || 'https://drazbenik.si'}/?drazba=${auction_id}`;
+          const baseAppUrl = (process.env.APP_URL && !process.env.APP_URL.includes('drazbenik.si')) ? process.env.APP_URL : 'https://drazbe.eu';
+          const auctionUrl = `${baseAppUrl}/?drazba=${auction_id}`;
           
           const htmlContent = await render(React.createElement(AuctionEmailTemplate, {
             type: 'payment_success',
@@ -619,7 +620,7 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
             auctionImageUrl: auctionDataPdf?.images?.[0]?.url,
             currentPrice: transaction.amount_total,
             auctionUrl,
-            settingsUrl: `${process.env.APP_URL || 'https://drazbenik.si'}/?tab=settings`,
+            settingsUrl: `${baseAppUrl}/?tab=settings`,
           }));
 
           const resendClient = new Resend(process.env.RESEND_API_KEY);
@@ -1429,7 +1430,7 @@ app.post("/api/stripe-account-link", async (req, res) => {
       email: user.email,
       business_type: businessType,
       business_profile: {
-        url: 'https://drazbenik.si',
+        url: 'https://drazbe.eu',
         product_description: 'Sodelovanje in prodaja na spletni platformi',
         mcc: '5999',
         support_email: user.email,
@@ -2039,13 +2040,14 @@ app.post("/api/test/send-email", async (req, res) => {
       ];
 
       const resendClient = new Resend(resendApiKey);
+      const baseAppUrl = (process.env.APP_URL && !process.env.APP_URL.includes('drazbenik.si')) ? process.env.APP_URL : 'https://drazbe.eu';
       const htmlContent = await render(React.createElement(AuctionEmailTemplate, {
         type: 'payment_success',
         recipientName: recipientName || 'Uporabnik',
         auctionTitle: auctionTitle,
         currentPrice: currentPrice,
-        auctionUrl: `${process.env.APP_URL || 'https://drazbenik.si'}/?drazba=${auctionId}`,
-        settingsUrl: `${process.env.APP_URL || 'https://drazbenik.si'}/?tab=settings`,
+        auctionUrl: `${baseAppUrl}/?drazba=${auctionId}`,
+        settingsUrl: `${baseAppUrl}/?tab=settings`,
       }));
 
       const emailResponse = await resendClient.emails.send({
@@ -2392,7 +2394,7 @@ app.post("/api/test/add-test-funds", async (req, res) => {
       currency: "eur",
       payment_method: "pm_card_visa",
       confirm: true,
-      return_url: "https://drazbenik.si/test-sandbox",
+      return_url: "https://drazbe.eu/test-sandbox",
       payment_method_types: ['card'],
       description: "Platform test balance funding",
       metadata: {
@@ -2824,13 +2826,26 @@ app.post("/api/auth/verify-captcha", async (req, res) => {
 
 // AUTH EMAILS
 
+function getAppBaseUrl(req?: express.Request): string {
+  const origin = req?.get('origin');
+  if (origin && !origin.includes('drazbenik.si')) {
+    return origin;
+  }
+  const configured = process.env.APP_URL || process.env.VITE_APP_URL || process.env.NEXT_PUBLIC_APP_URL;
+  if (configured && !configured.includes('drazbenik.si')) {
+    return configured;
+  }
+  return 'https://drazbe.eu';
+}
+
 app.post("/api/auth/send-email-change", async (req, res) => {
   try {
     const { email, newEmail, displayName } = req.body;
     if (!email || !newEmail) return res.status(400).json({ error: "Manjkajo podatki" });
 
+    const baseAppUrl = getAppBaseUrl(req);
     const actionUrl = await adminAuth.generateVerifyAndChangeEmailLink(email, newEmail, {
-      url: `${process.env.APP_URL || 'https://drazbenik.si'}/?tab=settings`
+      url: `${baseAppUrl}/?tab=settings`
     });
 
     if (process.env.RESEND_API_KEY) {
@@ -2904,8 +2919,8 @@ app.post("/api/auth/send-verification", async (req, res) => {
       });
     }
 
-    // 3. Sestavi povezavo za potrditev, ki vodi na spletno stran z gumbom za potrditev
-    const baseAppUrl = process.env.APP_URL || process.env.VITE_APP_URL || 'https://drazbenik.si';
+    // 3. Sestavi povezavo za potrditev na domenah drazbe.eu, ki vodi na spletno stran z gumbom za potrditev
+    const baseAppUrl = getAppBaseUrl(req);
     const actionUrl = `${baseAppUrl}/?verify_token=${token}&email=${encodeURIComponent(cleanEmail)}`;
 
     // 4. Pripravi HTML z AuthEmailTemplate
@@ -3018,9 +3033,10 @@ app.post("/api/auth/send-password-reset", async (req, res) => {
     if (!email) return res.status(400).json({ error: "Manjka e-poštni naslov" });
 
     let actionUrl: string | null = null;
+    const baseAppUrl = getAppBaseUrl(req);
     try {
       actionUrl = await adminAuth.generatePasswordResetLink(email, {
-        url: `${process.env.APP_URL || 'https://drazbenik.si'}/`
+        url: `${baseAppUrl}/`
       });
     } catch (authErr: any) {
       console.warn("adminAuth.generatePasswordResetLink ni uspel:", authErr.message);
@@ -3065,11 +3081,12 @@ app.post("/api/auth/send-email-changed", async (req, res) => {
     const { email } = req.body;
     if (!email) return res.status(400).json({ error: "Manjka e-poštni naslov" });
 
+    const baseAppUrl = getAppBaseUrl(req);
     if (process.env.RESEND_API_KEY) {
       const resend = new Resend(process.env.RESEND_API_KEY);
       const htmlContent = await render(React.createElement(AuthEmailTemplate, {
         type: 'email_changed',
-        actionUrl: `${process.env.APP_URL || 'https://drazbenik.si'}/?tab=settings`,
+        actionUrl: `${baseAppUrl}/?tab=settings`,
         recipientName: email.split('@')[0],
       }));
 
@@ -3093,11 +3110,12 @@ app.post("/api/auth/send-mfa-enrollment", async (req, res) => {
     const { email } = req.body;
     if (!email) return res.status(400).json({ error: "Manjka e-poštni naslov" });
 
+    const baseAppUrl = getAppBaseUrl(req);
     if (process.env.RESEND_API_KEY) {
       const resend = new Resend(process.env.RESEND_API_KEY);
       const htmlContent = await render(React.createElement(AuthEmailTemplate, {
         type: 'mfa_enrollment',
-        actionUrl: `${process.env.APP_URL || 'https://drazbenik.si'}/?tab=settings`,
+        actionUrl: `${baseAppUrl}/?tab=settings`,
         recipientName: email.split('@')[0],
       }));
 
