@@ -961,8 +961,8 @@ const MainApp: React.FC = () => {
             setUserData((prev: any) => ({
               ...prev,
               ...data,
-              id: user.uid,
-              email: user.email || data.email || prev.email || '',
+              id: authUser.uid,
+              email: authUser.email || data.email || prev.email || '',
               username: data.username || data.userName || prev.username || '',
               userName: data.username || data.userName || prev.username || '',
               first_name: data.first_name || data.firstName || prev.first_name || prev.firstName || '',
@@ -1019,9 +1019,9 @@ const MainApp: React.FC = () => {
               setNextBillingDate(undefined);
             }
           } else {
-            await setDoc(doc(db, 'users', user.uid), {
-              id: user.uid,
-              email: user.email,
+            await setDoc(doc(db, 'users', authUser.uid), {
+              id: authUser.uid,
+              email: authUser.email,
               is_verified: false,
               subscription: 'FREE'
             }, { merge: true });

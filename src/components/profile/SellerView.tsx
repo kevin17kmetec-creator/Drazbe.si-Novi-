@@ -178,7 +178,7 @@ const SellerView: React.FC<SellerViewProps> = ({
 
   const canLeaveReview = useMemo(() => {
     if (!isLoggedIn || !auth.currentUser) return false;
-    if (auth.currentUser.uid === seller.id) return false;
+    if (auth.currentUser?.uid === seller.id) return false;
     return currentUserWinnings.some(w => w.sellerId === seller.id || (w as any).seller_id === seller.id);
   }, [isLoggedIn, seller.id, currentUserWinnings]);
 
