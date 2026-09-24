@@ -1,5 +1,5 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
-import { User, Camera, CheckCircle2, AlertCircle, Shield, CreditCard, Building, MapPin, Key, Bell, X, Eye, EyeOff } from 'lucide-react';
+import { User, Camera, CheckCircle2, AlertCircle, Shield, CreditCard, Building, MapPin, Key, Bell, X, Eye, EyeOff, ShieldAlert, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import imageCompression from 'browser-image-compression';
 import { StripeConnectOnboarding } from "@/src/components/profile/StripeConnectOnboarding";
@@ -340,6 +340,76 @@ export const SettingsView: React.FC<{
                         )}
                     </div>
                 </div>
+
+                {/* 3 Strikes / Unpaid Auctions System Card */}
+                {(() => {
+                  const strikesCount = Number(user?.unpaidStrikes ?? user?.unpaid_strikes ?? 0);
+                  const isBlocked = !!user?.isBlocked || strikesCount >= 3;
+                  return (
+                    <div className="mb-10 p-6 sm:p-8 bg-slate-50 border-2 border-slate-200 rounded-[2.5rem] shadow-sm">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <ShieldAlert size={22} className={isBlocked ? "text-red-600" : strikesCount > 0 ? "text-amber-500" : "text-green-600"} />
+                            <h4 className="text-sm font-black uppercase tracking-widest text-[#0A1128]">
+                              Zanesljivost plačil (3 Strikes sistem)
+                            </h4>
+                          </div>
+                          <p className="text-xs text-slate-500 font-bold mt-1.5 max-w-xl leading-relaxed">
+                            Po zmagi na dražbi ima kupec <span className="text-[#0A1128] font-black">48 ur</span> za poravnavo plačila. V primeru neplačila prejme 1 opomin (Strike X). Ob 3. opominu se račun trajno blokira za sodelovanje in oddajo novih ponudb.
+                          </p>
+                        </div>
+                        <div className={`px-5 py-3 rounded-2xl border text-center shrink-0 ${
+                          isBlocked 
+                            ? "bg-red-500/10 border-red-500/30 text-red-600" 
+                            : strikesCount > 0 
+                              ? "bg-amber-500/10 border-amber-500/30 text-amber-700" 
+                              : "bg-green-500/10 border-green-500/30 text-green-700"
+                        }`}>
+                          <span className="text-[10px] font-black uppercase tracking-widest block mb-0.5">Status računa</span>
+                          <span className="text-xs font-black">
+                            {isBlocked ? "Račun blokiran (3/3)" : strikesCount === 0 ? "Brez opominov (0/3)" : `${strikesCount}/3 opominov`}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* 3 Visual Strike Cards */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        {[1, 2, 3].map((slot) => {
+                          const isStrikeGiven = strikesCount >= slot;
+                          return (
+                            <div 
+                              key={slot} 
+                              className={`p-5 rounded-2xl border-2 flex items-center gap-4 transition-all ${
+                                isStrikeGiven 
+                                  ? "bg-red-50 border-red-300 text-red-900 shadow-sm" 
+                                  : "bg-white border-slate-200 text-slate-400"
+                              }`}
+                            >
+                              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-xl shrink-0 ${
+                                isStrikeGiven 
+                                  ? "bg-red-600 text-white shadow-md shadow-red-500/30" 
+                                  : "bg-slate-100 text-slate-400"
+                              }`}>
+                                {isStrikeGiven ? "X" : slot}
+                              </div>
+                              <div>
+                                <p className={`text-xs font-black uppercase tracking-wider ${isStrikeGiven ? "text-red-700" : "text-slate-600"}`}>
+                                  {slot}. Opomin {slot === 3 ? "(Blokada)" : ""}
+                                </p>
+                                <p className="text-[11px] font-bold mt-0.5">
+                                  {isStrikeGiven 
+                                    ? (slot === 3 ? "Blokirano ponujanje" : "Prejet opomin (neplačano)") 
+                                    : "Ni opomina (prosto)"}
+                                </p>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* EU Compliance & Annual Purchasing Limit Card */}
                 <div className="mb-10 p-6 bg-slate-50 border border-slate-100 rounded-3xl">

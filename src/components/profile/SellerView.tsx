@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Star, MapPin, Calendar, Building2, User, CheckCircle2, 
   TrendingUp, History, MessageSquare, ArrowLeft, ShieldCheck,
-  Award, Package, ThumbsUp, AlertCircle
+  Award, Package, ThumbsUp, AlertCircle, ShieldAlert
 } from 'lucide-react';
 import { collection, query, where, getDocs, addDoc } from 'firebase/firestore';
 import { toast } from 'sonner';
@@ -359,6 +359,52 @@ const SellerView: React.FC<SellerViewProps> = ({
                 </div>
               </div>
             </div>
+
+            {/* 3 Strikes Reliability Badge / Card */}
+            {(() => {
+              const sellerStrikes = Number((seller as any)?.unpaidStrikes ?? (seller as any)?.unpaid_strikes ?? 0);
+              return (
+                <div className="mt-4 p-5 bg-slate-50 rounded-3xl border border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-2xl flex items-center justify-center font-black ${
+                      sellerStrikes >= 3 
+                        ? "bg-red-500/10 text-red-600 border border-red-200" 
+                        : sellerStrikes > 0 
+                          ? "bg-amber-500/10 text-amber-700 border border-amber-200" 
+                          : "bg-green-500/10 text-green-700 border border-green-200"
+                    }`}>
+                      <ShieldAlert size={20} />
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Zanesljivost plačil (3 Strikes sistem)</p>
+                      <p className="text-sm font-black text-[#0A1128]">
+                        {sellerStrikes >= 3 ? "Račun blokiran (3/3 opomini - Neplačnik)" : sellerStrikes === 0 ? "Vzoren plačnik (0/3 opominov)" : `${sellerStrikes}/3 opominov za neplačilo`}
+                      </p>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center gap-2">
+                    {[1, 2, 3].map((slot) => {
+                      const hasStrike = sellerStrikes >= slot;
+                      return (
+                        <div 
+                          key={slot}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 border ${
+                            hasStrike 
+                              ? "bg-red-50 border-red-300 text-red-600 shadow-sm" 
+                              : "bg-white border-slate-200 text-slate-400"
+                          }`}
+                          title={hasStrike ? `${slot}. opomin za neplačano dražbo` : `Prosta možnost (${slot}/3)`}
+                        >
+                          <span className={hasStrike ? "font-black text-red-600" : ""}>{hasStrike ? "X" : slot}</span>
+                          <span className="text-[9px] uppercase font-bold tracking-wider">{slot}. opomin</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
       </div>

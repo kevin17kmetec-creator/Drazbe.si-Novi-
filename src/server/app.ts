@@ -1991,7 +1991,7 @@ app.post("/api/test/send-email", async (req, res) => {
         auctionId,
         auctionTitle,
         winningPrice: currentPrice,
-        paymentDeadlineFormatted: "24 ur (do jutri ob 18:00)",
+        paymentDeadlineFormatted: "48 ur (v roku 2 dni)",
         auctionImageUrl,
       });
     } else if (type === 'payment_reminder') {

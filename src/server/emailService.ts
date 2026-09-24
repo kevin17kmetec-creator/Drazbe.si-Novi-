@@ -152,7 +152,7 @@ export async function sendAuctionWonNotification(params: {
     auctionTitle: params.auctionTitle,
     auctionImageUrl: params.auctionImageUrl,
     currentPrice: params.winningPrice,
-    paymentDeadline: params.paymentDeadlineFormatted || '24 ur',
+    paymentDeadline: params.paymentDeadlineFormatted || '48 ur',
     auctionUrl,
     paymentUrl,
     settingsUrl: `${baseUrl}/?tab=settings`,
@@ -160,7 +160,7 @@ export async function sendAuctionWonNotification(params: {
 }
 
 /**
- * Triggered 2 hours before 24h payment deadline expires
+ * Triggered 2 hours before 48h payment deadline expires
  */
 export async function sendPaymentReminderNotification(params: {
   toEmail: string;

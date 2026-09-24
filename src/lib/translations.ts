@@ -1,6 +1,11 @@
 export const translations: Record<string, any> = {
   SLO: {
     auctionPaid: "Dražba plačana",
+    paid: "Plačano",
+    profileSaved: "Nastavitve so bile uspešno shranjene.",
+    winnerPaidNotice: "Čestitamo! Vaše plačilo je bilo uspešno potrjeno. Prodajalec pripravlja pošiljko oz. prevzem.",
+    sellerPaidNotice: "Kupec je uspešno plačal dražbo. Sredstva so varno shranjena v vaših zadržanih sredstvih.",
+    auctionCompletedPaid: "Dražba je bila uspešno zaključena in plačana.",
     top10: "TOP 10 DRAŽB DNEVA",
     allAuctions: "VSE DRAŽBE",
     regions: "REGIJE",
@@ -387,6 +392,11 @@ export const translations: Record<string, any> = {
   },
   EN: {
     auctionPaid: "Auction Paid",
+    paid: "Paid",
+    profileSaved: "Settings successfully saved.",
+    winnerPaidNotice: "Congratulations! Your payment has been confirmed. The seller is preparing the item.",
+    sellerPaidNotice: "The buyer has successfully paid for the auction. Funds are safely secured in your escrow balance.",
+    auctionCompletedPaid: "The auction has been successfully completed and paid.",
     top10: "TOP 10 AUCTIONS OF THE DAY",
     allAuctions: "ALL AUCTIONS",
     regions: "REGIONS",
@@ -773,6 +783,11 @@ export const translations: Record<string, any> = {
   },
   DE: {
     auctionPaid: "Auktion bezahlt",
+    paid: "Bezahlt",
+    profileSaved: "Einstellungen erfolgreich gespeichert.",
+    winnerPaidNotice: "Herzlichen Glückwunsch! Ihre Zahlung wurde bestätigt. Der Verkäufer bereitet den Versand vor.",
+    sellerPaidNotice: "Der Käufer hat die Auktion erfolgreich bezahlt. Der Betrag ist sicher auf Ihrem Treuhandkonto hinterlegt.",
+    auctionCompletedPaid: "Die Auktion wurde erfolgreich abgeschlossen und bezahlt.",
     top10: "TOP 10 AUKTIONEN DES TAGES",
     allAuctions: "ALLE AUKTIONEN",
     regions: "REGIONEN",

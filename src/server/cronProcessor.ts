@@ -156,7 +156,7 @@ export async function processAuctionCrons(): Promise<CronRunResult> {
 
         if (hasBids) {
           const winnerId = data.winner_id || data.winnerId;
-          const paymentDeadline = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
+          const paymentDeadline = new Date(now.getTime() + 48 * 60 * 60 * 1000).toISOString();
 
           await adminDb.collection('auctions').doc(auctionId).update({
             status: 'completed',
@@ -182,7 +182,7 @@ export async function processAuctionCrons(): Promise<CronRunResult> {
                     auctionTitle: title,
                     auctionImageUrl: imageUrl,
                     winningPrice: finalPrice,
-                    paymentDeadlineFormatted: '24 ur (do ' + new Date(paymentDeadline).toLocaleTimeString('sl-SI', { hour: '2-digit', minute: '2-digit' }) + ')',
+                    paymentDeadlineFormatted: '48 ur (do ' + new Date(paymentDeadline).toLocaleDateString('sl-SI', { day: '2-digit', month: '2-digit' }) + ' ob ' + new Date(paymentDeadline).toLocaleTimeString('sl-SI', { hour: '2-digit', minute: '2-digit' }) + ')',
                   });
                   result.actions.winnersNotified++;
                   details.push(`Winner notification sent to ${winnerData.email} for auction ${auctionId}`);
@@ -207,7 +207,7 @@ export async function processAuctionCrons(): Promise<CronRunResult> {
     }
 
     // -------------------------------------------------------------
-    // 3. PAYMENT REMINDER: 2 HOURS BEFORE 24h DEADLINE
+    // 3. PAYMENT REMINDER: 2 HOURS BEFORE 48h DEADLINE
     // -------------------------------------------------------------
     let awaitingPaymentSnap;
     try {
@@ -274,7 +274,7 @@ export async function processAuctionCrons(): Promise<CronRunResult> {
     }
 
     // -------------------------------------------------------------
-    // 4. EXPIRED PAYMENT DEADLINE (24h REACHED) -> UNPAID STRIKE
+    // 4. EXPIRED PAYMENT DEADLINE (48h REACHED) -> UNPAID STRIKE
     // -------------------------------------------------------------
     for (const auctionDoc of awaitingPaymentSnap.docs) {
       const data = auctionDoc.data();

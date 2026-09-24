@@ -283,7 +283,9 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                       <div className="w-16 h-16 rounded-full bg-green-500/20 border border-green-500/40 flex items-center justify-center mb-4 text-green-400 shadow-lg shadow-green-500/10">
                         <CheckCircle2 size={36} />
                       </div>
-                      <h3 className="text-2xl font-black uppercase tracking-tight text-white mb-2">{t('auctionPaid') || 'Dražba plačana'}</h3>
+                      <h3 className="text-2xl font-black uppercase tracking-tight text-white mb-2">
+                        {t('auctionPaid') || 'Dražba plačana'}
+                      </h3>
                       <div className="bg-white/10 rounded-2xl px-6 py-3 mb-4 border border-white/10 w-full">
                         <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-0.5">Končni znesek</p>
                         <p className="text-2xl font-black text-[#FEBA4F]">€ {(currentAuction.currentBid || currentAuction.current_price || currentBid)?.toLocaleString('sl-SI')}</p>
@@ -304,7 +306,9 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                   ) : (
                     <>
                       <CheckCircle2 size={48} className="text-green-500 mb-4" />
-                      <h3 className="text-2xl font-black uppercase tracking-tighter text-white mb-2">{t('auctionEnded')}</h3>
+                      <h3 className="text-2xl font-black uppercase tracking-tighter text-white mb-2">
+                        {t('auctionEnded') || 'Dražba zaključena'}
+                      </h3>
                       <div className="bg-white/10 rounded-2xl px-6 py-4 mb-6 border border-white/10">
                         <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Končna cena</p>
                         <p className="text-3xl font-black text-[#FEBA4F]">€ {(currentAuction.currentBid || currentAuction.current_price || currentBid)?.toLocaleString('sl-SI') || 0}</p>
@@ -312,21 +316,27 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                       
                       {isWinner ? (
                         <>
-                          <p className="text-slate-300 font-bold mb-6">{t('winnerNotice')}</p>
+                          <p className="text-slate-300 font-bold mb-6">
+                            {t('winnerNotice') || 'Čestitamo, zmagali ste! Prosimo, dokončajte plačilo.'}
+                          </p>
                           <button 
                             onClick={handleCheckout}
                             disabled={loading || isPaid}
                             className="w-full bg-[#FEBA4F] text-[#0A1128] px-8 py-4 rounded-xl font-black uppercase tracking-widest hover:bg-white transition-all shadow-xl flex items-center justify-center gap-2 disabled:opacity-50 mb-3"
                           >
-                            <Lock size={18} /> {loading ? '...' : t('payNow')}
+                            <Lock size={18} /> {loading ? '...' : (t('payNow') || 'Plačaj zdaj')}
                           </button>
                         </>
                       ) : isSeller ? (
                         <>
-                          <p className="text-slate-300 font-bold mb-4">{t('sellerWinnerNotice')}</p>
+                          <p className="text-slate-300 font-bold mb-4">
+                            {t('sellerWinnerNotice') || 'Zmagovalec je bil obveščen in preusmerjen na plačilo.'}
+                          </p>
                         </>
                       ) : (
-                        <p className="text-slate-300 font-bold">{t('notWinnerNotice')}</p>
+                        <p className="text-slate-300 font-bold">
+                          {t('notWinnerNotice') || 'Dražba se je končala. Niste zmagovalec.'}
+                        </p>
                       )}
                     </>
                   )}

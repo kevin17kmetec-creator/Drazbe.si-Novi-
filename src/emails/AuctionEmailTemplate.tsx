@@ -96,11 +96,11 @@ export const AuctionEmailTemplate: React.FC<AuctionEmailProps> = ({
       badgeBg = '#10B981';
       badgeColor = '#FFFFFF';
       headline = 'Čestitamo, zmagali ste!';
-      subheadline = `Uspešno ste zmagali na dražbi za "${auctionTitle}". Za dokončanje nakupa in prevzem prosimo poravnajte račun v roku 24 ur.`;
+      subheadline = `Uspešno ste zmagali na dražbi za "${auctionTitle}". Za dokončanje nakupa in prevzem prosimo poravnajte račun v roku 48 ur.`;
       ctaText = 'Pojdi na plačilo';
       ctaUrl = paymentUrl || `${auctionUrl}?tab=winnings`;
       priceLabel = 'Končna zmagovalna cena:';
-      highlightNote = 'Rok za plačilo je 24 ur po zaključku dražbe.';
+      highlightNote = 'Rok za plačilo je 48 ur po zaključku dražbe.';
       break;
 
     case 'payment_reminder':

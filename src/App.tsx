@@ -191,7 +191,7 @@ const PaymentTimer: React.FC<{ endTime: string | Date }> = ({ endTime }) => {
   } | null>(null);
 
   useEffect(() => {
-    const deadline = new Date(endTime).getTime() + 24 * 60 * 60 * 1000;
+    const deadline = new Date(endTime).getTime() + 48 * 60 * 60 * 1000;
 
     const updateTimer = () => {
       const now = new Date().getTime();
@@ -203,7 +203,7 @@ const PaymentTimer: React.FC<{ endTime: string | Date }> = ({ endTime }) => {
       }
 
       setTimeLeft({
-        hours: Math.floor((difference / (1000 * 60 * 60)) % 24),
+        hours: Math.floor(difference / (1000 * 60 * 60)),
         minutes: Math.floor((difference / 1000 / 60) % 60),
         seconds: Math.floor((difference / 1000) % 60),
       });
@@ -222,8 +222,8 @@ const PaymentTimer: React.FC<{ endTime: string | Date }> = ({ endTime }) => {
     timeLeft.seconds === 0
   ) {
     return (
-      <span className="text-red-500 font-bold flex items-center gap-1.5">
-        <Timer size={14} /> Čas za plačilo je potekel
+      <span className="text-red-500 font-bold flex items-center gap-1.5 bg-red-50 px-3 py-1.5 rounded-xl border border-red-200">
+        <Timer size={14} /> Čas za plačilo je potekel (48h)
       </span>
     );
   }
@@ -350,7 +350,10 @@ const MainApp: React.FC = () => {
     return "SLO";
   });
   const t = useCallback(
-    (key: string) => translations[language]?.[key] || key,
+    (key: string) => {
+      const normalizedLang = (language === 'EN' || language === 'en') ? 'EN' : (language === 'DE' || language === 'de') ? 'DE' : 'SLO';
+      return translations[normalizedLang]?.[key] || translations['SLO']?.[key] || translations['EN']?.[key] || '';
+    },
     [language],
   );
 
@@ -941,6 +944,13 @@ const MainApp: React.FC = () => {
     rating: number;
     comment: string;
   }>({ isOpen: false, auctionId: "", sellerId: "", rating: 0, comment: "" });
+  const [deleteUnsoldModal, setDeleteUnsoldModal] = useState<{
+    isOpen: boolean;
+    item?: any;
+    items?: any[];
+    title: string;
+  } | null>(null);
+  const [isQuickRepublishing, setIsQuickRepublishing] = useState<string | null>(null);
 
   const lastSessionCheckRef = useRef(0);
   const isCheckingSessionRef = useRef(false);
@@ -2661,14 +2671,32 @@ const MainApp: React.FC = () => {
                   const totalAmountToPay =
                     wonItem.currentBid + commissionNet * 1.22;
 
+                  const paymentDeadlineMs = new Date((wonItem as any).payment_deadline || wonItem.endTime || (wonItem as any).end_time).getTime() + ((wonItem as any).payment_deadline ? 0 : 48 * 60 * 60 * 1000);
+                  const isOverdue = wonItem.payment_status !== "paid" && (
+                    wonItem.post_auction_status === "failed_1st" || 
+                    wonItem.post_auction_status === "unpaid" || 
+                    wonItem.post_auction_status === "unsold" ||
+                    Date.now() > paymentDeadlineMs
+                  );
+
+                  const userStrikesCount = Math.max(1, Number((userData as any)?.unpaidStrikes ?? (userData as any)?.unpaid_strikes ?? 1));
+                  const strikeOrdinal = userStrikesCount === 1 ? "1. opomin (Strike 1/3)" : userStrikesCount === 2 ? "2. opomin (Strike 2/3)" : `${userStrikesCount}. zadnji opomin (Strike 3/3)`;
+
                   return (
                     <div
                       key={wonItem.id}
-                      className="flex flex-col md:flex-row items-center gap-8 p-6 rounded-[2.5rem] border-2 border-slate-100 hover:border-[#FEBA4F] transition-colors group"
+                      className={`flex flex-col md:flex-row items-center gap-8 p-6 rounded-[2.5rem] border-2 transition-colors group ${
+                        isOverdue 
+                          ? "border-red-500 bg-red-50/20 shadow-sm" 
+                          : "border-slate-100 hover:border-[#FEBA4F]"
+                      }`}
                     >
                       <div
-                        className="w-32 h-32 shrink-0 bg-slate-100 rounded-3xl overflow-hidden shadow-md group-hover:scale-105 transition-transform cursor-pointer"
+                        className={`w-32 h-32 shrink-0 bg-slate-100 rounded-3xl overflow-hidden shadow-md transition-transform ${
+                          isOverdue ? "cursor-not-allowed opacity-80" : "cursor-pointer group-hover:scale-105"
+                        }`}
                         onClick={() => {
+                          if (isOverdue) return;
                           setSelectedItem(wonItem);
                           setActiveView("detail");
                           window.scrollTo({ top: 0, behavior: "instant" });
@@ -2680,9 +2708,6 @@ const MainApp: React.FC = () => {
                             <SignedImg
                               src={
                                 wonItem.images[0]
-
-
-
                               }
                               alt="Item"
                               className="w-full h-full object-cover"
@@ -2691,8 +2716,13 @@ const MainApp: React.FC = () => {
                       </div>
                       <div className="flex-1 text-center md:text-left">
                         <h3
-                          className="text-2xl font-black uppercase tracking-tighter text-[#0A1128] mb-2 cursor-pointer hover:text-[#FEBA4F] transition-colors"
+                          className={`text-2xl font-black uppercase tracking-tighter mb-2 transition-colors ${
+                            isOverdue 
+                              ? "text-slate-700 cursor-not-allowed" 
+                              : "text-[#0A1128] cursor-pointer hover:text-[#FEBA4F]"
+                          }`}
                           onClick={() => {
+                            if (isOverdue) return;
                             setSelectedItem(wonItem);
                             setActiveView("detail");
                             window.scrollTo({ top: 0, behavior: "instant" });
@@ -2718,6 +2748,16 @@ const MainApp: React.FC = () => {
                             <PaymentTimer endTime={wonItem.endTime} />
                           )}
                         </div>
+
+                        {/* Overdue alert notice for winner */}
+                        {isOverdue && (
+                          <div className="mt-3 p-3.5 bg-red-100/70 border border-red-200 rounded-2xl text-xs font-bold text-red-700 flex items-start sm:items-center gap-2.5">
+                            <AlertTriangle size={18} className="text-red-600 shrink-0 mt-0.5 sm:mt-0" />
+                            <span>
+                              Zaradi neplačila v roku 48 ur ste prejeli <strong className="font-black text-red-800">{strikeOrdinal}</strong>. {(userData as any)?.isBlocked || ((userData as any)?.unpaidStrikes || 0) >= 3 ? "Vaš račun je trajno blokiran za ponujanje na dražbah." : "Pri 3 opominih se račun avtomatsko blokira."}
+                            </span>
+                          </div>
+                        )}
                       </div>
                       <div className="flex flex-col gap-3 w-full lg:w-auto shrink-0 mt-4 md:mt-0">
                         {wonItem.payment_status === "paid" ? (
@@ -2805,6 +2845,18 @@ const MainApp: React.FC = () => {
                                   )}
                                 </div>
                               </div>
+                            </div>
+                          </div>
+                        ) : isOverdue ? (
+                          <div className="flex flex-col gap-2 w-full lg:w-auto min-w-[220px]">
+                            <button
+                              disabled
+                              className="bg-red-100 text-red-600 border border-red-200 px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-xs cursor-not-allowed flex items-center justify-center gap-2 opacity-80 shadow-none w-full"
+                            >
+                              <Lock size={16} /> Plačilo zaklenjeno
+                            </button>
+                            <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest text-center py-1">
+                              Sporočila onemogočena
                             </div>
                           </div>
                         ) : (
@@ -3140,15 +3192,23 @@ const MainApp: React.FC = () => {
       );
       break;
     case "myUnsold":
-      // Filter: seller is current user, auction has ended AND (no winner OR unpaid/unsold status)
+      // Filter: seller is current user, auction has ended AND (no winner OR unpaid/unsold status OR overdue payment)
       // Keep only those whose status is not 'archived'/'deleted'
       const nowMs = Date.now();
       const currentUserUnsoldRaw = auctions.filter(
         (a) =>
           (a.sellerId === userData.id ||
             (a as any).seller_id === userData.id) &&
-          (a.status === "completed" || new Date(a.endTime) <= new Date()) &&
-          (a.post_auction_status === "unsold" || a.post_auction_status === "unpaid" || a.post_auction_status === "failed_2nd" || a.post_auction_status === "rejected_2nd" || (!a.winnerId && !(a as any).winner_id)) &&
+          (a.status === "completed" || new Date(a.endTime).getTime() <= nowMs) &&
+          (
+            a.post_auction_status === "unsold" || 
+            a.post_auction_status === "unpaid" || 
+            a.post_auction_status === "failed_1st" ||
+            a.post_auction_status === "failed_2nd" || 
+            a.post_auction_status === "rejected_2nd" || 
+            (!a.winnerId && !(a as any).winner_id) ||
+            (a.payment_status !== 'paid' && nowMs > (new Date((a as any).payment_deadline || a.endTime || (a as any).end_time).getTime() + ((a as any).payment_deadline ? 0 : 48 * 60 * 60 * 1000)))
+          ) &&
           (a as any).status !== "archived" && (a as any).status !== "deleted"
       ).filter(a => {
         // Must be within 1 month from end time to be shown here
@@ -3201,7 +3261,7 @@ const MainApp: React.FC = () => {
                   {t('unsoldAuctions')}
                 </h2>
                 <p className="text-slate-400 font-bold mt-2">
-                  Dražbe, ki se niso uspešno zaključile s prodajo. Na voljo za ponovno objavo 1 mesec od zaključka.
+                  Dražbe, ki se niso uspešno zaključile s prodajo ali plačilom. Na voljo za ponovno objavo 1 mesec od zaključka.
                 </p>
               </div>
             </div>
@@ -3229,23 +3289,15 @@ const MainApp: React.FC = () => {
                         className="flex flex-col md:flex-row items-center gap-8 p-6 rounded-[2.5rem] border-2 border-slate-100 hover:border-blue-200 bg-blue-50/30 transition-colors group relative"
                       >
                         <button 
-                          onClick={async () => {
-                            if (window.confirm("Ste prepričani, da želite dokončno izbrisati te dražbe? Te akcije ni mogoče razveljaviti.")) {
-                              try {
-                                for (const item of items) {
-                                  await deleteDoc(doc(db, 'auctions', item.id));
-                                }
-                                toast.success("Dražbe uspešno in trajno izbrisane.");
-                                fetchAuctions();
-                              } catch (e: any) {
-                                toast.error("Napaka pri brisanju: " + e.message);
-                              }
-                            }
-                          }}
-                          className="absolute top-4 right-4 p-2 text-slate-300 hover:text-red-500 transition-colors"
-                          title="Dokončno izbriši dražbe"
+                          onClick={() => setDeleteUnsoldModal({
+                            isOpen: true,
+                            items: items,
+                            title: `${items.length} dražb paketa`
+                          })}
+                          className="absolute top-4 right-4 p-2.5 rounded-2xl bg-slate-100 hover:bg-red-50 text-slate-700 hover:text-red-600 border border-slate-200 hover:border-red-200 transition-all shadow-sm flex items-center justify-center group/btn"
+                          title="Dokončno izbriši dražbe paketa"
                         >
-                          <Trash2 size={24} />
+                          <Trash2 size={20} className="transition-transform group-hover/btn:scale-110" />
                         </button>
                         <div className="relative w-32 h-32 cursor-pointer group-hover:scale-105 transition-transform" onClick={() => {}}>
                            <SignedImg src={firstItem.images[0]} className="w-full h-full rounded-3xl object-cover shadow-md" alt="Package preview" />
@@ -3269,6 +3321,13 @@ const MainApp: React.FC = () => {
                         </div>
                         <div className="flex flex-col gap-3 w-full md:w-auto mt-4 md:mt-0">
                           <button
+                            onClick={() => handleDirectQuickRepublishPackage(items)}
+                            disabled={isQuickRepublishing === "package"}
+                            className="bg-[#FEBA4F] text-[#0A1128] px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#0A1128] hover:text-[#FEBA4F] transition-all shadow-xl flex items-center justify-center gap-2 disabled:opacity-50"
+                          >
+                            <Upload size={16} /> {isQuickRepublishing === "package" ? "Objavljanje..." : "Hitra objava paketa"}
+                          </button>
+                          <button
                             onClick={() => {
                               setRepublishData({ type: 'package', items: items });
                               setCreateMode('package');
@@ -3288,6 +3347,7 @@ const MainApp: React.FC = () => {
                   const endMs = new Date(soldItem.endTime || (soldItem as any).end_time).getTime();
                   const expireMs = endMs + 30 * 24 * 60 * 60 * 1000;
                   const daysLeft = Math.max(0, Math.ceil((expireMs - nowMs) / (24 * 60 * 60 * 1000)));
+                  const isUnpaidOverdue = (soldItem.winnerId || (soldItem as any).winner_id) && soldItem.payment_status !== 'paid';
 
                   return (
                     <div
@@ -3295,21 +3355,15 @@ const MainApp: React.FC = () => {
                       className="flex flex-col md:flex-row items-center gap-8 p-6 rounded-[2.5rem] border-2 border-slate-100 hover:border-slate-300 transition-colors group relative"
                     >
                       <button 
-                        onClick={async () => {
-                          if (window.confirm("Ste prepričani, da želite dokončno izbrisati to dražbo? Te akcije ni mogoče razveljaviti.")) {
-                            try {
-                              await deleteDoc(doc(db, 'auctions', soldItem.id));
-                              toast.success("Dražba uspešno in trajno izbrisana.");
-                              fetchAuctions();
-                            } catch (e: any) {
-                              toast.error("Napaka pri brisanju: " + e.message);
-                            }
-                          }
-                        }}
-                        className="absolute top-4 right-4 p-2 text-slate-300 hover:text-red-500 transition-colors"
+                        onClick={() => setDeleteUnsoldModal({
+                          isOpen: true,
+                          item: soldItem,
+                          title: soldItem.title[language as keyof typeof soldItem.title] || soldItem.title.SLO || "dražbo"
+                        })}
+                        className="absolute top-4 right-4 p-2.5 rounded-2xl bg-slate-100 hover:bg-red-50 text-slate-700 hover:text-red-600 border border-slate-200 hover:border-red-200 transition-all shadow-sm flex items-center justify-center group/btn"
                         title="Dokončno izbriši dražbo"
                       >
-                        <Trash2 size={24} />
+                        <Trash2 size={20} className="transition-transform group-hover/btn:scale-110" />
                       </button>
                       <SignedImg
                         src={soldItem.images[0]}
@@ -3322,6 +3376,11 @@ const MainApp: React.FC = () => {
                         }}
                       />
                       <div className="flex-1 text-center md:text-left">
+                        {isUnpaidOverdue ? (
+                          <div className="inline-block px-3 py-1 bg-red-100 text-red-700 text-[10px] font-black uppercase tracking-widest rounded-full mb-2">
+                            Neplačano (rok 48h potekel)
+                          </div>
+                        ) : null}
                         <h3
                           className="text-2xl font-black uppercase tracking-tighter text-slate-500 mb-2 cursor-pointer hover:text-[#0A1128] transition-colors"
                           onClick={() => {
@@ -3348,10 +3407,11 @@ const MainApp: React.FC = () => {
                       </div>
                       <div className="flex flex-col gap-3 w-full md:w-auto mt-4 md:mt-0">
                         <button
-                          onClick={() => setQuickRepublishItem(soldItem)}
-                          className="bg-[#FEBA4F] text-[#0A1128] px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#0A1128] hover:text-[#FEBA4F] transition-all shadow-xl flex items-center justify-center gap-2"
+                          onClick={() => handleDirectQuickRepublish(soldItem)}
+                          disabled={isQuickRepublishing === soldItem.id}
+                          className="bg-[#FEBA4F] text-[#0A1128] px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#0A1128] hover:text-[#FEBA4F] transition-all shadow-xl flex items-center justify-center gap-2 disabled:opacity-50"
                         >
-                          <Upload size={16} /> Hitra objava
+                          <Upload size={16} /> {isQuickRepublishing === soldItem.id ? "Objavljanje..." : "Hitra objava"}
                         </button>
                         <button
                           onClick={() => {
@@ -3953,32 +4013,108 @@ const MainApp: React.FC = () => {
   };
 
   
-  const handleQuickRepublish = async () => {
-    if (!quickRepublishItem) return;
+  const handleDirectQuickRepublish = async (item: any) => {
     try {
+      setIsQuickRepublishing(item.id);
+      const originalCreated = new Date(item.created_at || item.createdAt || Date.now() - 7 * 24 * 60 * 60 * 1000).getTime();
+      const originalEnd = new Date(item.end_time || item.endTime || Date.now()).getTime();
+      let durationMs = originalEnd - originalCreated;
+      if (isNaN(durationMs) || durationMs <= 60 * 1000) {
+        durationMs = 7 * 24 * 60 * 60 * 1000;
+      }
       const now = new Date();
-      const endTime = new Date(now.getTime() + quickRepublishDuration * 24 * 60 * 60 * 1000);
-      const auctionRef = doc(db, 'auctions', quickRepublishItem.id);
-      await updateDoc(auctionRef, {
+      const newEndTime = new Date(now.getTime() + durationMs);
+      const initialPrice = Number(item.startingPrice || item.starting_price || item.currentBid || item.current_price || 1);
+
+      await updateDoc(doc(db, 'auctions', item.id), {
         status: 'active',
-        endTime: endTime.toISOString(),
-        end_time: endTime.toISOString(),
-        currentBid: quickRepublishItem.startingBid || quickRepublishItem.starting_price || 0,
-        current_price: quickRepublishItem.startingBid || quickRepublishItem.starting_price || 0,
-        bidCount: 0,
+        created_at: now.toISOString(),
+        createdAt: now.toISOString(),
+        end_time: newEndTime.toISOString(),
+        endTime: newEndTime.toISOString(),
+        current_price: initialPrice,
+        currentBid: initialPrice,
+        starting_price: initialPrice,
+        startingPrice: initialPrice,
         bid_count: 0,
+        bidCount: 0,
+        bidding_history: [],
         biddingHistory: [],
         top_bids: [],
-        winnerId: null,
         winner_id: null,
+        winnerId: null,
         payment_status: 'unpaid',
-        post_auction_status: null
+        post_auction_status: null,
+        delivery_method: null,
+        selected_delivery: null,
+        paid_at: null,
+        invoice_url: null,
+        current_proxy_bid: null,
+        currentProxyBid: null,
+        hidden_max_bid: null,
+        hiddenMaxBid: null,
       });
-      toast.success("Dražba uspešno ponovno objavljena!");
-      setQuickRepublishItem(null);
+
+      toast.success("Dražba je bila uspešno ponovno objavljena!");
       fetchAuctions();
     } catch (e: any) {
+      console.error("Napaka pri hitri objavi:", e);
       toast.error(e.message || "Napaka pri ponovni objavi");
+    } finally {
+      setIsQuickRepublishing(null);
+    }
+  };
+
+  const handleDirectQuickRepublishPackage = async (items: any[]) => {
+    try {
+      setIsQuickRepublishing("package");
+      const now = new Date();
+      for (const item of items) {
+        const originalCreated = new Date(item.created_at || item.createdAt || Date.now() - 7 * 24 * 60 * 60 * 1000).getTime();
+        const originalEnd = new Date(item.end_time || item.endTime || Date.now()).getTime();
+        let durationMs = originalEnd - originalCreated;
+        if (isNaN(durationMs) || durationMs <= 60 * 1000) {
+          durationMs = 7 * 24 * 60 * 60 * 1000;
+        }
+        const newEndTime = new Date(now.getTime() + durationMs);
+        const initialPrice = Number(item.startingPrice || item.starting_price || item.currentBid || item.current_price || 1);
+
+        await updateDoc(doc(db, 'auctions', item.id), {
+          status: 'active',
+          created_at: now.toISOString(),
+          createdAt: now.toISOString(),
+          end_time: newEndTime.toISOString(),
+          endTime: newEndTime.toISOString(),
+          current_price: initialPrice,
+          currentBid: initialPrice,
+          starting_price: initialPrice,
+          startingPrice: initialPrice,
+          bid_count: 0,
+          bidCount: 0,
+          bidding_history: [],
+          biddingHistory: [],
+          top_bids: [],
+          winner_id: null,
+          winnerId: null,
+          payment_status: 'unpaid',
+          post_auction_status: null,
+          delivery_method: null,
+          selected_delivery: null,
+          paid_at: null,
+          invoice_url: null,
+          current_proxy_bid: null,
+          currentProxyBid: null,
+          hidden_max_bid: null,
+          hiddenMaxBid: null,
+        });
+      }
+      toast.success("Vsi predmeti paketa so bili uspešno ponovno objavljeni!");
+      fetchAuctions();
+    } catch (e: any) {
+      console.error("Napaka pri hitri objavi paketa:", e);
+      toast.error(e.message || "Napaka pri ponovni objavi");
+    } finally {
+      setIsQuickRepublishing(null);
     }
   };
 
@@ -4028,7 +4164,7 @@ const MainApp: React.FC = () => {
   const handleAcceptSecondChance = async (auction: any) => {
     try {
       const now = new Date();
-      const paymentDeadline = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
+      const paymentDeadline = new Date(now.getTime() + 48 * 60 * 60 * 1000).toISOString();
       const auctionRef = doc(db, 'auctions', auction.id);
       await updateDoc(auctionRef, {
         post_auction_status: 'awaiting_payment_2nd',
@@ -4036,7 +4172,7 @@ const MainApp: React.FC = () => {
         winner_id: userData.id, // Update winner so it looks like they won
         winnerId: userData.id
       });
-      toast.success("Sprejeli ste ponudbo! Imate 24 ur za plačilo.");
+      toast.success("Sprejeli ste ponudbo! Imate 48 ur za plačilo.");
       fetchAuctions();
     } catch (e: any) {
       toast.error("Napaka: " + e.message);
@@ -4306,6 +4442,57 @@ const MainApp: React.FC = () => {
             onClose={() => setActiveLegal(null)}
             t={t}
           />
+        )}
+
+        {/* Modal for Unsold Auction Permanent Deletion */}
+        {deleteUnsoldModal && deleteUnsoldModal.isOpen && (
+          <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
+            <div 
+              className="absolute inset-0 bg-[#0A1128]/80 backdrop-blur-sm animate-in fade-in"
+              onClick={() => setDeleteUnsoldModal(null)}
+            />
+            <div className="relative bg-white rounded-[2.5rem] p-8 sm:p-10 max-w-md w-full shadow-2xl border border-slate-100 animate-in zoom-in-95 z-10">
+              <div className="w-16 h-16 rounded-3xl bg-red-50 text-red-500 border border-red-100 flex items-center justify-center mb-6 mx-auto shadow-inner">
+                <Trash2 size={32} />
+              </div>
+              <h3 className="text-2xl font-black uppercase tracking-tight text-[#0A1128] text-center mb-2">
+                Dokončen izbris dražbe
+              </h3>
+              <p className="text-sm font-bold text-slate-500 text-center mb-8 leading-relaxed">
+                Ali ste prepričani, da želite dokončno izbrisati <span className="text-[#0A1128] font-black">"{deleteUnsoldModal.title}"</span>? Te akcije ni mogoče razveljaviti in dražba bo trajno odstranjena.
+              </p>
+              <div className="grid grid-cols-2 gap-4">
+                <button
+                  onClick={() => setDeleteUnsoldModal(null)}
+                  className="bg-slate-100 hover:bg-slate-200 text-[#0A1128] px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-xs transition-all"
+                >
+                  Prekliči
+                </button>
+                <button
+                  onClick={async () => {
+                    try {
+                      if (deleteUnsoldModal.items) {
+                        for (const it of deleteUnsoldModal.items) {
+                          await deleteDoc(doc(db, 'auctions', it.id));
+                        }
+                        toast.success("Dražbe paketa so bile uspešno izbrisane.");
+                      } else if (deleteUnsoldModal.item) {
+                        await deleteDoc(doc(db, 'auctions', deleteUnsoldModal.item.id));
+                        toast.success("Dražba je bila uspešno izbrisana.");
+                      }
+                      setDeleteUnsoldModal(null);
+                      fetchAuctions();
+                    } catch (err: any) {
+                      toast.error("Napaka pri brisanju: " + err.message);
+                    }
+                  }}
+                  className="bg-red-600 hover:bg-red-700 text-white px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-xs transition-all shadow-lg shadow-red-600/30 flex items-center justify-center gap-2"
+                >
+                  <Trash2 size={16} /> Izbriši
+                </button>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Modals for delivery and rating */}

@@ -28,6 +28,20 @@ const REGION_LOCATIONS: Record<Region, string[]> = {
     [Region.ObalnoKraska]: ['Koper', 'Izola', 'Piran', 'Sežana', 'Komen', 'Drugo']
 };
 
+export const sanitizeRegion = (reg?: any): Region => {
+    if (reg && REGION_LOCATIONS[reg as Region]) return reg as Region;
+    if (typeof reg === 'string') {
+        const found = Object.values(Region).find(r => r.toLowerCase().trim() === reg.toLowerCase().trim());
+        if (found) return found;
+    }
+    return Region.Osrednjeslovenska;
+};
+
+export const getLocationsForRegion = (reg?: any): string[] => {
+    const valid = sanitizeRegion(reg);
+    return REGION_LOCATIONS[valid] || REGION_LOCATIONS[Region.Osrednjeslovenska] || ['Ljubljana', 'Drugo'];
+};
+
 import { CustomDatePicker, CustomTimePicker } from "@/src/components/ui/CustomDateTime";
 
 const SignedImg = ({ src, alt, className, onClick }: { src: string, alt: string, className?: string, onClick?: () => void }) => {
@@ -81,33 +95,42 @@ export const CreateAuctionForm: React.FC<{
 
     const [customLocation, setCustomLocation] = useState(() => {
         const initLoc = initialData?.location?.SLO || (typeof initialData?.location === 'string' ? initialData.location : '');
-        if (initLoc && REGION_LOCATIONS[initialData?.region as Region || Region.Osrednjeslovenska] && !REGION_LOCATIONS[initialData?.region as Region || Region.Osrednjeslovenska].includes(initLoc)) {
+        const validReg = sanitizeRegion(initialData?.region);
+        const locs = getLocationsForRegion(validReg);
+        if (initLoc && !locs.includes(initLoc)) {
             return initLoc;
         }
         return '';
     });
     
-    const [formData, setFormData] = useState({ 
-        title: initialData?.title?.SLO || (typeof initialData?.title === 'string' ? initialData.title : ''), 
-        category: initialData?.category || Category.Ostalo, 
-        region: initialData?.region || Region.Osrednjeslovenska, 
-        location: (() => {
-            const initLoc = initialData?.location?.SLO || (typeof initialData?.location === 'string' ? initialData.location : '');
-            if (initLoc && REGION_LOCATIONS[initialData?.region as Region || Region.Osrednjeslovenska]) {
-                if (REGION_LOCATIONS[initialData?.region as Region || Region.Osrednjeslovenska].includes(initLoc)) return initLoc;
-                return 'Drugo';
+    const [formData, setFormData] = useState(() => {
+        const validReg = sanitizeRegion(initialData?.region);
+        const locs = getLocationsForRegion(validReg);
+        const initLoc = initialData?.location?.SLO || (typeof initialData?.location === 'string' ? initialData.location : '');
+        let initialLocation = locs[0] || 'Ljubljana';
+        if (initLoc) {
+            if (locs.includes(initLoc)) {
+                initialLocation = initLoc;
+            } else {
+                initialLocation = 'Drugo';
             }
-            return REGION_LOCATIONS[initialData?.region as Region || Region.Osrednjeslovenska]?.[0] || '';
-        })(),
-        condition: initialData?.condition?.SLO || (typeof initialData?.condition === 'string' ? initialData.condition : 'Rabljeno'),
-        description: initialData?.description?.SLO || (typeof initialData?.description === 'string' ? initialData.description : ''), 
-        startingPrice: initialData?.startingPrice?.toString() || initialData?.currentBid?.toString() || '1', 
-        minStep: '5',
-        endDate: defaultDateStr,
-        endTime: defaultTimeStr,
-        delivery_option: initialData?.delivery_option || 'both',
-        shipping_fee_type: initialData?.shipping_fee_type || 'calculated',
-        shipping_cost: initialData?.shipping_cost?.toString() || ''
+        }
+
+        return { 
+            title: initialData?.title?.SLO || (typeof initialData?.title === 'string' ? initialData.title : ''), 
+            category: initialData?.category || Category.Ostalo, 
+            region: validReg, 
+            location: initialLocation,
+            condition: initialData?.condition?.SLO || (typeof initialData?.condition === 'string' ? initialData.condition : 'Rabljeno'),
+            description: initialData?.description?.SLO || (typeof initialData?.description === 'string' ? initialData.description : ''), 
+            startingPrice: initialData?.startingPrice?.toString() || initialData?.currentBid?.toString() || '1', 
+            minStep: '5',
+            endDate: defaultDateStr,
+            endTime: defaultTimeStr,
+            delivery_option: initialData?.delivery_option || 'both',
+            shipping_fee_type: initialData?.shipping_fee_type || 'calculated',
+            shipping_cost: initialData?.shipping_cost?.toString() || ''
+        };
     });
     const [existingImages, setExistingImages] = useState<string[]>(initialData?.images || []);
     const [imageFiles, setImageFiles] = useState<File[]>([]);
@@ -133,9 +156,10 @@ export const CreateAuctionForm: React.FC<{
             const initLoc = initialData.location?.SLO || (typeof initialData.location === 'string' ? initialData.location : '');
             let locVal = initLoc;
             let customVal = '';
-            const targetRegion = (initialData.region as Region) || Region.Osrednjeslovenska;
-            if (initLoc && REGION_LOCATIONS[targetRegion]) {
-                if (REGION_LOCATIONS[targetRegion].includes(initLoc)) {
+            const targetRegion = sanitizeRegion(initialData.region);
+            const locs = getLocationsForRegion(targetRegion);
+            if (initLoc) {
+                if (locs.includes(initLoc)) {
                     locVal = initLoc;
                 } else {
                     locVal = 'Drugo';
@@ -147,7 +171,7 @@ export const CreateAuctionForm: React.FC<{
                 title: initialData.title?.SLO || (typeof initialData.title === 'string' ? initialData.title : prev.title),
                 category: initialData.category || prev.category,
                 condition: initialData.condition?.SLO || (typeof initialData.condition === 'string' ? initialData.condition : prev.condition),
-                region: initialData.region || prev.region,
+                region: targetRegion,
                 location: locVal || prev.location,
                 delivery_option: initialData.delivery_option || prev.delivery_option,
                 shipping_fee_type: initialData.shipping_fee_type || prev.shipping_fee_type,
@@ -185,8 +209,9 @@ export const CreateAuctionForm: React.FC<{
     }, [initialData]);
 
     useEffect(() => {
-        if (!REGION_LOCATIONS[formData.region].includes(formData.location) && formData.location !== 'Drugo') {
-            setFormData(prev => ({ ...prev, location: REGION_LOCATIONS[formData.region][0] }));
+        const locs = getLocationsForRegion(formData.region);
+        if (!locs.includes(formData.location) && formData.location !== 'Drugo') {
+            setFormData(prev => ({ ...prev, location: locs[0] || 'Ljubljana' }));
         }
     }, [formData.region]);
 
@@ -754,7 +779,7 @@ export const CreateAuctionForm: React.FC<{
                         <div className="space-y-4">
                             <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">{t('city')}</label>
                             <select value={formData.location} className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl py-4 px-6 font-bold text-lg text-[#0A1128] focus:ring-0 focus:border-[#FEBA4F] transition-all outline-none appearance-none cursor-pointer shadow-inner" onChange={e => setFormData({...formData, location: e.target.value})}>
-                                {REGION_LOCATIONS[formData.region].map(loc => <option key={loc} value={loc}>{loc}</option>)}
+                                {getLocationsForRegion(formData.region).map(loc => <option key={loc} value={loc}>{loc}</option>)}
                             </select>
                             {formData.location === 'Drugo' && (
                                 <input
