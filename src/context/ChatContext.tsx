@@ -104,10 +104,10 @@ export const ChatProvider: React.FC<{
   const [otherUserTyping, setOtherUserTyping] = useState(false);
   const usersCacheRef = useRef<Map<string, OtherUser>>(new Map());
 
-  // Listen to auth changes so effectiveUserId is always in sync
+  // Listen to auth changes so effectiveUserId is always in sync (only for verified accounts)
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => {
-      if (u) {
+      if (u && (u.emailVerified || !u.providerData.some(p => p.providerId === 'password'))) {
         setAuthUserId(u.uid);
       } else if (!userId) {
         setAuthUserId("");
@@ -116,7 +116,7 @@ export const ChatProvider: React.FC<{
     return () => unsub();
   }, [userId]);
 
-  const effectiveUserId = userId || authUserId || auth.currentUser?.uid || "";
+  const effectiveUserId = userId || authUserId || (auth.currentUser && (auth.currentUser.emailVerified || !auth.currentUser.providerData.some(p => p.providerId === 'password')) ? auth.currentUser.uid : "");
 
   // Helper to fetch/cache user info
   const fetchUserInfo = useCallback(async (targetUserId: string): Promise<OtherUser | undefined> => {
@@ -390,7 +390,11 @@ export const ChatProvider: React.FC<{
 
       setLoadingMessages(false);
     }, (error) => {
-      console.error("Error loading messages:", error);
+      if (error.code === 'permission-denied') {
+        console.warn("Dostop do sporočil ni dovoljen ali seja ni veljavna.");
+      } else {
+        console.error("Error loading messages:", error);
+      }
       if (isMounted) setLoadingMessages(false);
     }));
 

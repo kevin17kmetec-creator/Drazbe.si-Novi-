@@ -53,3 +53,12 @@ export async function safeSignOut(authInstance = auth): Promise<void> {
   cleanupAllListeners();
   return signOut(authInstance);
 }
+
+// Global flag to coordinate registration lifecycle with App.tsx auth observer
+let registeringAuth = false;
+export function isRegisteringAuth(): boolean {
+  return registeringAuth;
+}
+export function setRegisteringAuth(val: boolean): void {
+  registeringAuth = val;
+}

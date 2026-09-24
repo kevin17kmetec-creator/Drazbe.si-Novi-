@@ -116,7 +116,7 @@ import { toast } from "@/src/lib/toast";
 
 import { ChatProvider } from "./context/ChatContext";
 import { collection, onSnapshot, setDoc, doc, getDocs, getDoc, updateDoc, addDoc, deleteDoc, query, where, runTransaction } from "firebase/firestore";
-import { db, auth, storage, safeSignOut, cleanupAllListeners, registerSnapshotListener } from "./lib/firebase";
+import { db, auth, storage, safeSignOut, cleanupAllListeners, registerSnapshotListener, isRegisteringAuth } from "./lib/firebase";
 import { onAuthStateChanged, updatePassword } from "firebase/auth";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
@@ -940,6 +940,10 @@ const MainApp: React.FC = () => {
     const unsubscribe = onAuthStateChanged(auth, async (authUser) => {
       if (authUser) {
         if (!authUser.emailVerified && authUser.providerData.some(p => p.providerId === "password")) {
+          // Ce je registracija se v teku v AuthView, ne prekinjaj procesa shranjevanja podatkov in posiljanja potrditve
+          if (isRegisteringAuth()) {
+            return;
+          }
           cleanupAllListeners();
           await safeSignOut(auth);
           return;
