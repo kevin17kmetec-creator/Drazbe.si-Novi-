@@ -14,6 +14,7 @@ import { CreatePackageForm } from "@/src/components/auction/CreatePackageForm";
 import { PackageCard } from "@/src/components/auction/PackageCard";
 import { PackageView } from "@/src/components/auction/PackageView";
 import { AuthView } from "@/src/components/auth/AuthView";
+import { EmailConfirmationView } from "@/src/components/auth/EmailConfirmationView";
 import { LegalModal } from "@/src/components/modals/LegalModal";
 import { VerificationBanner } from "@/src/components/layout/VerificationBanner";
 import { StaticTimer } from "@/src/components/ui/StaticTimer";
@@ -532,6 +533,16 @@ const MainApp: React.FC = () => {
   const [selectedSeller, setSelectedSeller] = useState<Seller | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [verificationData, setVerificationData] = useState<{ token: string; email?: string } | null>(() => {
+    if (typeof window === "undefined") return null;
+    const params = new URLSearchParams(window.location.search);
+    const vToken = params.get('verify_token') || params.get('token');
+    const vEmail = params.get('email');
+    if (vToken) {
+      return { token: vToken, email: vEmail || undefined };
+    }
+    return null;
+  });
   const [isVerified, setIsVerified] = useState(false);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [showBannerDelayPassed, setShowBannerDelayPassed] = useState(false);
@@ -944,9 +955,26 @@ const MainApp: React.FC = () => {
           if (isRegisteringAuth()) {
             return;
           }
-          cleanupAllListeners();
-          await safeSignOut(auth);
-          return;
+
+          // Preveri ali ima uporabnik potrjen status v bazi (Firestore potrditev prek e-mail povezave)
+          let hasFirestoreConfirmation = false;
+          try {
+            const userSnap = await getDoc(doc(db, "users", authUser.uid));
+            if (userSnap.exists()) {
+              const uData = userSnap.data();
+              if (uData.email_verified === true || uData.is_verified === true || uData.registration_confirmed === true) {
+                hasFirestoreConfirmation = true;
+              }
+            }
+          } catch (e) {
+            console.warn("Preverjanje uporabnikove verifikacije v bazi:", e);
+          }
+
+          if (!hasFirestoreConfirmation) {
+            cleanupAllListeners();
+            await safeSignOut(auth);
+            return;
+          }
         }
         setUser(authUser);
         setIsLoggedIn(true);
@@ -1112,7 +1140,7 @@ const MainApp: React.FC = () => {
   const auctionsSectionRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    let title = "Drazba.si | Prva slovenska digitalna dražba";
+    let title = "dražbenik.si | Prva slovenska digitalna dražba";
     let metaDesc =
       "Najbolj zanesljiva platforma za spletne dražbe v Sloveniji. Pregledno, varno in enostavno.";
 
@@ -1122,25 +1150,25 @@ const MainApp: React.FC = () => {
           const itemTitle =
             selectedItem.title[language as keyof typeof selectedItem.title] ||
             selectedItem.title["SLO"];
-          title = `${itemTitle} | Drazba.si`;
+          title = `${itemTitle} | dražbenik.si`;
         }
         metaDesc = `Licitirajte za stroje, vozila ali nepremičnine. Oddajte svojo ponudbo zdaj.`;
         break;
       case "sellerProfile":
         if (selectedSeller)
-          title = `Profil prodajalca: ${selectedSeller.name} | Drazba.si`;
-        metaDesc = `Oglejte si vse aktivne dražbe prodajalca na Drazba.si.`;
+          title = `Profil prodajalca: ${selectedSeller.name} | dražbenik.si`;
+        metaDesc = `Oglejte si vse aktivne dražbe prodajalca na dražbenik.si.`;
         break;
       case "lastChance":
-        title = "Zadnja priložnost | Predmeti, ki se iztekajo | Drazba.si";
+        title = "Zadnja priložnost | Predmeti, ki se iztekajo | dražbenik.si";
         metaDesc =
           "Zgrabite še zadnjo priložnost za licitacijo. Dražbe se iztekajo.";
         break;
       case "createAuction":
-        title = "Objavi novo dražbo | Drazba.si";
+        title = "Objavi novo dražbo | dražbenik.si";
         break;
       case "login":
-        title = "Prijava in registracija | Drazba.si";
+        title = "Prijava in registracija | dražbenik.si";
         break;
     }
 
@@ -4508,6 +4536,25 @@ const MainApp: React.FC = () => {
           seller={invoiceModalData.seller}
           buyer={invoiceModalData.buyer}
         />
+
+        {verificationData && (
+          <EmailConfirmationView
+            token={verificationData.token}
+            email={verificationData.email}
+            onGoToLogin={(confirmedEmail) => {
+              setVerificationData(null);
+              const cleanUrl = window.location.pathname;
+              window.history.replaceState({}, document.title, cleanUrl);
+              setActiveView('login');
+              window.scrollTo({ top: 0, behavior: "instant" });
+            }}
+            onClose={() => {
+              setVerificationData(null);
+              const cleanUrl = window.location.pathname;
+              window.history.replaceState({}, document.title, cleanUrl);
+            }}
+          />
+        )}
 
         {showBackToTop && (
           <button

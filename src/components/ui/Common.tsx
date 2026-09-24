@@ -52,7 +52,7 @@ export const StaticTimer: React.FC<{ endTime: Date }> = ({ endTime }) => {
 export const LegalModal: React.FC<{ type: 'terms' | 'privacy' | 'how'; onClose: () => void; t: any }> = ({ type, onClose, t }) => {
     const titles = { terms: t('legalTerms'), privacy: t('legalPrivacy'), how: t('legalHow') };
     const content = {
-        terms: "Splošni pogoji poslovanja spletne platforme Drazba.si urejajo pravice in obveznosti ponudnikov in dražiteljev. Vsaka oddana ponudba je pravno zavezujoča po 18. členu Zakona o dražbah. Neplačilo v 24 urah po končani dražbi se obravnava kot kršitev pogodbe.",
+        terms: "Splošni pogoji poslovanja spletne platforme dražbenik.si urejajo pravice in obveznosti ponudnikov in dražiteljev. Vsaka oddana ponudba je pravno zavezujoča po 18. členu Zakona o dražbah. Neplačilo v 24 urah po končani dražbi se obravnava kot kršitev pogodbe.",
         privacy: "Skladno z uredbo GDPR vaše podatke varujemo z najvišjimi varnostnimi standardi. Podatki se uporabljajo izključno za namene izvedbe dražb in verifikacije uporabnikov. Vaši podatki ne bodo posredovani tretjim osebam brez vaše privolitve.",
         how: "Za sodelovanje se registrirajte, opravite verifikacijo in oddajte svojo prvo ponudbo. Dražbe delujejo po sistemu 'videno-kupljeno'. Vsako prebitje ponudbe v zadnji minuti podaljša dražbo za dodatni 2 minuti."
     };

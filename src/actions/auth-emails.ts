@@ -16,18 +16,18 @@ async function safeAuthApiCall<T = any>(endpoint: string, payload: any): Promise
   try {
     const fullUrl = endpoint.startsWith('http') ? endpoint : `${getBaseUrl()}${endpoint}`;
     
-    // Poskusi dodati auth token
+    // Poskusi dodati auth token ce obstaja
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (typeof window !== 'undefined') {
       try {
-        const { auth } = await import('@/src/lib/firebase');
+        const { auth } = await import('../lib/firebase');
         const token = await auth.currentUser?.getIdToken();
         if (token) headers['Authorization'] = `Bearer ${token}`;
       } catch (e) {}
     }
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000);
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
 
     let res: Response;
     try {
@@ -41,30 +41,29 @@ async function safeAuthApiCall<T = any>(endpoint: string, payload: any): Promise
       clearTimeout(timeoutId);
     }
 
-    if (!res.ok) {
-      let errorMsg = `Napaka strežnika (${res.status})`;
-      let fallbackToClient = false;
-      try {
-        const errData = await res.json();
-        errorMsg = errData.error || errData.message || errorMsg;
-        fallbackToClient = !!errData.fallbackToClient;
-      } catch (e) {}
-      return { success: false, error: errorMsg, fallbackToClient };
-    }
-
     const data = await res.json().catch(() => ({}));
-    if (data.fallbackToClient) {
-      return { success: false, fallbackToClient: true, error: data.message };
+
+    if (!res.ok || data.success === false) {
+      let errorMsg = data.error || data.message || `Napaka strežnika (${res.status})`;
+      return { success: false, error: errorMsg, data };
     }
 
     return { success: true, data };
   } catch (err: any) {
-    return { success: false, fallbackToClient: true, error: err?.message || 'Napaka pri povezavi s strežnikom.' };
+    const isTimeout = err?.name === 'AbortError';
+    const msg = isTimeout 
+      ? 'Strežnik za pošiljanje e-pošte se ni pravočasno odzval. Preverite povezavo ali poskusite ponovno.' 
+      : (err?.message || 'Napaka pri povezavi s strežnikom.');
+    return { success: false, error: msg };
   }
 }
 
-export async function sendEmailVerificationAction(email: string, displayName?: string) {
-  return safeAuthApiCall('/api/auth/send-verification', { email, displayName });
+export async function sendEmailVerificationAction(email: string, displayName?: string, userId?: string) {
+  return safeAuthApiCall('/api/auth/send-verification', { email, displayName, userId });
+}
+
+export async function confirmEmailAction(token: string, email?: string) {
+  return safeAuthApiCall('/api/auth/confirm-email', { token, email });
 }
 
 export async function sendPasswordResetAction(email: string) {
@@ -74,6 +73,7 @@ export async function sendPasswordResetAction(email: string) {
 export async function sendEmailChangedNotificationAction(email: string) {
   return safeAuthApiCall('/api/auth/send-email-changed', { email });
 }
+
 
 export async function sendMfaEnrollmentNotificationAction(email: string) {
   return safeAuthApiCall('/api/auth/send-mfa-enrollment', { email });

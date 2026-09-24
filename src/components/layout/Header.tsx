@@ -226,7 +226,7 @@ export const Header: React.FC<{
                             <p className="text-[10px] font-black text-slate-400 uppercase">{t('loggedInAs')}</p>
                             <p className="font-black text-xs truncate">
                                 {(() => {
-                                    const name = userData?.username || userEmail || 'Uporabnik Drazba.si';
+                                    const name = userData?.username || userEmail || 'Uporabnik dražbenik.si';
                                     return name.charAt(0).toUpperCase() + name.slice(1).toLowerCase();
                                 })()}
                             </p>

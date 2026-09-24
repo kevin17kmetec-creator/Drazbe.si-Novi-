@@ -93,7 +93,7 @@ export const AuthEmailTemplate: React.FC<AuthEmailProps> = ({
             <Row>
               <Column align="center">
                 <Text style={logoText}>
-                  dražbe<span style={logoAccent}>.si</span>
+                  dražbenik<span style={logoAccent}>.si</span>
                 </Text>
                 <Text style={taglineText}>Slovenska dražbena platforma</Text>
               </Column>

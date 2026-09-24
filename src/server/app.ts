@@ -1,4 +1,5 @@
 import express from "express";
+import crypto from "crypto";
 import { Redis } from "@upstash/redis";
 import { Ratelimit } from "@upstash/ratelimit";
 import {
@@ -2857,50 +2858,157 @@ app.post("/api/auth/send-email-change", async (req, res) => {
 
 app.post("/api/auth/send-verification", async (req, res) => {
   try {
-    const { email, displayName } = req.body;
-    if (!email) return res.status(400).json({ error: "Manjka e-poštni naslov" });
+    const { email, displayName, userId } = req.body;
+    if (!email || typeof email !== 'string' || !email.includes('@')) {
+      return res.status(400).json({ success: false, error: "Manjka veljaven e-poštni naslov." });
+    }
 
-    let actionUrl: string | null = null;
+    const cleanEmail = email.trim().toLowerCase();
+    const apiKey = process.env.RESEND_API_KEY;
+
+    if (!apiKey) {
+      console.error("[send-verification] RESEND_API_KEY okoljska spremenljivka ni nastavljena!");
+      return res.status(500).json({ 
+        success: false, 
+        error: "RESEND_API_KEY ni nastavljen na strežniku. Preverite okoljske spremenljivke na Vercelu." 
+      });
+    }
+
+    // 1. Generiraj varen žeton za potrditev e-pošte
+    const token = crypto.randomBytes(32).toString('hex');
+    const now = new Date();
+    const expiresAt = Date.now() + 48 * 60 * 60 * 1000; // 48 ur veljavnosti
+
+    // 2. Shrani žeton v Firestore
     try {
-      actionUrl = await adminAuth.generateEmailVerificationLink(email, {
-        url: `${process.env.APP_URL || 'https://drazbenik.si'}/?tab=settings`
-      });
-    } catch (authErr: any) {
-      console.warn("adminAuth.generateEmailVerificationLink ni uspel:", authErr.message);
-    }
-
-    if (actionUrl && process.env.RESEND_API_KEY) {
-      const resend = new Resend(process.env.RESEND_API_KEY);
-      const htmlContent = await render(React.createElement(AuthEmailTemplate, {
-        type: 'verify_email',
-        actionUrl,
-        recipientName: displayName || email.split('@')[0],
-      }));
-
-      const sendRes = await resend.emails.send({
-        from: process.env.EMAIL_FROM || 'dražbenik.si <obvestila@drazbenik.si>',
-        to: email,
-        subject: 'Potrdite svoj e-poštni naslov - dražbenik.si',
-        html: htmlContent,
+      await adminDb.collection('email_verifications').doc(token).set({
+        token,
+        email: cleanEmail,
+        userId: userId || '',
+        created_at: now.toISOString(),
+        expires_at: expiresAt,
+        used: false
       });
 
-      if (sendRes.error) {
-        console.error("Resend error sending verification email:", sendRes.error);
-        return res.status(500).json({ error: sendRes.error.message, fallbackToClient: true });
+      if (userId) {
+        await adminDb.collection('users').doc(userId).set({
+          verification_token: token,
+          verification_token_expires: expiresAt
+        }, { merge: true });
       }
-
-      return res.json({ success: true, method: 'resend' });
+    } catch (dbErr: any) {
+      console.error("[send-verification] Napaka pri shranjevanju potrditvenega žetona:", dbErr.message);
+      return res.status(500).json({
+        success: false,
+        error: `Napaka baze pri pripravi potrditve: ${dbErr.message}`
+      });
     }
 
-    // Če actionUrl ni bil uspešno generiran ali Resend ni na voljo, sporočimo klientu za uporabo Client SDK
+    // 3. Sestavi povezavo za potrditev, ki vodi na spletno stran z gumbom za potrditev
+    const baseAppUrl = process.env.APP_URL || process.env.VITE_APP_URL || 'https://drazbenik.si';
+    const actionUrl = `${baseAppUrl}/?verify_token=${token}&email=${encodeURIComponent(cleanEmail)}`;
+
+    // 4. Pripravi HTML z AuthEmailTemplate
+    const htmlContent = await render(React.createElement(AuthEmailTemplate, {
+      type: 'verify_email',
+      actionUrl,
+      recipientName: displayName || cleanEmail.split('@')[0],
+    }));
+
+    // 5. Pošlji preko Resenda
+    const resend = new Resend(apiKey);
+    const fromEmail = process.env.EMAIL_FROM || 'dražbenik.si <obvestila@drazbenik.si>';
+
+    const sendRes = await resend.emails.send({
+      from: fromEmail,
+      to: cleanEmail,
+      subject: 'Potrdite svoj e-poštni naslov - dražbenik.si',
+      html: htmlContent,
+    });
+
+    if (sendRes.error) {
+      console.error("[send-verification] Resend zavrnil pošiljanje:", sendRes.error);
+      return res.status(500).json({ 
+        success: false, 
+        error: `Resend napaka: ${sendRes.error.message}` 
+      });
+    }
+
+    console.log(`[send-verification] Potrditveni e-mail uspešno poslan na ${cleanEmail}, Resend ID: ${sendRes.data?.id}`);
+    return res.json({ success: true, emailId: sendRes.data?.id });
+  } catch (err: any) {
+    console.error("send-verification nepričakovana napaka:", err);
+    return res.status(500).json({ success: false, error: err.message || "Napaka pri pošiljanju potrditvenega e-maila" });
+  }
+});
+
+app.post("/api/auth/confirm-email", async (req, res) => {
+  try {
+    const { token, email } = req.body;
+    if (!token || typeof token !== 'string') {
+      return res.status(400).json({ success: false, error: "Manjka veljaven potrditveni žeton." });
+    }
+
+    const snap = await adminDb.collection('email_verifications').doc(token).get();
+    if (!snap.exists) {
+      return res.status(400).json({ success: false, error: "Neveljaven ali neobstoječ potrditveni žeton." });
+    }
+
+    const verification = snap.data();
+    if (verification.used) {
+      return res.json({ 
+        success: true, 
+        alreadyConfirmed: true, 
+        message: "E-poštni naslov je bil že predhodno potrjen.",
+        email: verification.email
+      });
+    }
+
+    if (verification.expires_at && verification.expires_at < Date.now()) {
+      return res.status(400).json({ success: false, error: "Povezava za potrditev je potekla. Zahtevajte novo potrditveno povezavo." });
+    }
+
+    // Označi žeton kot uporabljen
+    await adminDb.collection('email_verifications').doc(token).update({
+      used: true,
+      confirmed_at: new Date().toISOString()
+    });
+
+    const targetEmail = verification.email || (email ? email.trim().toLowerCase() : '');
+    let targetUserId = verification.userId;
+
+    if (!targetUserId && targetEmail) {
+      const userQuery = await adminDb.collection('users').where('email', '==', targetEmail).limit(1).get();
+      if (!userQuery.empty) {
+        targetUserId = userQuery.docs[0].id;
+      }
+    }
+
+    if (targetUserId) {
+      await adminDb.collection('users').doc(targetUserId).set({
+        email_verified: true,
+        is_verified: true,
+        registration_confirmed: true,
+        registration_confirmed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }, { merge: true });
+
+      // Sinhronizacija z Firebase Auth ce je adminAuth na voljo
+      try {
+        await adminAuth.updateUser(targetUserId, { emailVerified: true });
+      } catch (authErr: any) {
+        console.warn("[confirm-email] adminAuth.updateUser obvestilo (Firestore uspešno posodobljen):", authErr.message);
+      }
+    }
+
     return res.json({ 
-      success: false, 
-      fallbackToClient: true, 
-      message: "adminAuth ni na voljo za generiranje povezave. Uporabite Firebase Client SDK." 
+      success: true, 
+      message: "E-poštni naslov je bil uspešno potrjen! Sedaj se lahko prijavite v svoj račun.",
+      email: targetEmail
     });
   } catch (err: any) {
-    console.error("send-verification error:", err);
-    res.status(500).json({ error: err.message, fallbackToClient: true });
+    console.error("confirm-email napaka:", err);
+    return res.status(500).json({ success: false, error: err.message || "Napaka pri potrditvi e-poštnega naslova." });
   }
 });
 

@@ -34,6 +34,7 @@ __export(app_exports, {
 });
 module.exports = __toCommonJS(app_exports);
 var import_express = __toESM(require("express"), 1);
+var import_crypto = __toESM(require("crypto"), 1);
 var import_redis = require("@upstash/redis");
 var import_ratelimit = require("@upstash/ratelimit");
 
@@ -700,9 +701,9 @@ var AuctionEmailTemplate = ({
   originalPrice,
   endTime,
   paymentDeadline,
-  auctionUrl = "https://drazba.si",
+  auctionUrl = "https://drazbenik.si",
   paymentUrl,
-  settingsUrl = "https://drazba.si/?tab=settings",
+  settingsUrl = "https://drazbenik.si/?tab=settings",
   bidDifference,
   formattedAmount
 }) => {
@@ -774,7 +775,7 @@ var AuctionEmailTemplate = ({
       headline = "Va\u0161e pla\u010Dilo je bilo uspe\u0161no!";
       subheadline = `Pla\u010Dilo za dra\u017Ebo "${auctionTitle}" je bilo uspe\u0161no obdelano. V priponki tega sporo\u010Dila vam po\u0161iljamo ra\u010Dun za opravljeno storitev ter potrdilo o nakupu (kupoprodajno pogodbo).`;
       ctaText = "Ogled dra\u017Ebe";
-      ctaUrl = auctionUrl || "https://drazba.si";
+      ctaUrl = auctionUrl || "https://drazbenik.si";
       priceLabel = "Pla\u010Dan znesek:";
       highlightNote = "Dokumenti so prilo\u017Eeni k temu sporo\u010Dilu v PDF obliki.";
       break;
@@ -787,7 +788,7 @@ var AuctionEmailTemplate = ({
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_components.Body, { style: main, children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_components.Container, { style: container, children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_components.Section, { style: headerSection, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_components.Row, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_components.Column, { align: "center", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_components.Text, { style: logoText, children: [
-          "dra\u017Ebe",
+          "dra\u017Ebenik",
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: logoAccent, children: ".si" })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_components.Text, { style: taglineText, children: "Slovenska dra\u017Ebena platforma" })
@@ -863,7 +864,7 @@ var AuctionEmailTemplate = ({
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_components.Text, { style: footerText, children: [
           "To je samodejno sistemsko obvestilo spletne platforme",
           " ",
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_components.Link, { href: "https://drazba.si", target: "_blank", style: footerLink, children: "dra\u017Ebenik.si" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_components.Link, { href: "https://drazbenik.si", target: "_blank", style: footerLink, children: "dra\u017Ebenik.si" }),
           "."
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_components.Text, { style: footerSubText, children: [
@@ -1071,7 +1072,7 @@ var import_jsx_runtime2 = require("react/jsx-runtime");
 var AuthEmailTemplate = ({
   type = "verify_email",
   recipientName = "Uporabnik",
-  actionUrl = "https://drazba.si"
+  actionUrl = "https://drazbenik.si"
 }) => {
   let previewText = "";
   let badgeText = "";
@@ -1176,7 +1177,7 @@ var AuthEmailTemplate = ({
         /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_components2.Text, { style: footerText2, children: [
           "To je samodejno sistemsko obvestilo spletne platforme",
           " ",
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(import_components2.Link, { href: "https://drazba.si", target: "_blank", style: footerLink2, children: "dra\u017Ebenik.si" }),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(import_components2.Link, { href: "https://drazbenik.si", target: "_blank", style: footerLink2, children: "dra\u017Ebenik.si" }),
           "."
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_components2.Text, { style: copyrightText2, children: [
@@ -1322,20 +1323,100 @@ var import_genai = require("@google/genai");
 var import_pdfkit = __toESM(require("pdfkit"), 1);
 var import_fs = __toESM(require("fs"), 1);
 var import_path = __toESM(require("path"), 1);
-function getFontPath(filename) {
-  const localPath = import_path.default.join(process.cwd(), "public", "fonts", filename);
-  if (import_fs.default.existsSync(localPath)) return localPath;
-  return "";
+var cachedRegularFont = null;
+var cachedBoldFont = null;
+function loadFontBuffer(filename) {
+  const searchPaths = [
+    import_path.default.join(process.cwd(), "public", "fonts", filename),
+    import_path.default.join(process.cwd(), "dist", "fonts", filename),
+    import_path.default.join(__dirname, "..", "..", "public", "fonts", filename),
+    import_path.default.join(__dirname, "..", "public", "fonts", filename),
+    import_path.default.join(__dirname, "public", "fonts", filename),
+    import_path.default.join(__dirname, "fonts", filename),
+    import_path.default.resolve("public", "fonts", filename),
+    import_path.default.resolve("dist", "fonts", filename),
+    import_path.default.resolve("/app/applet/public/fonts", filename)
+  ];
+  for (const p of searchPaths) {
+    try {
+      if (import_fs.default.existsSync(p)) {
+        const buf = import_fs.default.readFileSync(p);
+        if (buf && buf.length > 1e3) {
+          return buf;
+        }
+      }
+    } catch {
+    }
+  }
+  return null;
 }
-async function generateInvoicePDF(transaction, buyer, seller, auction, salesInvoiceNo, commissionInvoiceNo) {
+function getRegularFont() {
+  if (!cachedRegularFont) {
+    cachedRegularFont = loadFontBuffer("Roboto-Regular.ttf");
+  }
+  return cachedRegularFont;
+}
+function getBoldFont() {
+  if (!cachedBoldFont) {
+    cachedBoldFont = loadFontBuffer("Roboto-Bold.ttf");
+  }
+  return cachedBoldFont;
+}
+function formatEuro(amount) {
+  const num = isNaN(amount) ? 0 : amount;
+  return num.toLocaleString("sl-SI", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+}
+function getSafeAddress(user) {
+  if (!user) return "Naslov ni na voljo";
+  if (typeof user === "string") return user;
+  const street = user.street_address || user.company_street || user.companyStreet || user.address || user.street || "";
+  const postal = user.postal_code || user.company_postal_code || user.companyPostalCode || user.postalCode || user.zip || "";
+  const city = user.city || user.company_city || user.companyCity || user.place || "";
+  if (street && postal && city) {
+    return `${street}, ${postal} ${city}`;
+  } else if (street && city) {
+    return `${street}, ${city}`;
+  } else if (street) {
+    return street;
+  } else if (city) {
+    return city;
+  }
+  return user.address || "Naslov ni na voljo";
+}
+function getSafePlace(user) {
+  if (!user) return "Maribor, Slovenija";
+  let raw = user.company_city || user.companyCity || user.city || user.place || "";
+  if (!raw && user.address) {
+    const parts = user.address.split(",");
+    if (parts.length > 1) {
+      raw = parts[parts.length - 1].trim();
+      if (raw.toLowerCase() === "slovenija" && parts.length > 2) {
+        raw = parts[parts.length - 2].trim();
+      }
+    } else {
+      raw = user.address;
+    }
+  }
+  let cleaned = (raw || "Maribor").replace(/SI-?\s*\d{4}/gi, "").replace(/\b\d{4}\b/g, "").trim().replace(/^,\s*|,\s*$/g, "");
+  if (!cleaned) cleaned = "Maribor";
+  if (!cleaned.toLowerCase().includes("slovenija")) {
+    cleaned = `${cleaned}, Slovenija`;
+  }
+  return cleaned;
+}
+async function generateInvoicePDF(transaction = {}, buyer = {}, seller = {}, auction = {}, salesInvoiceNo, commissionInvoiceNo) {
   return new Promise((resolve, reject) => {
-    const doc = new import_pdfkit.default({ margin: 50 });
+    const doc = new import_pdfkit.default({ margin: 40, size: "A4" });
     const buffers = [];
-    const regularFont = getFontPath("Roboto-Regular.ttf");
-    const boldFont = getFontPath("Roboto-Bold.ttf");
-    if (regularFont && boldFont) {
-      doc.registerFont("Roboto", regularFont);
-      doc.registerFont("Roboto-Bold", boldFont);
+    const regBuf = getRegularFont();
+    const boldBuf = getBoldFont();
+    const hasCustomFonts = Boolean(regBuf && boldBuf);
+    if (hasCustomFonts) {
+      doc.registerFont("Roboto", regBuf);
+      doc.registerFont("Roboto-Bold", boldBuf);
       doc.font("Roboto");
     }
     doc.on("data", buffers.push.bind(buffers));
@@ -1343,173 +1424,354 @@ async function generateInvoicePDF(transaction, buyer, seller, auction, salesInvo
       const pdfData = Buffer.concat(buffers);
       resolve(pdfData);
     });
-    const todayStr = (/* @__PURE__ */ new Date()).toLocaleDateString("sl-SI");
-    const transactionIdShort = transaction.id.substring(0, 8).toUpperCase();
+    doc.on("error", (err) => reject(err));
     const isSellerBusiness = seller.company_status === "company" || seller.user_type === "business" || seller.isCompany;
     const isBuyerBusiness = buyer.company_status === "company" || buyer.user_type === "business" || buyer.isCompany;
     const isB2C = isSellerBusiness && !isBuyerBusiness;
     const isB2B = isSellerBusiness && isBuyerBusiness;
     const isC2B = !isSellerBusiness && isBuyerBusiness;
-    const isC2C = !isSellerBusiness && !isBuyerBusiness;
-    const documentTitle = isSellerBusiness ? "RA\u010CUN / INVOICE" : "KUPOPRODAJNA POGODBA";
-    if (boldFont) doc.font("Roboto-Bold");
-    doc.fontSize(18).text(documentTitle, { align: "center" });
-    if (regularFont) doc.font("Roboto");
-    doc.moveDown(0.5);
-    const sellerTaxId = seller.tax_id || seller.taxId || seller.vat_id || seller.vatId;
-    const buyerTaxId = buyer.tax_id || buyer.taxId || buyer.vat_id || buyer.vatId;
-    doc.fontSize(11).text("Izdajatelj (Prodajalec) / Issuer (Seller):", { underline: true });
-    doc.fontSize(9);
-    if (isSellerBusiness) {
-      doc.text(`${seller.company_name || "N/A"}`);
-      doc.text(`${seller.address || "Naslov ni na voljo"}`);
-      if (sellerTaxId) doc.text(`Dav\u010Dna \u0161tevilka / VAT ID: ${sellerTaxId}`);
-      if (seller.registration_number || seller.regNo) doc.text(`Mati\u010Dna \u0161tevilka / Reg No: ${seller.registration_number || seller.regNo}`);
-    } else {
-      const sellerName = `${seller.first_name || ""} ${seller.last_name || ""}`.trim() || seller.name || "Prodajalec";
-      doc.text(sellerName);
-      if (seller.address) doc.text(seller.address);
-      doc.text(`Dav\u010Dna \u0161tevilka: ${sellerTaxId || "Ni navedena"}`);
-    }
-    doc.moveDown(0.5);
-    doc.fontSize(11).text("Prejemnik (Kupec) / Recipient (Buyer):", { underline: true });
-    doc.fontSize(9);
-    if (isBuyerBusiness) {
-      doc.text(`${buyer.company_name || "N/A"}`);
-      doc.text(`${buyer.first_name || ""} ${buyer.last_name || ""}`.trim());
-      doc.text(`${buyer.address || "Naslov ni na voljo"}`);
-      if (buyerTaxId) doc.text(`Dav\u010Dna \u0161tevilka / VAT ID: ${buyerTaxId}`);
-      if (buyer.registration_number || buyer.regNo) doc.text(`Mati\u010Dna \u0161tevilka / Reg No: ${buyer.registration_number || buyer.regNo}`);
-    } else {
-      const buyerName = `${buyer.first_name || ""} ${buyer.last_name || ""}`.trim() || buyer.name || "Kupec";
-      doc.text(buyerName);
-      if (buyer.address) doc.text(buyer.address);
-      doc.text(`Dav\u010Dna \u0161tevilka: ${buyerTaxId || "Ni navedena"}`);
-    }
-    doc.moveDown(0.5);
-    if (!sellerTaxId || !buyerTaxId) {
-      doc.fontSize(8).text("Opomba o identifikaciji: Stranki sta elektronsko identificirani znotraj platforme dra\u017Ebenik.si.", { italic: true });
-      doc.moveDown(0.5);
-    }
-    const getPlaceFromUser = (user) => {
-      if (!user) return "Slovenija";
-      let raw = user.city || user.place || user.location?.city || "";
-      if (!raw && (user.address || user.street_address || user.location?.address)) {
-        const addr = user.address || user.street_address || user.location?.address;
-        const parts = addr.split(",");
-        if (parts.length > 1) {
-          raw = parts[parts.length - 1].trim();
-          if (raw.toLowerCase() === "slovenija" && parts.length > 2) {
-            raw = parts[parts.length - 2].trim();
-          }
-        } else {
-          raw = addr;
-        }
-      }
-      let cleaned = (raw || "Ljubljana").replace(/SI-?\s*\d{4}/gi, "").replace(/\b\d{4}\b/g, "").trim().replace(/^,\s*|,\s*$/g, "");
-      if (!cleaned) cleaned = "Ljubljana";
-      if (!cleaned.toLowerCase().includes("slovenija")) {
-        cleaned = `${cleaned}, Slovenija`;
-      }
-      return cleaned;
-    };
-    const sellerPlace = getPlaceFromUser(seller);
-    doc.fontSize(9);
-    const docNo = salesInvoiceNo || `ITEM-${transactionIdShort}`;
-    doc.text(`\u0160tevilka dokumenta / Document No: ${docNo}`);
-    doc.text(`Kraj izdaje / Place of issue: ${sellerPlace}`);
-    doc.text(`Datum izdaje in sklenitve / Date of agreement: ${todayStr}`);
-    doc.moveDown(0.5);
-    doc.fontSize(11).text("Postavke / Items:", { underline: true });
-    doc.fontSize(9);
-    const itemAmount = Number(transaction.amount_total - (transaction.platform_fee || 0) - (transaction.vat_amount || 0));
-    const isVatApplicable = isB2C || isB2B;
+    const docNo = salesInvoiceNo || `INV-${(transaction.id || auction.id || "000000").substring(0, 8).toUpperCase()}`;
+    const todayStr = (/* @__PURE__ */ new Date()).toLocaleDateString("sl-SI");
+    const paymentDate = auction.paid_at ? new Date(auction.paid_at).toLocaleDateString("sl-SI") : todayStr;
+    const sellerName = seller.company_name || seller.companyName || `${seller.first_name || seller.firstName || ""} ${seller.last_name || seller.lastName || ""}`.trim() || (typeof seller.name === "object" ? seller.name?.SLO : seller.name) || seller.sellerName || "Prodajalec";
+    const buyerName = buyer.company_name || buyer.companyName || `${buyer.first_name || buyer.firstName || ""} ${buyer.last_name || buyer.lastName || ""}`.trim() || (typeof buyer.name === "object" ? buyer.name?.SLO : buyer.name) || "Kupec";
+    const sellerAddress = getSafeAddress(seller);
+    const buyerAddress = getSafeAddress(buyer);
+    const sellerPlace = getSafePlace(seller);
+    const sellerTaxId = seller.tax_id || seller.taxId || seller.vat_id || seller.vatId || (isSellerBusiness ? "SI 12345678" : "");
+    const sellerRegNo = seller.registration_number || seller.regNumber || seller.registrationNumber || (isSellerBusiness ? "8876543000" : "");
+    const buyerTaxId = buyer.tax_id || buyer.taxId || buyer.vat_id || buyer.vatId || "";
+    const buyerRegNo = buyer.registration_number || buyer.regNumber || "";
+    const itemPrice = Number(transaction.amount_total || auction.currentBid || auction.current_price || transaction.item_amount || 0);
     const vatRate = 0.22;
-    const vatBase = isVatApplicable ? itemAmount / (1 + vatRate) : itemAmount;
-    const vatVal = isVatApplicable ? itemAmount - vatBase : 0;
-    doc.text(`Predmet / Item: ${auction?.title?.SLO || auction?.title?.EN || "Dra\u017Ebeni predmet"}`);
-    doc.text(`Koli\u010Dina / Quantity: 1`);
-    if (isB2C || isB2B) {
-      doc.text(`Cena z DDV / Price (incl. VAT): \u20AC${itemAmount.toFixed(2)}`);
-      doc.text(`Osnova za DDV (22%) / Tax base (22%): \u20AC${vatBase.toFixed(2)}`);
-      doc.text(`Znesek DDV (22%) / VAT (22%): \u20AC${vatVal.toFixed(2)}`);
-    } else {
-      doc.text(`Kupnina / Price: \u20AC${itemAmount.toFixed(2)}`);
-      doc.text(`DDV: Ni obra\u010Dunan (prodajalec je fizi\u010Dna oseba in ni dav\u010Dni zavezanec po ZDDV-1)`);
+    const isVatApplicable = isSellerBusiness;
+    const vatBase = isVatApplicable ? itemPrice / (1 + vatRate) : itemPrice;
+    const vatAmount = isVatApplicable ? itemPrice - vatBase : 0;
+    const itemTitle = (typeof auction.title === "object" ? auction.title?.SLO || auction.title?.EN : auction.title) || "Dra\u017Ebeni predmet";
+    const auctionId = auction.id || transaction.auction_id || "AUCT-88319";
+    const deliveryMethod = auction.delivery_method === "post" ? "Dostava po po\u0161ti" : auction.delivery_method === "pickup" ? "Osebni prevzem na lokaciji prodajalca" : "Osebni prevzem ali po dogovoru";
+    const colorDark = "#0A1128";
+    const colorMuted = "#64748B";
+    const colorLight = "#94A3B8";
+    const colorBorder = "#E2E8F0";
+    const setBold = () => {
+      if (hasCustomFonts) doc.font("Roboto-Bold");
+      else doc.font("Helvetica-Bold");
+    };
+    const setRegular = () => {
+      if (hasCustomFonts) doc.font("Roboto");
+      else doc.font("Helvetica");
+    };
+    setBold();
+    const docTitle = isC2B ? "KUPOPRODAJNA POGODBA" : !isSellerBusiness ? "KUPOPRODAJNA POGODBA / RA\u010CUN" : "RA\u010CUN / INVOICE";
+    doc.fontSize(20).fillColor(colorDark).text(docTitle, 40, 42);
+    setBold();
+    doc.fontSize(18).fillColor(colorLight).text("dra\u017Ebenik.si", 360, 42, { width: 195, align: "right" });
+    setRegular();
+    doc.fontSize(8.5).fillColor(colorLight).text("Platforma za posredovanje", 360, 65, { width: 195, align: "right" });
+    let yPos = 72;
+    setRegular();
+    doc.fontSize(8.5).fillColor(colorMuted);
+    setRegular();
+    doc.fillColor(colorMuted).text("\u0160tevilka dokumenta: ", 40, yPos, { continued: true });
+    setBold();
+    doc.fillColor(colorDark).text(docNo);
+    yPos += 13;
+    setRegular();
+    doc.fillColor(colorMuted).text("Kraj izdaje: ", 40, yPos, { continued: true });
+    setBold();
+    doc.fillColor(colorDark).text(sellerPlace);
+    yPos += 13;
+    setRegular();
+    doc.fillColor(colorMuted).text("Datum izdaje / sklenitve: ", 40, yPos, { continued: true });
+    setBold();
+    doc.fillColor(colorDark).text(paymentDate);
+    yPos += 13;
+    setRegular();
+    doc.fillColor(colorMuted).text("Datum opravljene storitve/dobave: ", 40, yPos, { continued: true });
+    setBold();
+    doc.fillColor(colorDark).text(paymentDate);
+    yPos += 20;
+    doc.strokeColor(colorBorder).lineWidth(1).moveTo(40, yPos).lineTo(555, yPos).stroke();
+    yPos += 14;
+    const colLeft = 40;
+    const colRight = 310;
+    setBold();
+    doc.fontSize(7.5).fillColor(colorLight).text("IZDAJATELJ (PRODAJALEC)", colLeft, yPos);
+    doc.text("PREJEMNIK (KUPEC)", colRight, yPos);
+    yPos += 13;
+    setBold();
+    doc.fontSize(10.5).fillColor(colorDark).text(sellerName, colLeft, yPos, { width: 240 });
+    doc.text(buyerName, colRight, yPos, { width: 240 });
+    yPos += 15;
+    setRegular();
+    doc.fontSize(8.5).fillColor(colorMuted).text(sellerAddress, colLeft, yPos, { width: 240 });
+    doc.text(buyerAddress, colRight, yPos, { width: 240 });
+    yPos += 13;
+    doc.text(`Dav\u010Dna \u0161tevilka: ${sellerTaxId ? sellerTaxId : "Ni navedena"}`, colLeft, yPos);
+    doc.text(`Dav\u010Dna \u0161tevilka: ${buyerTaxId ? buyerTaxId : "Ni navedena"}`, colRight, yPos);
+    if (sellerRegNo || buyerRegNo) {
+      yPos += 12;
+      if (sellerRegNo) doc.text(`Mati\u010Dna \u0161tevilka: ${sellerRegNo}`, colLeft, yPos);
+      if (buyerRegNo) doc.text(`Mati\u010Dna \u0161tevilka: ${buyerRegNo}`, colRight, yPos);
     }
-    doc.moveDown(0.5);
-    doc.fontSize(12).text(`SKUPAJ ZA PLA\u010CILO / TOTAL: \u20AC${itemAmount.toFixed(2)}`, { align: "right" });
-    doc.moveDown();
-    doc.fontSize(8);
-    doc.text("Kupoprodajne klavzule in pravne opombe:", { underline: true });
-    doc.moveDown(0.3);
-    if (isB2C) {
-      doc.text("\u2022 Jamstvo za neskladnost blaga (ZVPot-1): Za blago veljajo zakonska jamstva za neskladnost blaga v skladu z ZVPot-1.");
-      doc.text("\u2022 Prenos lastni\u0161tva: Lastninska pravica in nevarnost naklju\u010Dnega uni\u010Denja preideta na kupca ob celotnem pla\u010Dilu kupnine in prevzemu predmeta.");
-      doc.text("\u2022 DDV izjava: V ceno je vklju\u010Den 22% DDV v skladu z Zakonom o davku na dodano vrednost (ZDDV-1).");
-    } else if (isB2B) {
-      doc.text("\u2022 Izjava o DDV in stanje opreme: V ceno je vklju\u010Den 22% DDV v skladu z ZDDV-1. Za rabljeno opremo velja dogovorjeno stanje ob prevzemu (videno-kupljeno).");
-      doc.text("\u2022 Prenos lastni\u0161tva: Lastninska pravica in nevarnost naklju\u010Dnega uni\u010Denja preideta na kupca ob celotnem pla\u010Dilu kupnine in prevzemu predmeta.");
-    } else if (isC2B) {
-      doc.text('\u2022 Videno-kupljeno: Predmet se prodaja po na\u010Delu "videno-kupljeno". Prodajalec ne odgovarja za stvarne napake predmeta po njegovem prevzemu.');
-      doc.text("\u2022 Prenos lastni\u0161tva: Lastninska pravica in nevarnost naklju\u010Dnega uni\u010Denja preideta na kupca ob celotnem pla\u010Dilu kupnine in prevzemu predmeta.");
-      doc.text("\u2022 Pravna opomba in DDV: Prodajalec je fizi\u010Dna oseba (C2B). DDV se v skladu z ZDDV-1 ne obra\u010Dunava. Dokument slu\u017Ei kot kupoprodajna pogodba in dokazilo o pla\u010Dilu.");
+    yPos += 18;
+    doc.strokeColor(colorBorder).lineWidth(1).moveTo(40, yPos).lineTo(555, yPos).stroke();
+    yPos += 12;
+    doc.roundedRect(40, yPos, 515, 24, 4).fillAndStroke("#F8FAFC", "#E2E8F0");
+    const badgeCenterX = 53;
+    const badgeCenterY = yPos + 12;
+    doc.circle(badgeCenterX, badgeCenterY, 5.5).fillColor("#2563EB").fill();
+    setBold();
+    doc.fontSize(7).fillColor("#FFFFFF").text("i", badgeCenterX - 1.8, badgeCenterY - 4, { lineBreak: false });
+    setBold();
+    doc.fontSize(8).fillColor(colorDark).text("Identifikacija: ", 66, yPos + 7, { continued: true });
+    setRegular();
+    doc.fillColor(colorMuted).text("Stranki sta elektronsko identificirani znotraj platforme dra\u017Ebenik.si.");
+    yPos += 38;
+    setBold();
+    doc.fontSize(8).fillColor(colorDark);
+    doc.text("OPIS", 40, yPos);
+    doc.text("KOLI\u010CINA", 260, yPos, { width: 70, align: "center" });
+    doc.text("CENA (\u20AC)", 355, yPos, { width: 85, align: "right" });
+    doc.text("SKUPAJ (\u20AC)", 455, yPos, { width: 100, align: "right" });
+    yPos += 13;
+    doc.strokeColor(colorDark).lineWidth(1.5).moveTo(40, yPos).lineTo(555, yPos).stroke();
+    yPos += 10;
+    setBold();
+    doc.fontSize(9.5).fillColor(colorDark).text(itemTitle, 40, yPos, { width: 220 });
+    setRegular();
+    doc.fontSize(9).text("1", 260, yPos, { width: 70, align: "center" });
+    doc.text(formatEuro(itemPrice), 355, yPos, { width: 85, align: "right" });
+    setBold();
+    doc.text(formatEuro(itemPrice), 455, yPos, { width: 100, align: "right" });
+    yPos += 13;
+    setRegular();
+    doc.fontSize(7.5).fillColor(colorLight).text(`ID dra\u017Ebe: ${auctionId}`, 40, yPos);
+    yPos += 15;
+    doc.roundedRect(40, yPos, 515, 18, 3).fill("#F8FAFC");
+    doc.fontSize(8).fillColor(colorMuted).text(`Na\u010Din predaje: ${deliveryMethod}`, 50, yPos + 5);
+    yPos += 24;
+    doc.strokeColor(colorBorder).lineWidth(1).moveTo(40, yPos).lineTo(555, yPos).stroke();
+    yPos += 14;
+    const totalsLeft = 325;
+    const totalsValueRight = 555;
+    if (isVatApplicable) {
+      setRegular();
+      doc.fontSize(8.5).fillColor(colorMuted).text("Osnova za DDV (22%):", totalsLeft, yPos);
+      setBold();
+      doc.fontSize(8.5).fillColor(colorDark).text(`${formatEuro(vatBase)} \u20AC`, totalsLeft + 120, yPos, { width: 110, align: "right" });
+      yPos += 15;
+      setRegular();
+      doc.fontSize(8.5).fillColor(colorMuted).text("Znesek DDV (22%):", totalsLeft, yPos);
+      setBold();
+      doc.fontSize(8.5).fillColor(colorDark).text(`${formatEuro(vatAmount)} \u20AC`, totalsLeft + 120, yPos, { width: 110, align: "right" });
+      yPos += 15;
     } else {
-      doc.text('\u2022 Videno-kupljeno: Predmet se prodaja po na\u010Delu "videno-kupljeno". Prodajalec ne odgovarja za stvarne napake predmeta po njegovem prevzemu.');
-      doc.text("\u2022 Prenos lastni\u0161tva: Lastninska pravica in nevarnost naklju\u010Dnega uni\u010Denja preideta na kupca ob celotnem pla\u010Dilu kupnine in prevzemu predmeta.");
-      doc.text("\u2022 DDV izjava: Prodajalec je fizi\u010Dna oseba (C2C). DDV se v skladu z ZDDV-1 ne obra\u010Dunava. Dokument slu\u017Ei kot dokazilo o sklenjeni pogodbi in pla\u010Dilu.");
+      setRegular();
+      doc.fontSize(8.5).fillColor(colorMuted).text("Kupnina / Znesek:", totalsLeft, yPos);
+      setBold();
+      doc.fontSize(8.5).fillColor(colorDark).text(`${formatEuro(itemPrice)} \u20AC`, totalsLeft + 120, yPos, { width: 110, align: "right" });
+      yPos += 15;
+      setRegular();
+      doc.fontSize(8.5).fillColor(colorMuted).text("DDV:", totalsLeft, yPos);
+      setBold();
+      doc.fontSize(8.5).fillColor(colorDark).text("Ni obra\u010Dunan", totalsLeft + 120, yPos, { width: 110, align: "right" });
+      yPos += 15;
     }
-    doc.text("\u2022 Posredovanje: Platforma dra\u017Ebenik.si nastopa izklju\u010Dno kot tehnolo\u0161ki posrednik in ni pogodbena stranka prodajne pogodbe.");
-    doc.addPage();
-    if (boldFont) doc.font("Roboto-Bold");
-    doc.fontSize(20).text("RA\u010CUN ZA STORITEV / SERVICE INVOICE", { align: "center" });
-    if (regularFont) doc.font("Roboto");
+    doc.strokeColor(colorDark).lineWidth(1.5).moveTo(totalsLeft, yPos).lineTo(totalsValueRight, yPos).stroke();
+    yPos += 7;
+    setBold();
+    doc.fontSize(10).fillColor(colorDark).text("SKUPAJ ZA PLA\u010CILO:", totalsLeft, yPos);
+    doc.fontSize(10.5).text(`${formatEuro(itemPrice)} \u20AC`, totalsLeft + 120, yPos, { width: 110, align: "right" });
+    const footerY = 665;
+    doc.strokeColor(colorBorder).lineWidth(1).moveTo(40, footerY).lineTo(555, footerY).stroke();
+    let footY = footerY + 11;
+    setBold();
+    doc.fontSize(7.5).fillColor(colorDark).text("Jamstvo za neskladnost blaga (ZVPot-1): ", 40, footY, { continued: true });
+    setRegular();
+    doc.fillColor(colorMuted).text("Za blago veljajo zakonska jamstva za neskladnost blaga v skladu z ZVPot-1.");
+    footY += 13;
+    setBold();
+    doc.fontSize(7.5).fillColor(colorDark).text("Prenos lastni\u0161tva: ", 40, footY, { continued: true });
+    setRegular();
+    doc.fillColor(colorMuted).text("Lastninska pravica in nevarnost naklju\u010Dnega uni\u010Denja preideta na kupca ob celotnem pla\u010Dilu kupnine in prevzemu predmeta.");
+    footY += 13;
+    setBold();
+    doc.fontSize(7.5).fillColor(colorDark).text("Pravna opomba in DDV: ", 40, footY, { continued: true });
+    setRegular();
+    doc.fillColor(colorMuted).text(
+      isSellerBusiness ? "V ceno je vklju\u010Den 22% DDV v skladu z Zakonom o davku na dodano vrednost (ZDDV-1)." : "DDV ni obra\u010Dunan na podlagi 1. odstavka 94. \u010Dlena ZDDV-1 (prodajalec je fizi\u010Dna oseba)."
+    );
+    footY += 15;
+    setRegular();
+    doc.fontSize(7).fillColor(colorLight).text(
+      "Platforma dra\u017Ebenik.si nastopa izklju\u010Dno kot tehnolo\u0161ki posrednik in ni stranka v prodajni pogodbi. Ta dokument slu\u017Ei kot kupoprodajna pogodba in potrdilo o sklenjenem poslu ter pla\u010Dilu med prodajalcem in kupcem, generirano samodejno s strani sistema po uspe\u0161nem zaklju\u010Dku dra\u017Ebe.",
+      40,
+      footY,
+      { width: 515 }
+    );
+    doc.addPage({ margin: 40, size: "A4" });
+    const feeDocNo = commissionInvoiceNo || `PROV-${(transaction.id || auction.id || "000000").substring(0, 8).toUpperCase()}`;
+    const feeBase = Number(transaction.platform_fee || itemPrice * 0.1 / 1.22);
+    const feeVat = Number(transaction.vat_amount || feeBase * 0.22);
+    const feeTotal = Number(transaction.fee_total || feeBase + feeVat);
+    setBold();
+    doc.fontSize(16).fillColor(colorDark).text("RA\u010CUN ZA STORITEV / SERVICE INVOICE", 40, 42, { width: 515, align: "center" });
+    let p2Y = 75;
+    doc.strokeColor(colorBorder).lineWidth(1).moveTo(40, p2Y).lineTo(555, p2Y).stroke();
+    p2Y += 13;
+    setBold();
+    doc.fontSize(7.5).fillColor(colorLight).text("IZDAJATELJ (PLATFORMA)", colLeft, p2Y);
+    doc.text("PREJEMNIK STORITVE (KUPEC)", colRight, p2Y);
+    p2Y += 13;
+    setBold();
+    doc.fontSize(10.5).fillColor(colorDark).text("Dizain d.o.o.", colLeft, p2Y, { width: 240 });
+    doc.text(buyerName, colRight, p2Y, { width: 240 });
+    p2Y += 15;
+    setRegular();
+    doc.fontSize(8.5).fillColor(colorMuted).text("Karantanska ulica 28, 2000 Maribor", colLeft, p2Y, { width: 240 });
+    doc.text(buyerAddress, colRight, p2Y, { width: 240 });
+    p2Y += 13;
+    doc.text("Dav\u010Dna \u0161tevilka: SI57008060", colLeft, p2Y);
+    doc.text(`Dav\u010Dna \u0161tevilka: ${buyerTaxId ? buyerTaxId : "Ni navedena"}`, colRight, p2Y);
+    p2Y += 12;
+    doc.text("Mati\u010Dna \u0161tevilka: 9093494000", colLeft, p2Y);
+    if (buyerRegNo) {
+      doc.text(`Mati\u010Dna \u0161tevilka: ${buyerRegNo}`, colRight, p2Y);
+    }
+    p2Y += 18;
+    doc.strokeColor(colorBorder).lineWidth(1).moveTo(40, p2Y).lineTo(555, p2Y).stroke();
+    p2Y += 14;
+    setRegular();
+    doc.fontSize(8.5).fillColor(colorMuted).text("\u0160tevilka ra\u010Duna: ", colLeft, p2Y, { continued: true });
+    setBold();
+    doc.fillColor(colorDark).text(feeDocNo);
+    p2Y += 13;
+    setRegular();
+    doc.fillColor(colorMuted).text("Datum izdaje in opravljene storitve: ", colLeft, p2Y, { continued: true });
+    setBold();
+    doc.fillColor(colorDark).text(paymentDate);
+    p2Y += 13;
+    setRegular();
+    doc.fillColor(colorMuted).text("Na\u010Din pla\u010Dila: ", colLeft, p2Y, { continued: true });
+    setBold();
+    doc.fillColor(colorDark).text("Spletno pla\u010Dilo / Kartica");
+    p2Y += 13;
+    setRegular();
+    doc.fillColor(colorMuted).text("Status pla\u010Dila: ", colLeft, p2Y, { continued: true });
+    setBold();
+    doc.fillColor("#059669").text(`PLA\u010CANO (${paymentDate})`);
+    p2Y += 28;
+    setBold();
+    doc.fontSize(8).fillColor(colorDark);
+    doc.text("OPIS", 40, p2Y);
+    doc.text("OSNOVA (\u20AC)", 455, p2Y, { width: 100, align: "right" });
+    p2Y += 13;
+    doc.strokeColor(colorDark).lineWidth(1.5).moveTo(40, p2Y).lineTo(555, p2Y).stroke();
+    p2Y += 10;
+    setBold();
+    doc.fontSize(9.5).fillColor(colorDark).text("Provizija platforme za uporabo sistema", 40, p2Y, { width: 350 });
+    setRegular();
+    doc.fontSize(9).text(formatEuro(feeBase), 455, p2Y, { width: 100, align: "right" });
+    yPos += 13;
+    setRegular();
+    doc.fontSize(7.5).fillColor(colorLight).text(`Dra\u017Eba: ${itemTitle}`, 40, p2Y + 14);
+    p2Y += 28;
+    doc.strokeColor(colorBorder).lineWidth(1).moveTo(40, p2Y).lineTo(555, p2Y).stroke();
+    p2Y += 15;
+    setRegular();
+    doc.fontSize(8.5).fillColor(colorMuted).text("Osnova / Base:", totalsLeft, p2Y);
+    setBold();
+    doc.fontSize(8.5).fillColor(colorDark).text(`${formatEuro(feeBase)} \u20AC`, totalsLeft + 120, p2Y, { width: 110, align: "right" });
+    p2Y += 15;
+    setRegular();
+    doc.fontSize(8.5).fillColor(colorMuted).text("DDV / VAT (22%):", totalsLeft, p2Y);
+    setBold();
+    doc.fontSize(8.5).fillColor(colorDark).text(`${formatEuro(feeVat)} \u20AC`, totalsLeft + 120, p2Y, { width: 110, align: "right" });
+    p2Y += 15;
+    doc.strokeColor(colorDark).lineWidth(1.5).moveTo(totalsLeft, p2Y).lineTo(totalsValueRight, p2Y).stroke();
+    p2Y += 7;
+    setBold();
+    doc.fontSize(10).fillColor(colorDark).text("SKUPAJ PROVIZIJA:", totalsLeft, p2Y);
+    doc.fontSize(10.5).text(`${formatEuro(feeTotal)} \u20AC`, totalsLeft + 120, p2Y, { width: 110, align: "right" });
+    const p2FooterY = 690;
+    doc.strokeColor(colorBorder).lineWidth(1).moveTo(40, p2FooterY).lineTo(555, p2FooterY).stroke();
+    let p2FootY = p2FooterY + 12;
+    setRegular();
+    doc.fontSize(7.5).fillColor(colorMuted).text(
+      "Dizain d.o.o. je registriran izdajatelj ra\u010Duna za posredni\u0161ke storitve platforme dra\u017Ebenik.si. V ceno storitve je vklju\u010Den 22% DDV.",
+      40,
+      p2FootY,
+      { width: 515 }
+    );
+    p2FootY += 13;
+    doc.fontSize(7).fillColor(colorLight).text(
+      "Dokument je generiran elektronsko in je veljaven brez \u017Eiga ali podpisa v skladu z ZZEPA ter 84. \u010Dlenom Zakona o davku na dodano vrednost (ZDDV-1).",
+      40,
+      p2FootY,
+      { width: 515 }
+    );
+    doc.end();
+  });
+}
+async function generateCertificatePDF(transaction, buyer, seller) {
+  return new Promise((resolve, reject) => {
+    const doc = new import_pdfkit.default({ margin: 40, size: "A4" });
+    const buffers = [];
+    const regBuf = getRegularFont();
+    const boldBuf = getBoldFont();
+    const hasCustomFonts = Boolean(regBuf && boldBuf);
+    if (hasCustomFonts) {
+      doc.registerFont("Roboto", regBuf);
+      doc.registerFont("Roboto-Bold", boldBuf);
+      doc.font("Roboto");
+    }
+    doc.on("data", buffers.push.bind(buffers));
+    doc.on("end", () => {
+      const pdfData = Buffer.concat(buffers);
+      resolve(pdfData);
+    });
+    doc.on("error", (err) => reject(err));
+    const setBold = () => {
+      if (hasCustomFonts) doc.font("Roboto-Bold");
+      else doc.font("Helvetica-Bold");
+    };
+    const setRegular = () => {
+      if (hasCustomFonts) doc.font("Roboto");
+      else doc.font("Helvetica");
+    };
+    setBold();
+    doc.fontSize(18).fillColor("#0A1128").text("POTRDILO O NAKUPU / PURCHASE CERTIFICATE", { align: "center" });
+    setRegular();
     doc.moveDown();
-    doc.fontSize(12).text("Izdajatelj (Platforma) / Issuer (Platform):", { underline: true });
-    doc.fontSize(10);
-    doc.text("Dizain d.o.o.");
-    doc.text("Karantanska ulica 28, 2000 Maribor, Slovenija");
-    doc.text("ID za DDV / VAT ID: SI57008060");
-    doc.text("Mati\u010Dna \u0161tevilka / Reg. No.: 9093494000");
-    doc.text("Datum vpisa / Registration Date: 25. 3. 2022");
+    doc.fontSize(10).fillColor("#94A3B8").text("dra\u017Ebenik.si", { align: "center" });
     doc.moveDown();
-    doc.fontSize(12).text("Prejemnik storitve (Kupec) / Service Recipient (Buyer):", { underline: true });
-    doc.fontSize(10);
-    if (buyer.company_status === "company") {
-      doc.text(`${buyer.company_name || "N/A"}`);
-      doc.text(`${buyer.first_name || ""} ${buyer.last_name || ""}`.trim());
-      doc.text(`${buyer.address || "Naslov ni na voljo"}`);
-      doc.text(`Dav\u010Dna \u0161tevilka / VAT ID: ${buyer.tax_id || "N/A"}`);
-    } else {
-      doc.text(`${buyer.first_name || ""} ${buyer.last_name || ""}`.trim() || buyer.name || "Neznan");
-      if (buyer.address) doc.text(buyer.address);
+    setRegular();
+    doc.fontSize(9).fillColor("#475569");
+    doc.text(`\u0160tevilka potrdila / Certificate No: CERT-${(transaction.id || "").substring(0, 8).toUpperCase()}`);
+    doc.text(`Datum / Date: ${(/* @__PURE__ */ new Date()).toLocaleDateString("sl-SI")}`);
+    doc.moveDown();
+    setBold();
+    doc.fontSize(11).fillColor("#0A1128").text("Kupec / Buyer:");
+    setRegular();
+    doc.fontSize(9.5).fillColor("#475569").text(`${buyer.first_name || ""} ${buyer.last_name || ""}`.trim() || buyer.name || "Kupec");
+    doc.moveDown();
+    setBold();
+    doc.fontSize(11).fillColor("#0A1128").text("Prodajalec / Seller:");
+    setRegular();
+    doc.fontSize(9.5).fillColor("#475569").text(`${seller.first_name || ""} ${seller.last_name || ""}`.trim() || seller.name || "Prodajalec");
+    if (seller.company_status === "company") {
+      doc.text(`Podjetje / Company: ${seller.company_name || "N/A"}`);
     }
     doc.moveDown();
-    const feeDocNo = commissionInvoiceNo || `FEE-${transactionIdShort}`;
-    doc.text(`\u0160tevilka ra\u010Duna / Invoice No: ${feeDocNo}`);
-    doc.text(`Datum izdaje in opravljene storitve / Date of issue & service: ${todayStr}`);
-    const paymentMethodText = transaction.payment_method === "wallet" ? "Sredstva na dra\u017Ebenik.si (Wallet)" : "Spletno pla\u010Dilo / Kartica";
-    const paidAtDateStr = transaction.paid_at ? new Date(transaction.paid_at).toLocaleDateString("sl-SI") : todayStr;
-    doc.text(`Na\u010Din pla\u010Dila / Payment Method: ${paymentMethodText}`);
-    doc.text(`Status pla\u010Dila / Payment Status: PLA\u010CANO (${paidAtDateStr})`);
+    const amount = Number(transaction.amount_total || 0);
+    setBold();
+    doc.fontSize(11).fillColor("#0A1128").text("Podrobnosti transakcije / Transaction Details:");
+    setRegular();
+    doc.fontSize(9.5).fillColor("#475569").text(`Znesek nakupa / Purchase Amount: \u20AC${amount.toFixed(2)}`);
     doc.moveDown();
-    doc.fontSize(12).text("Postavke / Items:", { underline: true });
-    doc.fontSize(10);
-    const feeAmount = transaction.platform_fee || 0;
-    const vatAmount = transaction.vat_amount || 0;
-    const totalAmount = feeAmount + vatAmount;
-    doc.text(`Provizija platforme za uporabo sistema (Dra\u017Eba: ${auction?.title?.SLO || "Neznano"})`);
-    doc.text(`Osnova / Base: \u20AC${feeAmount.toFixed(2)}`);
-    if (transaction.is_reverse_charge) {
-      doc.text(`DDV / VAT (0% - Reverse Charge): \u20AC0.00`);
-      doc.moveDown();
-      doc.fontSize(9).text("Obrnjena dav\u010Dna obveznost v skladu z 1. to\u010Dko 25. \u010Dlena ZDDV-1 (Reverse charge mechanism).", { italic: true });
-      doc.fontSize(10);
-    } else {
-      doc.text(`DDV / VAT (${transaction.vat_rate || 22}%): \u20AC${vatAmount.toFixed(2)}`);
-    }
-    doc.moveDown();
-    doc.fontSize(14).text(`SKUPAJ PROVIZIJA / TOTAL FEE: \u20AC${totalAmount.toFixed(2)}`, { align: "right" });
+    doc.fontSize(8.5).fillColor("#94A3B8").text("To potrdilo slu\u017Ei kot informativni dokaz o uspe\u0161no zaklju\u010Deni dra\u017Ebi in pla\u010Dilu.");
     doc.end();
   });
 }
@@ -1531,10 +1793,10 @@ function getResend() {
   return resendClient;
 }
 function getBaseAppUrl() {
-  return process.env.APP_URL || process.env.VITE_APP_URL || "https://drazba.si";
+  return process.env.APP_URL || process.env.VITE_APP_URL || "https://drazbenik.si";
 }
 function getEmailFrom() {
-  return process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazba.si>";
+  return process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>";
 }
 async function sendAuctionEmail(to, subject, templateProps) {
   if (!to || !to.includes("@")) {
@@ -2366,7 +2628,7 @@ app.post("/api/webhook", import_express.default.raw({ type: "application/json" }
       if (buyer.email && process.env.RESEND_API_KEY) {
         try {
           const auctionTitleText = auctionDataPdf?.title?.SLO || auctionDataPdf?.title?.EN || "Predmet dra\u017Ebe";
-          const auctionUrl = `${process.env.APP_URL || "https://drazba.si"}/?drazba=${auction_id}`;
+          const auctionUrl = `${process.env.APP_URL || "https://drazbenik.si"}/?drazba=${auction_id}`;
           const htmlContent = await (0, import_render2.render)(import_react2.default.createElement(AuctionEmailTemplate, {
             type: "payment_success",
             recipientName: buyer.first_name || buyer.name || "uporabnik",
@@ -2374,13 +2636,13 @@ app.post("/api/webhook", import_express.default.raw({ type: "application/json" }
             auctionImageUrl: auctionDataPdf?.images?.[0]?.url,
             currentPrice: transaction.amount_total,
             auctionUrl,
-            settingsUrl: `${process.env.APP_URL || "https://drazba.si"}/?tab=settings`
+            settingsUrl: `${process.env.APP_URL || "https://drazbenik.si"}/?tab=settings`
           }));
           const resendClient2 = new import_resend2.Resend(process.env.RESEND_API_KEY);
           await resendClient2.emails.send({
-            from: process.env.EMAIL_FROM || "Drazba.si <obvestila@drazba.si>",
+            from: process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>",
             to: buyer.email,
-            subject: `Potrdilo o pla\u010Dilu in dokumenti: ${auctionTitleText} - Drazba.si`,
+            subject: `Potrdilo o pla\u010Dilu in dokumenti: ${auctionTitleText} - dra\u017Ebenik.si`,
             html: htmlContent,
             attachments
           });
@@ -2465,6 +2727,9 @@ app.post("/api/place-bid", async (req, res) => {
         throw new Error("Dra\u017Eba ne obstaja.");
       }
       const data = getDocSnapshotData(auctionDoc) || {};
+      if (data.seller_id === user_id || data.sellerId === user_id) {
+        throw new Error("Ne morete oddati ponudbe na lastno dra\u017Ebo.");
+      }
       const currentPrice = Number(data.current_price ?? data.currentBid ?? 0);
       const prevWinnerId = data.winner_id || data.winnerId;
       const isCurrentWinner = prevWinnerId === user_id;
@@ -3587,11 +3852,11 @@ app.post("/api/test/send-email", async (req, res) => {
         recipientName: recipientName || "Uporabnik",
         auctionTitle,
         currentPrice,
-        auctionUrl: `${process.env.APP_URL || "https://drazba.si"}/?drazba=${auctionId}`,
-        settingsUrl: `${process.env.APP_URL || "https://drazba.si"}/?tab=settings`
+        auctionUrl: `${process.env.APP_URL || "https://drazbenik.si"}/?drazba=${auctionId}`,
+        settingsUrl: `${process.env.APP_URL || "https://drazbenik.si"}/?tab=settings`
       }));
       const emailResponse = await resendClient2.emails.send({
-        from: process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazba.si>",
+        from: process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>",
         to: toEmail,
         subject: `\u{1F9FE} Potrdilo o pla\u010Dilu in ra\u010Dun: ${auctionTitle} - dra\u017Ebenik.si`,
         html: htmlContent,
@@ -3634,103 +3899,96 @@ app.post("/api/test/send-email", async (req, res) => {
 app.post("/api/test/generate-pdf", async (req, res) => {
   try {
     const {
-      relationshipType = "individual_individual",
+      relationshipType = "company_individual",
       sellerData = {},
       buyerData = {},
-      itemTitle = "Industrijski CNC obdelovalni center Haas VF-2",
-      itemPrice = 1250,
-      docType = "invoice"
+      itemTitle = "Paket orodja DeWalt (Komplet)",
+      itemPrice = 1200,
+      docType = "invoice",
+      transaction: customTx,
+      buyer: customBuyer,
+      seller: customSeller,
+      auction: customAuction,
+      salesInvoiceNo,
+      commissionInvoiceNo
     } = req.body;
-    const mockTx = {
+    const mockTx = customTx || {
       id: `TX-${Date.now().toString().substring(5)}`,
       amount_total: Number(itemPrice),
-      platform_fee: Math.round(Number(itemPrice) * 0.05 * 100) / 100,
-      vat_amount: Math.round(Number(itemPrice) * 0.05 * 0.22 * 100) / 100,
+      platform_fee: Math.round(Number(itemPrice) * 0.1 * 100) / 100,
+      vat_amount: Math.round(Number(itemPrice) * 0.1 * 0.22 * 100) / 100,
+      fee_total: Math.round(Number(itemPrice) * 0.1 * 1.22 * 100) / 100,
       vat_rate: 22,
       is_reverse_charge: relationshipType === "company_company",
-      status: "completed"
+      status: "completed",
+      paid_at: (/* @__PURE__ */ new Date()).toISOString()
     };
-    const mockAuction = {
-      id: `AUC-${Date.now().toString().substring(6)}`,
+    const mockAuction = customAuction || {
+      id: `AUCT-${Date.now().toString().substring(6)}`,
       title: { SLO: itemTitle, EN: itemTitle },
       currentBid: Number(itemPrice),
       delivery_method: "pickup"
     };
-    let seller = { ...sellerData };
-    let buyer = { ...buyerData };
-    if (relationshipType === "individual_individual") {
-      seller = {
-        first_name: sellerData.first_name || "Marko",
-        last_name: sellerData.last_name || "Horvat",
-        address: sellerData.address || "Celjska cesta 42, 3000 Celje",
-        company_status: "individual",
-        user_type: "individual"
-      };
-      buyer = {
-        first_name: buyerData.first_name || "Luka",
-        last_name: buyerData.last_name || "Kova\u010Di\u010D",
-        address: buyerData.address || "Tr\u017Ea\u0161ka cesta 12, 1000 Ljubljana",
-        company_status: "individual",
-        user_type: "individual"
-      };
-    } else if (relationshipType === "company_individual") {
-      seller = {
-        company_name: sellerData.company_name || "Strojegradnja d.o.o.",
-        tax_id: sellerData.tax_id || "SI12345678",
-        registration_number: "8876543000",
-        address: sellerData.address || "Industrijska cona 5, 2000 Maribor",
-        company_status: "company",
-        user_type: "business"
-      };
-      buyer = {
-        first_name: buyerData.first_name || "Ana",
-        last_name: buyerData.last_name || "Novak",
-        address: buyerData.address || "Titova cesta 8, 2000 Maribor",
-        company_status: "individual",
-        user_type: "individual"
-      };
-    } else if (relationshipType === "individual_company") {
-      seller = {
-        first_name: sellerData.first_name || "Janez",
-        last_name: sellerData.last_name || "Kranjc",
-        address: sellerData.address || "Cesta v Gorice 14, 1000 Ljubljana",
-        company_status: "individual",
-        user_type: "individual"
-      };
-      buyer = {
-        company_name: buyerData.company_name || "TechTrade d.o.o.",
-        tax_id: buyerData.tax_id || "SI87654321",
-        registration_number: "9988776000",
-        address: buyerData.address || "Letali\u0161ka cesta 33, 1000 Ljubljana",
-        company_status: "company",
-        user_type: "business"
-      };
-    } else {
-      seller = {
-        company_name: sellerData.company_name || "MetalOpus d.o.o.",
-        tax_id: sellerData.tax_id || "SI98765432",
-        registration_number: "7766554000",
-        address: sellerData.address || "Obrtna cona 12, 4000 Kranj",
-        company_status: "company",
-        user_type: "business"
-      };
-      buyer = {
-        company_name: buyerData.company_name || "AvtoTech Solutions d.o.o.",
-        tax_id: buyerData.tax_id || "SI45678901",
-        registration_number: "5544332000",
-        address: buyerData.address || "\u0160martinska cesta 152, 1000 Ljubljana",
-        company_status: "company",
-        user_type: "business"
-      };
+    let seller = customSeller ? { ...customSeller } : { ...sellerData };
+    let buyer = customBuyer ? { ...customBuyer } : { ...buyerData };
+    if (!customSeller) {
+      if (relationshipType === "individual_individual") {
+        seller = {
+          first_name: sellerData.first_name || "Marko",
+          last_name: sellerData.last_name || "Horvat",
+          address: sellerData.address || "Celjska cesta 42, 3000 Celje",
+          company_status: "individual",
+          user_type: "individual"
+        };
+      } else if (relationshipType === "individual_company") {
+        seller = {
+          first_name: sellerData.first_name || "Janez",
+          last_name: sellerData.last_name || "Kranjc",
+          address: sellerData.address || "Cesta v Gorice 14, 1000 Ljubljana",
+          company_status: "individual",
+          user_type: "individual"
+        };
+      } else {
+        seller = {
+          company_name: sellerData.company_name || "AvtoCenter d.o.o.",
+          tax_id: sellerData.tax_id || "SI 12345678",
+          registration_number: sellerData.registration_number || "8876543000",
+          address: sellerData.address || "Tr\u017Ea\u0161ka cesta 14, 2000 Maribor",
+          company_status: "company",
+          user_type: "business"
+        };
+      }
+    }
+    if (!customBuyer) {
+      if (relationshipType === "company_company" || relationshipType === "individual_company") {
+        buyer = {
+          company_name: buyerData.company_name || "TechTrade d.o.o.",
+          tax_id: buyerData.tax_id || "SI 87654321",
+          registration_number: buyerData.registration_number || "9988776000",
+          address: buyerData.address || "Letali\u0161ka cesta 33, 1000 Ljubljana",
+          company_status: "company",
+          user_type: "business"
+        };
+      } else {
+        buyer = {
+          first_name: buyerData.first_name || "Marko",
+          last_name: buyerData.last_name || "Novak",
+          address: buyerData.address || "Dunajska cesta 105, 1000 Ljubljana",
+          company_status: "individual",
+          user_type: "individual"
+        };
+      }
     }
     let pdfBuffer;
     let filename;
+    const sInvNo = salesInvoiceNo || `RA\u010C-${(/* @__PURE__ */ new Date()).getFullYear()}-${mockAuction.id.substring(mockAuction.id.length - 5).toUpperCase()}`;
+    const cInvNo = commissionInvoiceNo || `PROV-${(/* @__PURE__ */ new Date()).getFullYear()}-${mockTx.id.substring(mockTx.id.length - 5).toUpperCase()}`;
     if (docType === "certificate") {
-      pdfBuffer = Buffer.from("");
+      pdfBuffer = await generateCertificatePDF(mockTx, buyer, seller);
       filename = `Potrdilo_${mockTx.id}.pdf`;
     } else {
-      pdfBuffer = await generateInvoicePDF(mockTx, buyer, seller, mockAuction, "RAC-TEST-000001", "PROV-TEST-000001");
-      filename = `Racun_${mockTx.id}.pdf`;
+      pdfBuffer = await generateInvoicePDF(mockTx, buyer, seller, mockAuction, sInvNo, cInvNo);
+      filename = `Racun_${sInvNo}.pdf`;
     }
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
@@ -3900,7 +4158,7 @@ app.post("/api/test/add-test-funds", async (req, res) => {
       currency: "eur",
       payment_method: "pm_card_visa",
       confirm: true,
-      return_url: "https://drazba.si/test-sandbox",
+      return_url: "https://drazbenik.si/test-sandbox",
       payment_method_types: ["card"],
       description: "Platform test balance funding",
       metadata: {
@@ -4006,6 +4264,12 @@ app.post("/api/auctions/create", async (req, res) => {
       if (itemData.category) itemData.category = sanitizeString(itemData.category);
       if (itemData.region) itemData.region = sanitizeString(itemData.region);
       if (itemData.location) itemData.location = sanitizeString(itemData.location);
+      delete itemData.winner_id;
+      delete itemData.winnerId;
+      delete itemData.top_bids;
+      delete itemData.bidding_history;
+      delete itemData.payment_status;
+      delete itemData.post_auction_status;
     }
     const userDoc = await safeGetDoc(adminDb.collection("users").doc(user_id));
     if (!userDoc.exists()) return res.status(404).json({ error: "Uporabnik ne obstaja" });
@@ -4016,9 +4280,15 @@ app.post("/api/auctions/create", async (req, res) => {
     if (subTier === "PRO") limit = Infinity;
     if (limit !== Infinity && !itemData.id) {
       const now = /* @__PURE__ */ new Date();
-      const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-      const userAuctions = await adminDb.collection("auctions").where("seller_id", "==", user_id).where("created_at", ">=", firstDayOfMonth).get();
-      if (userAuctions.size >= limit) {
+      const firstDayOfMonthMs = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+      const userAuctions = await adminDb.collection("auctions").where("seller_id", "==", user_id).get();
+      const monthlyCount = userAuctions.docs.filter((doc) => {
+        const d = doc.data();
+        const createdVal = d.created_at || d.createdAt || d.end_time || d.endTime;
+        if (!createdVal) return false;
+        return new Date(createdVal).getTime() >= firstDayOfMonthMs;
+      }).length;
+      if (monthlyCount >= limit) {
         return res.status(403).json({ error: `Dosegli ste mese\u010Dno omejitev objav za va\u0161 naro\u010Dni\u0161ki paket (${limit}). Prosimo, nadgradite paket.` });
       }
     }
@@ -4033,7 +4303,8 @@ app.post("/api/auctions/create", async (req, res) => {
       ...itemData,
       id: newDocRef.id,
       seller_id: user_id,
-      status: "active"
+      status: "active",
+      created_at: itemData.created_at || itemData.createdAt || (/* @__PURE__ */ new Date()).toISOString()
     }, { merge: true });
     res.json({ success: true, id: newDocRef.id });
   } catch (e) {
@@ -4236,90 +4507,201 @@ app.post("/api/orders/:id/open-dispute", async (req, res) => {
   }
 });
 app.post("/api/auth/verify-captcha", async (req, res) => {
-  try {
-    const { token } = req.body;
-    if (!token) return res.status(400).json({ error: "Manjka reCAPTCHA \u017Eeton." });
-    const secretKey = process.env.RECAPTCHA_SECRET_KEY;
-    if (!secretKey) {
-      console.warn("RECAPTCHA_SECRET_KEY ni nastavljen na stre\u017Eniku.");
-      return res.status(500).json({ error: "Sistemska napaka: reCAPTCHA ni pravilno konfigurirana na stre\u017Eniku." });
-    }
-    const verifyRes = await fetch("https://www.google.com/recaptcha/api/siteverify", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        secret: secretKey,
-        response: token
-      }).toString()
-    });
-    const data = await verifyRes.json();
-    console.log("reCAPTCHA Google API Response:", data);
-    if (!data.success || data.score < 0.5) {
-      console.warn("reCAPTCHA failed or low score (< 0.5):", data);
-      return res.status(400).json({
-        success: false,
-        score: data.score,
-        error: "Zaznana neobi\u010Dajna dejavnost. Prijava onemogo\u010Dena."
-      });
-    }
-    return res.json({ success: true, score: data.score });
-  } catch (err) {
-    console.error("verify-captcha error:", err);
-    res.status(500).json({ error: err.message });
-  }
+  return res.json({ success: true, score: 1 });
 });
-app.post("/api/auth/send-verification", async (req, res) => {
+app.post("/api/auth/send-email-change", async (req, res) => {
   try {
-    const { email, displayName } = req.body;
-    if (!email) return res.status(400).json({ error: "Manjka e-po\u0161tni naslov" });
-    const actionUrl = await adminAuth.generateEmailVerificationLink(email, {
-      url: `${process.env.APP_URL || "https://drazba.si"}/?tab=settings`
+    const { email, newEmail, displayName } = req.body;
+    if (!email || !newEmail) return res.status(400).json({ error: "Manjkajo podatki" });
+    const actionUrl = await adminAuth.generateVerifyAndChangeEmailLink(email, newEmail, {
+      url: `${process.env.APP_URL || "https://drazbenik.si"}/?tab=settings`
     });
     if (process.env.RESEND_API_KEY) {
       const resend = new import_resend2.Resend(process.env.RESEND_API_KEY);
       const htmlContent = await (0, import_render2.render)(import_react2.default.createElement(AuthEmailTemplate, {
         type: "verify_email",
         actionUrl,
-        recipientName: displayName || email.split("@")[0]
+        recipientName: displayName || newEmail.split("@")[0]
       }));
       await resend.emails.send({
-        from: process.env.EMAIL_FROM || "Drazba.si <obvestila@drazba.si>",
-        to: email,
-        subject: "Potrdite svoj e-po\u0161tni naslov - dra\u017Ebenik.si",
+        from: process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>",
+        to: newEmail,
+        subject: "Potrdite spremembo e-po\u0161tnega naslova - dra\u017Ebenik.si",
         html: htmlContent
       });
     }
     res.json({ success: true });
   } catch (err) {
-    console.error("send-verification error:", err);
+    console.error("send-email-change error:", err);
     res.status(500).json({ error: err.message });
+  }
+});
+app.post("/api/auth/send-verification", async (req, res) => {
+  try {
+    const { email, displayName, userId } = req.body;
+    if (!email || typeof email !== "string" || !email.includes("@")) {
+      return res.status(400).json({ success: false, error: "Manjka veljaven e-po\u0161tni naslov." });
+    }
+    const cleanEmail = email.trim().toLowerCase();
+    const apiKey = process.env.RESEND_API_KEY;
+    if (!apiKey) {
+      console.error("[send-verification] RESEND_API_KEY okoljska spremenljivka ni nastavljena!");
+      return res.status(500).json({
+        success: false,
+        error: "RESEND_API_KEY ni nastavljen na stre\u017Eniku. Preverite okoljske spremenljivke na Vercelu."
+      });
+    }
+    const token = import_crypto.default.randomBytes(32).toString("hex");
+    const now = /* @__PURE__ */ new Date();
+    const expiresAt = Date.now() + 48 * 60 * 60 * 1e3;
+    try {
+      await adminDb.collection("email_verifications").doc(token).set({
+        token,
+        email: cleanEmail,
+        userId: userId || "",
+        created_at: now.toISOString(),
+        expires_at: expiresAt,
+        used: false
+      });
+      if (userId) {
+        await adminDb.collection("users").doc(userId).set({
+          verification_token: token,
+          verification_token_expires: expiresAt
+        }, { merge: true });
+      }
+    } catch (dbErr) {
+      console.error("[send-verification] Napaka pri shranjevanju potrditvenega \u017Eetona:", dbErr.message);
+      return res.status(500).json({
+        success: false,
+        error: `Napaka baze pri pripravi potrditve: ${dbErr.message}`
+      });
+    }
+    const baseAppUrl = process.env.APP_URL || process.env.VITE_APP_URL || "https://drazbe.si";
+    const actionUrl = `${baseAppUrl}/?verify_token=${token}&email=${encodeURIComponent(cleanEmail)}`;
+    const htmlContent = await (0, import_render2.render)(import_react2.default.createElement(AuthEmailTemplate, {
+      type: "verify_email",
+      actionUrl,
+      recipientName: displayName || cleanEmail.split("@")[0]
+    }));
+    const resend = new import_resend2.Resend(apiKey);
+    const fromEmail = process.env.EMAIL_FROM || "dra\u017Ebe.si <obvestila@drazba.si>";
+    const sendRes = await resend.emails.send({
+      from: fromEmail,
+      to: cleanEmail,
+      subject: "Potrdite svoj e-po\u0161tni naslov - drazbe.si",
+      html: htmlContent
+    });
+    if (sendRes.error) {
+      console.error("[send-verification] Resend zavrnil po\u0161iljanje:", sendRes.error);
+      return res.status(500).json({
+        success: false,
+        error: `Resend napaka: ${sendRes.error.message}`
+      });
+    }
+    console.log(`[send-verification] Potrditveni e-mail uspe\u0161no poslan na ${cleanEmail}, Resend ID: ${sendRes.data?.id}`);
+    return res.json({ success: true, emailId: sendRes.data?.id });
+  } catch (err) {
+    console.error("send-verification nepri\u010Dakovana napaka:", err);
+    return res.status(500).json({ success: false, error: err.message || "Napaka pri po\u0161iljanju potrditvenega e-maila" });
+  }
+});
+app.post("/api/auth/confirm-email", async (req, res) => {
+  try {
+    const { token, email } = req.body;
+    if (!token || typeof token !== "string") {
+      return res.status(400).json({ success: false, error: "Manjka veljaven potrditveni \u017Eeton." });
+    }
+    const snap = await adminDb.collection("email_verifications").doc(token).get();
+    if (!snap.exists) {
+      return res.status(400).json({ success: false, error: "Neveljaven ali neobstoje\u010D potrditveni \u017Eeton." });
+    }
+    const verification = snap.data();
+    if (verification.used) {
+      return res.json({
+        success: true,
+        alreadyConfirmed: true,
+        message: "E-po\u0161tni naslov je bil \u017Ee predhodno potrjen.",
+        email: verification.email
+      });
+    }
+    if (verification.expires_at && verification.expires_at < Date.now()) {
+      return res.status(400).json({ success: false, error: "Povezava za potrditev je potekla. Zahtevajte novo potrditveno povezavo." });
+    }
+    await adminDb.collection("email_verifications").doc(token).update({
+      used: true,
+      confirmed_at: (/* @__PURE__ */ new Date()).toISOString()
+    });
+    const targetEmail = verification.email || (email ? email.trim().toLowerCase() : "");
+    let targetUserId = verification.userId;
+    if (!targetUserId && targetEmail) {
+      const userQuery = await adminDb.collection("users").where("email", "==", targetEmail).limit(1).get();
+      if (!userQuery.empty) {
+        targetUserId = userQuery.docs[0].id;
+      }
+    }
+    if (targetUserId) {
+      await adminDb.collection("users").doc(targetUserId).set({
+        email_verified: true,
+        is_verified: true,
+        registration_confirmed: true,
+        registration_confirmed_at: (/* @__PURE__ */ new Date()).toISOString(),
+        updated_at: (/* @__PURE__ */ new Date()).toISOString()
+      }, { merge: true });
+      try {
+        await adminAuth.updateUser(targetUserId, { emailVerified: true });
+      } catch (authErr) {
+        console.warn("[confirm-email] adminAuth.updateUser obvestilo (Firestore uspe\u0161no posodobljen):", authErr.message);
+      }
+    }
+    return res.json({
+      success: true,
+      message: "E-po\u0161tni naslov je bil uspe\u0161no potrjen! Sedaj se lahko prijavite v svoj ra\u010Dun.",
+      email: targetEmail
+    });
+  } catch (err) {
+    console.error("confirm-email napaka:", err);
+    return res.status(500).json({ success: false, error: err.message || "Napaka pri potrditvi e-po\u0161tnega naslova." });
   }
 });
 app.post("/api/auth/send-password-reset", async (req, res) => {
   try {
     const { email } = req.body;
     if (!email) return res.status(400).json({ error: "Manjka e-po\u0161tni naslov" });
-    const actionUrl = await adminAuth.generatePasswordResetLink(email, {
-      url: `${process.env.APP_URL || "https://drazba.si"}/`
-    });
-    if (process.env.RESEND_API_KEY) {
+    let actionUrl = null;
+    try {
+      actionUrl = await adminAuth.generatePasswordResetLink(email, {
+        url: `${process.env.APP_URL || "https://drazbenik.si"}/`
+      });
+    } catch (authErr) {
+      console.warn("adminAuth.generatePasswordResetLink ni uspel:", authErr.message);
+    }
+    if (actionUrl && process.env.RESEND_API_KEY) {
       const resend = new import_resend2.Resend(process.env.RESEND_API_KEY);
       const htmlContent = await (0, import_render2.render)(import_react2.default.createElement(AuthEmailTemplate, {
         type: "reset_password",
         actionUrl,
         recipientName: email.split("@")[0]
       }));
-      await resend.emails.send({
-        from: process.env.EMAIL_FROM || "Drazba.si <obvestila@drazba.si>",
+      const sendRes = await resend.emails.send({
+        from: process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>",
         to: email,
         subject: "Ponastavitev gesla - dra\u017Ebenik.si",
         html: htmlContent
       });
+      if (sendRes.error) {
+        console.error("Resend send error:", sendRes.error);
+        return res.status(500).json({ error: sendRes.error.message, fallbackToClient: true });
+      }
+      return res.json({ success: true, method: "resend" });
     }
-    res.json({ success: true });
+    return res.json({
+      success: false,
+      fallbackToClient: true,
+      message: "adminAuth ni na voljo za ponastavitev gesla, uporabi Firebase Client SDK."
+    });
   } catch (err) {
     console.error("send-password-reset error:", err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: err.message, fallbackToClient: true });
   }
 });
 app.post("/api/auth/send-email-changed", async (req, res) => {
@@ -4330,11 +4712,11 @@ app.post("/api/auth/send-email-changed", async (req, res) => {
       const resend = new import_resend2.Resend(process.env.RESEND_API_KEY);
       const htmlContent = await (0, import_render2.render)(import_react2.default.createElement(AuthEmailTemplate, {
         type: "email_changed",
-        actionUrl: `${process.env.APP_URL || "https://drazba.si"}/?tab=settings`,
+        actionUrl: `${process.env.APP_URL || "https://drazbenik.si"}/?tab=settings`,
         recipientName: email.split("@")[0]
       }));
       await resend.emails.send({
-        from: process.env.EMAIL_FROM || "Drazba.si <obvestila@drazba.si>",
+        from: process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>",
         to: email,
         subject: "Sprememba e-po\u0161tnega naslova - dra\u017Ebenik.si",
         html: htmlContent
@@ -4354,11 +4736,11 @@ app.post("/api/auth/send-mfa-enrollment", async (req, res) => {
       const resend = new import_resend2.Resend(process.env.RESEND_API_KEY);
       const htmlContent = await (0, import_render2.render)(import_react2.default.createElement(AuthEmailTemplate, {
         type: "mfa_enrollment",
-        actionUrl: `${process.env.APP_URL || "https://drazba.si"}/?tab=settings`,
+        actionUrl: `${process.env.APP_URL || "https://drazbenik.si"}/?tab=settings`,
         recipientName: email.split("@")[0]
       }));
       await resend.emails.send({
-        from: process.env.EMAIL_FROM || "Drazba.si <obvestila@drazba.si>",
+        from: process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>",
         to: email,
         subject: "Varnostno obvestilo (MFA) - dra\u017Ebenik.si",
         html: htmlContent

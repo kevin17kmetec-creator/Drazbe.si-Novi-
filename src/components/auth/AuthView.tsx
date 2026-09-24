@@ -6,12 +6,11 @@ import {
   createUserWithEmailAndPassword, 
   signInWithPopup, 
   GoogleAuthProvider, 
-  sendEmailVerification, 
   sendPasswordResetEmail 
 } from 'firebase/auth';
 import { setDoc, doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { toast } from 'sonner';
-import { sendEmailVerificationAction, sendPasswordResetAction } from "@/src/actions/auth-emails";
+import { sendEmailVerificationAction, sendPasswordResetAction } from "../../actions/auth-emails";
 
 export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerified: (v: boolean) => void; setAppLoggedIn: (val: boolean) => void }> = ({ t, onLoginSuccess, setIsVerified, setAppLoggedIn }) => {
   const [isLogin, setIsLogin] = useState(true);
@@ -58,43 +57,21 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
   const strengthText = strength <= 1 ? t('weak') : strength === 2 ? t('moderate') : strength === 3 ? t('good') : t('excellent');
 
   const handleResendVerification = async () => {
-    const targetEmail = unverifiedEmail || email;
+    const targetEmail = (unverifiedEmail || email || '').trim();
     if (!targetEmail) {
       toast.error("Vnesite svoj e-poštni naslov za ponovno pošiljanje.");
       return;
     }
     setResendingVerification(true);
     try {
-      let sent = false;
-      try {
-        const res = await sendEmailVerificationAction(targetEmail, targetEmail.split('@')[0]);
-        if (res.success) sent = true;
-      } catch (e) {}
-
-      if (!sent && password) {
-        try {
-          const cred = await signInWithEmailAndPassword(auth, targetEmail, password);
-          if (cred.user.emailVerified) {
-            await safeSignOut(auth);
-            toast.info("Vaš e-poštni naslov je že potrjen! Lahko se prijavite.");
-            setUnverifiedEmail(null);
-            return;
-          }
-          await sendEmailVerification(cred.user);
-          await safeSignOut(auth);
-          sent = true;
-        } catch (e: any) {
-          console.error("Ponovno pošiljanje prek odjemalca:", e);
-        }
-      }
-
-      if (sent) {
-        toast.success("Novo potrditveno sporočilo je bilo poslano! Preverite svoj e-poštni predal (tudi mapo z vsiljeno pošto).");
+      const res = await sendEmailVerificationAction(targetEmail, targetEmail.split('@')[0]);
+      if (res.success) {
+        toast.success("Novo potrditveno sporočilo je bilo uspešno odposlano! Preverite svoj e-poštni predal (tudi mapo z vsiljeno pošto).");
       } else {
-        toast.error("Za ponovno pošiljanje vnesite tudi svoje geslo.");
+        toast.error("Napaka pri pošiljanju potrditvenega sporočila: " + (res.error || "Prosimo, poskusite ponovno čez nekaj trenutkov."));
       }
     } catch (err: any) {
-      toast.error("Napaka pri pošiljanju: " + err.message);
+      toast.error("Napaka pri povezavi: " + (err.message || 'Neznana napaka'));
     } finally {
       setResendingVerification(false);
     }
@@ -103,7 +80,8 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    if (!email || !password) return toast.error(t("missingFields") || "Manjkajoči podatki.");
+    const cleanEmail = email.trim();
+    if (!cleanEmail || !password) return toast.error(t("missingFields") || "Manjkajoči podatki.");
     
     if (!isLogin) {
         if (!hasUppercase || !hasNumber || !hasMinLength) {
@@ -118,25 +96,40 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
     setLoading(true);
     try {
       if (isLogin) {
-          const cred = await signInWithEmailAndPassword(auth, email, password);
+          const cred = await signInWithEmailAndPassword(auth, cleanEmail, password);
           const user = cred.user;
           
-          if (!user.emailVerified) {
-              setUnverifiedEmail(email);
+          let isEmailConfirmed = user.emailVerified;
+          if (!isEmailConfirmed) {
+            try {
+              const userDoc = await getDoc(doc(db, "users", user.uid));
+              if (userDoc.exists()) {
+                const data = userDoc.data();
+                if (data.email_verified === true || data.is_verified === true || data.registration_confirmed === true) {
+                  isEmailConfirmed = true;
+                }
+              }
+            } catch (e) {
+              console.warn("Preverjanje uporabnika v bazi:", e);
+            }
+          }
+
+          if (!isEmailConfirmed) {
+              setUnverifiedEmail(cleanEmail);
               await safeSignOut(auth);
-              toast.error("Vaš e-poštni naslov še ni potrjen! Registracija še ni zaključena. Prosimo, preverite svojo e-pošto in kliknite na potrditveno povezavo.");
+              toast.error("Vaš e-poštni naslov še ni potrjen! Registracija še ni zaključena. Prosimo, preverite svojo e-pošto in kliknite na potrditveni gumb.");
               setLoading(false);
               return;
           }
 
           setUnverifiedEmail(null);
 
-          // E-pošta JE potrjena! Šele ZDAJ uradno potrdimo registracijo in uporabniški račun v Firestore:
+          // E-pošta JE potrjena! Posodobimo uporabniški račun v Firestore:
           if (user) {
               try {
                   await setDoc(doc(db, "users", user.uid), { 
                     id: user.uid,
-                    email: user.email,
+                    email: user.email || cleanEmail,
                     is_verified: true,
                     email_verified: true,
                     registration_confirmed: true,
@@ -154,7 +147,6 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
           // REGISTRACIJA
           setRegisteringAuth(true);
           try {
-            const cleanEmail = email.trim();
             // 1. Ustvari uporabnika v Firebase Auth
             const userCredential = await createUserWithEmailAndPassword(auth, cleanEmail, password);
             const user = userCredential.user;
@@ -173,24 +165,10 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
               console.warn("Napaka pri shranjevanju uporabnika v bazo:", dbErr);
             }
 
-            // 3. Pošiljanje verifikacijskega sporočila z varnostnim timeoutom
-            let emailSent = false;
-            try {
-              const emailRes = await sendEmailVerificationAction(cleanEmail, cleanEmail.split('@')[0]).catch(() => null);
-              if (emailRes && emailRes.success) {
-                emailSent = true;
-              } else {
-                await Promise.race([
-                  sendEmailVerification(user),
-                  new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout e-pošte")), 4000))
-                ]);
-                emailSent = true;
-              }
-            } catch (emailError) {
-              console.warn("Verifikacijski mail opozorilo:", emailError);
-            }
+            // 3. Pošiljanje verifikacijskega sporočila izključno preko našega Resend strežniškega sistema
+            const emailRes = await sendEmailVerificationAction(cleanEmail, cleanEmail.split('@')[0], user.uid);
 
-            // 4. Varno odjavi neprijavljenega uporabnika, saj račun še ni potrjen
+            // 4. Varno odjavi uporabnika, saj račun še ni potrjen
             try {
               await safeSignOut(auth);
             } catch (signOutErr) {
@@ -203,10 +181,10 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
             setPassword('');
             setConfirmPassword('');
 
-            if (emailSent) {
-              toast.success("Račun je uspešno ustvarjen! Na vaš e-poštni naslov smo poslali potrditveno povezavo. Pred prvo prijavo preverite svoj predal in potrdite naslov.");
+            if (emailRes.success) {
+              toast.success("Račun je uspešno ustvarjen! Na vaš e-poštni naslov smo poslali sporočilo s potrditvenim gumbom. Pred prvo prijavo preverite svoj predal in potrdite naslov.");
             } else {
-              toast.info("Račun je ustvarjen! Če niste prejeli potrditvenega sporočila, ga lahko spodaj ponovno pošljete.");
+              toast.error("Račun je bil ustvarjen, vendar e-pošte ni bilo mogoče odposlati: " + (emailRes.error || "Napaka pri komunikaciji s strežnikom. Uporabite spodnji gumb za ponovno pošiljanje."));
             }
           } catch (authError: any) {
             console.error("Registracija spodletela:", authError);

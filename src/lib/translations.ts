@@ -25,7 +25,7 @@ export const translations: Record<string, any> = {
     privacy: "Varovanje podatkov",
     howItWorks: "Kako deluje?",
     contact: "KONTAKT",
-    rights: "Vse pravice pridržane | Drazba.si",
+    rights: "Vse pravice pridržane | dražbenik.si",
     verifyNotice: "Profil ni verificiran. Za oddajo ponudb je potrebna verifikacija identitete (18. člen SP).",
     verifyAction: "VERIFICIRAJ ZDAJ",
     createAuction: "USTVARI DRAŽBO",
