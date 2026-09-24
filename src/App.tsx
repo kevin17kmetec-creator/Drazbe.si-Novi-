@@ -606,6 +606,131 @@ const MainApp: React.FC = () => {
     }
   }, [activeView, userData?.id, republishData]);
 
+  // Robust Universal Navigation History Stack
+  interface NavigationEntry {
+    view: ViewState;
+    selectedItem: AuctionItem | null;
+    selectedSeller: Seller | null;
+    selectedPackageId: string | null;
+    selectedCategory: Category | null;
+    selectedRegion: Region | null;
+    searchQuery: string;
+    settingsTab: 'profile' | 'personal' | 'stripe' | 'notifications';
+    activeConversationId: string | null;
+    createMode: 'choice' | 'single' | 'package';
+    republishData: any;
+  }
+
+  const navHistoryRef = useRef<NavigationEntry[]>([]);
+
+  const captureCurrentNavState = useCallback((): NavigationEntry => ({
+    view: activeView,
+    selectedItem,
+    selectedSeller,
+    selectedPackageId,
+    selectedCategory,
+    selectedRegion,
+    searchQuery,
+    settingsTab,
+    activeConversationId,
+    createMode,
+    republishData,
+  }), [
+    activeView,
+    selectedItem,
+    selectedSeller,
+    selectedPackageId,
+    selectedCategory,
+    selectedRegion,
+    searchQuery,
+    settingsTab,
+    activeConversationId,
+    createMode,
+    republishData,
+  ]);
+
+  const navigateTo = useCallback(
+    (
+      targetView: ViewState,
+      overrides?: Partial<NavigationEntry>,
+      options?: { replace?: boolean; scrollToTop?: boolean }
+    ) => {
+      if (!options?.replace) {
+        const currentState = captureCurrentNavState();
+        const isSame =
+          currentState.view === targetView &&
+          currentState.selectedItem?.id === overrides?.selectedItem?.id &&
+          currentState.selectedPackageId === overrides?.selectedPackageId &&
+          currentState.selectedSeller?.id === overrides?.selectedSeller?.id &&
+          currentState.createMode === (overrides?.createMode ?? currentState.createMode);
+        if (!isSame) {
+          navHistoryRef.current.push(currentState);
+        }
+      }
+
+      if (overrides) {
+        if (overrides.selectedItem !== undefined) setSelectedItem(overrides.selectedItem);
+        if (overrides.selectedSeller !== undefined) setSelectedSeller(overrides.selectedSeller);
+        if (overrides.selectedPackageId !== undefined) setSelectedPackageId(overrides.selectedPackageId);
+        if (overrides.selectedCategory !== undefined) setSelectedCategory(overrides.selectedCategory);
+        if (overrides.selectedRegion !== undefined) setSelectedRegion(overrides.selectedRegion);
+        if (overrides.searchQuery !== undefined) setSearchQuery(overrides.searchQuery);
+        if (overrides.settingsTab !== undefined) setSettingsTab(overrides.settingsTab);
+        if (overrides.activeConversationId !== undefined) setActiveConversationId(overrides.activeConversationId);
+        if (overrides.createMode !== undefined) setCreateMode(overrides.createMode);
+        if (overrides.republishData !== undefined) setRepublishData(overrides.republishData);
+      }
+
+      setActiveView(targetView);
+      if (options?.scrollToTop !== false) {
+        window.scrollTo({ top: 0, behavior: "instant" });
+      }
+    },
+    [captureCurrentNavState]
+  );
+
+  const goBack = useCallback(
+    (fallbackView: ViewState = "grid") => {
+      const previous = navHistoryRef.current.pop();
+      if (previous) {
+        setActiveView(previous.view);
+        setSelectedItem(previous.selectedItem ?? null);
+        setSelectedSeller(previous.selectedSeller ?? null);
+        setSelectedPackageId(previous.selectedPackageId ?? null);
+        setSelectedCategory(previous.selectedCategory ?? null);
+        setSelectedRegion(previous.selectedRegion ?? null);
+        setSearchQuery(previous.searchQuery ?? "");
+        setSettingsTab(previous.settingsTab ?? "profile");
+        setActiveConversationId(previous.activeConversationId ?? null);
+        setCreateMode(previous.createMode ?? "choice");
+        setRepublishData(previous.republishData ?? null);
+      } else {
+        setRepublishData(null);
+        setCreateMode("choice");
+        if (fallbackView === "grid") {
+          setSelectedItem(null);
+          setSelectedSeller(null);
+          setSelectedPackageId(null);
+          setActiveConversationId(null);
+        }
+        setActiveView(fallbackView);
+      }
+      window.scrollTo({ top: 0, behavior: "instant" });
+    },
+    []
+  );
+
+  // PopState browser Back/Forward integration
+  useEffect(() => {
+    const handlePopState = () => {
+      if (navHistoryRef.current.length > 0) {
+        goBack("grid");
+      }
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [goBack]);
+
   // URL and Path Preservation Hook
   useEffect(() => {
     if (activeView === 'winnings') {
@@ -1146,6 +1271,18 @@ const MainApp: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [showBackToTop, setShowBackToTop] = useState(false);
 
+  useEffect(() => {
+    const handleScroll = () => {
+      if (window.scrollY > 350) {
+        setShowBackToTop(true);
+      } else {
+        setShowBackToTop(false);
+      }
+    };
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
   // Ref for the "Aktualne dražbe" section
   const auctionsSectionRef = useRef<HTMLDivElement>(null);
 
@@ -1509,9 +1646,7 @@ const MainApp: React.FC = () => {
     targetSeller.verified = Boolean(targetSeller.is_verified ?? targetSeller.isVerified ?? foundUser?.is_verified ?? foundUser?.isVerified ?? false);
     targetSeller.type = targetSeller.user_type === 'business' || targetSeller.type === 'business' ? 'business' : 'individual';
 
-    setSelectedSeller(targetSeller);
-    setActiveView("sellerProfile");
-    window.scrollTo({ top: 0, behavior: "instant" });
+    navigateTo("sellerProfile", { selectedSeller: targetSeller });
 
     // Also fetch fresh user document from Firestore if sellerId exists to ensure real-time photo & bio
     if (sellerId) {
@@ -2121,13 +2256,10 @@ const MainApp: React.FC = () => {
           onBidSubmit={handleBidSubmit}
           onSellerClick={(seller) => navigateToSellerProfile(seller)}
           onAuctionClick={(item) => {
-            window.scrollTo({ top: 0, behavior: "instant" });
-            setSelectedItem(item);
-            setActiveView("detail");
+            navigateTo("detail", { selectedItem: item });
           }}
           onBack={() => {
-            setSelectedPackageId(null);
-            setActiveView("grid");
+            goBack("grid");
           }}
         />
       );
@@ -2142,11 +2274,9 @@ const MainApp: React.FC = () => {
             setSelectedRegion(null);
             setSelectedCategory(null);
             setSearchQuery("");
-            setActiveView("grid");
-            window.scrollTo({ top: 0, behavior: "instant" });
+            goBack("grid");
           }}
           setIsVerified={setIsVerified}
-
           setAppLoggedIn={(val) => setIsLoggedIn(val)}
         />
       );
@@ -2155,7 +2285,7 @@ const MainApp: React.FC = () => {
       if (!isLoggedIn) {
         content = (
           <AuthView
-            onLoginSuccess={() => setActiveView("createAuction")}
+            onLoginSuccess={() => navigateTo("createAuction")}
             t={t}
             setIsVerified={setIsVerified}
             setAppLoggedIn={(val) => setIsLoggedIn(val)}
@@ -2175,8 +2305,7 @@ const MainApp: React.FC = () => {
             </p>
             <button
               onClick={() => {
-                  setSettingsTab("stripe");
-                  setActiveView("settings");
+                  navigateTo("settings", { settingsTab: "stripe" });
               }}
               className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-colors shadow-xl"
             >
@@ -2218,7 +2347,7 @@ const MainApp: React.FC = () => {
                 </div>
               </div>
               <div className="mt-8 text-center">
-                <button onClick={() => { setActiveView("grid"); setCreateMode("choice"); }} className="text-gray-500 hover:text-black font-bold">
+                <button onClick={() => goBack("grid")} className="text-gray-500 hover:text-black font-bold">
                   Nazaj na domačo stran
                 </button>
               </div>
@@ -2228,8 +2357,12 @@ const MainApp: React.FC = () => {
           content = (
             <CreateAuctionForm
               onBack={() => {
-                setCreateMode("choice");
-                setRepublishData(null);
+                if (republishData) {
+                  setRepublishData(null);
+                  goBack("myUnsold");
+                } else {
+                  setCreateMode("choice");
+                }
               }}
               t={t}
               language={language}
@@ -2239,8 +2372,7 @@ const MainApp: React.FC = () => {
               userData={userData}
               auctions={auctions}
               onNavigateToSettings={(tab) => {
-                setSettingsTab(tab || 'personal');
-                setActiveView("settings");
+                navigateTo("settings", { settingsTab: tab || 'personal' });
               }}
             />
           );
@@ -2248,7 +2380,14 @@ const MainApp: React.FC = () => {
           content = (
             <CreatePackageForm
               initialData={republishData}
-              onBack={() => { setCreateMode("choice"); setRepublishData(null); }}
+              onBack={() => { 
+                if (republishData) {
+                  setRepublishData(null);
+                  goBack("myUnsold");
+                } else {
+                  setCreateMode("choice");
+                }
+              }}
               t={t}
               language={language}
               onPublishPackage={handlePublishPackage}
@@ -2298,8 +2437,7 @@ const MainApp: React.FC = () => {
               userData={userData}
               auctions={auctions}
               onNavigateToSettings={(tab) => {
-                setSettingsTab(tab || 'personal');
-                setActiveView("settings");
+                navigateTo("settings", { settingsTab: tab || 'personal' });
               }}
             />
           );
@@ -2323,8 +2461,7 @@ const MainApp: React.FC = () => {
             currentPlan={currentPlan}
             currentUserId={userData.id}
             onBack={() => {
-              setActiveView("grid");
-              setSelectedItem(null);
+              goBack("grid");
             }}
             onBidSubmit={handleBidSubmit}
             onCheckout={(item) => {
@@ -2360,7 +2497,7 @@ const MainApp: React.FC = () => {
     case "verification":
       content = (
         <VerificationView
-          onBack={() => setActiveView("grid")}
+          onBack={() => goBack("grid")}
           t={t}
           isVerified={isVerified}
           userType={userType}
@@ -2497,11 +2634,12 @@ const MainApp: React.FC = () => {
           user={userData}
           auctions={auctions}
           onSave={handleSaveSettings}
-          onVerify={() => setActiveView("verification")}
+          onVerify={() => navigateTo("verification")}
           onStripeVerified={handleStripeVerified}
           onRefreshUser={() => refreshUserData(userData.id)}
           activeTab={settingsTab}
           setActiveTab={setSettingsTab}
+          onBack={() => goBack("grid")}
         />
       );
       break;
@@ -2509,11 +2647,13 @@ const MainApp: React.FC = () => {
       content = (
         <SubscriptionsView
           t={t}
+          language={language}
           currentPlan={currentPlan}
           onSubscribe={handleSubscribe}
           isVerified={isVerified}
           isCanceled={isSubscriptionCanceled}
           nextBillingDate={nextBillingDate}
+          onBack={() => goBack("grid")}
           onCancelSubscription={async () => {
             const token = await auth.currentUser?.getIdToken();
             if (token) {
@@ -2535,7 +2675,7 @@ const MainApp: React.FC = () => {
       content = (
         <div className="max-w-[1600px] mx-auto py-16 px-6 animate-in">
           <button
-            onClick={() => setActiveView("grid")}
+            onClick={() => goBack("grid")}
             className="flex items-center gap-2 text-slate-400 mb-10 font-black uppercase text-[10px] tracking-widest hover:text-[#0A1128] transition-colors"
           >
             <ArrowLeft size={16} /> {t("back")}
@@ -2579,8 +2719,7 @@ const MainApp: React.FC = () => {
                     isWatched={watchedIds.includes(item.id)}
                     onWatchToggle={() => toggleWatch(item.id)}
                     onClick={() => {
-                      setSelectedItem(item);
-                      setActiveView("detail");
+                      navigateTo("detail", { selectedItem: item });
                     }}
                     onBidSubmit={handleBidSubmit}
                     onSellerClick={(seller) => {
@@ -2611,10 +2750,9 @@ const MainApp: React.FC = () => {
         content = (
           <SellerView
             seller={selectedSeller}
-            onBack={() => setActiveView("grid")}
+            onBack={() => goBack("grid")}
             onAuctionClick={(item) => {
-              setSelectedItem(item);
-              setActiveView("detail");
+              navigateTo("detail", { selectedItem: item });
             }}
             t={t}
             language={language}
@@ -2629,7 +2767,7 @@ const MainApp: React.FC = () => {
       content = (
         <div className="max-w-[1600px] mx-auto py-16 px-6 animate-in">
           <button
-            onClick={() => setActiveView("grid")}
+            onClick={() => goBack("grid")}
             className="flex items-center gap-2 text-slate-400 mb-10 font-black uppercase text-[10px] tracking-widest hover:text-[#0A1128] transition-colors"
           >
             <ArrowLeft size={16} /> Nazaj
@@ -2697,9 +2835,7 @@ const MainApp: React.FC = () => {
                         }`}
                         onClick={() => {
                           if (isOverdue) return;
-                          setSelectedItem(wonItem);
-                          setActiveView("detail");
-                          window.scrollTo({ top: 0, behavior: "instant" });
+                          navigateTo("detail", { selectedItem: wonItem });
                         }}
                       >
                         {wonItem.images &&
@@ -2723,9 +2859,7 @@ const MainApp: React.FC = () => {
                           }`}
                           onClick={() => {
                             if (isOverdue) return;
-                            setSelectedItem(wonItem);
-                            setActiveView("detail");
-                            window.scrollTo({ top: 0, behavior: "instant" });
+                            navigateTo("detail", { selectedItem: wonItem });
                           }}
                         >
                           {wonItem.title[
@@ -2780,9 +2914,7 @@ const MainApp: React.FC = () => {
                               <div className="flex flex-col gap-3 flex-1 min-w-[150px]">
                                 <button
                                   onClick={() => {
-                                    setSelectedItem(wonItem);
-                                    setActiveView("detail");
-                                    window.scrollTo({ top: 0, behavior: "instant" });
+                                    navigateTo("detail", { selectedItem: wonItem });
                                   }}
                                   className="bg-slate-100 text-[#0A1128] px-4 py-3 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-[#FEBA4F] transition-all shadow-sm flex items-center justify-center gap-2 h-[42px]"
                                 >
@@ -2929,7 +3061,7 @@ const MainApp: React.FC = () => {
       content = (
         <div className="max-w-[1600px] mx-auto py-16 px-6 animate-in">
           <button
-            onClick={() => setActiveView("grid")}
+            onClick={() => goBack("grid")}
             className="flex items-center gap-2 text-slate-400 mb-10 font-black uppercase text-[10px] tracking-widest hover:text-[#0A1128] transition-colors"
           >
             <ArrowLeft size={16} /> Nazaj
@@ -2985,9 +3117,7 @@ const MainApp: React.FC = () => {
                       <div
                         className="w-32 h-32 shrink-0 bg-slate-100 rounded-3xl overflow-hidden shadow-md group-hover:scale-105 transition-transform cursor-pointer"
                         onClick={() => {
-                          setSelectedItem(soldItem);
-                          setActiveView("detail");
-                          window.scrollTo({ top: 0, behavior: "instant" });
+                          navigateTo("detail", { selectedItem: soldItem });
                         }}
                       >
                         {soldItem.images &&
@@ -3004,9 +3134,7 @@ const MainApp: React.FC = () => {
                         <h3
                           className="text-2xl font-black uppercase tracking-tighter text-[#0A1128] mb-2 cursor-pointer hover:text-[#FEBA4F] transition-colors"
                           onClick={() => {
-                            setSelectedItem(soldItem);
-                            setActiveView("detail");
-                            window.scrollTo({ top: 0, behavior: "instant" });
+                            navigateTo("detail", { selectedItem: soldItem });
                           }}
                         >
                           {soldItem.title[
@@ -3091,9 +3219,7 @@ const MainApp: React.FC = () => {
                         <div className="flex flex-col gap-3 flex-1 min-w-[180px]">
                         <button
                           onClick={() => {
-                            setSelectedItem(soldItem);
-                            setActiveView("detail");
-                            window.scrollTo({ top: 0, behavior: "instant" });
+                            navigateTo("detail", { selectedItem: soldItem });
                           }}
                           className="bg-slate-100 text-[#0A1128] px-4 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] transition-all shadow-sm flex items-center justify-center gap-2"
                         >
@@ -3141,9 +3267,7 @@ const MainApp: React.FC = () => {
                         {!isPostalShipping ? (
                           <button
                             onClick={() => {
-                              setActiveConversationId(soldItem.id);
-                              setActiveView("messages");
-                              window.scrollTo({ top: 0, behavior: "instant" });
+                              navigateTo("messages", { activeConversationId: soldItem.id });
                             }}
                             className="bg-[#FEBA4F] text-[#0A1128] px-4 py-3.5 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#0A1128] hover:text-[#FEBA4F] transition-all flex items-center justify-center gap-2 shadow-sm"
                           >
@@ -3245,7 +3369,7 @@ const MainApp: React.FC = () => {
       content = (
         <div className="max-w-[1600px] mx-auto py-16 px-6 animate-in">
           <button
-            onClick={() => setActiveView("grid")}
+            onClick={() => goBack("grid")}
             className="flex items-center gap-2 text-slate-400 mb-10 font-black uppercase text-[10px] tracking-widest hover:text-[#0A1128] transition-colors"
           >
             <ArrowLeft size={16} /> Nazaj
@@ -3329,10 +3453,10 @@ const MainApp: React.FC = () => {
                           </button>
                           <button
                             onClick={() => {
-                              setRepublishData({ type: 'package', items: items });
-                              setCreateMode('package');
-                              setActiveView("createAuction");
-                              window.scrollTo({ top: 0, behavior: "instant" });
+                              navigateTo("createAuction", {
+                                createMode: 'package',
+                                republishData: { type: 'package', items: items }
+                              });
                             }}
                             className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl flex items-center justify-center gap-2"
                           >
@@ -3370,9 +3494,7 @@ const MainApp: React.FC = () => {
                         alt="Item"
                         className="w-32 h-32 rounded-3xl object-cover shadow-md cursor-pointer group-hover:scale-105 transition-transform"
                         onClick={() => {
-                          setSelectedItem(soldItem);
-                          setActiveView("detail");
-                          window.scrollTo({ top: 0, behavior: "instant" });
+                          navigateTo("detail", { selectedItem: soldItem });
                         }}
                       />
                       <div className="flex-1 text-center md:text-left">
@@ -3384,9 +3506,7 @@ const MainApp: React.FC = () => {
                         <h3
                           className="text-2xl font-black uppercase tracking-tighter text-slate-500 mb-2 cursor-pointer hover:text-[#0A1128] transition-colors"
                           onClick={() => {
-                            setSelectedItem(soldItem);
-                            setActiveView("detail");
-                            window.scrollTo({ top: 0, behavior: "instant" });
+                            navigateTo("detail", { selectedItem: soldItem });
                           }}
                         >
                           {soldItem.title[
@@ -3415,10 +3535,10 @@ const MainApp: React.FC = () => {
                         </button>
                         <button
                           onClick={() => {
-                            setRepublishData(soldItem);
-                            setCreateMode('single');
-                            setActiveView("createAuction");
-                            window.scrollTo({ top: 0, behavior: "instant" });
+                            navigateTo("createAuction", {
+                              createMode: 'single',
+                              republishData: soldItem
+                            });
                           }}
                           className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl flex items-center justify-center gap-2"
                         >
@@ -3443,13 +3563,10 @@ const MainApp: React.FC = () => {
           initialAuctionId={activeConversationId}
           auctions={auctions}
           onBack={() => {
-            setActiveView("grid");
-            setActiveConversationId(null);
+            goBack("grid");
           }}
           onOpenAuction={(auction) => {
-            setSelectedItem(auction);
-            setActiveView("detail");
-            window.scrollTo({ top: 0, behavior: "instant" });
+            navigateTo("detail", { selectedItem: auction });
           }}
           onPayAuction={(auction) => {
             const currentBid = auction.currentBid || 0;
@@ -3485,7 +3602,7 @@ const MainApp: React.FC = () => {
       content = (
         <div className="max-w-[1600px] mx-auto py-16 px-6 animate-in">
           <button
-            onClick={() => setActiveView("grid")}
+            onClick={() => goBack("grid")}
             className="flex items-center gap-2 text-slate-400 mb-10 font-black uppercase text-[10px] tracking-widest hover:text-[#0A1128] transition-colors"
           >
             <ArrowLeft size={16} /> Nazaj
@@ -3529,8 +3646,7 @@ const MainApp: React.FC = () => {
                     isWatched={watchedIds.includes(item.id)}
                     onWatchToggle={() => toggleWatch(item.id)}
                     onClick={() => {
-                      setSelectedItem(item);
-                      setActiveView("detail");
+                      navigateTo("detail", { selectedItem: item });
                     }}
                     onBidSubmit={handleBidSubmit}
                     onSellerClick={(seller) => {
@@ -3559,7 +3675,7 @@ const MainApp: React.FC = () => {
     case "testSandbox":
       content = (
         <TestSandboxView
-          onBack={() => setActiveView("grid")}
+          onBack={() => goBack("grid")}
           userData={userData}
           onRefreshUserData={fetchAuctions}
           onOpenInvoiceModal={(auction, seller, buyer) => {
@@ -3574,21 +3690,16 @@ const MainApp: React.FC = () => {
           language={language}
           isVerified={isVerified}
           onAuctionClick={(item) => {
-            window.scrollTo({ top: 0, behavior: "instant" });
-            setSelectedItem(item);
-            setActiveView("detail");
+            navigateTo("detail", { selectedItem: item });
           }}
           onSelectPackage={(packageId) => {
-            window.scrollTo({ top: 0, behavior: "instant" });
-            setSelectedPackageId(packageId);
-            setActiveView("package");
+            navigateTo("package", { selectedPackageId: packageId });
           }}
           watchlist={watchedIds}
           onWatchToggle={toggleWatch}
           onBidSubmit={handleBidSubmit}
           onSellerClick={(seller) => {
-            setSelectedSeller(seller);
-            setActiveView("sellerProfile");
+            navigateToSellerProfile(seller);
           }}
         />
       );
@@ -3603,9 +3714,7 @@ const MainApp: React.FC = () => {
               <HeroCarousel
                 items={auctions}
                 onSelectItem={(item) => {
-                  window.scrollTo({ top: 0, behavior: "instant" });
-                  setSelectedItem(item);
-                  setActiveView("detail");
+                  navigateTo("detail", { selectedItem: item });
                 }}
                 t={t}
                 language={language}
@@ -3695,14 +3804,10 @@ const MainApp: React.FC = () => {
                       currentUserId={userData?.id || auth.currentUser?.uid}
                       bidAuctionIds={bidAuctionIds}
                       onSelectPackage={(id) => {
-                        window.scrollTo({ top: 0, behavior: "instant" });
-                        setSelectedPackageId(id);
-                        setActiveView("package");
+                        navigateTo("package", { selectedPackageId: id });
                       }}
                       onAuctionClick={(item) => {
-                        window.scrollTo({ top: 0, behavior: "instant" });
-                        setSelectedItem(item);
-                        setActiveView("detail");
+                        navigateTo("detail", { selectedItem: item });
                       }}
                       onSellerClick={(seller) => {
                         navigateToSellerProfile(seller, pkgData.items[0]?.sellerName);
@@ -3729,9 +3834,7 @@ const MainApp: React.FC = () => {
                         isWatched={watchedIds.includes(item.id)}
                         onWatchToggle={() => toggleWatch(item.id)}
                         onClick={() => {
-                          window.scrollTo({ top: 0, behavior: "instant" });
-                          setSelectedItem(item);
-                          setActiveView("detail");
+                          navigateTo("detail", { selectedItem: item });
                         }}
                         onBidSubmit={handleBidSubmit}
                         onSellerClick={(seller) => {
@@ -4287,66 +4390,57 @@ const MainApp: React.FC = () => {
         )}
         <Header
           onHome={() => {
-            setActiveView("grid");
-            setSelectedRegion(null);
-            setSelectedCategory(null);
-            setSearchQuery("");
+            navigateTo("grid", {
+              selectedRegion: null,
+              selectedCategory: null,
+              searchQuery: ""
+            });
           }}
-          onSearch={setSearchQuery}
+          onSearch={(val) => {
+            setSearchQuery(val);
+            if (activeView !== "grid") {
+              navigateTo("grid", { searchQuery: val });
+            }
+          }}
           onRegionSelect={(reg) => {
-            setSelectedRegion(reg);
-            setActiveView("grid");
+            navigateTo("grid", { selectedRegion: reg });
           }}
           onCategorySelect={(cat) => {
-            setSelectedCategory(cat);
-            setActiveView("grid");
+            navigateTo("grid", { selectedCategory: cat });
           }}
           onLastChance={() => {
-            setActiveView("lastChance");
-            setSelectedRegion(null);
-            setSelectedCategory(null);
+            navigateTo("lastChance", { selectedRegion: null, selectedCategory: null });
           }}
           onLogin={() => {
-            window.scrollTo({ top: 0, behavior: "smooth" });
-            setActiveView("login");
+            navigateTo("login");
           }}
           onLogout={handleLogout}
           onSettings={(tab) => {
-            setSettingsTab(tab || 'profile');
-            window.scrollTo({ top: 0, behavior: "smooth" });
-            setActiveView("settings");
+            navigateTo("settings", { settingsTab: tab || 'profile' });
           }}
           onSubscriptions={() => {
-            window.scrollTo({ top: 0, behavior: "smooth" });
-            setActiveView("subscriptions");
+            navigateTo("subscriptions");
           }}
           onCreateAuction={() => {
-            window.scrollTo({ top: 0, behavior: "smooth" });
-            setActiveView("createAuction");
+            navigateTo("createAuction", { createMode: 'choice', republishData: null });
           }}
           onMyWinnings={() => {
-            window.scrollTo({ top: 0, behavior: "smooth" });
-            setActiveView("winnings");
+            navigateTo("winnings");
           }}
           onMyBids={() => {
-            window.scrollTo({ top: 0, behavior: "smooth" });
-            setActiveView("myBids");
+            navigateTo("myBids");
           }}
           onMySold={() => {
-            window.scrollTo({ top: 0, behavior: "smooth" });
-            setActiveView("mySold");
+            navigateTo("mySold");
           }}
           onMyUnsold={() => {
-            window.scrollTo({ top: 0, behavior: "smooth" });
-            setActiveView("myUnsold");
+            navigateTo("myUnsold");
           }}
           onWatchlist={() => {
-            window.scrollTo({ top: 0, behavior: "smooth" });
-            setActiveView("watchlist");
+            navigateTo("watchlist");
           }}
           onMessages={() => {
-            window.scrollTo({ top: 0, behavior: "smooth" });
-            setActiveView("messages");
+            navigateTo("messages");
           }}
           activeView={activeView}
           selectedRegion={selectedRegion}
@@ -4366,13 +4460,13 @@ const MainApp: React.FC = () => {
           userData={userData}
         />
         <main>{content}</main>
-        {(activeView === "grid" || activeView === "testSandbox") && (
+        {activeView !== "login" && (
           <Footer
             t={t}
             onLegal={setActiveLegal}
+            onNavigate={(view) => navigateTo(view)}
             onTestSandbox={() => {
-              window.scrollTo({ top: 0, behavior: "smooth" });
-              setActiveView("testSandbox");
+              navigateTo("testSandbox");
             }}
           />
         )}
@@ -4746,9 +4840,11 @@ const MainApp: React.FC = () => {
         {showBackToTop && (
           <button
             onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
-            className="fixed bottom-12 right-12 bg-[#FEBA4F] text-[#0A1128] p-4 rounded-full shadow-2xl hover:scale-110 transition-transform z-50 border-2 border-[#0A1128]"
+            className="fixed bottom-6 right-6 bg-[#0A1128] text-[#FEBA4F] hover:bg-[#FEBA4F] hover:text-[#0A1128] p-3.5 rounded-2xl shadow-2xl hover:scale-110 transition-all z-50 border-2 border-[#FEBA4F]/40 cursor-pointer flex items-center justify-center group"
+            aria-label="Nazaj na vrh"
+            title="Nazaj na vrh"
           >
-            <ArrowUp size={24} strokeWidth={3} />
+            <ArrowUp size={20} strokeWidth={2.5} className="group-hover:-translate-y-0.5 transition-transform" />
           </button>
         )}
       </div>

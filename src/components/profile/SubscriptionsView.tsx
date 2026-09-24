@@ -1,16 +1,18 @@
 import React from 'react';
-import { Lock, Calendar, AlertTriangle } from 'lucide-react';
+import { Lock, Calendar, AlertTriangle, ArrowLeft } from 'lucide-react';
 import { SubscriptionTier } from "../../types";
 
 export const SubscriptionsView: React.FC<{ 
     t: any; 
+    language?: string;
     currentPlan: SubscriptionTier; 
     onSubscribe: (tier: SubscriptionTier) => void; 
     isVerified: boolean;
     onCancelSubscription?: () => void;
     nextBillingDate?: Date;
     isCanceled?: boolean;
-}> = ({ t, currentPlan, onSubscribe, isVerified, onCancelSubscription, nextBillingDate, isCanceled }) => {
+    onBack?: () => void;
+}> = ({ t, language, currentPlan, onSubscribe, isVerified, onCancelSubscription, nextBillingDate, isCanceled, onBack }) => {
   const plans = [
     { tier: SubscriptionTier.FREE, name: t('freeTier'), price: 0, desc: t('freeDesc'), color: 'bg-slate-100 text-slate-600' },
     { tier: SubscriptionTier.BASIC, name: t('basicTier'), price: 20, desc: t('basicDesc'), color: 'bg-[#FEBA4F] text-[#0A1128]' },
@@ -19,6 +21,15 @@ export const SubscriptionsView: React.FC<{
 
   return (
     <div className="max-w-6xl mx-auto px-6 py-12">
+      {onBack && (
+        <button
+          type="button"
+          onClick={onBack}
+          className="flex items-center gap-2 text-slate-400 mb-8 font-black uppercase text-[10px] tracking-widest hover:text-[#0A1128] transition-colors"
+        >
+          <ArrowLeft size={16} /> {t('back') || 'Nazaj'}
+        </button>
+      )}
       <h2 className="text-4xl font-black uppercase tracking-tighter text-[#0A1128] mb-12">{t('subscriptions')}</h2>
       
       {isCanceled && currentPlan !== SubscriptionTier.FREE && (

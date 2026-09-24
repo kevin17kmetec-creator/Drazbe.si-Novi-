@@ -1,5 +1,5 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
-import { User, Camera, CheckCircle2, AlertCircle, Shield, CreditCard, Building, MapPin, Key, Bell, X, Eye, EyeOff, ShieldAlert, AlertTriangle } from 'lucide-react';
+import { User, Camera, CheckCircle2, AlertCircle, Shield, CreditCard, Building, MapPin, Key, Bell, X, Eye, EyeOff, ShieldAlert, AlertTriangle, ArrowLeft } from 'lucide-react';
 import { toast } from 'sonner';
 import imageCompression from 'browser-image-compression';
 import { StripeConnectOnboarding } from "@/src/components/profile/StripeConnectOnboarding";
@@ -51,6 +51,7 @@ export const SettingsView: React.FC<{
   onRefreshUser?: () => Promise<void>;
   activeTab?: 'profile' | 'personal' | 'stripe' | 'notifications';
   setActiveTab?: (tab: 'profile' | 'personal' | 'stripe' | 'notifications') => void;
+  onBack?: () => void;
 }> = ({ 
   t, 
   language, 
@@ -61,7 +62,8 @@ export const SettingsView: React.FC<{
   onStripeVerified,
   onRefreshUser,
   activeTab: propActiveTab,
-  setActiveTab: propSetActiveTab
+  setActiveTab: propSetActiveTab,
+  onBack
 }) => {
   const [localActiveTab, setLocalActiveTab] = useState<'profile' | 'personal' | 'stripe' | 'notifications'>('profile');
   const [isWithdrawing, setIsWithdrawing] = useState(false);
@@ -246,6 +248,15 @@ export const SettingsView: React.FC<{
 
   return (
     <div className="max-w-[1600px] mx-auto px-6 py-12 animate-in">
+      {onBack && (
+        <button
+          type="button"
+          onClick={onBack}
+          className="flex items-center gap-2 text-slate-400 mb-8 font-black uppercase text-[10px] tracking-widest hover:text-[#0A1128] transition-colors"
+        >
+          <ArrowLeft size={16} /> {t('back') || 'Nazaj'}
+        </button>
+      )}
       <h2 className="text-4xl font-black uppercase tracking-tighter text-[#0A1128] mb-12">{t('settings')}</h2>
       
       <div className="flex flex-col lg:flex-row gap-8">
