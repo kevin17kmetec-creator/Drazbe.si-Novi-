@@ -397,14 +397,9 @@ export const CreateAuctionForm: React.FC<{
 
     const handlePublish = async (e?: any, asDraft = false) => {
         if (!asDraft && userData && auctions) {
-            const subTier = userData.subscription_tier || userData.subscription || "FREE";
-            let userLimit = 5;
-            if (subTier === "BASIC") userLimit = 50;
-            if (subTier === "PRO") userLimit = Infinity;
-            const cycleInfo = getUserAuctionCycle(auctions, userData.id);
-            const monthlyAuctionsCount = cycleInfo.count;
-            if (!initialData?.id && monthlyAuctionsCount >= userLimit) {
-                toast.error(`Dosegli ste omejitev objav v trenutnem ciklu za vaš naročniški paket (${userLimit}). Prosimo, nadgradite paket v nastavitvah.`);
+            const cycleInfo = getUserAuctionCycle(auctions, userData.id, userData);
+            if (!cycleInfo.isUnlimited && !initialData?.id && cycleInfo.count >= cycleInfo.userLimit) {
+                toast.error(`Dosegli ste omejitev objav v trenutnem ciklu za vaš naročniški paket (${cycleInfo.userLimit}). Prosimo, nadgradite paket v nastavitvah.`);
                 return;
             }
         }

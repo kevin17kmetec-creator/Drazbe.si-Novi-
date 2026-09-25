@@ -382,18 +382,47 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
         return;
       }
 
-      if (type === 'subscription') {
-        const targetUserId = user_id || buyer_id;
-        console.log('Processing subscription payment for user', targetUserId);
-        if (targetUserId && package_id) {
+      const isSub = type === 'subscription' ||
+                    (isSession && (sessionObj?.amount_total === 2000 || sessionObj?.amount_total === 5000 || (sessionObj?.metadata?.planId || '').length > 0)) ||
+                    (!isSession && (paymentIntent?.amount === 2000 || paymentIntent?.amount === 5000 || (paymentIntent?.metadata?.planId || '').length > 0));
+
+      if (isSub) {
+        let targetUserId = user_id || buyer_id || (isSession ? sessionObj?.client_reference_id : null);
+        
+        const customerEmail = isSession 
+          ? (sessionObj?.customer_details?.email || sessionObj?.customer_email)
+          : paymentIntent?.receipt_email;
+          
+        if (!targetUserId && customerEmail) {
+          try {
+            const uSnap = await adminDb.collection('users').where('email', '==', customerEmail).limit(1).get();
+            if (!uSnap.empty) {
+              targetUserId = uSnap.docs[0].id;
+            }
+          } catch (e) {
+            console.warn("[webhook] Could not resolve user by email:", e);
+          }
+        }
+
+        let pkg = (package_id || rawMetadata.planId || rawMetadata.tier || '').toUpperCase();
+        const amt = isSession ? sessionObj?.amount_total : paymentIntent?.amount;
+        if (!pkg || (!pkg.includes('PRO') && !pkg.includes('BASIC'))) {
+          pkg = amt === 5000 ? 'PRO' : 'BASIC';
+        }
+
+        console.log('Processing subscription payment for user', targetUserId, 'package:', pkg);
+        if (targetUserId) {
           const now = new Date();
           const validUntil = new Date(now);
           validUntil.setMonth(validUntil.getMonth() + 1);
 
           const updateData: any = {
-            subscription_tier: package_id,
+            subscription_tier: pkg,
+            subscription: pkg,
             subscription_active: true,
             subscription_paid_at: now.toISOString(),
+            subscription_started_at: now.toISOString(),
+            subscription_cycle_started_at: now.toISOString(),
             subscription_valid_until: validUntil.toISOString(),
             subscription_canceled: false
           };
@@ -406,12 +435,14 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
           let customerId = null;
           
           if (isSession && sessionObj?.payment_intent) {
-            const pi = typeof sessionObj.payment_intent === 'string' 
-              ? await stripe.paymentIntents.retrieve(sessionObj.payment_intent as string)
-              : sessionObj.payment_intent;
-            if (typeof pi === 'object' && pi.payment_method) {
-               paymentMethodId = typeof pi.payment_method === 'string' ? pi.payment_method : pi.payment_method.id;
-            }
+            try {
+              const pi = typeof sessionObj.payment_intent === 'string' 
+                ? await stripe.paymentIntents.retrieve(sessionObj.payment_intent as string)
+                : sessionObj.payment_intent;
+              if (typeof pi === 'object' && pi.payment_method) {
+                 paymentMethodId = typeof pi.payment_method === 'string' ? pi.payment_method : pi.payment_method.id;
+              }
+            } catch (e) {}
           } else if (!isSession && paymentIntent?.payment_method) {
             paymentMethodId = typeof paymentIntent.payment_method === 'string' ? paymentIntent.payment_method : paymentIntent.payment_method.id;
           }
@@ -427,7 +458,7 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
             updateData.stripe_customer_id = customerId;
           }
           
-          await adminDb.collection('users').doc(targetUserId).update(updateData);
+          await adminDb.collection('users').doc(targetUserId).set(updateData, { merge: true });
         }
         res.json({ received: true });
         return;
@@ -932,8 +963,16 @@ app.post("/api/create-checkout-session", async (req, res) => {
     const { amount, currency = "eur", auction_id, auctionId, buyer_id, seller_id, fee_percentage, return_url, type = "auction", user_id, userId, buyer_data } = req.body || {};
     const stripe = getStripe();
 
+    let authUid: string | null = null;
+    if (req.headers.authorization?.startsWith('Bearer ')) {
+      try {
+        const decoded = await adminAuth.verifyIdToken(req.headers.authorization.split('Bearer ')[1]);
+        authUid = decoded.uid;
+      } catch (e) {}
+    }
+
     const effectiveAuctionId = auction_id || auctionId;
-    const effectiveBuyerId = buyer_id || user_id || userId;
+    const effectiveBuyerId = buyer_id || user_id || userId || authUid;
     let auctionTitle = "Plačilo";
     let sessionMetadata: any = { type };
     let buyer: any = buyer_data || null;
@@ -1038,17 +1077,35 @@ app.post("/api/create-checkout-session", async (req, res) => {
         fee_percentage: fee_percentage || ''
       };
     } else if (type === "subscription") {
-      const planIdStr = (req.body.planId || req.body.package_id || '').toLowerCase();
-      if (planIdStr.includes('pro')) finalAmountCents = 5000;
-      else if (planIdStr.includes('basic')) finalAmountCents = 2000;
-      else finalAmountCents = parseAmountToCents(amount);
+      const rawPlan = req.body.package_id || req.body.planId || req.body.tier || '';
+      const planIdStr = String(rawPlan).toLowerCase();
+      let determinedTier = 'BASIC';
+      if (planIdStr.includes('pro')) {
+        finalAmountCents = 5000;
+        determinedTier = 'PRO';
+      } else if (planIdStr.includes('basic')) {
+        finalAmountCents = 2000;
+        determinedTier = 'BASIC';
+      } else {
+        const parsed = parseAmountToCents(amount);
+        if (parsed >= 5000) {
+          finalAmountCents = 5000;
+          determinedTier = 'PRO';
+        } else {
+          finalAmountCents = 2000;
+          determinedTier = 'BASIC';
+        }
+      }
 
-      auctionTitle = "Naročnina - " + (req.body.planId || 'Paket');
+      auctionTitle = "Naročnina - " + (determinedTier === 'PRO' ? 'Napredni (Pro)' : 'Osnovni (Basic)');
       sessionMetadata = {
         type: 'subscription',
         buyer_id: effectiveBuyerId || '',
         user_id: effectiveBuyerId || '',
-        planId: req.body.planId || ''
+        planId: determinedTier.toLowerCase(),
+        package_id: determinedTier,
+        tier: determinedTier,
+        amount: finalAmountCents.toString()
       };
     } else {
       auctionTitle = "Plačilo dražbe";
@@ -1082,16 +1139,21 @@ app.post("/api/create-checkout-session", async (req, res) => {
       }],
       metadata: sessionMetadata,
       payment_intent_data: {
-        metadata: sessionMetadata
+        metadata: sessionMetadata,
+        ...(type === 'subscription' ? { setup_future_usage: 'off_session' } : {})
       },
       mode: 'payment',
       success_url: return_url && return_url.includes('/stripe-callback.html')
-        ? `${return_url}?payment=success&session_id={CHECKOUT_SESSION_ID}`
-        : `${return_url || 'https://www.drazbe.eu'}${return_url && return_url.includes('?') ? '&' : '?'}payment=success&session_id={CHECKOUT_SESSION_ID}`,
+        ? `${return_url}${return_url.includes('?') ? '&' : '?'}payment=success&type=${type}&session_id={CHECKOUT_SESSION_ID}`
+        : `${return_url || 'https://www.drazbe.eu'}${return_url && return_url.includes('?') ? '&' : '?'}payment=success&type=${type}&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: return_url && return_url.includes('/stripe-callback.html')
-        ? `${return_url}?payment=cancel`
+        ? `${return_url}${return_url.includes('?') ? '&' : '?'}payment=cancel`
         : `${return_url || 'https://www.drazbe.eu'}${return_url && return_url.includes('?') ? '&' : '?'}payment=cancel`,
     };
+
+    if (effectiveBuyerId) {
+      sessionParams.client_reference_id = effectiveBuyerId;
+    }
 
     if (stripeCustomerId) {
       sessionParams.customer = stripeCustomerId;
@@ -1106,7 +1168,7 @@ app.post("/api/create-checkout-session", async (req, res) => {
 
     const session = await stripe.checkout.sessions.create(sessionParams);
 
-    res.json({ url: session.url });
+    res.json({ url: session.url, sessionId: session.id });
   } catch (error: any) {
     console.error("Stripe Checkout Error:", error);
     res.status(500).json({ error: error.message });
@@ -1115,8 +1177,16 @@ app.post("/api/create-checkout-session", async (req, res) => {
 
 app.post("/api/confirm-checkout-session", async (req, res) => {
   try {
-    const { sessionId, auctionId } = req.body || {};
+    const { sessionId, auctionId, userId, user_id } = req.body || {};
     const stripe = getStripe();
+
+    let authUid: string | null = null;
+    if (req.headers.authorization?.startsWith('Bearer ')) {
+      try {
+        const decoded = await adminAuth.verifyIdToken(req.headers.authorization.split('Bearer ')[1]);
+        authUid = decoded.uid;
+      } catch (e) {}
+    }
 
     if (!sessionId && !auctionId) {
       return res.status(400).json({ error: 'Missing sessionId or auctionId' });
@@ -1149,9 +1219,30 @@ app.post("/api/confirm-checkout-session", async (req, res) => {
       const effectiveBuyerId = metadata.buyer_id || metadata.user_id;
       const effectiveSellerId = metadata.seller_id;
 
-      if (type === 'subscription') {
-        const targetUserId = metadata.user_id || effectiveBuyerId;
-        const packageId = metadata.package_id || 'PRO';
+      const isSub = type === 'subscription' || session.amount_total === 2000 || session.amount_total === 5000 || (metadata.planId || '').length > 0;
+      if (isSub) {
+        let targetUserId = metadata.user_id || metadata.buyer_id || userId || user_id || authUid || session.client_reference_id;
+        
+        // If targetUserId is missing, look up by customer email
+        if (!targetUserId) {
+          const customerEmail = session.customer_details?.email || session.customer_email || paymentIntent?.receipt_email;
+          if (customerEmail) {
+            try {
+              const uSnap = await adminDb.collection('users').where('email', '==', customerEmail).limit(1).get();
+              if (!uSnap.empty) {
+                targetUserId = uSnap.docs[0].id;
+              }
+            } catch (e) {
+              console.warn("[confirm-checkout-session] Could not find user by email:", e);
+            }
+          }
+        }
+
+        let packageId = (metadata.package_id || metadata.tier || metadata.planId || '').toUpperCase();
+        if (!packageId || (!packageId.includes('PRO') && !packageId.includes('BASIC'))) {
+          packageId = session.amount_total === 5000 ? 'PRO' : 'BASIC';
+        }
+
         if (targetUserId) {
           const now = new Date();
           const validUntil = new Date(now);
@@ -1159,19 +1250,27 @@ app.post("/api/confirm-checkout-session", async (req, res) => {
           
           const updateData: any = {
             subscription_tier: packageId,
+            subscription: packageId,
             subscription_active: true,
             subscription_paid_at: now.toISOString(),
+            subscription_started_at: now.toISOString(),
+            subscription_cycle_started_at: now.toISOString(),
             subscription_valid_until: validUntil.toISOString(),
-            subscription_canceled: false
+            subscription_canceled: false,
+            stripe_checkout_session_id: session.id,
           };
 
           if (session?.subscription) {
             updateData.stripe_subscription_id = typeof session.subscription === 'string' ? session.subscription : (session.subscription as any).id;
           }
+          if (session?.customer) {
+            updateData.stripe_customer_id = typeof session.customer === 'string' ? session.customer : (session.customer as any).id;
+          }
 
-          await adminDb.collection('users').doc(targetUserId).update(updateData);
+          await adminDb.collection('users').doc(targetUserId).set(updateData, { merge: true });
+          console.log(`[confirm-checkout-session] Successfully upgraded user ${targetUserId} to ${packageId}`);
         }
-        return res.json({ success: true, type: 'subscription' });
+        return res.json({ success: true, type: 'subscription', package_id: packageId, userId: targetUserId });
       }
 
       if (effectiveAuctionId) {
@@ -1893,6 +1992,210 @@ app.post("/api/create-subscription-checkout", async (req, res) => {
     res.json({ url: session.url });
   } catch (error: any) {
     console.error("Stripe Subscription Checkout Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/sync-user-subscription", async (req, res) => {
+  try {
+    let authUid: string | null = null;
+    if (req.headers.authorization?.startsWith('Bearer ')) {
+      try {
+        const decoded = await adminAuth.verifyIdToken(req.headers.authorization.split('Bearer ')[1]);
+        authUid = decoded.uid;
+      } catch (e) {}
+    }
+
+    const { user_id, userId } = req.body || {};
+    const targetUserId = user_id || userId || authUid;
+
+    if (!targetUserId) {
+      return res.status(400).json({ error: "Missing user identification" });
+    }
+
+    const userDocRef = adminDb.collection('users').doc(targetUserId);
+    const userDoc = await safeGetDoc(userDocRef);
+    if (!userDoc.exists()) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const userData = userDoc.data();
+    const stripe = getStripe();
+    if (!stripe) {
+      return res.json({ synced: false, reason: "Stripe not initialized" });
+    }
+
+    const now = new Date();
+    const currentTier = (userData.subscription_tier || userData.subscription || '').toUpperCase();
+    const isActive = userData.subscription_active === true;
+    const validUntilStr = userData.subscription_valid_until;
+    const isValid = validUntilStr ? new Date(validUntilStr) > now : false;
+
+    // Če ima uporabnik že veljavno naročnino PRO ali BASIC, ki še traja v prihodnosti
+    if (isActive && isValid && currentTier && currentTier !== 'FREE') {
+      return res.json({
+        success: true,
+        synced: false,
+        already_active: true,
+        subscription_tier: currentTier,
+        subscription_valid_until: validUntilStr,
+      });
+    }
+
+    const customerId = userData.stripe_customer_id || userData.stripeCustomerId;
+    const userEmail = (userData.email || '').toLowerCase().trim();
+
+    let matchingSession: Stripe.Checkout.Session | null = null;
+
+    try {
+      // 1. Preišči Stripe seje po kupcu, če obstaja
+      if (customerId) {
+        const customerSessions = await stripe.checkout.sessions.list({ customer: customerId, limit: 20 });
+        for (const sess of customerSessions.data) {
+          if (sess.payment_status === 'paid' || sess.status === 'complete') {
+            const sessDate = new Date(sess.created * 1000);
+            const ageInDays = (now.getTime() - sessDate.getTime()) / (1000 * 60 * 60 * 24);
+            if (ageInDays <= 35) {
+              const isSub = sess.metadata?.type === 'subscription' || sess.amount_total === 2000 || sess.amount_total === 5000 || sess.mode === 'subscription';
+              if (isSub) {
+                matchingSession = sess;
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      // 2. Preišči splošne Stripe seje za ujemanje po e-pošti ali userId
+      if (!matchingSession) {
+        const recentSessions = await stripe.checkout.sessions.list({ limit: 40 });
+        for (const sess of recentSessions.data) {
+          if (sess.payment_status === 'paid' || sess.status === 'complete') {
+            const sessDate = new Date(sess.created * 1000);
+            const ageInDays = (now.getTime() - sessDate.getTime()) / (1000 * 60 * 60 * 24);
+            if (ageInDays <= 35) {
+              const sessEmail = (sess.customer_details?.email || sess.customer_email || '').toLowerCase().trim();
+              const sessUid = sess.metadata?.user_id || sess.metadata?.buyer_id || sess.client_reference_id;
+
+              const isMatch = (sessUid && sessUid === targetUserId) ||
+                              (userEmail && sessEmail && sessEmail === userEmail) ||
+                              (customerId && sess.customer === customerId);
+
+              if (isMatch) {
+                const isSub = sess.metadata?.type === 'subscription' || sess.amount_total === 2000 || sess.amount_total === 5000 || sess.mode === 'subscription';
+                if (isSub) {
+                  matchingSession = sess;
+                  break;
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch (err: any) {
+      console.warn("[sync-user-subscription] Error searching Stripe checkout sessions:", err.message);
+    }
+
+    if (matchingSession) {
+      let tier = (matchingSession.metadata?.package_id || matchingSession.metadata?.tier || matchingSession.metadata?.planId || '').toUpperCase();
+      if (!tier || (!tier.includes('PRO') && !tier.includes('BASIC'))) {
+        tier = matchingSession.amount_total === 5000 ? 'PRO' : 'BASIC';
+      }
+
+      const paidDate = new Date(matchingSession.created * 1000);
+      const validUntil = new Date(paidDate);
+      validUntil.setMonth(validUntil.getMonth() + 1);
+
+      const updateData: any = {
+        subscription_tier: tier,
+        subscription: tier,
+        subscription_active: true,
+        subscription_paid_at: paidDate.toISOString(),
+        subscription_started_at: paidDate.toISOString(),
+        subscription_cycle_started_at: paidDate.toISOString(),
+        subscription_valid_until: validUntil.toISOString(),
+        subscription_canceled: false,
+        stripe_checkout_session_id: matchingSession.id,
+      };
+
+      if (matchingSession.customer) {
+        updateData.stripe_customer_id = typeof matchingSession.customer === 'string' ? matchingSession.customer : (matchingSession.customer as any).id;
+      }
+      if (matchingSession.subscription) {
+        updateData.stripe_subscription_id = typeof matchingSession.subscription === 'string' ? matchingSession.subscription : (matchingSession.subscription as any).id;
+      }
+
+      await userDocRef.set(updateData, { merge: true });
+      console.log(`[sync-user-subscription] Successfully synced user ${targetUserId} to ${tier}`);
+
+      return res.json({
+        success: true,
+        synced: true,
+        subscription_tier: tier,
+        subscription_active: true,
+        subscription_valid_until: validUntil.toISOString(),
+      });
+    }
+
+    // 3. Dodatno preveri PaymentIntents za primer neposrednih plačil
+    try {
+      const recentPIs = await stripe.paymentIntents.list({ limit: 40 });
+      for (const pi of recentPIs.data) {
+        if (pi.status === 'succeeded') {
+          const piDate = new Date(pi.created * 1000);
+          const ageInDays = (now.getTime() - piDate.getTime()) / (1000 * 60 * 60 * 24);
+          if (ageInDays <= 35) {
+            const piEmail = (pi.receipt_email || '').toLowerCase().trim();
+            const piUid = pi.metadata?.user_id || pi.metadata?.buyer_id;
+
+            const isMatch = (piUid && piUid === targetUserId) ||
+                            (userEmail && piEmail && piEmail === userEmail) ||
+                            (customerId && pi.customer === customerId);
+
+            const isSub = pi.metadata?.type === 'subscription' || pi.amount === 2000 || pi.amount === 5000;
+
+            if (isMatch && isSub) {
+              const tier = (pi.metadata?.package_id || (pi.amount === 5000 ? 'PRO' : 'BASIC')).toUpperCase();
+              const validUntil = new Date(piDate);
+              validUntil.setMonth(validUntil.getMonth() + 1);
+
+              const updateData: any = {
+                subscription_tier: tier,
+                subscription: tier,
+                subscription_active: true,
+                subscription_paid_at: piDate.toISOString(),
+                subscription_started_at: piDate.toISOString(),
+                subscription_cycle_started_at: piDate.toISOString(),
+                subscription_valid_until: validUntil.toISOString(),
+                subscription_canceled: false,
+                stripe_payment_intent_id: pi.id,
+              };
+
+              if (pi.customer) {
+                updateData.stripe_customer_id = typeof pi.customer === 'string' ? pi.customer : (pi.customer as any).id;
+              }
+
+              await userDocRef.set(updateData, { merge: true });
+              console.log(`[sync-user-subscription] Successfully synced user ${targetUserId} from PI to ${tier}`);
+
+              return res.json({
+                success: true,
+                synced: true,
+                subscription_tier: tier,
+                subscription_active: true,
+                subscription_valid_until: validUntil.toISOString(),
+              });
+            }
+          }
+        }
+      }
+    } catch (piErr: any) {
+      console.warn("[sync-user-subscription] Error searching PaymentIntents:", piErr.message);
+    }
+
+    return res.json({ success: true, synced: false, message: "Ni najdenih neobdelanih plačil na Stripe." });
+  } catch (error: any) {
+    console.error("Error in sync-user-subscription:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -3161,8 +3464,31 @@ app.post("/api/cron/process-subscription-renewals", async (req, res) => {
       }
     }
 
-    // Process subscriptions that are active and need renewal.
-    // E.g., paid_at is older than 30 days.
+    // 1. Preveri preklicane naročnine, ki jim je poteklo obdobje veljavnosti, in jih vrni na FREE
+    const now = new Date();
+    try {
+      const cancelledUsers = await adminDb.collection('users')
+        .where('subscription_canceled', '==', true)
+        .get();
+
+      for (const cDoc of cancelledUsers.docs) {
+        const cUser = cDoc.data();
+        if (cUser.subscription_valid_until) {
+          if (now.getTime() >= new Date(cUser.subscription_valid_until).getTime()) {
+            await cDoc.ref.set({
+              subscription_tier: 'FREE',
+              subscription: 'FREE',
+              subscription_active: false,
+              subscription_canceled: false,
+            }, { merge: true });
+          }
+        }
+      }
+    } catch (cErr: any) {
+      console.warn("Napaka pri pregledu preklicanih naročnin:", cErr.message);
+    }
+
+    // 2. Obdelava aktivnih naročnin za samodejno podaljšanje (1 mesec po nakupu)
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     
@@ -3176,38 +3502,46 @@ app.post("/api/cron/process-subscription-renewals", async (req, res) => {
     
     for (const doc of usersSnapshot.docs) {
       const user = doc.data();
+      // Če je uporabnik naročnino preklical, je NE podaljšujemo
+      if (user.subscription_canceled === true) {
+        continue;
+      }
+
       const packageId = (user.subscription_tier || '').toLowerCase();
       
       let amountCents = 0;
       if (packageId.includes('pro')) amountCents = 5000;
       else if (packageId.includes('basic')) amountCents = 2000;
-      else continue; // Skip unknown tiers
+      else continue; // Preskoči neznane nivoje
       
       const idempotencyKey = `renew_${doc.id}_${new Date().getFullYear()}_${new Date().getMonth()}`;
-      
+      const nextValidUntil = new Date(now);
+      nextValidUntil.setMonth(nextValidUntil.getMonth() + 1);
+
       try {
-        // 1. Try wallet debit first
+        // 1. Poskusi bremeniti denarnico
         const txId = await reserveWalletFunds(doc.id, amountCents, 'wallet_payment', idempotencyKey, { type: 'subscription_renewal' });
         
-        // Success: commit the wallet funds
         await commitReservedFunds(txId);
         
-        await doc.ref.update({
-           subscription_paid_at: new Date().toISOString()
-        });
+        await doc.ref.set({
+           subscription_paid_at: now.toISOString(),
+           subscription_started_at: now.toISOString(),
+           subscription_cycle_started_at: now.toISOString(),
+           subscription_valid_until: nextValidUntil.toISOString(),
+           subscription_active: true
+        }, { merge: true });
         processed++;
         continue;
       } catch (walletError: any) {
-        // Insufficient funds or already processed (idempotency key exists).
-        // Check if already processed
         if (walletError.message.includes('Idempotency key already exists')) {
           continue;
         }
         
-        // 2. Fallback to saved card
+        // 2. Nadomestno bremeni shranjeno kartico preko Stripe
         if (user.stripe_customer_id && user.stripe_default_payment_method) {
           try {
-            const pi = await stripe.paymentIntents.create({
+            await stripe.paymentIntents.create({
               amount: amountCents,
               currency: 'eur',
               customer: user.stripe_customer_id,
@@ -3222,20 +3556,24 @@ app.post("/api/cron/process-subscription-renewals", async (req, res) => {
               }
             }, { idempotencyKey: `card_${idempotencyKey}` });
             
-            // Webhook will handle updating the user's subscription_paid_at date on success.
+            await doc.ref.set({
+               subscription_paid_at: now.toISOString(),
+               subscription_started_at: now.toISOString(),
+               subscription_cycle_started_at: now.toISOString(),
+               subscription_valid_until: nextValidUntil.toISOString(),
+               subscription_active: true
+            }, { merge: true });
             processed++;
           } catch (stripeError: any) {
-            console.error(`Failed to renew subscription via card for user ${doc.id}: `, stripeError);
-            await doc.ref.update({
-               subscription_active: false // Mark unpaid / past due
-            });
-            // We should notify the user.
+            console.error(`Neuspešno podaljšanje naročnine s kartico za uporabnika ${doc.id}: `, stripeError);
+            await doc.ref.set({
+               subscription_active: false
+            }, { merge: true });
           }
         } else {
-          // No saved card
-          await doc.ref.update({
-             subscription_active: false // Mark unpaid / past due
-          });
+          await doc.ref.set({
+             subscription_active: false
+          }, { merge: true });
         }
       }
     }

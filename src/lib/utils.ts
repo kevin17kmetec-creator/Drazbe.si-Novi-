@@ -58,35 +58,124 @@ export const formatSeconds = (totalSeconds: number) => {
   return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
 };
 
-export const getUserAuctionCycle = (auctions: any[], userId: string) => {
-    const userAuctions = auctions
-        .filter(a => a.sellerId === userId)
-        .map(a => new Date(a.createdAt || a.created_at || a.endTime).getTime())
-        .sort((a, b) => a - b);
+export const getUserAuctionCycle = (auctions: any[], userId: string, userData?: any) => {
+    const rawTier = userData?.subscription_tier || userData?.subscription;
+    let subTier = rawTier ? String(rawTier).toUpperCase() : 'FREE';
+    const subPaidAt = userData?.subscription_paid_at || userData?.subscription_started_at;
+    const subValidUntil = userData?.subscription_valid_until;
+    const isCanceled = !!userData?.subscription_canceled;
+    const now = Date.now();
 
-    if (userAuctions.length === 0) {
-        return { count: 0, resetDate: null };
+    // Če je naročnina potekla in je bila preklicana ali neaktivna, preidemo na FREE
+    if (subValidUntil && now > new Date(subValidUntil).getTime() && (isCanceled || userData?.subscription_active === false)) {
+        subTier = 'FREE';
     }
 
-    const now = Date.now();
-    let currentCycleStart = userAuctions[0];
+    // 1. NAPREDNI PAKET (PRO, 50€) - Brez omejitve, štetje ni potrebno
+    if (subTier === 'PRO') {
+        const nextBillingOrEnd = subValidUntil ? new Date(subValidUntil) : null;
+        return {
+            count: 0,
+            userLimit: Infinity,
+            isUnlimited: true,
+            resetDate: nextBillingOrEnd,
+            tier: 'PRO' as const,
+            isCanceled
+        };
+    }
+
+    // 2. OSNOVNI PAKET (BASIC, 20€) - Štetje vezano na datum nakupa/podaljšanja do konca obdobja
+    if (subTier === 'BASIC') {
+        const cycleStartDate = subPaidAt ? new Date(subPaidAt) : new Date();
+        const cycleStartTime = cycleStartDate.getTime();
+        
+        let cycleEndDate: Date;
+        if (subValidUntil) {
+            cycleEndDate = new Date(subValidUntil);
+        } else {
+            cycleEndDate = new Date(cycleStartDate);
+            cycleEndDate.setMonth(cycleEndDate.getMonth() + 1);
+        }
+        const cycleEndTime = cycleEndDate.getTime();
+
+        const basicAuctions = (auctions || [])
+            .filter(a => (a.sellerId === userId || a.seller_id === userId))
+            .map(a => {
+                const timeVal = a.createdAt || a.created_at || a.endTime;
+                return timeVal ? new Date(timeVal).getTime() : 0;
+            })
+            .filter(time => time >= cycleStartTime && time < cycleEndTime);
+
+        return {
+            count: basicAuctions.length,
+            userLimit: 20,
+            isUnlimited: false,
+            resetDate: cycleEndDate,
+            tier: 'BASIC' as const,
+            isCanceled
+        };
+    }
+
+    // 3. BREZPLAČNI PAKET (FREE) - 1 mesec od prve objave, po poteku se resetira in čaka na prvo novo objavo
+    let freeAuctions = (auctions || [])
+        .filter(a => (a.sellerId === userId || a.seller_id === userId))
+        .map(a => {
+            const timeVal = a.createdAt || a.created_at || a.endTime;
+            return timeVal ? new Date(timeVal).getTime() : 0;
+        })
+        .filter(time => time > 0)
+        .sort((a, b) => a - b);
+
+    // Če je uporabnik pred tem imel naročnino, upoštevamo le dražbe po izteku naročnine
+    if (subValidUntil && now > new Date(subValidUntil).getTime()) {
+        const expireTime = new Date(subValidUntil).getTime();
+        freeAuctions = freeAuctions.filter(time => time >= expireTime);
+    }
+
+    if (freeAuctions.length === 0) {
+        return {
+            count: 0,
+            userLimit: 5,
+            isUnlimited: false,
+            resetDate: null,
+            tier: 'FREE' as const,
+            isCanceled: false
+        };
+    }
+
+    let currentCycleStart = freeAuctions[0];
     let currentCycleEnd = new Date(currentCycleStart);
     currentCycleEnd.setMonth(currentCycleEnd.getMonth() + 1);
     let currentCycleEndTime = currentCycleEnd.getTime();
 
-    for (let i = 0; i < userAuctions.length; i++) {
-        if (userAuctions[i] >= currentCycleEndTime) {
-            currentCycleStart = userAuctions[i];
+    for (let i = 0; i < freeAuctions.length; i++) {
+        if (freeAuctions[i] >= currentCycleEndTime) {
+            currentCycleStart = freeAuctions[i];
             currentCycleEnd = new Date(currentCycleStart);
             currentCycleEnd.setMonth(currentCycleEnd.getMonth() + 1);
             currentCycleEndTime = currentCycleEnd.getTime();
         }
     }
 
+    // Če je pretekel mesec od zadnjega cikla, se cikel resetira in čaka na naslednjo objavo
     if (now >= currentCycleEndTime) {
-         return { count: 0, resetDate: null }; 
+        return {
+            count: 0,
+            userLimit: 5,
+            isUnlimited: false,
+            resetDate: null,
+            tier: 'FREE' as const,
+            isCanceled: false
+        };
     }
 
-    const countInCycle = userAuctions.filter(time => time >= currentCycleStart && time < currentCycleEndTime).length;
-    return { count: countInCycle, resetDate: currentCycleEnd };
+    const countInCycle = freeAuctions.filter(time => time >= currentCycleStart && time < currentCycleEndTime).length;
+    return {
+        count: countInCycle,
+        userLimit: 5,
+        isUnlimited: false,
+        resetDate: currentCycleEnd,
+        tier: 'FREE' as const,
+        isCanceled: false
+    };
 };

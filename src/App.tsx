@@ -34,7 +34,8 @@ import {
   notifyOutbidAction,
   checkAuctionsCronAction,
   cancelSubscriptionAction,
-  confirmReceiptAction
+  confirmReceiptAction,
+  syncUserSubscriptionAction
 } from "@/src/actions/index";
 import {
   Search,
@@ -1045,6 +1046,7 @@ const MainApp: React.FC = () => {
   );
   const [isSubscriptionCanceled, setIsSubscriptionCanceled] = useState(false);
   const [nextBillingDate, setNextBillingDate] = useState<Date | undefined>(undefined);
+  const [subscribedAt, setSubscribedAt] = useState<Date | undefined>(undefined);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [checkoutData, setCheckoutData] = useState<{
     amount: number;
@@ -1173,17 +1175,32 @@ const MainApp: React.FC = () => {
             setIsVerified(data.is_verified || data.isVerified || false);
             setUserType(data.user_type || data.userType || null);
             
-            const subTier = data.subscription_tier || data.subscription || SubscriptionTier.FREE;
-            setCurrentPlan(subTier as SubscriptionTier);
-            setIsSubscriptionCanceled(data.subscription_canceled || false);
+            const now = new Date();
+            let subTier = data.subscription_tier || data.subscription || SubscriptionTier.FREE;
+            const isCanceled = !!(data.subscription_canceled || false);
+            let validUntilDate: Date | undefined = undefined;
+
             if (data.subscription_valid_until) {
-              setNextBillingDate(new Date(data.subscription_valid_until));
+              validUntilDate = new Date(data.subscription_valid_until);
             } else if (data.subscription_paid_at) {
               const date = new Date(data.subscription_paid_at);
               date.setMonth(date.getMonth() + 1);
-              setNextBillingDate(date);
+              validUntilDate = date;
+            }
+
+            // Če je obdobje naročnine poteklo in je bila preklicana ali neaktivna, samodejno preklopimo na FREE
+            if (validUntilDate && now.getTime() > validUntilDate.getTime() && (isCanceled || data.subscription_active === false)) {
+              subTier = SubscriptionTier.FREE;
+            }
+
+            setCurrentPlan(subTier as SubscriptionTier);
+            setIsSubscriptionCanceled(isCanceled);
+            setNextBillingDate(validUntilDate);
+
+            if (data.subscription_paid_at || data.subscription_started_at) {
+              setSubscribedAt(new Date(data.subscription_paid_at || data.subscription_started_at));
             } else {
-              setNextBillingDate(undefined);
+              setSubscribedAt(undefined);
             }
           } else {
             await setDoc(doc(db, 'users', authUser.uid), {
@@ -1504,6 +1521,7 @@ const MainApp: React.FC = () => {
     const params = new URLSearchParams(window.location.search);
     const paymentParam = params.get('payment');
     const sessionIdParam = params.get('session_id');
+    const typeParam = params.get('type');
     const stripeParam = params.get('stripe');
 
     if (paymentParam === 'success' || sessionIdParam) {
@@ -1511,10 +1529,17 @@ const MainApp: React.FC = () => {
       window.history.replaceState({}, document.title, cleanUrl);
 
       if (sessionIdParam) {
-        confirmCheckoutSessionAction({ sessionId: sessionIdParam })
-          .then(() => {
+        confirmCheckoutSessionAction({ 
+          sessionId: sessionIdParam,
+          userId: userData?.id || auth.currentUser?.uid,
+          user_id: userData?.id || auth.currentUser?.uid 
+        })
+          .then((res: any) => {
             fetchAuctions();
             if (userData?.id) refreshUserData(userData.id);
+            if (res?.type === 'subscription' || typeParam === 'subscription') {
+              toast.success("Naročnina je bila uspešno aktivirana!");
+            }
           })
           .catch(console.error);
       } else {
@@ -1528,6 +1553,39 @@ const MainApp: React.FC = () => {
       if (userData?.id) refreshUserData(userData.id);
     }
   }, [userData]);
+
+  const [isSyncingSub, setIsSyncingSub] = useState(false);
+  const hasAutoSyncedRef = useRef(false);
+
+  const handleSyncSubscription = useCallback(async (showToast = true) => {
+    const uid = auth.currentUser?.uid || userData?.id;
+    if (!uid) return;
+    setIsSyncingSub(true);
+    try {
+      const res = await syncUserSubscriptionAction(uid);
+      if (res?.data?.synced) {
+        toast.success(`Naročnina uspešno posodobljena na ${res.data.subscription_tier}!`);
+        if (userData?.id) refreshUserData(userData.id);
+      } else if (showToast) {
+        if (res?.data?.already_active) {
+          toast.info(`Vaša naročnina (${res.data.subscription_tier}) je že aktivna.`);
+        } else {
+          toast.info("Ni bilo najdenih novih neobdelanih plačil na Stripe.");
+        }
+      }
+    } catch (e) {
+      console.warn("Napaka pri preverjanju naročnine:", e);
+    } finally {
+      setIsSyncingSub(false);
+    }
+  }, [userData?.id, refreshUserData]);
+
+  useEffect(() => {
+    if (userData?.id && currentPlan === SubscriptionTier.FREE && !hasAutoSyncedRef.current) {
+      hasAutoSyncedRef.current = true;
+      handleSyncSubscription(false);
+    }
+  }, [userData?.id, currentPlan, handleSyncSubscription]);
 
   const navigateToSellerProfile = (sellerInput: any, fallbackName?: string) => {
     let targetSeller: any = null;
@@ -1945,9 +2003,23 @@ const MainApp: React.FC = () => {
       setIsSubscriptionCanceled(false);
       try {
         const user = auth.currentUser;
-      const session = user ? { user: { id: user.uid, email: user.email } } : null;
+        const session = user ? { user: { id: user.uid, email: user.email } } : null;
         if (session?.user) {
-          await setDoc(doc(db, 'users', session.user.id), { id: session.user.id, email: session.user.email, subscription: newTier }, { merge: true });
+          const now = new Date();
+          const validUntil = new Date(now);
+          validUntil.setMonth(validUntil.getMonth() + 1);
+          await setDoc(doc(db, 'users', session.user.id), { 
+            id: session.user.id, 
+            email: session.user.email, 
+            subscription: newTier,
+            subscription_tier: newTier,
+            subscription_active: newTier !== SubscriptionTier.FREE,
+            subscription_paid_at: now.toISOString(),
+            subscription_started_at: now.toISOString(),
+            subscription_cycle_started_at: now.toISOString(),
+            subscription_valid_until: validUntil.toISOString(),
+            subscription_canceled: false
+          }, { merge: true });
         }
       } catch (err) {
         console.error("Error saving subscription:", err);
@@ -1962,7 +2034,15 @@ const MainApp: React.FC = () => {
     setCheckoutData({
       amount: prices[tier],
       title: `${t("subscription")} - ${planNames[tier]}`,
-      metadata: { type: "subscription", user_id: auth.currentUser?.uid || userData?.id || '', buyer_data: userData },
+      metadata: { 
+        type: "subscription", 
+        tier,
+        planId: tier.toLowerCase(),
+        package_id: tier,
+        user_id: auth.currentUser?.uid || userData?.id || '', 
+        buyer_id: auth.currentUser?.uid || userData?.id || '',
+        buyer_data: userData 
+      },
       onSuccess: async () => {
         setIsCheckoutOpen(false);
         await saveSubscription(tier);
@@ -2653,7 +2733,10 @@ const MainApp: React.FC = () => {
           isVerified={isVerified}
           isCanceled={isSubscriptionCanceled}
           nextBillingDate={nextBillingDate}
+          subscribedAt={subscribedAt}
           onBack={() => goBack("grid")}
+          onSyncSubscription={() => handleSyncSubscription(true)}
+          isSyncing={isSyncingSub}
           onCancelSubscription={async () => {
             const token = await auth.currentUser?.getIdToken();
             if (token) {

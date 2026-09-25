@@ -51,13 +51,18 @@ export const Header: React.FC<{
   let monthlyAuctionsCount = 0;
   let userLimit = 5;
   let cycleResetDate: Date | null = null;
+  let isUnlimited = false;
+  let activeTier = "FREE";
+  let isTierCanceled = false;
+
   if (userData && auctions) {
-      const subTier = userData.subscription_tier || userData.subscription || "FREE";
-      if (subTier === "BASIC") userLimit = 50;
-      if (subTier === "PRO") userLimit = Infinity;
-      const cycleInfo = getUserAuctionCycle(auctions, userData.id);
+      const cycleInfo = getUserAuctionCycle(auctions, userData.id, userData);
       monthlyAuctionsCount = cycleInfo.count;
+      userLimit = cycleInfo.userLimit;
+      isUnlimited = cycleInfo.isUnlimited;
       cycleResetDate = cycleInfo.resetDate;
+      activeTier = cycleInfo.tier;
+      isTierCanceled = !!cycleInfo.isCanceled;
   }
 
   const userMenuRef = useRef<HTMLDivElement>(null);
@@ -201,11 +206,17 @@ export const Header: React.FC<{
                           <div className="px-6 py-4 border-b border-slate-100 mb-2 bg-slate-50">
                               <div className="flex items-center justify-between mb-1">
                                   <p className="text-[10px] font-black text-slate-400 uppercase">Objave v ciklu</p>
-                                  <p className="text-xs font-black text-[#0A1128]">
-                                      {monthlyAuctionsCount} / {userLimit === Infinity ? "∞" : userLimit}
-                                  </p>
+                                  {isUnlimited ? (
+                                      <span className="text-[10px] font-black text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-md uppercase tracking-wider">
+                                          Brez omejitve
+                                      </span>
+                                  ) : (
+                                      <p className="text-xs font-black text-[#0A1128]">
+                                          {monthlyAuctionsCount} / {userLimit}
+                                      </p>
+                                  )}
                               </div>
-                              {userLimit !== Infinity && (
+                              {!isUnlimited && (
                                   <>
                                       <div className="w-full bg-slate-200 rounded-full h-1.5 mt-2 overflow-hidden">
                                           <div 
@@ -213,12 +224,20 @@ export const Header: React.FC<{
                                               style={{ width: `${Math.min(100, (monthlyAuctionsCount / userLimit) * 100)}%` }}
                                           ></div>
                                       </div>
-                                      {cycleResetDate && (
-                                          <p className="text-[10px] text-slate-500 mt-2">
-                                              Ponastavitev: {cycleResetDate.toLocaleDateString('sl-SI')}
-                                          </p>
-                                      )}
                                   </>
+                              )}
+                              {cycleResetDate && (
+                                  <p className="text-[10px] text-slate-500 mt-2 font-medium">
+                                      {activeTier !== 'FREE' 
+                                          ? (isTierCanceled ? 'Velja do: ' : 'Naslednja bremenitev: ') 
+                                          : 'Ponastavitev: '}
+                                      <span className="font-bold text-[#0A1128]">{cycleResetDate.toLocaleDateString('sl-SI')}</span>
+                                  </p>
+                              )}
+                              {!cycleResetDate && activeTier === 'FREE' && (
+                                  <p className="text-[10px] text-slate-400 mt-2 italic">
+                                      Cikel se začne ob prvi objavi
+                                  </p>
                               )}
                           </div>
                         )}

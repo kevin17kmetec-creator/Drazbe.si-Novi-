@@ -76,13 +76,23 @@ export const CheckoutModal: React.FC<{
     }
 
     try {
-      const planId = metadata?.planId || metadata?.tier || (metadata?.type === 'subscription' ? (title.includes('Pro') ? 'pro' : 'basic') : undefined);
-      const callbackUrl = typeof window !== 'undefined' ? `${window.location.origin}/stripe-callback.html` : '';
+      const isSub = metadata?.type === 'subscription';
+      const determinedPlan = metadata?.planId || metadata?.tier || (isSub ? (title.toLowerCase().includes('pro') ? 'pro' : 'basic') : undefined);
+      const callbackUrl = typeof window !== 'undefined' 
+        ? `${window.location.origin}/stripe-callback.html${isSub ? '?type=subscription' : ''}` 
+        : '';
 
-      const res = await createCheckoutSessionAction(planId || {
+      const res = await createCheckoutSessionAction({
         amount,
         title,
-        ...metadata,
+        ...(metadata || {}),
+        ...(determinedPlan ? { 
+          planId: determinedPlan, 
+          package_id: String(determinedPlan).toUpperCase(), 
+          tier: String(determinedPlan).toUpperCase() 
+        } : {}),
+        user_id: auth.currentUser?.uid || metadata?.user_id,
+        buyer_id: auth.currentUser?.uid || metadata?.buyer_id,
         return_url: callbackUrl
       });
 

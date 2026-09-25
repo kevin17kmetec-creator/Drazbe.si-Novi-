@@ -284,15 +284,10 @@ export const CreatePackageForm: React.FC<any> = ({ initialData,  onBack, t, lang
 
   const handleSubmitPackage = async () => {
     if (userData && auctions) {
-        const subTier = userData.subscription_tier || userData.subscription || "FREE";
-        let userLimit = 5;
-        if (subTier === "BASIC") userLimit = 50;
-        if (subTier === "PRO") userLimit = Infinity;
-        const cycleInfo = getUserAuctionCycle(auctions, userData.id);
-        const monthlyAuctionsCount = cycleInfo.count;
+        const cycleInfo = getUserAuctionCycle(auctions, userData.id, userData);
         const newItemsCount = items.length;
-        if (monthlyAuctionsCount + newItemsCount > userLimit) {
-            toast.error(`Z objavo te zbirke boste presegli omejitev objav v trenutnem ciklu (${userLimit}). Objavite lahko še največ ${Math.max(0, userLimit - monthlyAuctionsCount)} predmetov. Nadgradite paket.`);
+        if (!cycleInfo.isUnlimited && cycleInfo.count + newItemsCount > cycleInfo.userLimit) {
+            toast.error(`Z objavo te zbirke boste presegli omejitev objav v trenutnem ciklu (${cycleInfo.userLimit}). Objavite lahko še največ ${Math.max(0, cycleInfo.userLimit - cycleInfo.count)} predmetov. Nadgradite paket.`);
             return;
         }
     }

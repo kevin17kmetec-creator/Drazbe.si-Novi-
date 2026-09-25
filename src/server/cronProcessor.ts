@@ -368,6 +368,33 @@ export async function processAuctionCrons(): Promise<CronRunResult> {
       }
     }
 
+    // -------------------------------------------------------------
+    // 7. SUBSCRIPTIONS: EXPIRED CANCELLED SUBSCRIPTIONS REVERT TO FREE
+    // -------------------------------------------------------------
+    try {
+      const cancelledUsersSnap = await adminDb.collection('users')
+        .where('subscription_canceled', '==', true)
+        .get();
+
+      for (const uDoc of cancelledUsersSnap.docs) {
+        const uData = uDoc.data();
+        if (uData.subscription_valid_until) {
+          const validUntil = new Date(uData.subscription_valid_until).getTime();
+          if (now.getTime() >= validUntil) {
+            await uDoc.ref.set({
+              subscription: 'FREE',
+              subscription_tier: 'FREE',
+              subscription_active: false,
+              subscription_canceled: false,
+            }, { merge: true });
+            details.push(`User ${uDoc.id} subscription expired after cancellation, reverted to FREE`);
+          }
+        }
+      }
+    } catch (subErr: any) {
+      console.warn('[CRON] Error reverting expired subscriptions:', subErr.message);
+    }
+
     return result;
   } catch (error: any) {
     console.error('[CRON ERROR] processAuctionCrons failed:', error);

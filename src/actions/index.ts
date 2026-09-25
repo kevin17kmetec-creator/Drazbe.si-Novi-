@@ -1,6 +1,7 @@
 'use server';
 
 import Stripe from 'stripe';
+import { auth } from '../lib/firebase';
 
 let stripeClient: Stripe | null = null;
 
@@ -116,14 +117,40 @@ export async function createCheckoutSessionAction(planOrParams?: any): Promise<{
     if (!stripeInstance) {
       // V okoljih, kjer STRIPE_SECRET_KEY ni neposredno dostopen (npr. brskalnik),
       // se ob klicu varno povežemo s strežniško končno točko
+      let token: string | null = null;
+      let currentUid: string | null = null;
+      try {
+        if (typeof window !== 'undefined' && auth.currentUser) {
+          token = await auth.currentUser.getIdToken();
+          currentUid = auth.currentUser.uid;
+        }
+      } catch (e) {}
+
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      let bodyObj: any = {};
+      if (typeof planOrParams === 'string') {
+        bodyObj = {
+          type: 'subscription',
+          planId: planOrParams,
+          package_id: planOrParams.toUpperCase(),
+          tier: planOrParams.toUpperCase(),
+          user_id: currentUid,
+          buyer_id: currentUid,
+        };
+      } else {
+        bodyObj = {
+          user_id: currentUid,
+          buyer_id: currentUid,
+          ...(planOrParams || {}),
+        };
+      }
+
       const res = await fetch('/api/create-checkout-session', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(
-          typeof planOrParams === 'string'
-            ? { type: 'subscription', planId: planOrParams }
-            : (planOrParams || {})
-        ),
+        headers,
+        body: JSON.stringify(bodyObj),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -270,11 +297,54 @@ export async function walletPayAuctionAction(params: {
 export async function confirmCheckoutSessionAction(params: {
   sessionId?: string;
   auctionId?: string;
+  userId?: string;
+  user_id?: string;
 }): Promise<ActionResponse> {
   'use server';
+  let token: string | undefined;
+  let uid: string | undefined;
+  try {
+    if (typeof window !== 'undefined' && auth.currentUser) {
+      token = await auth.currentUser.getIdToken();
+      uid = auth.currentUser.uid;
+    }
+  } catch (e) {}
+
   return safeApiCall('/api/confirm-checkout-session', {
     method: 'POST',
-    body: JSON.stringify(params),
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    body: JSON.stringify({
+      ...params,
+      userId: params.userId || params.user_id || uid,
+      user_id: params.user_id || params.userId || uid,
+    }),
+  });
+}
+
+/**
+ * Sinhronizacija stanja naročnine s Stripe računom
+ */
+export async function syncUserSubscriptionAction(userId?: string): Promise<ActionResponse<{
+  synced: boolean;
+  subscription_tier?: string;
+  subscription_active?: boolean;
+  already_active?: boolean;
+  message?: string;
+}>> {
+  'use server';
+  let token: string | undefined;
+  let uid = userId;
+  try {
+    if (typeof window !== 'undefined' && auth.currentUser) {
+      token = await auth.currentUser.getIdToken();
+      if (!uid) uid = auth.currentUser.uid;
+    }
+  } catch (e) {}
+
+  return safeApiCall('/api/sync-user-subscription', {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    body: JSON.stringify({ user_id: uid, userId: uid }),
   });
 }
 
