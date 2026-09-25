@@ -4345,7 +4345,7 @@ const MainApp: React.FC = () => {
 
   return (
     <ChatProvider userId={userData.id} auctions={auctions} appWakeupTrigger={appWakeupTrigger}>
-      <div className="min-h-screen bg-[#f3f4f6] font-sans selection:bg-[#FEBA4F] selection:text-[#0A1128] overflow-x-hidden">
+      <div className="min-h-screen flex flex-col bg-[#f3f4f6] font-sans selection:bg-[#FEBA4F] selection:text-[#0A1128] overflow-x-hidden">
         <Toaster
           position="top-center"
           duration={4000}
@@ -4459,7 +4459,7 @@ const MainApp: React.FC = () => {
           userWalletBalance={userData.wallet_balance || 0}
           userData={userData}
         />
-        <main>{content}</main>
+        <main className="flex-1 flex flex-col">{content}</main>
         {activeView !== "login" && (
           <Footer
             t={t}
