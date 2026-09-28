@@ -28,11 +28,12 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
   const invoiceNumber = `RAČ-${new Date().getFullYear()}-${auction.id.substring(Math.max(0, auction.id.length - 5)).toUpperCase()}`;
   const feeInvoiceNumber = `PROV-${new Date().getFullYear()}-${(auction.id || '00000').substring(Math.max(0, auction.id.length - 5)).toUpperCase()}`;
 
-  const sellerName = seller.company_name || seller.companyName || 
+  const isSellerDeleted = (auction as any)?.is_seller_deleted || seller?.is_deleted || seller?.isDeleted || seller?.company_name === 'Uporabnik je bil izbrisan' || (seller as any)?.sellerName === 'Uporabnik je bil izbrisan';
+  const sellerName = isSellerDeleted ? 'Uporabnik je bil izbrisan' : (seller.company_name || seller.companyName || 
     `${seller.first_name || seller.firstName || ''} ${seller.last_name || seller.lastName || ''}`.trim() || 
     (typeof seller.name === 'object' ? seller.name?.SLO : seller.name) || 
     seller.sellerName || 
-    'Prodajalec';
+    'Prodajalec');
 
   const buyerName = buyer.company_name || buyer.companyName || 
     `${buyer.first_name || buyer.firstName || ''} ${buyer.last_name || buyer.lastName || ''}`.trim() || 

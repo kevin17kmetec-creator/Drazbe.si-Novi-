@@ -471,3 +471,26 @@ export async function confirmReceiptAction(params: {
     body: JSON.stringify(params),
   });
 }
+
+/**
+ * Pridobivanje računov za naročnine uporabnika
+ */
+export async function getSubscriptionInvoicesAction(token?: string): Promise<ActionResponse<{ invoices: any[] }>> {
+  'use server';
+  return safeApiCall<{ invoices: any[] }>('/api/subscription/invoices', {
+    method: 'GET',
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  });
+}
+
+/**
+ * Trajni izbris uporabniškega profila in povezanih podatkov
+ */
+export async function deleteAccountAction(token: string): Promise<ActionResponse> {
+  'use server';
+  return safeApiCall('/api/delete-account', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` }
+  });
+}
+

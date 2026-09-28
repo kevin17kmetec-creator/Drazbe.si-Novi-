@@ -606,3 +606,254 @@ export async function generateCertificatePDF(transaction: any, buyer: any, selle
     doc.end();
   });
 }
+
+export async function generateSubscriptionInvoicePDF(
+  params: {
+    invoiceNo: string;
+    user: any;
+    planId: string; // 'basic' | 'pro'
+    amount: number; // e.g. 20 or 50
+    paymentDate?: string;
+    paymentMethod?: string;
+    periodStart?: Date;
+    periodEnd?: Date;
+  }
+): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ margin: 40, size: 'A4' });
+    const buffers: Buffer[] = [];
+
+    const regBuf = getRegularFont();
+    const boldBuf = getBoldFont();
+    const hasCustomFonts = Boolean(regBuf && boldBuf);
+
+    if (hasCustomFonts) {
+      doc.registerFont('Roboto', regBuf!);
+      doc.registerFont('Roboto-Bold', boldBuf!);
+      doc.font('Roboto');
+    }
+
+    doc.on('data', buffers.push.bind(buffers));
+    doc.on('end', () => {
+      const pdfData = Buffer.concat(buffers);
+      resolve(pdfData);
+    });
+    doc.on('error', (err) => reject(err));
+
+    const setBold = () => {
+      if (hasCustomFonts) doc.font('Roboto-Bold');
+      else doc.font('Helvetica-Bold');
+    };
+    const setRegular = () => {
+      if (hasCustomFonts) doc.font('Roboto');
+      else doc.font('Helvetica');
+    };
+
+    const colorDark = '#0A1128';
+    const colorMuted = '#64748B';
+    const colorLight = '#94A3B8';
+    const colorBorder = '#E2E8F0';
+
+    const {
+      invoiceNo,
+      user = {},
+      planId = 'basic',
+      amount = 20,
+      paymentDate = new Date().toLocaleDateString('sl-SI'),
+      paymentMethod = 'Spletno plačilo / Kartica (Stripe)'
+    } = params;
+
+    const startDate = params.periodStart || new Date();
+    const endDate = params.periodEnd || new Date(new Date(startDate).setMonth(startDate.getMonth() + 1));
+    const periodStr = `${startDate.toLocaleDateString('sl-SI')} - ${endDate.toLocaleDateString('sl-SI')}`;
+
+    const isCompany = user.company_status === 'company' || user.user_type === 'business' || Boolean(user.company_name);
+    const buyerName = user.company_name || 
+      `${user.first_name || user.firstName || ''} ${user.last_name || user.lastName || ''}`.trim() || 
+      user.name || 
+      user.username || 
+      user.email || 
+      'Naročnik';
+
+    const buyerAddress = getSafeAddress(user);
+    const buyerTaxId = user.tax_id || user.taxId || user.vat_id || '';
+    const buyerRegNo = user.registration_number || user.regNumber || '';
+
+    // Check Reverse Charge for EU B2B outside Slovenia
+    const euCountries = ['AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR', 'HU', 'IE', 'IT', 'LV', 'LT', 'LU', 'MT', 'NL', 'PL', 'PT', 'RO', 'SK', 'ES', 'SE'];
+    const userCountry = (user.country_code || user.country || 'SI').toUpperCase();
+    const isReverseCharge = isCompany && buyerTaxId && euCountries.includes(userCountry) && userCountry !== 'SI';
+
+    const totalAmount = Number(amount || (planId.toLowerCase().includes('pro') ? 50 : 20));
+    const vatRate = isReverseCharge ? 0 : 0.22;
+    const baseAmount = isReverseCharge ? totalAmount : Math.round((totalAmount / 1.22) * 100) / 100;
+    const vatAmount = isReverseCharge ? 0 : Math.round((totalAmount - baseAmount) * 100) / 100;
+
+    const isPro = planId.toLowerCase().includes('pro');
+    const planTitle = isPro ? 'Mesečna naročnina - Paket NAPREDNI' : 'Mesečna naročnina - Paket OSNOVNI';
+    const planDesc = isPro
+      ? 'Aktivna naročnina za profesionalne prodajalce: neomejeno objavljenih dražb, znižana 4% provizija platforme, prednostna izpostavljenost.'
+      : 'Aktivna naročnina za redne prodajalce: do 20 objavljenih dražb mesečno, znižana 6% provizija platforme.';
+
+    const colLeft = 40;
+    const colRight = 310;
+
+    // Header
+    setBold();
+    doc.fontSize(16).fillColor(colorDark).text('RAČUN ZA NAROČNINO / SUBSCRIPTION INVOICE', 40, 42, { width: 515, align: 'center' });
+
+    // Top Divider Line
+    let yPos = 75;
+    doc.strokeColor(colorBorder).lineWidth(1).moveTo(40, yPos).lineTo(555, yPos).stroke();
+
+    // Two Columns: IZDAJATELJ & NAROČNIK
+    yPos += 13;
+    setBold();
+    doc.fontSize(7.5).fillColor(colorLight).text('IZDAJATELJ (PLATFORMA)', colLeft, yPos);
+    doc.text('NAROČNIK / PREJEMNIK RAČUNA', colRight, yPos);
+
+    yPos += 13;
+    setBold();
+    doc.fontSize(10.5).fillColor(colorDark).text('Dizain d.o.o.', colLeft, yPos, { width: 240 });
+    doc.text(buyerName, colRight, yPos, { width: 240 });
+
+    yPos += 15;
+    setRegular();
+    doc.fontSize(8.5).fillColor(colorMuted).text('Karantanska ulica 28, 2000 Maribor, Slovenija', colLeft, yPos, { width: 240 });
+    doc.text(buyerAddress, colRight, yPos, { width: 240 });
+
+    yPos += 13;
+    doc.text('Davčna številka: SI57008060', colLeft, yPos);
+    doc.text(`Davčna številka: ${buyerTaxId ? buyerTaxId : 'Ni navedena'}`, colRight, yPos);
+
+    yPos += 12;
+    doc.text('Matična številka: 9093494000', colLeft, yPos);
+    if (buyerRegNo) {
+      doc.text(`Matična številka: ${buyerRegNo}`, colRight, yPos);
+    } else if (user.email) {
+      doc.text(`E-pošta: ${user.email}`, colRight, yPos);
+    }
+
+    // Bottom Divider Line
+    yPos += 18;
+    doc.strokeColor(colorBorder).lineWidth(1).moveTo(40, yPos).lineTo(555, yPos).stroke();
+
+    // Invoice Meta Information
+    yPos += 14;
+    setRegular();
+    doc.fontSize(8.5).fillColor(colorMuted).text('Številka računa: ', colLeft, yPos, { continued: true });
+    setBold();
+    doc.fillColor(colorDark).text(invoiceNo);
+
+    yPos += 13;
+    setRegular();
+    doc.fillColor(colorMuted).text('Datum izdaje in opravljene storitve: ', colLeft, yPos, { continued: true });
+    setBold();
+    doc.fillColor(colorDark).text(paymentDate);
+
+    yPos += 13;
+    setRegular();
+    doc.fillColor(colorMuted).text('Obračunsko obdobje naročnine: ', colLeft, yPos, { continued: true });
+    setBold();
+    doc.fillColor(colorDark).text(periodStr);
+
+    yPos += 13;
+    setRegular();
+    doc.fillColor(colorMuted).text('Način plačila: ', colLeft, yPos, { continued: true });
+    setBold();
+    doc.fillColor(colorDark).text(paymentMethod);
+
+    yPos += 13;
+    setRegular();
+    doc.fillColor(colorMuted).text('Status plačila: ', colLeft, yPos, { continued: true });
+    setBold();
+    doc.fillColor('#059669').text(`PLAČANO (${paymentDate})`);
+
+    // Table Header
+    yPos += 28;
+    setBold();
+    doc.fontSize(8).fillColor(colorDark);
+    doc.text('OPIS STORITVE', 40, yPos);
+    doc.text('KOLIČINA', 300, yPos, { width: 50, align: 'center' });
+    doc.text('OSNOVA (€)', 360, yPos, { width: 85, align: 'right' });
+    doc.text('SKUPAJ (€)', 455, yPos, { width: 100, align: 'right' });
+
+    yPos += 13;
+    doc.strokeColor(colorDark).lineWidth(1.5).moveTo(40, yPos).lineTo(555, yPos).stroke();
+
+    // Service Row
+    yPos += 10;
+    setBold();
+    doc.fontSize(9.5).fillColor(colorDark).text(planTitle, 40, yPos, { width: 250 });
+    setRegular();
+    doc.fontSize(9).text('1 mesec', 300, yPos, { width: 50, align: 'center' });
+    doc.text(formatEuro(baseAmount), 360, yPos, { width: 85, align: 'right' });
+    setBold();
+    doc.text(formatEuro(totalAmount), 455, yPos, { width: 100, align: 'right' });
+
+    yPos += 14;
+    setRegular();
+    doc.fontSize(7.5).fillColor(colorLight).text(planDesc, 40, yPos, { width: 250 });
+
+    yPos += 26;
+    doc.strokeColor(colorBorder).lineWidth(1).moveTo(40, yPos).lineTo(555, yPos).stroke();
+
+    // Platform Fee Totals Box (Right aligned)
+    yPos += 15;
+    const totalsLeft = 325;
+    const totalsValueRight = 555;
+
+    setRegular();
+    doc.fontSize(8.5).fillColor(colorMuted).text('Osnova za DDV:', totalsLeft, yPos);
+    setBold();
+    doc.fontSize(8.5).fillColor(colorDark).text(`${formatEuro(baseAmount)} €`, totalsLeft + 120, yPos, { width: 110, align: 'right' });
+
+    yPos += 15;
+    setRegular();
+    doc.fontSize(8.5).fillColor(colorMuted).text(isReverseCharge ? 'DDV (Obrnjena davčna obv.):' : 'DDV (22%):', totalsLeft, yPos);
+    setBold();
+    doc.fontSize(8.5).fillColor(colorDark).text(`${formatEuro(vatAmount)} €`, totalsLeft + 120, yPos, { width: 110, align: 'right' });
+
+    yPos += 15;
+    doc.strokeColor(colorDark).lineWidth(1.5).moveTo(totalsLeft, yPos).lineTo(totalsValueRight, yPos).stroke();
+    yPos += 7;
+
+    setBold();
+    doc.fontSize(10).fillColor(colorDark).text('SKUPAJ ZA PLAČILO:', totalsLeft, yPos);
+    doc.fontSize(10.5).text(`${formatEuro(totalAmount)} €`, totalsLeft + 120, yPos, { width: 110, align: 'right' });
+
+    // Footer
+    const footerY = 680;
+    doc.strokeColor(colorBorder).lineWidth(1).moveTo(40, footerY).lineTo(555, footerY).stroke();
+
+    let footY = footerY + 12;
+    setRegular();
+    doc.fontSize(7.5).fillColor(colorMuted);
+    if (isReverseCharge) {
+      doc.text(
+        'Dizain d.o.o. je davčni zavezanec za DDV v Sloveniji (ID za DDV: SI57008060). Obrnjena davčna obveznost / Reverse charge po Direktivi Sveta 2006/112/ES in 76. a členu ZDDV-1.',
+        40,
+        footY,
+        { width: 515 }
+      );
+    } else {
+      doc.text(
+        'Dizain d.o.o. je davčni zavezanec za DDV v Sloveniji (ID za DDV: SI57008060). V ceno storitve je vključen 22% DDV v skladu z Zakonom o davku na dodano vrednost (ZDDV-1).',
+        40,
+        footY,
+        { width: 515 }
+      );
+    }
+
+    footY += 16;
+    doc.fontSize(7).fillColor(colorLight).text(
+      'Dokument je bil izdan elektronsko s strani platforme dražbenik.si / drazbe.si in je pravno veljaven brez podpisa in žiga. Za morebitna vprašanja glede naročnine se obrnite na podpora@drazbe.si.',
+      40,
+      footY,
+      { width: 515 }
+    );
+
+    doc.end();
+  });
+}
+

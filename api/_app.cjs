@@ -749,11 +749,11 @@ var AuctionEmailTemplate = ({
       badgeBg = "#10B981";
       badgeColor = "#FFFFFF";
       headline = "\u010Cestitamo, zmagali ste!";
-      subheadline = `Uspe\u0161no ste zmagali na dra\u017Ebi za "${auctionTitle}". Za dokon\u010Danje nakupa in prevzem prosimo poravnajte ra\u010Dun v roku 24 ur.`;
+      subheadline = `Uspe\u0161no ste zmagali na dra\u017Ebi za "${auctionTitle}". Za dokon\u010Danje nakupa in prevzem prosimo poravnajte ra\u010Dun v roku 48 ur.`;
       ctaText = "Pojdi na pla\u010Dilo";
       ctaUrl = paymentUrl || `${auctionUrl}?tab=winnings`;
       priceLabel = "Kon\u010Dna zmagovalna cena:";
-      highlightNote = "Rok za pla\u010Dilo je 24 ur po zaklju\u010Dku dra\u017Ebe.";
+      highlightNote = "Rok za pla\u010Dilo je 48 ur po zaklju\u010Dku dra\u017Ebe.";
       break;
     case "payment_reminder":
       previewText = `Pomemben opomnik: pla\u010Dilo za "${auctionTitle}" pote\u010De \u010Dez 2 uri!`;
@@ -1775,6 +1775,187 @@ async function generateCertificatePDF(transaction, buyer, seller) {
     doc.end();
   });
 }
+async function generateSubscriptionInvoicePDF(params) {
+  return new Promise((resolve, reject) => {
+    const doc = new import_pdfkit.default({ margin: 40, size: "A4" });
+    const buffers = [];
+    const regBuf = getRegularFont();
+    const boldBuf = getBoldFont();
+    const hasCustomFonts = Boolean(regBuf && boldBuf);
+    if (hasCustomFonts) {
+      doc.registerFont("Roboto", regBuf);
+      doc.registerFont("Roboto-Bold", boldBuf);
+      doc.font("Roboto");
+    }
+    doc.on("data", buffers.push.bind(buffers));
+    doc.on("end", () => {
+      const pdfData = Buffer.concat(buffers);
+      resolve(pdfData);
+    });
+    doc.on("error", (err) => reject(err));
+    const setBold = () => {
+      if (hasCustomFonts) doc.font("Roboto-Bold");
+      else doc.font("Helvetica-Bold");
+    };
+    const setRegular = () => {
+      if (hasCustomFonts) doc.font("Roboto");
+      else doc.font("Helvetica");
+    };
+    const colorDark = "#0A1128";
+    const colorMuted = "#64748B";
+    const colorLight = "#94A3B8";
+    const colorBorder = "#E2E8F0";
+    const {
+      invoiceNo,
+      user = {},
+      planId = "basic",
+      amount = 20,
+      paymentDate = (/* @__PURE__ */ new Date()).toLocaleDateString("sl-SI"),
+      paymentMethod = "Spletno pla\u010Dilo / Kartica (Stripe)"
+    } = params;
+    const startDate = params.periodStart || /* @__PURE__ */ new Date();
+    const endDate = params.periodEnd || new Date(new Date(startDate).setMonth(startDate.getMonth() + 1));
+    const periodStr = `${startDate.toLocaleDateString("sl-SI")} - ${endDate.toLocaleDateString("sl-SI")}`;
+    const isCompany = user.company_status === "company" || user.user_type === "business" || Boolean(user.company_name);
+    const buyerName = user.company_name || `${user.first_name || user.firstName || ""} ${user.last_name || user.lastName || ""}`.trim() || user.name || user.username || user.email || "Naro\u010Dnik";
+    const buyerAddress = getSafeAddress(user);
+    const buyerTaxId = user.tax_id || user.taxId || user.vat_id || "";
+    const buyerRegNo = user.registration_number || user.regNumber || "";
+    const euCountries = ["AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "ES", "SE"];
+    const userCountry = (user.country_code || user.country || "SI").toUpperCase();
+    const isReverseCharge = isCompany && buyerTaxId && euCountries.includes(userCountry) && userCountry !== "SI";
+    const totalAmount = Number(amount || (planId.toLowerCase().includes("pro") ? 50 : 20));
+    const vatRate = isReverseCharge ? 0 : 0.22;
+    const baseAmount = isReverseCharge ? totalAmount : Math.round(totalAmount / 1.22 * 100) / 100;
+    const vatAmount = isReverseCharge ? 0 : Math.round((totalAmount - baseAmount) * 100) / 100;
+    const isPro = planId.toLowerCase().includes("pro");
+    const planTitle = isPro ? "Mese\u010Dna naro\u010Dnina - Paket NAPREDNI" : "Mese\u010Dna naro\u010Dnina - Paket OSNOVNI";
+    const planDesc = isPro ? "Aktivna naro\u010Dnina za profesionalne prodajalce: neomejeno objavljenih dra\u017Eb, zni\u017Eana 4% provizija platforme, prednostna izpostavljenost." : "Aktivna naro\u010Dnina za redne prodajalce: do 20 objavljenih dra\u017Eb mese\u010Dno, zni\u017Eana 6% provizija platforme.";
+    const colLeft = 40;
+    const colRight = 310;
+    setBold();
+    doc.fontSize(16).fillColor(colorDark).text("RA\u010CUN ZA NARO\u010CNINO / SUBSCRIPTION INVOICE", 40, 42, { width: 515, align: "center" });
+    let yPos = 75;
+    doc.strokeColor(colorBorder).lineWidth(1).moveTo(40, yPos).lineTo(555, yPos).stroke();
+    yPos += 13;
+    setBold();
+    doc.fontSize(7.5).fillColor(colorLight).text("IZDAJATELJ (PLATFORMA)", colLeft, yPos);
+    doc.text("NARO\u010CNIK / PREJEMNIK RA\u010CUNA", colRight, yPos);
+    yPos += 13;
+    setBold();
+    doc.fontSize(10.5).fillColor(colorDark).text("Dizain d.o.o.", colLeft, yPos, { width: 240 });
+    doc.text(buyerName, colRight, yPos, { width: 240 });
+    yPos += 15;
+    setRegular();
+    doc.fontSize(8.5).fillColor(colorMuted).text("Karantanska ulica 28, 2000 Maribor, Slovenija", colLeft, yPos, { width: 240 });
+    doc.text(buyerAddress, colRight, yPos, { width: 240 });
+    yPos += 13;
+    doc.text("Dav\u010Dna \u0161tevilka: SI57008060", colLeft, yPos);
+    doc.text(`Dav\u010Dna \u0161tevilka: ${buyerTaxId ? buyerTaxId : "Ni navedena"}`, colRight, yPos);
+    yPos += 12;
+    doc.text("Mati\u010Dna \u0161tevilka: 9093494000", colLeft, yPos);
+    if (buyerRegNo) {
+      doc.text(`Mati\u010Dna \u0161tevilka: ${buyerRegNo}`, colRight, yPos);
+    } else if (user.email) {
+      doc.text(`E-po\u0161ta: ${user.email}`, colRight, yPos);
+    }
+    yPos += 18;
+    doc.strokeColor(colorBorder).lineWidth(1).moveTo(40, yPos).lineTo(555, yPos).stroke();
+    yPos += 14;
+    setRegular();
+    doc.fontSize(8.5).fillColor(colorMuted).text("\u0160tevilka ra\u010Duna: ", colLeft, yPos, { continued: true });
+    setBold();
+    doc.fillColor(colorDark).text(invoiceNo);
+    yPos += 13;
+    setRegular();
+    doc.fillColor(colorMuted).text("Datum izdaje in opravljene storitve: ", colLeft, yPos, { continued: true });
+    setBold();
+    doc.fillColor(colorDark).text(paymentDate);
+    yPos += 13;
+    setRegular();
+    doc.fillColor(colorMuted).text("Obra\u010Dunsko obdobje naro\u010Dnine: ", colLeft, yPos, { continued: true });
+    setBold();
+    doc.fillColor(colorDark).text(periodStr);
+    yPos += 13;
+    setRegular();
+    doc.fillColor(colorMuted).text("Na\u010Din pla\u010Dila: ", colLeft, yPos, { continued: true });
+    setBold();
+    doc.fillColor(colorDark).text(paymentMethod);
+    yPos += 13;
+    setRegular();
+    doc.fillColor(colorMuted).text("Status pla\u010Dila: ", colLeft, yPos, { continued: true });
+    setBold();
+    doc.fillColor("#059669").text(`PLA\u010CANO (${paymentDate})`);
+    yPos += 28;
+    setBold();
+    doc.fontSize(8).fillColor(colorDark);
+    doc.text("OPIS STORITVE", 40, yPos);
+    doc.text("KOLI\u010CINA", 300, yPos, { width: 50, align: "center" });
+    doc.text("OSNOVA (\u20AC)", 360, yPos, { width: 85, align: "right" });
+    doc.text("SKUPAJ (\u20AC)", 455, yPos, { width: 100, align: "right" });
+    yPos += 13;
+    doc.strokeColor(colorDark).lineWidth(1.5).moveTo(40, yPos).lineTo(555, yPos).stroke();
+    yPos += 10;
+    setBold();
+    doc.fontSize(9.5).fillColor(colorDark).text(planTitle, 40, yPos, { width: 250 });
+    setRegular();
+    doc.fontSize(9).text("1 mesec", 300, yPos, { width: 50, align: "center" });
+    doc.text(formatEuro(baseAmount), 360, yPos, { width: 85, align: "right" });
+    setBold();
+    doc.text(formatEuro(totalAmount), 455, yPos, { width: 100, align: "right" });
+    yPos += 14;
+    setRegular();
+    doc.fontSize(7.5).fillColor(colorLight).text(planDesc, 40, yPos, { width: 250 });
+    yPos += 26;
+    doc.strokeColor(colorBorder).lineWidth(1).moveTo(40, yPos).lineTo(555, yPos).stroke();
+    yPos += 15;
+    const totalsLeft = 325;
+    const totalsValueRight = 555;
+    setRegular();
+    doc.fontSize(8.5).fillColor(colorMuted).text("Osnova za DDV:", totalsLeft, yPos);
+    setBold();
+    doc.fontSize(8.5).fillColor(colorDark).text(`${formatEuro(baseAmount)} \u20AC`, totalsLeft + 120, yPos, { width: 110, align: "right" });
+    yPos += 15;
+    setRegular();
+    doc.fontSize(8.5).fillColor(colorMuted).text(isReverseCharge ? "DDV (Obrnjena dav\u010Dna obv.):" : "DDV (22%):", totalsLeft, yPos);
+    setBold();
+    doc.fontSize(8.5).fillColor(colorDark).text(`${formatEuro(vatAmount)} \u20AC`, totalsLeft + 120, yPos, { width: 110, align: "right" });
+    yPos += 15;
+    doc.strokeColor(colorDark).lineWidth(1.5).moveTo(totalsLeft, yPos).lineTo(totalsValueRight, yPos).stroke();
+    yPos += 7;
+    setBold();
+    doc.fontSize(10).fillColor(colorDark).text("SKUPAJ ZA PLA\u010CILO:", totalsLeft, yPos);
+    doc.fontSize(10.5).text(`${formatEuro(totalAmount)} \u20AC`, totalsLeft + 120, yPos, { width: 110, align: "right" });
+    const footerY = 680;
+    doc.strokeColor(colorBorder).lineWidth(1).moveTo(40, footerY).lineTo(555, footerY).stroke();
+    let footY = footerY + 12;
+    setRegular();
+    doc.fontSize(7.5).fillColor(colorMuted);
+    if (isReverseCharge) {
+      doc.text(
+        "Dizain d.o.o. je dav\u010Dni zavezanec za DDV v Sloveniji (ID za DDV: SI57008060). Obrnjena dav\u010Dna obveznost / Reverse charge po Direktivi Sveta 2006/112/ES in 76. a \u010Dlenu ZDDV-1.",
+        40,
+        footY,
+        { width: 515 }
+      );
+    } else {
+      doc.text(
+        "Dizain d.o.o. je dav\u010Dni zavezanec za DDV v Sloveniji (ID za DDV: SI57008060). V ceno storitve je vklju\u010Den 22% DDV v skladu z Zakonom o davku na dodano vrednost (ZDDV-1).",
+        40,
+        footY,
+        { width: 515 }
+      );
+    }
+    footY += 16;
+    doc.fontSize(7).fillColor(colorLight).text(
+      "Dokument je bil izdan elektronsko s strani platforme dra\u017Ebenik.si / drazbe.si in je pravno veljaven brez podpisa in \u017Eiga. Za morebitna vpra\u0161anja glede naro\u010Dnine se obrnite na podpora@drazbe.si.",
+      40,
+      footY,
+      { width: 515 }
+    );
+    doc.end();
+  });
+}
 
 // src/server/emailService.ts
 var import_react = __toESM(require("react"), 1);
@@ -1872,7 +2053,7 @@ async function sendAuctionWonNotification(params) {
     auctionTitle: params.auctionTitle,
     auctionImageUrl: params.auctionImageUrl,
     currentPrice: params.winningPrice,
-    paymentDeadline: params.paymentDeadlineFormatted || "24 ur",
+    paymentDeadline: params.paymentDeadlineFormatted || "48 ur",
     auctionUrl,
     paymentUrl,
     settingsUrl: `${baseUrl}/?tab=settings`
@@ -1996,7 +2177,7 @@ async function processAuctionCrons() {
         const finalPrice = Number(data.current_price ?? data.currentBid ?? 0);
         if (hasBids) {
           const winnerId = data.winner_id || data.winnerId;
-          const paymentDeadline = new Date(now.getTime() + 24 * 60 * 60 * 1e3).toISOString();
+          const paymentDeadline = new Date(now.getTime() + 48 * 60 * 60 * 1e3).toISOString();
           await adminDb.collection("auctions").doc(auctionId).update({
             status: "completed",
             post_auction_status: "awaiting_payment_1st",
@@ -2018,7 +2199,7 @@ async function processAuctionCrons() {
                     auctionTitle: title,
                     auctionImageUrl: imageUrl,
                     winningPrice: finalPrice,
-                    paymentDeadlineFormatted: "24 ur (do " + new Date(paymentDeadline).toLocaleTimeString("sl-SI", { hour: "2-digit", minute: "2-digit" }) + ")"
+                    paymentDeadlineFormatted: "48 ur (do " + new Date(paymentDeadline).toLocaleDateString("sl-SI", { day: "2-digit", month: "2-digit" }) + " ob " + new Date(paymentDeadline).toLocaleTimeString("sl-SI", { hour: "2-digit", minute: "2-digit" }) + ")"
                   });
                   result.actions.winnersNotified++;
                   details.push(`Winner notification sent to ${winnerData.email} for auction ${auctionId}`);
@@ -2160,6 +2341,26 @@ async function processAuctionCrons() {
         }
       }
     }
+    try {
+      const cancelledUsersSnap = await adminDb.collection("users").where("subscription_canceled", "==", true).get();
+      for (const uDoc of cancelledUsersSnap.docs) {
+        const uData = uDoc.data();
+        if (uData.subscription_valid_until) {
+          const validUntil = new Date(uData.subscription_valid_until).getTime();
+          if (now.getTime() >= validUntil) {
+            await uDoc.ref.set({
+              subscription: "FREE",
+              subscription_tier: "FREE",
+              subscription_active: false,
+              subscription_canceled: false
+            }, { merge: true });
+            details.push(`User ${uDoc.id} subscription expired after cancellation, reverted to FREE`);
+          }
+        }
+      }
+    } catch (subErr) {
+      console.warn("[CRON] Error reverting expired subscriptions:", subErr.message);
+    }
     return result;
   } catch (error) {
     console.error("[CRON ERROR] processAuctionCrons failed:", error);
@@ -2226,10 +2427,123 @@ async function generateInvoiceNumber(type) {
         current_number: 1
       });
     }
-    const prefix = type === "SALES" ? "RAC" : "PROV";
+    const prefix = type === "SALES" ? "RAC" : type === "SUBSCRIPTION" ? "NAR" : "PROV";
     const formattedNum = String(currentNumber).padStart(6, "0");
     return `${prefix}-${year}-${formattedNum}`;
   });
+}
+async function createAndSendSubscriptionInvoice(params) {
+  const { userId, packageId, amountTotal, sourceId, paymentMethod = "Spletno pla\u010Dilo / Kartica (Stripe)", periodStart, periodEnd } = params;
+  try {
+    const existing = await safeGetDocs(
+      adminDb.collection("documents").where("user_id", "==", userId).where("source_id", "==", sourceId).limit(1)
+    );
+    if (!existing.empty) {
+      console.log(`[subscription-invoice] Ra\u010Dun za naro\u010Dnino (sourceId: ${sourceId}) \u017Ee obstaja. Preskakujem.`);
+      return;
+    }
+    const userDoc = await safeGetDoc(adminDb.collection("users").doc(userId));
+    const userData = userDoc.data() || {};
+    const invoiceNo = await generateInvoiceNumber("SUBSCRIPTION");
+    const pdfBuffer = await generateSubscriptionInvoicePDF({
+      invoiceNo,
+      user: userData,
+      planId: packageId,
+      amount: amountTotal,
+      paymentMethod,
+      periodStart: periodStart || /* @__PURE__ */ new Date(),
+      periodEnd: periodEnd || void 0
+    });
+    const fileName = `racun_${invoiceNo}.pdf`;
+    let publicUrl = null;
+    try {
+      publicUrl = await uploadBufferToStorage(pdfBuffer, `${userId}/${fileName}`);
+    } catch (uploadErr) {
+      console.warn("[subscription-invoice] Napaka pri nalaganju v Storage:", uploadErr.message);
+    }
+    await adminDb.collection("documents").add({
+      user_id: userId,
+      type: "subscription_invoice",
+      invoice_no: invoiceNo,
+      package_id: packageId,
+      amount: amountTotal,
+      source_id: sourceId,
+      payment_method: paymentMethod,
+      file_url: publicUrl,
+      created_at: (/* @__PURE__ */ new Date()).toISOString()
+    });
+    console.log(`[subscription-invoice] Uspe\u0161no shranjen dokument ra\u010Duna ${invoiceNo} za uporabnika ${userId}`);
+    const targetEmail = userData.email;
+    if (targetEmail && process.env.RESEND_API_KEY) {
+      try {
+        const isPro = String(packageId).toUpperCase().includes("PRO");
+        const planName = isPro ? "NAPREDNI" : "OSNOVNI";
+        const formattedAmount = Number(amountTotal).toFixed(2);
+        const recipientName = userData.company_name || userData.first_name || userData.username || "uporabnik";
+        const emailHtml = `
+          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #0A1128; background: #ffffff;">
+            <div style="border-bottom: 2px solid #E2E8F0; padding-bottom: 16px; margin-bottom: 24px;">
+              <h1 style="color: #0A1128; font-size: 24px; font-weight: 900; margin: 0; text-transform: uppercase;">dra\u017Ebe.si</h1>
+              <p style="color: #94A3B8; font-size: 12px; margin: 4px 0 0 0; text-transform: uppercase; letter-spacing: 1px;">Ra\u010Dun za naro\u010Dnino</p>
+            </div>
+            <p style="font-size: 16px; line-height: 1.5; color: #334155;">Pozdravljeni, <strong>${recipientName}</strong>,</p>
+            <p style="font-size: 15px; line-height: 1.5; color: #334155;">
+              Zahvaljujemo se vam za zaupanje! Va\u0161a naro\u010Dnina na paket <strong>${planName}</strong> je bila uspe\u0161no aktivirana oz. obnovljena.
+            </p>
+            <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 16px; padding: 20px; margin: 24px 0;">
+              <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+                <tr>
+                  <td style="padding: 6px 0; color: #64748B;">\u0160tevilka ra\u010Duna:</td>
+                  <td style="padding: 6px 0; font-weight: 700; text-align: right; color: #0A1128;">${invoiceNo}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 6px 0; color: #64748B;">Paket naro\u010Dnine:</td>
+                  <td style="padding: 6px 0; font-weight: 700; text-align: right; color: #0A1128;">Paket ${planName}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 6px 0; color: #64748B;">Pla\u010Dani znesek:</td>
+                  <td style="padding: 6px 0; font-weight: 700; text-align: right; color: #0A1128;">${formattedAmount} \u20AC (vklj. z 22% DDV)</td>
+                </tr>
+                <tr>
+                  <td style="padding: 6px 0; color: #64748B;">Na\u010Din pla\u010Dila:</td>
+                  <td style="padding: 6px 0; font-weight: 700; text-align: right; color: #0A1128;">${paymentMethod}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 6px 0; color: #64748B;">Status:</td>
+                  <td style="padding: 6px 0; font-weight: 700; text-align: right; color: #059669;">PLA\u010CANO</td>
+                </tr>
+              </table>
+            </div>
+            <p style="font-size: 14px; line-height: 1.5; color: #64748B;">
+              Uradni PDF ra\u010Dun za va\u0161 nakup je prilo\u017Een temu sporo\u010Dilu (<strong>${fileName}</strong>). Vse ugodnosti va\u0161ega paketa so \u017Ee na voljo v va\u0161em uporabni\u0161kem ra\u010Dunu.
+            </p>
+            <div style="margin-top: 32px; padding-top: 20px; border-top: 1px solid #E2E8F0; font-size: 11px; color: #94A3B8; text-align: center;">
+              <p style="margin: 0;">Dizain d.o.o., Karantanska ulica 28, 2000 Maribor | ID za DDV: SI57008060</p>
+              <p style="margin: 4px 0 0 0;">Sporo\u010Dilo je bilo samodejno generirano s strani sistema dra\u017Ebe.si.</p>
+            </div>
+          </div>
+        `;
+        const resendClient2 = new import_resend2.Resend(process.env.RESEND_API_KEY);
+        await resendClient2.emails.send({
+          from: process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>",
+          to: targetEmail,
+          subject: `Ra\u010Dun za naro\u010Dnino \u0161t. ${invoiceNo} - dra\u017Ebenik.si`,
+          html: emailHtml,
+          attachments: [
+            {
+              filename: fileName,
+              content: pdfBuffer
+            }
+          ]
+        });
+        console.log(`[subscription-invoice] E-po\u0161tni ra\u010Dun uspe\u0161no poslan na ${targetEmail}`);
+      } catch (emailErr) {
+        console.error("[subscription-invoice] Napaka pri po\u0161iljanju e-po\u0161tnega ra\u010Duna:", emailErr.message);
+      }
+    }
+  } catch (err) {
+    console.error("[subscription-invoice] Napaka pri obdelavi ra\u010Duna za naro\u010Dnino:", err.message);
+  }
 }
 function formatE164Phone(phoneStr, defaultCountry = "SI") {
   if (!phoneStr || typeof phoneStr !== "string") return void 0;
@@ -2450,17 +2764,37 @@ app.post("/api/webhook", import_express.default.raw({ type: "application/json" }
         res.json({ received: true });
         return;
       }
-      if (type === "subscription") {
-        const targetUserId = user_id || buyer_id;
-        console.log("Processing subscription payment for user", targetUserId);
-        if (targetUserId && package_id) {
+      const isSub = type === "subscription" || isSession && (sessionObj?.amount_total === 2e3 || sessionObj?.amount_total === 5e3 || (sessionObj?.metadata?.planId || "").length > 0) || !isSession && (paymentIntent?.amount === 2e3 || paymentIntent?.amount === 5e3 || (paymentIntent?.metadata?.planId || "").length > 0);
+      if (isSub) {
+        let targetUserId = user_id || buyer_id || (isSession ? sessionObj?.client_reference_id : null);
+        const customerEmail = isSession ? sessionObj?.customer_details?.email || sessionObj?.customer_email : paymentIntent?.receipt_email;
+        if (!targetUserId && customerEmail) {
+          try {
+            const uSnap = await adminDb.collection("users").where("email", "==", customerEmail).limit(1).get();
+            if (!uSnap.empty) {
+              targetUserId = uSnap.docs[0].id;
+            }
+          } catch (e) {
+            console.warn("[webhook] Could not resolve user by email:", e);
+          }
+        }
+        let pkg = (package_id || rawMetadata.planId || rawMetadata.tier || "").toUpperCase();
+        const amt = isSession ? sessionObj?.amount_total : paymentIntent?.amount;
+        if (!pkg || !pkg.includes("PRO") && !pkg.includes("BASIC")) {
+          pkg = amt === 5e3 ? "PRO" : "BASIC";
+        }
+        console.log("Processing subscription payment for user", targetUserId, "package:", pkg);
+        if (targetUserId) {
           const now = /* @__PURE__ */ new Date();
           const validUntil = new Date(now);
           validUntil.setMonth(validUntil.getMonth() + 1);
           const updateData = {
-            subscription_tier: package_id,
+            subscription_tier: pkg,
+            subscription: pkg,
             subscription_active: true,
             subscription_paid_at: now.toISOString(),
+            subscription_started_at: now.toISOString(),
+            subscription_cycle_started_at: now.toISOString(),
             subscription_valid_until: validUntil.toISOString(),
             subscription_canceled: false
           };
@@ -2470,9 +2804,12 @@ app.post("/api/webhook", import_express.default.raw({ type: "application/json" }
           let paymentMethodId = null;
           let customerId = null;
           if (isSession && sessionObj?.payment_intent) {
-            const pi = typeof sessionObj.payment_intent === "string" ? await stripe.paymentIntents.retrieve(sessionObj.payment_intent) : sessionObj.payment_intent;
-            if (typeof pi === "object" && pi.payment_method) {
-              paymentMethodId = typeof pi.payment_method === "string" ? pi.payment_method : pi.payment_method.id;
+            try {
+              const pi = typeof sessionObj.payment_intent === "string" ? await stripe.paymentIntents.retrieve(sessionObj.payment_intent) : sessionObj.payment_intent;
+              if (typeof pi === "object" && pi.payment_method) {
+                paymentMethodId = typeof pi.payment_method === "string" ? pi.payment_method : pi.payment_method.id;
+              }
+            } catch (e) {
             }
           } else if (!isSession && paymentIntent?.payment_method) {
             paymentMethodId = typeof paymentIntent.payment_method === "string" ? paymentIntent.payment_method : paymentIntent.payment_method.id;
@@ -2486,7 +2823,17 @@ app.post("/api/webhook", import_express.default.raw({ type: "application/json" }
             updateData.stripe_default_payment_method = paymentMethodId;
             updateData.stripe_customer_id = customerId;
           }
-          await adminDb.collection("users").doc(targetUserId).update(updateData);
+          await adminDb.collection("users").doc(targetUserId).set(updateData, { merge: true });
+          const subAmt = Number(amt ? amt / 100 : pkg.includes("PRO") ? 50 : 20);
+          createAndSendSubscriptionInvoice({
+            userId: targetUserId,
+            packageId: pkg,
+            amountTotal: subAmt,
+            sourceId: paymentId || `sub_${targetUserId}_${Date.now()}`,
+            paymentMethod: "Spletno pla\u010Dilo / Kartica (Stripe)",
+            periodStart: now,
+            periodEnd: validUntil
+          }).catch((e) => console.error("[webhook] Napaka pri ustvarjanju ra\u010Duna za naro\u010Dnino:", e));
         }
         res.json({ received: true });
         return;
@@ -2903,8 +3250,16 @@ app.post("/api/create-checkout-session", async (req, res) => {
   try {
     const { amount, currency = "eur", auction_id, auctionId, buyer_id, seller_id, fee_percentage, return_url, type = "auction", user_id, userId, buyer_data } = req.body || {};
     const stripe = getStripe();
+    let authUid = null;
+    if (req.headers.authorization?.startsWith("Bearer ")) {
+      try {
+        const decoded = await adminAuth.verifyIdToken(req.headers.authorization.split("Bearer ")[1]);
+        authUid = decoded.uid;
+      } catch (e) {
+      }
+    }
     const effectiveAuctionId = auction_id || auctionId;
-    const effectiveBuyerId = buyer_id || user_id || userId;
+    const effectiveBuyerId = buyer_id || user_id || userId || authUid;
     let auctionTitle = "Pla\u010Dilo";
     let sessionMetadata = { type };
     let buyer = buyer_data || null;
@@ -2993,16 +3348,34 @@ app.post("/api/create-checkout-session", async (req, res) => {
         fee_percentage: fee_percentage || ""
       };
     } else if (type === "subscription") {
-      const planIdStr = (req.body.planId || req.body.package_id || "").toLowerCase();
-      if (planIdStr.includes("pro")) finalAmountCents = 5e3;
-      else if (planIdStr.includes("basic")) finalAmountCents = 2e3;
-      else finalAmountCents = parseAmountToCents(amount);
-      auctionTitle = "Naro\u010Dnina - " + (req.body.planId || "Paket");
+      const rawPlan = req.body.package_id || req.body.planId || req.body.tier || "";
+      const planIdStr = String(rawPlan).toLowerCase();
+      let determinedTier = "BASIC";
+      if (planIdStr.includes("pro")) {
+        finalAmountCents = 5e3;
+        determinedTier = "PRO";
+      } else if (planIdStr.includes("basic")) {
+        finalAmountCents = 2e3;
+        determinedTier = "BASIC";
+      } else {
+        const parsed = parseAmountToCents(amount);
+        if (parsed >= 5e3) {
+          finalAmountCents = 5e3;
+          determinedTier = "PRO";
+        } else {
+          finalAmountCents = 2e3;
+          determinedTier = "BASIC";
+        }
+      }
+      auctionTitle = "Naro\u010Dnina - " + (determinedTier === "PRO" ? "Napredni (Pro)" : "Osnovni (Basic)");
       sessionMetadata = {
         type: "subscription",
         buyer_id: effectiveBuyerId || "",
         user_id: effectiveBuyerId || "",
-        planId: req.body.planId || ""
+        planId: determinedTier.toLowerCase(),
+        package_id: determinedTier,
+        tier: determinedTier,
+        amount: finalAmountCents.toString()
       };
     } else {
       auctionTitle = "Pla\u010Dilo dra\u017Ebe";
@@ -3033,12 +3406,16 @@ app.post("/api/create-checkout-session", async (req, res) => {
       }],
       metadata: sessionMetadata,
       payment_intent_data: {
-        metadata: sessionMetadata
+        metadata: sessionMetadata,
+        ...type === "subscription" ? { setup_future_usage: "off_session" } : {}
       },
       mode: "payment",
-      success_url: return_url && return_url.includes("/stripe-callback.html") ? `${return_url}?payment=success&session_id={CHECKOUT_SESSION_ID}` : `${return_url || "https://www.drazbe.eu"}${return_url && return_url.includes("?") ? "&" : "?"}payment=success&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: return_url && return_url.includes("/stripe-callback.html") ? `${return_url}?payment=cancel` : `${return_url || "https://www.drazbe.eu"}${return_url && return_url.includes("?") ? "&" : "?"}payment=cancel`
+      success_url: return_url && return_url.includes("/stripe-callback.html") ? `${return_url}${return_url.includes("?") ? "&" : "?"}payment=success&type=${type}&session_id={CHECKOUT_SESSION_ID}` : `${return_url || "https://www.drazbe.eu"}${return_url && return_url.includes("?") ? "&" : "?"}payment=success&type=${type}&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: return_url && return_url.includes("/stripe-callback.html") ? `${return_url}${return_url.includes("?") ? "&" : "?"}payment=cancel` : `${return_url || "https://www.drazbe.eu"}${return_url && return_url.includes("?") ? "&" : "?"}payment=cancel`
     };
+    if (effectiveBuyerId) {
+      sessionParams.client_reference_id = effectiveBuyerId;
+    }
     if (stripeCustomerId) {
       sessionParams.customer = stripeCustomerId;
       sessionParams.customer_update = {
@@ -3050,7 +3427,7 @@ app.post("/api/create-checkout-session", async (req, res) => {
       sessionParams.customer_email = buyer.email;
     }
     const session = await stripe.checkout.sessions.create(sessionParams);
-    res.json({ url: session.url });
+    res.json({ url: session.url, sessionId: session.id });
   } catch (error) {
     console.error("Stripe Checkout Error:", error);
     res.status(500).json({ error: error.message });
@@ -3058,8 +3435,16 @@ app.post("/api/create-checkout-session", async (req, res) => {
 });
 app.post("/api/confirm-checkout-session", async (req, res) => {
   try {
-    const { sessionId, auctionId } = req.body || {};
+    const { sessionId, auctionId, userId, user_id } = req.body || {};
     const stripe = getStripe();
+    let authUid = null;
+    if (req.headers.authorization?.startsWith("Bearer ")) {
+      try {
+        const decoded = await adminAuth.verifyIdToken(req.headers.authorization.split("Bearer ")[1]);
+        authUid = decoded.uid;
+      } catch (e) {
+      }
+    }
     if (!sessionId && !auctionId) {
       return res.status(400).json({ error: "Missing sessionId or auctionId" });
     }
@@ -3085,26 +3470,61 @@ app.post("/api/confirm-checkout-session", async (req, res) => {
       const effectiveAuctionId = metadata.auction_id || auctionId;
       const effectiveBuyerId = metadata.buyer_id || metadata.user_id;
       const effectiveSellerId = metadata.seller_id;
-      if (type === "subscription") {
-        const targetUserId = metadata.user_id || effectiveBuyerId;
-        const packageId = metadata.package_id || "PRO";
+      const isSub = type === "subscription" || session.amount_total === 2e3 || session.amount_total === 5e3 || (metadata.planId || "").length > 0;
+      if (isSub) {
+        let targetUserId = metadata.user_id || metadata.buyer_id || userId || user_id || authUid || session.client_reference_id;
+        if (!targetUserId) {
+          const customerEmail = session.customer_details?.email || session.customer_email || paymentIntent?.receipt_email;
+          if (customerEmail) {
+            try {
+              const uSnap = await adminDb.collection("users").where("email", "==", customerEmail).limit(1).get();
+              if (!uSnap.empty) {
+                targetUserId = uSnap.docs[0].id;
+              }
+            } catch (e) {
+              console.warn("[confirm-checkout-session] Could not find user by email:", e);
+            }
+          }
+        }
+        let packageId = (metadata.package_id || metadata.tier || metadata.planId || "").toUpperCase();
+        if (!packageId || !packageId.includes("PRO") && !packageId.includes("BASIC")) {
+          packageId = session.amount_total === 5e3 ? "PRO" : "BASIC";
+        }
         if (targetUserId) {
           const now = /* @__PURE__ */ new Date();
           const validUntil = new Date(now);
           validUntil.setMonth(validUntil.getMonth() + 1);
           const updateData = {
             subscription_tier: packageId,
+            subscription: packageId,
             subscription_active: true,
             subscription_paid_at: now.toISOString(),
+            subscription_started_at: now.toISOString(),
+            subscription_cycle_started_at: now.toISOString(),
             subscription_valid_until: validUntil.toISOString(),
-            subscription_canceled: false
+            subscription_canceled: false,
+            stripe_checkout_session_id: session.id
           };
           if (session?.subscription) {
             updateData.stripe_subscription_id = typeof session.subscription === "string" ? session.subscription : session.subscription.id;
           }
-          await adminDb.collection("users").doc(targetUserId).update(updateData);
+          if (session?.customer) {
+            updateData.stripe_customer_id = typeof session.customer === "string" ? session.customer : session.customer.id;
+          }
+          await adminDb.collection("users").doc(targetUserId).set(updateData, { merge: true });
+          console.log(`[confirm-checkout-session] Successfully upgraded user ${targetUserId} to ${packageId}`);
+          const subAmt = Number(session.amount_total ? session.amount_total / 100 : packageId.includes("PRO") ? 50 : 20);
+          createAndSendSubscriptionInvoice({
+            userId: targetUserId,
+            packageId,
+            amountTotal: subAmt,
+            sourceId: session.id,
+            paymentMethod: "Spletno pla\u010Dilo / Kartica (Stripe)",
+            periodStart: now,
+            periodEnd: validUntil
+          }).catch((e) => console.error("[confirm-checkout-session] Napaka pri ustvarjanju ra\u010Duna za naro\u010Dnino:", e));
         }
-        return res.json({ success: true, type: "subscription" });
+        return res.json({ success: true, type: "subscription", package_id: packageId, userId: targetUserId });
       }
       if (effectiveAuctionId) {
         await adminDb.collection("auctions").doc(effectiveAuctionId).update({
@@ -3720,6 +4140,175 @@ app.post("/api/create-subscription-checkout", async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+app.post("/api/sync-user-subscription", async (req, res) => {
+  try {
+    let authUid = null;
+    if (req.headers.authorization?.startsWith("Bearer ")) {
+      try {
+        const decoded = await adminAuth.verifyIdToken(req.headers.authorization.split("Bearer ")[1]);
+        authUid = decoded.uid;
+      } catch (e) {
+      }
+    }
+    const { user_id, userId } = req.body || {};
+    const targetUserId = user_id || userId || authUid;
+    if (!targetUserId) {
+      return res.status(400).json({ error: "Missing user identification" });
+    }
+    const userDocRef = adminDb.collection("users").doc(targetUserId);
+    const userDoc = await safeGetDoc(userDocRef);
+    if (!userDoc.exists()) {
+      return res.status(404).json({ error: "User not found" });
+    }
+    const userData = userDoc.data();
+    const stripe = getStripe();
+    if (!stripe) {
+      return res.json({ synced: false, reason: "Stripe not initialized" });
+    }
+    const now = /* @__PURE__ */ new Date();
+    const currentTier = (userData.subscription_tier || userData.subscription || "").toUpperCase();
+    const isActive = userData.subscription_active === true;
+    const validUntilStr = userData.subscription_valid_until;
+    const isValid = validUntilStr ? new Date(validUntilStr) > now : false;
+    if (isActive && isValid && currentTier && currentTier !== "FREE") {
+      return res.json({
+        success: true,
+        synced: false,
+        already_active: true,
+        subscription_tier: currentTier,
+        subscription_valid_until: validUntilStr
+      });
+    }
+    const customerId = userData.stripe_customer_id || userData.stripeCustomerId;
+    const userEmail = (userData.email || "").toLowerCase().trim();
+    let matchingSession = null;
+    try {
+      if (customerId) {
+        const customerSessions = await stripe.checkout.sessions.list({ customer: customerId, limit: 20 });
+        for (const sess of customerSessions.data) {
+          if (sess.payment_status === "paid" || sess.status === "complete") {
+            const sessDate = new Date(sess.created * 1e3);
+            const ageInDays = (now.getTime() - sessDate.getTime()) / (1e3 * 60 * 60 * 24);
+            if (ageInDays <= 35) {
+              const isSub = sess.metadata?.type === "subscription" || sess.amount_total === 2e3 || sess.amount_total === 5e3 || sess.mode === "subscription";
+              if (isSub) {
+                matchingSession = sess;
+                break;
+              }
+            }
+          }
+        }
+      }
+      if (!matchingSession) {
+        const recentSessions = await stripe.checkout.sessions.list({ limit: 40 });
+        for (const sess of recentSessions.data) {
+          if (sess.payment_status === "paid" || sess.status === "complete") {
+            const sessDate = new Date(sess.created * 1e3);
+            const ageInDays = (now.getTime() - sessDate.getTime()) / (1e3 * 60 * 60 * 24);
+            if (ageInDays <= 35) {
+              const sessEmail = (sess.customer_details?.email || sess.customer_email || "").toLowerCase().trim();
+              const sessUid = sess.metadata?.user_id || sess.metadata?.buyer_id || sess.client_reference_id;
+              const isMatch = sessUid && sessUid === targetUserId || userEmail && sessEmail && sessEmail === userEmail || customerId && sess.customer === customerId;
+              if (isMatch) {
+                const isSub = sess.metadata?.type === "subscription" || sess.amount_total === 2e3 || sess.amount_total === 5e3 || sess.mode === "subscription";
+                if (isSub) {
+                  matchingSession = sess;
+                  break;
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("[sync-user-subscription] Error searching Stripe checkout sessions:", err.message);
+    }
+    if (matchingSession) {
+      let tier = (matchingSession.metadata?.package_id || matchingSession.metadata?.tier || matchingSession.metadata?.planId || "").toUpperCase();
+      if (!tier || !tier.includes("PRO") && !tier.includes("BASIC")) {
+        tier = matchingSession.amount_total === 5e3 ? "PRO" : "BASIC";
+      }
+      const paidDate = new Date(matchingSession.created * 1e3);
+      const validUntil = new Date(paidDate);
+      validUntil.setMonth(validUntil.getMonth() + 1);
+      const updateData = {
+        subscription_tier: tier,
+        subscription: tier,
+        subscription_active: true,
+        subscription_paid_at: paidDate.toISOString(),
+        subscription_started_at: paidDate.toISOString(),
+        subscription_cycle_started_at: paidDate.toISOString(),
+        subscription_valid_until: validUntil.toISOString(),
+        subscription_canceled: false,
+        stripe_checkout_session_id: matchingSession.id
+      };
+      if (matchingSession.customer) {
+        updateData.stripe_customer_id = typeof matchingSession.customer === "string" ? matchingSession.customer : matchingSession.customer.id;
+      }
+      if (matchingSession.subscription) {
+        updateData.stripe_subscription_id = typeof matchingSession.subscription === "string" ? matchingSession.subscription : matchingSession.subscription.id;
+      }
+      await userDocRef.set(updateData, { merge: true });
+      console.log(`[sync-user-subscription] Successfully synced user ${targetUserId} to ${tier}`);
+      return res.json({
+        success: true,
+        synced: true,
+        subscription_tier: tier,
+        subscription_active: true,
+        subscription_valid_until: validUntil.toISOString()
+      });
+    }
+    try {
+      const recentPIs = await stripe.paymentIntents.list({ limit: 40 });
+      for (const pi of recentPIs.data) {
+        if (pi.status === "succeeded") {
+          const piDate = new Date(pi.created * 1e3);
+          const ageInDays = (now.getTime() - piDate.getTime()) / (1e3 * 60 * 60 * 24);
+          if (ageInDays <= 35) {
+            const piEmail = (pi.receipt_email || "").toLowerCase().trim();
+            const piUid = pi.metadata?.user_id || pi.metadata?.buyer_id;
+            const isMatch = piUid && piUid === targetUserId || userEmail && piEmail && piEmail === userEmail || customerId && pi.customer === customerId;
+            const isSub = pi.metadata?.type === "subscription" || pi.amount === 2e3 || pi.amount === 5e3;
+            if (isMatch && isSub) {
+              const tier = (pi.metadata?.package_id || (pi.amount === 5e3 ? "PRO" : "BASIC")).toUpperCase();
+              const validUntil = new Date(piDate);
+              validUntil.setMonth(validUntil.getMonth() + 1);
+              const updateData = {
+                subscription_tier: tier,
+                subscription: tier,
+                subscription_active: true,
+                subscription_paid_at: piDate.toISOString(),
+                subscription_started_at: piDate.toISOString(),
+                subscription_cycle_started_at: piDate.toISOString(),
+                subscription_valid_until: validUntil.toISOString(),
+                subscription_canceled: false,
+                stripe_payment_intent_id: pi.id
+              };
+              if (pi.customer) {
+                updateData.stripe_customer_id = typeof pi.customer === "string" ? pi.customer : pi.customer.id;
+              }
+              await userDocRef.set(updateData, { merge: true });
+              console.log(`[sync-user-subscription] Successfully synced user ${targetUserId} from PI to ${tier}`);
+              return res.json({
+                success: true,
+                synced: true,
+                subscription_tier: tier,
+                subscription_active: true,
+                subscription_valid_until: validUntil.toISOString()
+              });
+            }
+          }
+        }
+      }
+    } catch (piErr) {
+      console.warn("[sync-user-subscription] Error searching PaymentIntents:", piErr.message);
+    }
+    return res.json({ success: true, synced: false, message: "Ni najdenih neobdelanih pla\u010Dil na Stripe." });
+  } catch (error) {
+    console.error("Error in sync-user-subscription:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
 app.post("/api/create-verification-session", async (req, res) => {
   try {
     const { user_id, userId } = req.body || {};
@@ -3805,7 +4394,7 @@ app.post("/api/test/send-email", async (req, res) => {
         auctionId,
         auctionTitle,
         winningPrice: currentPrice,
-        paymentDeadlineFormatted: "24 ur (do jutri ob 18:00)",
+        paymentDeadlineFormatted: "48 ur (v roku 2 dni)",
         auctionImageUrl
       });
     } else if (type === "payment_reminder") {
@@ -4791,6 +5380,25 @@ app.post("/api/cron/process-subscription-renewals", async (req, res) => {
         return res.status(401).json({ error: "Unauthorized" });
       }
     }
+    const now = /* @__PURE__ */ new Date();
+    try {
+      const cancelledUsers = await adminDb.collection("users").where("subscription_canceled", "==", true).get();
+      for (const cDoc of cancelledUsers.docs) {
+        const cUser = cDoc.data();
+        if (cUser.subscription_valid_until) {
+          if (now.getTime() >= new Date(cUser.subscription_valid_until).getTime()) {
+            await cDoc.ref.set({
+              subscription_tier: "FREE",
+              subscription: "FREE",
+              subscription_active: false,
+              subscription_canceled: false
+            }, { merge: true });
+          }
+        }
+      }
+    } catch (cErr) {
+      console.warn("Napaka pri pregledu preklicanih naro\u010Dnin:", cErr.message);
+    }
     const thirtyDaysAgo = /* @__PURE__ */ new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     const usersSnapshot = await adminDb.collection("users").where("subscription_active", "==", true).where("subscription_paid_at", "<=", thirtyDaysAgo.toISOString()).get();
@@ -4798,18 +5406,36 @@ app.post("/api/cron/process-subscription-renewals", async (req, res) => {
     const stripe = getStripe();
     for (const doc of usersSnapshot.docs) {
       const user = doc.data();
+      if (user.subscription_canceled === true) {
+        continue;
+      }
       const packageId = (user.subscription_tier || "").toLowerCase();
       let amountCents = 0;
       if (packageId.includes("pro")) amountCents = 5e3;
       else if (packageId.includes("basic")) amountCents = 2e3;
       else continue;
       const idempotencyKey = `renew_${doc.id}_${(/* @__PURE__ */ new Date()).getFullYear()}_${(/* @__PURE__ */ new Date()).getMonth()}`;
+      const nextValidUntil = new Date(now);
+      nextValidUntil.setMonth(nextValidUntil.getMonth() + 1);
       try {
         const txId = await reserveWalletFunds(doc.id, amountCents, "wallet_payment", idempotencyKey, { type: "subscription_renewal" });
         await commitReservedFunds(txId);
-        await doc.ref.update({
-          subscription_paid_at: (/* @__PURE__ */ new Date()).toISOString()
-        });
+        await doc.ref.set({
+          subscription_paid_at: now.toISOString(),
+          subscription_started_at: now.toISOString(),
+          subscription_cycle_started_at: now.toISOString(),
+          subscription_valid_until: nextValidUntil.toISOString(),
+          subscription_active: true
+        }, { merge: true });
+        createAndSendSubscriptionInvoice({
+          userId: doc.id,
+          packageId: user.subscription_tier || "BASIC",
+          amountTotal: amountCents / 100,
+          sourceId: txId,
+          paymentMethod: "Dobroimetje v denarnici",
+          periodStart: now,
+          periodEnd: nextValidUntil
+        }).catch((e) => console.error("[renewal-cron] Napaka pri ustvarjanju ra\u010Duna (denarnica):", e));
         processed++;
         continue;
       } catch (walletError) {
@@ -4818,7 +5444,7 @@ app.post("/api/cron/process-subscription-renewals", async (req, res) => {
         }
         if (user.stripe_customer_id && user.stripe_default_payment_method) {
           try {
-            const pi = await stripe.paymentIntents.create({
+            await stripe.paymentIntents.create({
               amount: amountCents,
               currency: "eur",
               customer: user.stripe_customer_id,
@@ -4832,19 +5458,33 @@ app.post("/api/cron/process-subscription-renewals", async (req, res) => {
                 renewal: "true"
               }
             }, { idempotencyKey: `card_${idempotencyKey}` });
+            await doc.ref.set({
+              subscription_paid_at: now.toISOString(),
+              subscription_started_at: now.toISOString(),
+              subscription_cycle_started_at: now.toISOString(),
+              subscription_valid_until: nextValidUntil.toISOString(),
+              subscription_active: true
+            }, { merge: true });
+            createAndSendSubscriptionInvoice({
+              userId: doc.id,
+              packageId: user.subscription_tier || "BASIC",
+              amountTotal: amountCents / 100,
+              sourceId: `stripe_renew_${idempotencyKey}`,
+              paymentMethod: "Spletno pla\u010Dilo / Kartica (Stripe)",
+              periodStart: now,
+              periodEnd: nextValidUntil
+            }).catch((e) => console.error("[renewal-cron] Napaka pri ustvarjanju ra\u010Duna (kartica):", e));
             processed++;
           } catch (stripeError) {
-            console.error(`Failed to renew subscription via card for user ${doc.id}: `, stripeError);
-            await doc.ref.update({
+            console.error(`Neuspe\u0161no podalj\u0161anje naro\u010Dnine s kartico za uporabnika ${doc.id}: `, stripeError);
+            await doc.ref.set({
               subscription_active: false
-              // Mark unpaid / past due
-            });
+            }, { merge: true });
           }
         } else {
-          await doc.ref.update({
+          await doc.ref.set({
             subscription_active: false
-            // Mark unpaid / past due
-          });
+          }, { merge: true });
         }
       }
     }
@@ -4923,6 +5563,208 @@ app.post("/api/auctions/confirm-receipt", async (req, res) => {
   } catch (err) {
     console.error("Error in confirm-receipt:", err);
     res.status(500).json({ error: err.message });
+  }
+});
+app.get("/api/subscription/invoices", async (req, res) => {
+  try {
+    let authUid = null;
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith("Bearer ")) {
+      try {
+        const decoded = await adminAuth.verifyIdToken(authHeader.split("Bearer ")[1]);
+        authUid = decoded.uid;
+      } catch (e) {
+      }
+    }
+    if (!authUid) {
+      return res.status(401).json({ error: "Niste prijavljeni." });
+    }
+    const docsSnap = await safeGetDocs(
+      adminDb.collection("documents").where("user_id", "==", authUid).where("type", "==", "subscription_invoice")
+    );
+    const invoices = docsSnap.docs.map((d) => ({
+      id: d.id,
+      ...d.data()
+    })).sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+    res.json({ invoices });
+  } catch (err) {
+    console.error("Error fetching subscription invoices:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+app.get("/api/subscription/download-invoice/:invoiceNo", async (req, res) => {
+  try {
+    let authUid = null;
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith("Bearer ")) {
+      try {
+        const decoded = await adminAuth.verifyIdToken(authHeader.split("Bearer ")[1]);
+        authUid = decoded.uid;
+      } catch (e) {
+      }
+    }
+    if (!authUid) {
+      return res.status(401).json({ error: "Niste prijavljeni." });
+    }
+    const { invoiceNo } = req.params;
+    const docSnap = await safeGetDocs(
+      adminDb.collection("documents").where("invoice_no", "==", invoiceNo).where("user_id", "==", authUid).limit(1)
+    );
+    if (docSnap.empty) {
+      return res.status(404).json({ error: "Ra\u010Dun ni bil najden." });
+    }
+    const docData = docSnap.docs[0].data();
+    const userDoc = await safeGetDoc(adminDb.collection("users").doc(authUid));
+    const userData = userDoc.data() || {};
+    const pdfBuffer = await generateSubscriptionInvoicePDF({
+      invoiceNo: docData.invoice_no,
+      user: userData,
+      planId: docData.package_id || "basic",
+      amount: docData.amount || 20,
+      paymentMethod: docData.payment_method || "Spletno pla\u010Dilo / Kartica (Stripe)",
+      paymentDate: new Date(docData.created_at).toLocaleDateString("sl-SI")
+    });
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="racun_${invoiceNo}.pdf"`);
+    res.send(pdfBuffer);
+  } catch (err) {
+    console.error("Error generating subscription invoice download:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+app.post("/api/delete-account", async (req, res) => {
+  try {
+    let authUid = null;
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith("Bearer ")) {
+      try {
+        const decoded = await adminAuth.verifyIdToken(authHeader.split("Bearer ")[1]);
+        authUid = decoded.uid;
+      } catch (e) {
+        return res.status(401).json({ error: "Neveljaven varnostni \u017Eeton." });
+      }
+    }
+    if (!authUid) {
+      return res.status(401).json({ error: "Niste prijavljeni." });
+    }
+    console.log(`[delete-account] Za\u010Denjam brisanje profila in podatkov za uporabnika: ${authUid}`);
+    const sellerAuctions = await adminDb.collection("auctions").where("seller_id", "==", authUid).get();
+    let batch = adminDb.batch();
+    let batchCount = 0;
+    for (const doc of sellerAuctions.docs) {
+      const data = doc.data();
+      const hasWinner = Boolean(data.winner_id || data.winnerId);
+      const isCompleted = data.status === "completed" || data.payment_status === "paid" || data.post_auction_status === "paid";
+      if (hasWinner || isCompleted) {
+        batch.update(doc.ref, {
+          is_seller_deleted: true,
+          sellerName: "Uporabnik je bil izbrisan",
+          seller: {
+            id: authUid,
+            is_deleted: true,
+            name: { SLO: "Uporabnik je bil izbrisan", EN: "User deleted", DE: "Benutzer gel\xF6scht" },
+            photoURL: null
+          }
+        });
+        batchCount++;
+      } else {
+        batch.delete(doc.ref);
+        batchCount++;
+      }
+      if (batchCount >= 400) {
+        await batch.commit();
+        batch = adminDb.batch();
+        batchCount = 0;
+      }
+    }
+    const sellerAuctionsCamel = await adminDb.collection("auctions").where("sellerId", "==", authUid).get();
+    for (const doc of sellerAuctionsCamel.docs) {
+      if (sellerAuctions.docs.some((d) => d.id === doc.id)) continue;
+      const data = doc.data();
+      const hasWinner = Boolean(data.winner_id || data.winnerId);
+      const isCompleted = data.status === "completed" || data.payment_status === "paid" || data.post_auction_status === "paid";
+      if (hasWinner || isCompleted) {
+        batch.update(doc.ref, {
+          is_seller_deleted: true,
+          sellerName: "Uporabnik je bil izbrisan",
+          seller: {
+            id: authUid,
+            is_deleted: true,
+            name: { SLO: "Uporabnik je bil izbrisan", EN: "User deleted", DE: "Benutzer gel\xF6scht" },
+            photoURL: null
+          }
+        });
+        batchCount++;
+      } else {
+        batch.delete(doc.ref);
+        batchCount++;
+      }
+      if (batchCount >= 400) {
+        await batch.commit();
+        batch = adminDb.batch();
+        batchCount = 0;
+      }
+    }
+    const notifications = await adminDb.collection("notifications").where("user_id", "==", authUid).get();
+    for (const nDoc of notifications.docs) {
+      batch.delete(nDoc.ref);
+      batchCount++;
+      if (batchCount >= 400) {
+        await batch.commit();
+        batch = adminDb.batch();
+        batchCount = 0;
+      }
+    }
+    if (batchCount > 0) {
+      await batch.commit();
+    }
+    try {
+      const savedDocs = await adminDb.collection("saved_auctions").where("user_id", "==", authUid).get();
+      if (!savedDocs.empty) {
+        const sBatch = adminDb.batch();
+        savedDocs.docs.forEach((d) => sBatch.delete(d.ref));
+        await sBatch.commit();
+      }
+    } catch (sErr) {
+    }
+    await adminDb.collection("users").doc(authUid).set({
+      id: authUid,
+      is_deleted: true,
+      isDeleted: true,
+      username: "Uporabnik je bil izbrisan",
+      company_name: "Uporabnik je bil izbrisan",
+      first_name: "Izbrisan",
+      last_name: "Uporabnik",
+      name: { SLO: "Uporabnik je bil izbrisan", EN: "User deleted", DE: "Benutzer gel\xF6scht" },
+      email: "",
+      phone: "",
+      address: "",
+      street_address: "",
+      city: "",
+      postal_code: "",
+      tax_id: "",
+      registration_number: "",
+      photoURL: null,
+      photoUrl: null,
+      photo_url: null,
+      stripe_customer_id: null,
+      stripe_default_payment_method: null,
+      stripe_account_id: null,
+      subscription_active: false,
+      subscription_tier: "FREE",
+      deleted_at: (/* @__PURE__ */ new Date()).toISOString()
+    }, { merge: false });
+    try {
+      await adminAuth.deleteUser(authUid);
+      console.log(`[delete-account] Uporabnik ${authUid} uspe\u0161no izbrisan iz Firebase Auth.`);
+    } catch (authErr) {
+      console.warn(`[delete-account] Opozorilo pri brisanju iz Firebase Auth:`, authErr.message);
+    }
+    console.log(`[delete-account] Uporabnik ${authUid} uspe\u0161no in varno izbrisan.`);
+    res.json({ success: true, message: "Profil in podatki so bili uspe\u0161no izbrisani." });
+  } catch (error) {
+    console.error("[delete-account] Napaka pri brisanju profila:", error);
+    res.status(500).json({ error: error.message || "Napaka pri brisanju profila." });
   }
 });
 // Annotate the CommonJS export names for ESM import in node:

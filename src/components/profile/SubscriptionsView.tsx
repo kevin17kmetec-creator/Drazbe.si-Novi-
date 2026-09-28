@@ -1,6 +1,8 @@
-import React from 'react';
-import { Lock, Calendar, AlertTriangle, ArrowLeft, Clock, CheckCircle2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Lock, Calendar, AlertTriangle, ArrowLeft, Clock, CheckCircle2, FileText, Download, Loader2 } from 'lucide-react';
 import { SubscriptionTier } from "../../types";
+import { auth } from "../../lib/firebase";
+import { getSubscriptionInvoicesAction } from "../../actions";
 
 export const SubscriptionsView: React.FC<{ 
     t: any; 
@@ -16,6 +18,60 @@ export const SubscriptionsView: React.FC<{
     onSyncSubscription?: () => void;
     isSyncing?: boolean;
 }> = ({ t, language, currentPlan, onSubscribe, isVerified, onCancelSubscription, nextBillingDate, subscribedAt, isCanceled, onBack, onSyncSubscription, isSyncing }) => {
+  const [invoices, setInvoices] = useState<any[]>([]);
+  const [loadingInvoices, setLoadingInvoices] = useState(false);
+  const [downloadingNo, setDownloadingNo] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    const loadInvoices = async () => {
+      try {
+        const user = auth.currentUser;
+        if (!user) return;
+        setLoadingInvoices(true);
+        const token = await user.getIdToken();
+        const res = await getSubscriptionInvoicesAction(token);
+        if (isMounted && res.success && res.data?.invoices) {
+          setInvoices(res.data.invoices);
+        }
+      } catch (e) {
+        console.error("Napaka pri nalaganju računov naročnin:", e);
+      } finally {
+        if (isMounted) setLoadingInvoices(false);
+      }
+    };
+    loadInvoices();
+    return () => { isMounted = false; };
+  }, [currentPlan]);
+
+  const handleDownloadInvoice = async (invoiceNo: string) => {
+    try {
+      setDownloadingNo(invoiceNo);
+      const user = auth.currentUser;
+      const token = user ? await user.getIdToken() : '';
+      const response = await fetch(`/api/subscription/download-invoice/${encodeURIComponent(invoiceNo)}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
+      if (!response.ok) {
+        throw new Error('Napaka pri prenosu računa');
+      }
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `racun_${invoiceNo}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err: any) {
+      console.error("Napaka pri prenosu PDF računa:", err);
+      alert("Napaka pri prenosu računa. Poskusite ponovno.");
+    } finally {
+      setDownloadingNo(null);
+    }
+  };
+
   const plans = [
     { tier: SubscriptionTier.FREE, name: t('freeTier'), price: 0, desc: t('freeDesc'), color: 'bg-slate-100 text-slate-600' },
     { tier: SubscriptionTier.BASIC, name: t('basicTier'), price: 20, desc: t('basicDesc'), color: 'bg-[#FEBA4F] text-[#0A1128]' },
@@ -126,6 +182,72 @@ export const SubscriptionsView: React.FC<{
               <p className="text-slate-400 font-bold text-xs mt-4">Preklic bo zaustavil samodejno obnovitev. Ugodnosti boste obdržali do izteka trenutnega obdobja.</p>
           </div>
       )}
+
+      {/* RAČUNI ZA NAROČNINE */}
+      <div className="mt-16 bg-white border border-slate-200 rounded-[3rem] p-8 sm:p-10 shadow-sm">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center text-[#FEBA4F]">
+              <FileText size={20} className="text-[#0A1128]" />
+            </div>
+            <div>
+              <h3 className="text-xl font-black uppercase tracking-tight text-[#0A1128]">Računi za naročnine</h3>
+              <p className="text-xs font-bold text-slate-400">Vsi uradni PDF računi za vaše naročnine na platformi</p>
+            </div>
+          </div>
+        </div>
+
+        {loadingInvoices ? (
+          <div className="py-8 flex items-center justify-center text-slate-400 gap-2">
+            <Loader2 size={18} className="animate-spin text-[#FEBA4F]" />
+            <span className="text-xs font-bold uppercase tracking-widest">Nalaganje računov...</span>
+          </div>
+        ) : invoices.length === 0 ? (
+          <div className="py-8 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+            <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Ni izdanih računov za naročnine.</p>
+            <p className="text-[11px] text-slate-400 mt-1">Ob vsakem uspešnem nakupu ali obnovitvi naročnine boste tukaj našli veljaven PDF račun, ki ga prejmete tudi na e-pošto.</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {invoices.map((inv) => {
+              const isPro = String(inv.package_id || '').toUpperCase().includes('PRO');
+              const planTitle = isPro ? 'Paket NAPREDNI' : 'Paket OSNOVNI';
+              const isDownloading = downloadingNo === inv.invoice_no;
+              return (
+                <div key={inv.id || inv.invoice_no} className="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50/50 px-3 rounded-2xl transition-colors">
+                  <div className="flex items-center gap-3">
+                    <FileText size={18} className="text-slate-400 shrink-0" />
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-black text-sm text-[#0A1128]">{inv.invoice_no}</span>
+                        <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                          Plačano
+                        </span>
+                      </div>
+                      <p className="text-xs font-bold text-slate-400 mt-0.5">
+                        {planTitle} • €{Number(inv.amount || (isPro ? 50 : 20)).toFixed(2)} • {new Date(inv.created_at).toLocaleDateString('sl-SI')}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleDownloadInvoice(inv.invoice_no)}
+                    disabled={isDownloading}
+                    className="flex items-center justify-center gap-1.5 px-4 py-2 bg-slate-100 hover:bg-[#FEBA4F] text-[#0A1128] rounded-xl text-xs font-black uppercase tracking-wider transition-all disabled:opacity-50"
+                  >
+                    {isDownloading ? (
+                      <><Loader2 size={14} className="animate-spin" /> Prenašanje...</>
+                    ) : (
+                      <><Download size={14} /> Prenesi PDF</>
+                    )}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 };
+

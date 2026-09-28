@@ -1375,9 +1375,12 @@ const MainApp: React.FC = () => {
       (snap) => {
         const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         const fetchedData: AuctionItem[] = data.map((d: any) => {
-          const seller = usersMap.get(d.seller_id) || {};
+          const seller = usersMap.get(d.seller_id) || usersMap.get(d.sellerId) || {};
           let sellerName = "";
-          if (seller.user_type === "business" && seller.company_name) {
+          const isDeletedUser = d.is_seller_deleted || seller.is_deleted || seller.isDeleted || d.sellerName === "Uporabnik je bil izbrisan";
+          if (isDeletedUser) {
+            sellerName = "Uporabnik je bil izbrisan";
+          } else if (seller.user_type === "business" && seller.company_name) {
             sellerName = seller.company_name;
           } else if (seller.username) {
             sellerName = seller.username;
@@ -1397,11 +1400,20 @@ const MainApp: React.FC = () => {
             winnerId: d.winner_id || d.winnerId,
             winner_id: d.winner_id || d.winnerId,
             sellerId: d.seller_id || d.sellerId,
+            is_seller_deleted: isDeletedUser,
             payment_status: isItemPaid ? "paid" : (d.payment_status || "unpaid"),
             post_auction_status: d.post_auction_status,
             paid_at: d.paid_at,
-            sellerName: d.sellerName || sellerName,
-            seller: { id: d.seller_id || d.sellerId, name: { SLO: sellerName }, photoURL: seller.photoURL || seller.photoUrl || seller.photo_url || null, created_at: seller.created_at || seller.createdAt, sold_count: seller.sold_count, unpaid_penalties: seller.unpaid_penalties },
+            sellerName: isDeletedUser ? "Uporabnik je bil izbrisan" : (d.sellerName || sellerName),
+            seller: { 
+              id: d.seller_id || d.sellerId, 
+              name: { SLO: sellerName, EN: isDeletedUser ? 'User deleted' : sellerName, DE: isDeletedUser ? 'Benutzer gelöscht' : sellerName }, 
+              is_deleted: isDeletedUser,
+              photoURL: isDeletedUser ? null : (seller.photoURL || seller.photoUrl || seller.photo_url || null), 
+              created_at: seller.created_at || seller.createdAt, 
+              sold_count: seller.sold_count, 
+              unpaid_penalties: seller.unpaid_penalties 
+            },
             delivery_method: d.delivery_method,
             buyer_received: d.buyer_received,
           };

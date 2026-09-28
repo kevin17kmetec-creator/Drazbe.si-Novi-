@@ -28,7 +28,7 @@ import React from 'react';
 import { AuctionEmailTemplate } from '../emails/AuctionEmailTemplate';
 import { AuthEmailTemplate } from '../emails/AuthEmailTemplate';
 import { GoogleGenAI } from "@google/genai";
-import { generateInvoicePDF, generateCertificatePDF } from '../lib/pdfGenerator';
+import { generateInvoicePDF, generateCertificatePDF, generateSubscriptionInvoicePDF } from '../lib/pdfGenerator';
 import {
   sendEndingSoonNotification,
   sendAuctionWonNotification,
@@ -86,7 +86,7 @@ async function safeGetDoc(docRef: any) {
   }
 }
 
-async function generateInvoiceNumber(type: 'SALES' | 'COMMISSION'): Promise<string> {
+async function generateInvoiceNumber(type: 'SALES' | 'COMMISSION' | 'SUBSCRIPTION'): Promise<string> {
   const year = new Date().getFullYear();
   const docId = `${type}_${year}`;
   const counterRef = adminDb.collection('invoice_counters').doc(docId);
@@ -107,11 +107,151 @@ async function generateInvoiceNumber(type: 'SALES' | 'COMMISSION'): Promise<stri
       });
     }
 
-    const prefix = type === 'SALES' ? 'RAC' : 'PROV';
+    const prefix = type === 'SALES' ? 'RAC' : type === 'SUBSCRIPTION' ? 'NAR' : 'PROV';
     const formattedNum = String(currentNumber).padStart(6, '0');
     return `${prefix}-${year}-${formattedNum}`;
   });
 }
+
+async function createAndSendSubscriptionInvoice(params: {
+  userId: string;
+  packageId: string;
+  amountTotal: number;
+  sourceId: string;
+  paymentMethod?: string;
+  periodStart?: Date;
+  periodEnd?: Date;
+}) {
+  const { userId, packageId, amountTotal, sourceId, paymentMethod = 'Spletno plačilo / Kartica (Stripe)', periodStart, periodEnd } = params;
+  try {
+    // 1. Preveri, ali račun za ta vir (sourceId) že obstaja, da preprečimo podvajanje
+    const existing = await safeGetDocs(
+      adminDb.collection('documents')
+        .where('user_id', '==', userId)
+        .where('source_id', '==', sourceId)
+        .limit(1)
+    );
+    if (!existing.empty) {
+      console.log(`[subscription-invoice] Račun za naročnino (sourceId: ${sourceId}) že obstaja. Preskakujem.`);
+      return;
+    }
+
+    // 2. Podatki o uporabniku
+    const userDoc = await safeGetDoc(adminDb.collection('users').doc(userId));
+    const userData = userDoc.data() || {};
+
+    // 3. Generiranje zaporedne številke računa
+    const invoiceNo = await generateInvoiceNumber('SUBSCRIPTION');
+
+    // 4. Izračun in generiranje PDF računa
+    const pdfBuffer = await generateSubscriptionInvoicePDF({
+      invoiceNo,
+      user: userData,
+      planId: packageId,
+      amount: amountTotal,
+      paymentMethod,
+      periodStart: periodStart || new Date(),
+      periodEnd: periodEnd || undefined
+    });
+
+    const fileName = `racun_${invoiceNo}.pdf`;
+    let publicUrl: string | null = null;
+    try {
+      publicUrl = await uploadBufferToStorage(pdfBuffer, `${userId}/${fileName}`);
+    } catch (uploadErr: any) {
+      console.warn('[subscription-invoice] Napaka pri nalaganju v Storage:', uploadErr.message);
+    }
+
+    // 5. Shranjevanje v Firestore zbirko 'documents'
+    await adminDb.collection('documents').add({
+      user_id: userId,
+      type: 'subscription_invoice',
+      invoice_no: invoiceNo,
+      package_id: packageId,
+      amount: amountTotal,
+      source_id: sourceId,
+      payment_method: paymentMethod,
+      file_url: publicUrl,
+      created_at: new Date().toISOString()
+    });
+    console.log(`[subscription-invoice] Uspešno shranjen dokument računa ${invoiceNo} za uporabnika ${userId}`);
+
+    // 6. Pošiljanje e-pošte z računom preko Resend
+    const targetEmail = userData.email;
+    if (targetEmail && process.env.RESEND_API_KEY) {
+      try {
+        const isPro = String(packageId).toUpperCase().includes('PRO');
+        const planName = isPro ? 'NAPREDNI' : 'OSNOVNI';
+        const formattedAmount = Number(amountTotal).toFixed(2);
+        const recipientName = userData.company_name || userData.first_name || userData.username || 'uporabnik';
+
+        const emailHtml = `
+          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #0A1128; background: #ffffff;">
+            <div style="border-bottom: 2px solid #E2E8F0; padding-bottom: 16px; margin-bottom: 24px;">
+              <h1 style="color: #0A1128; font-size: 24px; font-weight: 900; margin: 0; text-transform: uppercase;">dražbe.si</h1>
+              <p style="color: #94A3B8; font-size: 12px; margin: 4px 0 0 0; text-transform: uppercase; letter-spacing: 1px;">Račun za naročnino</p>
+            </div>
+            <p style="font-size: 16px; line-height: 1.5; color: #334155;">Pozdravljeni, <strong>${recipientName}</strong>,</p>
+            <p style="font-size: 15px; line-height: 1.5; color: #334155;">
+              Zahvaljujemo se vam za zaupanje! Vaša naročnina na paket <strong>${planName}</strong> je bila uspešno aktivirana oz. obnovljena.
+            </p>
+            <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 16px; padding: 20px; margin: 24px 0;">
+              <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+                <tr>
+                  <td style="padding: 6px 0; color: #64748B;">Številka računa:</td>
+                  <td style="padding: 6px 0; font-weight: 700; text-align: right; color: #0A1128;">${invoiceNo}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 6px 0; color: #64748B;">Paket naročnine:</td>
+                  <td style="padding: 6px 0; font-weight: 700; text-align: right; color: #0A1128;">Paket ${planName}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 6px 0; color: #64748B;">Plačani znesek:</td>
+                  <td style="padding: 6px 0; font-weight: 700; text-align: right; color: #0A1128;">${formattedAmount} € (vklj. z 22% DDV)</td>
+                </tr>
+                <tr>
+                  <td style="padding: 6px 0; color: #64748B;">Način plačila:</td>
+                  <td style="padding: 6px 0; font-weight: 700; text-align: right; color: #0A1128;">${paymentMethod}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 6px 0; color: #64748B;">Status:</td>
+                  <td style="padding: 6px 0; font-weight: 700; text-align: right; color: #059669;">PLAČANO</td>
+                </tr>
+              </table>
+            </div>
+            <p style="font-size: 14px; line-height: 1.5; color: #64748B;">
+              Uradni PDF račun za vaš nakup je priložen temu sporočilu (<strong>${fileName}</strong>). Vse ugodnosti vašega paketa so že na voljo v vašem uporabniškem računu.
+            </p>
+            <div style="margin-top: 32px; padding-top: 20px; border-top: 1px solid #E2E8F0; font-size: 11px; color: #94A3B8; text-align: center;">
+              <p style="margin: 0;">Dizain d.o.o., Karantanska ulica 28, 2000 Maribor | ID za DDV: SI57008060</p>
+              <p style="margin: 4px 0 0 0;">Sporočilo je bilo samodejno generirano s strani sistema dražbe.si.</p>
+            </div>
+          </div>
+        `;
+
+        const resendClient = new Resend(process.env.RESEND_API_KEY);
+        await resendClient.emails.send({
+          from: process.env.EMAIL_FROM || 'dražbenik.si <obvestila@drazbenik.si>',
+          to: targetEmail,
+          subject: `Račun za naročnino št. ${invoiceNo} - dražbenik.si`,
+          html: emailHtml,
+          attachments: [
+            {
+              filename: fileName,
+              content: pdfBuffer
+            }
+          ]
+        });
+        console.log(`[subscription-invoice] E-poštni račun uspešno poslan na ${targetEmail}`);
+      } catch (emailErr: any) {
+        console.error('[subscription-invoice] Napaka pri pošiljanju e-poštnega računa:', emailErr.message);
+      }
+    }
+  } catch (err: any) {
+    console.error('[subscription-invoice] Napaka pri obdelavi računa za naročnino:', err.message);
+  }
+}
+
 
 
 
@@ -459,6 +599,17 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
           }
           
           await adminDb.collection('users').doc(targetUserId).set(updateData, { merge: true });
+
+          const subAmt = Number(amt ? amt / 100 : (pkg.includes('PRO') ? 50 : 20));
+          createAndSendSubscriptionInvoice({
+            userId: targetUserId,
+            packageId: pkg,
+            amountTotal: subAmt,
+            sourceId: paymentId || `sub_${targetUserId}_${Date.now()}`,
+            paymentMethod: 'Spletno plačilo / Kartica (Stripe)',
+            periodStart: now,
+            periodEnd: validUntil
+          }).catch(e => console.error("[webhook] Napaka pri ustvarjanju računa za naročnino:", e));
         }
         res.json({ received: true });
         return;
@@ -1269,6 +1420,17 @@ app.post("/api/confirm-checkout-session", async (req, res) => {
 
           await adminDb.collection('users').doc(targetUserId).set(updateData, { merge: true });
           console.log(`[confirm-checkout-session] Successfully upgraded user ${targetUserId} to ${packageId}`);
+
+          const subAmt = Number(session.amount_total ? session.amount_total / 100 : (packageId.includes('PRO') ? 50 : 20));
+          createAndSendSubscriptionInvoice({
+            userId: targetUserId,
+            packageId: packageId,
+            amountTotal: subAmt,
+            sourceId: session.id,
+            paymentMethod: 'Spletno plačilo / Kartica (Stripe)',
+            periodStart: now,
+            periodEnd: validUntil
+          }).catch(e => console.error("[confirm-checkout-session] Napaka pri ustvarjanju računa za naročnino:", e));
         }
         return res.json({ success: true, type: 'subscription', package_id: packageId, userId: targetUserId });
       }
@@ -3531,6 +3693,17 @@ app.post("/api/cron/process-subscription-renewals", async (req, res) => {
            subscription_valid_until: nextValidUntil.toISOString(),
            subscription_active: true
         }, { merge: true });
+
+        createAndSendSubscriptionInvoice({
+          userId: doc.id,
+          packageId: user.subscription_tier || 'BASIC',
+          amountTotal: amountCents / 100,
+          sourceId: txId,
+          paymentMethod: 'Dobroimetje v denarnici',
+          periodStart: now,
+          periodEnd: nextValidUntil
+        }).catch(e => console.error("[renewal-cron] Napaka pri ustvarjanju računa (denarnica):", e));
+
         processed++;
         continue;
       } catch (walletError: any) {
@@ -3563,6 +3736,17 @@ app.post("/api/cron/process-subscription-renewals", async (req, res) => {
                subscription_valid_until: nextValidUntil.toISOString(),
                subscription_active: true
             }, { merge: true });
+
+            createAndSendSubscriptionInvoice({
+              userId: doc.id,
+              packageId: user.subscription_tier || 'BASIC',
+              amountTotal: amountCents / 100,
+              sourceId: `stripe_renew_${idempotencyKey}`,
+              paymentMethod: 'Spletno plačilo / Kartica (Stripe)',
+              periodStart: now,
+              periodEnd: nextValidUntil
+            }).catch(e => console.error("[renewal-cron] Napaka pri ustvarjanju računa (kartica):", e));
+
             processed++;
           } catch (stripeError: any) {
             console.error(`Neuspešno podaljšanje naročnine s kartico za uporabnika ${doc.id}: `, stripeError);
@@ -3670,3 +3854,264 @@ app.post("/api/auctions/confirm-receipt", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ==========================================
+// NAROČNINE - PREGLED IN PRENOS RAČUNOV
+// ==========================================
+
+app.get("/api/subscription/invoices", async (req, res) => {
+  try {
+    let authUid: string | null = null;
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith('Bearer ')) {
+      try {
+        const decoded = await adminAuth.verifyIdToken(authHeader.split('Bearer ')[1]);
+        authUid = decoded.uid;
+      } catch (e) {}
+    }
+    if (!authUid) {
+      return res.status(401).json({ error: "Niste prijavljeni." });
+    }
+
+    const docsSnap = await safeGetDocs(
+      adminDb.collection('documents')
+        .where('user_id', '==', authUid)
+        .where('type', '==', 'subscription_invoice')
+    );
+
+    const invoices = docsSnap.docs.map((d: any) => ({
+      id: d.id,
+      ...d.data()
+    })).sort((a: any, b: any) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+
+    res.json({ invoices });
+  } catch (err: any) {
+    console.error("Error fetching subscription invoices:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/subscription/download-invoice/:invoiceNo", async (req, res) => {
+  try {
+    let authUid: string | null = null;
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith('Bearer ')) {
+      try {
+        const decoded = await adminAuth.verifyIdToken(authHeader.split('Bearer ')[1]);
+        authUid = decoded.uid;
+      } catch (e) {}
+    }
+    if (!authUid) {
+      return res.status(401).json({ error: "Niste prijavljeni." });
+    }
+
+    const { invoiceNo } = req.params;
+    const docSnap = await safeGetDocs(
+      adminDb.collection('documents')
+        .where('invoice_no', '==', invoiceNo)
+        .where('user_id', '==', authUid)
+        .limit(1)
+    );
+
+    if (docSnap.empty) {
+      return res.status(404).json({ error: "Račun ni bil najden." });
+    }
+
+    const docData = docSnap.docs[0].data();
+    const userDoc = await safeGetDoc(adminDb.collection('users').doc(authUid));
+    const userData = userDoc.data() || {};
+
+    const pdfBuffer = await generateSubscriptionInvoicePDF({
+      invoiceNo: docData.invoice_no,
+      user: userData,
+      planId: docData.package_id || 'basic',
+      amount: docData.amount || 20,
+      paymentMethod: docData.payment_method || 'Spletno plačilo / Kartica (Stripe)',
+      paymentDate: new Date(docData.created_at).toLocaleDateString('sl-SI')
+    });
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="racun_${invoiceNo}.pdf"`);
+    res.send(pdfBuffer);
+  } catch (err: any) {
+    console.error("Error generating subscription invoice download:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==========================================
+// IZBRIS PROFILA IN VSEH POVEZANIH PODATKOV
+// ==========================================
+
+app.post("/api/delete-account", async (req, res) => {
+  try {
+    let authUid: string | null = null;
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith('Bearer ')) {
+      try {
+        const decoded = await adminAuth.verifyIdToken(authHeader.split('Bearer ')[1]);
+        authUid = decoded.uid;
+      } catch (e) {
+        return res.status(401).json({ error: "Neveljaven varnostni žeton." });
+      }
+    }
+    if (!authUid) {
+      return res.status(401).json({ error: "Niste prijavljeni." });
+    }
+
+    console.log(`[delete-account] Začenjam brisanje profila in podatkov za uporabnika: ${authUid}`);
+
+    // 1. Preglej dražbe, kjer je uporabnik prodajalec
+    const sellerAuctions = await adminDb.collection('auctions')
+      .where('seller_id', '==', authUid)
+      .get();
+
+    let batch = adminDb.batch();
+    let batchCount = 0;
+
+    for (const doc of sellerAuctions.docs) {
+      const data = doc.data();
+      const hasWinner = Boolean(data.winner_id || data.winnerId);
+      const isCompleted = data.status === 'completed' || data.payment_status === 'paid' || data.post_auction_status === 'paid';
+
+      if (hasWinner || isCompleted) {
+        // Kupec je zmagal ali plačal: dražba mora OSTATI dostopna kupcu!
+        // Označi prodajalca kot izbrisanega, tako da kupec vidi "Uporabnik je bil izbrisan"
+        batch.update(doc.ref, {
+          is_seller_deleted: true,
+          sellerName: 'Uporabnik je bil izbrisan',
+          seller: {
+            id: authUid,
+            is_deleted: true,
+            name: { SLO: 'Uporabnik je bil izbrisan', EN: 'User deleted', DE: 'Benutzer gelöscht' },
+            photoURL: null
+          }
+        });
+        batchCount++;
+      } else {
+        // Nezmagane / osnutki / aktivne dražbe brez zmagovalca se trajno izbrišejo
+        batch.delete(doc.ref);
+        batchCount++;
+      }
+
+      if (batchCount >= 400) {
+        await batch.commit();
+        batch = adminDb.batch();
+        batchCount = 0;
+      }
+    }
+
+    // Dodatno preveri, če so kje uporabljene camelCase 'sellerId'
+    const sellerAuctionsCamel = await adminDb.collection('auctions')
+      .where('sellerId', '==', authUid)
+      .get();
+
+    for (const doc of sellerAuctionsCamel.docs) {
+      if (sellerAuctions.docs.some(d => d.id === doc.id)) continue;
+      const data = doc.data();
+      const hasWinner = Boolean(data.winner_id || data.winnerId);
+      const isCompleted = data.status === 'completed' || data.payment_status === 'paid' || data.post_auction_status === 'paid';
+
+      if (hasWinner || isCompleted) {
+        batch.update(doc.ref, {
+          is_seller_deleted: true,
+          sellerName: 'Uporabnik je bil izbrisan',
+          seller: {
+            id: authUid,
+            is_deleted: true,
+            name: { SLO: 'Uporabnik je bil izbrisan', EN: 'User deleted', DE: 'Benutzer gelöscht' },
+            photoURL: null
+          }
+        });
+        batchCount++;
+      } else {
+        batch.delete(doc.ref);
+        batchCount++;
+      }
+
+      if (batchCount >= 400) {
+        await batch.commit();
+        batch = adminDb.batch();
+        batchCount = 0;
+      }
+    }
+
+    // 2. Izbriši vsa uporabnikova obvestila
+    const notifications = await adminDb.collection('notifications')
+      .where('user_id', '==', authUid)
+      .get();
+
+    for (const nDoc of notifications.docs) {
+      batch.delete(nDoc.ref);
+      batchCount++;
+      if (batchCount >= 400) {
+        await batch.commit();
+        batch = adminDb.batch();
+        batchCount = 0;
+      }
+    }
+
+    if (batchCount > 0) {
+      await batch.commit();
+    }
+
+    // 3. Počisti shranjene dražbe (če obstajajo ločeno)
+    try {
+      const savedDocs = await adminDb.collection('saved_auctions')
+        .where('user_id', '==', authUid)
+        .get();
+      if (!savedDocs.empty) {
+        const sBatch = adminDb.batch();
+        savedDocs.docs.forEach(d => sBatch.delete(d.ref));
+        await sBatch.commit();
+      }
+    } catch (sErr) {}
+
+    // 4. Uporabniški dokument v Firestore:
+    // Da kupec ob ogledu svojih zmaganih dražb ne doživi sesutja ali praznih podatkov,
+    // se osebni podatki v celoti pobrišejo in zamenjajo z anonimiziranim zapisom
+    // "Uporabnik je bil izbrisan":
+    await adminDb.collection('users').doc(authUid).set({
+      id: authUid,
+      is_deleted: true,
+      isDeleted: true,
+      username: 'Uporabnik je bil izbrisan',
+      company_name: 'Uporabnik je bil izbrisan',
+      first_name: 'Izbrisan',
+      last_name: 'Uporabnik',
+      name: { SLO: 'Uporabnik je bil izbrisan', EN: 'User deleted', DE: 'Benutzer gelöscht' },
+      email: '',
+      phone: '',
+      address: '',
+      street_address: '',
+      city: '',
+      postal_code: '',
+      tax_id: '',
+      registration_number: '',
+      photoURL: null,
+      photoUrl: null,
+      photo_url: null,
+      stripe_customer_id: null,
+      stripe_default_payment_method: null,
+      stripe_account_id: null,
+      subscription_active: false,
+      subscription_tier: 'FREE',
+      deleted_at: new Date().toISOString()
+    }, { merge: false });
+
+    // 5. Izbris računa iz Firebase Authentication
+    try {
+      await adminAuth.deleteUser(authUid);
+      console.log(`[delete-account] Uporabnik ${authUid} uspešno izbrisan iz Firebase Auth.`);
+    } catch (authErr: any) {
+      console.warn(`[delete-account] Opozorilo pri brisanju iz Firebase Auth:`, authErr.message);
+    }
+
+    console.log(`[delete-account] Uporabnik ${authUid} uspešno in varno izbrisan.`);
+    res.json({ success: true, message: "Profil in podatki so bili uspešno izbrisani." });
+  } catch (error: any) {
+    console.error("[delete-account] Napaka pri brisanju profila:", error);
+    res.status(500).json({ error: error.message || "Napaka pri brisanju profila." });
+  }
+});
+

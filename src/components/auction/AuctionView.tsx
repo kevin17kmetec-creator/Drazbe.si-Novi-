@@ -479,12 +479,18 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
               <div className="p-4 space-y-4">
                 <div>
                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{t('seller')}:</p>
-                  <button 
-                    onClick={() => item.sellerId && onSellerClick?.(item.sellerId)}
-                    className="text-sm font-black text-[#FEBA4F] hover:underline"
-                  >
-                    {item.sellerName && item.sellerName !== "Neznan prodajalec" && item.sellerName !== "Neznan Prodajalec" ? item.sellerName : (t('unknownSeller') || t('unknown'))}
-                  </button>
+                  {(item as any).is_seller_deleted || item.sellerName === "Uporabnik je bil izbrisan" || ((item as any).seller && ((item as any).seller.is_deleted || (item as any).seller.isDeleted)) ? (
+                    <span className="text-sm font-black text-slate-400">
+                      Uporabnik je bil izbrisan
+                    </span>
+                  ) : (
+                    <button 
+                      onClick={() => item.sellerId && onSellerClick?.(item.sellerId)}
+                      className="text-sm font-black text-[#FEBA4F] hover:underline"
+                    >
+                      {item.sellerName && item.sellerName !== "Neznan prodajalec" && item.sellerName !== "Neznan Prodajalec" ? item.sellerName : (t('unknownSeller') || t('unknown'))}
+                    </button>
+                  )}
                 </div>
                 <div>
                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{t('region')}:</p>

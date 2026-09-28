@@ -1,11 +1,12 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
-import { User, Camera, CheckCircle2, AlertCircle, Shield, CreditCard, Building, MapPin, Key, Bell, X, Eye, EyeOff, ShieldAlert, AlertTriangle, ArrowLeft } from 'lucide-react';
+import { User, Camera, CheckCircle2, AlertCircle, Shield, CreditCard, Building, MapPin, Key, Bell, X, Eye, EyeOff, ShieldAlert, AlertTriangle, ArrowLeft, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import imageCompression from 'browser-image-compression';
 import { StripeConnectOnboarding } from "@/src/components/profile/StripeConnectOnboarding";
 import { PhoneInput } from "@/src/components/ui/PhoneInput";
-import { requestPayoutAction, checkStripeAccountStatusAction } from '@/src/actions/index';
+import { requestPayoutAction, checkStripeAccountStatusAction, deleteAccountAction } from '@/src/actions/index';
 import { auth } from "../../lib/firebase";
+import { signOut } from "firebase/auth";
 
 const COUNTRIES = [
   { code: 'AT', name: 'Avstrija / Austria' },
@@ -80,6 +81,33 @@ export const SettingsView: React.FC<{
   const [showOldPassword, setShowOldPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  // Account deletion states
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteConfirmationInput, setDeleteConfirmationInput] = useState('');
+
+  const handleDeleteAccount = async () => {
+    if (deleteConfirmationInput.trim().toUpperCase() !== 'IZBRIŠI') return;
+    try {
+      setIsDeleting(true);
+      const currentUser = auth.currentUser;
+      if (!currentUser) throw new Error('Uporabnik ni prijavljen');
+      const token = await currentUser.getIdToken();
+      const res = await deleteAccountAction(token);
+      if (!res.success) {
+        throw new Error(res.error || 'Napaka pri brisanju profila.');
+      }
+      toast.success("Vaš profil in vsi podatki so bili uspešno izbrisani.");
+      await signOut(auth);
+      window.location.href = '/';
+    } catch (err: any) {
+      toast.error(err.message || "Prišlo je do napake pri brisanju računa.");
+    } finally {
+      setIsDeleting(false);
+      setShowDeleteModal(false);
+    }
+  };
 
   useEffect(() => {
      if (user?.id && !stripeStatusChecked && activeTab === 'stripe') {
@@ -576,6 +604,36 @@ export const SettingsView: React.FC<{
                     t('saveChanges')
                   )}
                 </button>
+
+                {/* NEVARNO OBMOČJE / IZBRIS RAČUNA */}
+                <div className="mt-14 pt-10 border-t border-slate-200">
+                  <div className="bg-red-50/70 border-2 border-red-200 rounded-[2.5rem] p-6 sm:p-8">
+                    <div className="flex flex-col sm:flex-row items-start gap-5">
+                      <div className="w-12 h-12 rounded-2xl bg-red-100 border border-red-200 flex items-center justify-center text-red-600 shrink-0">
+                        <Trash2 size={24} />
+                      </div>
+                      <div className="flex-1">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-red-600 block mb-1">Nevarno območje</span>
+                        <h4 className="text-xl font-black uppercase tracking-tight text-[#0A1128] mb-2">
+                          Izbris uporabniškega profila
+                        </h4>
+                        <p className="text-xs font-bold text-slate-600 mb-6 leading-relaxed">
+                          S tem dejanjem boste trajno izbrisali svoj uporabniški profil, vsa osebna nastavitve, shranjene dražbe, obvestila ter neprodane dražbe. Če ste prodali predmete kupcem, bodo te dražbe ostale na voljo kupcem za zaključek posla, vaš profil pa bo označen z »Uporabnik je bil izbrisan«.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDeleteConfirmationInput('');
+                            setShowDeleteModal(true);
+                          }}
+                          className="px-6 py-3.5 bg-red-600 hover:bg-red-700 text-white rounded-2xl font-black uppercase tracking-widest text-xs transition-all shadow-md hover:shadow-lg flex items-center gap-2"
+                        >
+                          <Trash2 size={16} /> Izbriši profil
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -926,6 +984,71 @@ export const SettingsView: React.FC<{
           </form>
         </div>
       </div>
+
+      {/* MODAL ZA POTRDITEV IZBRISA PROFILA */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-[2.5rem] max-w-lg w-full p-8 shadow-2xl border border-red-100 relative">
+            <div className="w-14 h-14 rounded-3xl bg-red-100 border-2 border-red-200 flex items-center justify-center text-red-600 mx-auto mb-6">
+              <AlertTriangle size={32} />
+            </div>
+
+            <h3 className="text-2xl font-black uppercase tracking-tight text-center text-[#0A1128] mb-2">
+              Trajni izbris profila
+            </h3>
+            
+            <p className="text-sm font-bold text-slate-500 text-center mb-6 leading-relaxed">
+              Ali ste prepričani, da želite izbrisati svoj profil? To dejanje je <strong className="text-red-600">dokončno in nepovratno</strong>. Vsi vaši osebni podatki, shranjene dražbe in obvestila bodo trajno odstranjeni.
+            </p>
+
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 mb-6 text-xs text-slate-600 font-bold space-y-2">
+              <p>• Kupci vaših predhodno zaključenih in prodanih dražb bodo še vedno videli podatke o zmagani dražbi.</p>
+              <p>• Namesto vašega imena bo prikazano »Uporabnik je bil izbrisan«.</p>
+            </div>
+
+            <div className="mb-6">
+              <label className="block text-[11px] font-black uppercase tracking-widest text-slate-400 mb-2">
+                Za potrditev vpišite <strong className="text-red-600">IZBRIŠI</strong>:
+              </label>
+              <input
+                type="text"
+                value={deleteConfirmationInput}
+                onChange={(e) => setDeleteConfirmationInput(e.target.value)}
+                placeholder="IZBRIŠI"
+                className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl px-4 py-3 font-black text-center tracking-widest text-red-600 outline-none focus:border-red-500"
+              />
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setShowDeleteModal(false)}
+                disabled={isDeleting}
+                className="flex-1 py-4 bg-slate-100 hover:bg-slate-200 text-[#0A1128] rounded-2xl font-black uppercase tracking-wider text-xs transition-colors"
+              >
+                Prekliči
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteAccount}
+                disabled={deleteConfirmationInput.trim().toUpperCase() !== 'IZBRIŠI' || isDeleting}
+                className="flex-1 py-4 bg-red-600 hover:bg-red-700 text-white rounded-2xl font-black uppercase tracking-wider text-xs transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-lg flex items-center justify-center gap-2"
+              >
+                {isDeleting ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                    Brisanje...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 size={16} /> Potrdi izbris
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

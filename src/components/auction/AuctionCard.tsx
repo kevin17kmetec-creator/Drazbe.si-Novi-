@@ -138,6 +138,11 @@ export const AuctionCard: React.FC<{
       <div className="p-6 flex flex-col flex-1">
         <div className="mb-3 flex justify-between items-center">
             {(seller || item.sellerName) && (
+              (item as any).is_seller_deleted || item.sellerName === "Uporabnik je bil izbrisan" || (seller && ((seller as any).is_deleted || (seller as any).isDeleted)) ? (
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 flex items-center gap-1.5 opacity-75">
+                  <Building2 size={12} /> Uporabnik je bil izbrisan
+                </span>
+              ) : (
                 <button 
                   type="button"
                   onClick={(e) => { 
@@ -158,6 +163,7 @@ export const AuctionCard: React.FC<{
                 >
                     <Building2 size={12} /> {seller ? (seller.name[language] || seller.name['SLO'] || t('unknownSeller')) : (item.sellerName && item.sellerName !== "Neznan prodajalec" ? item.sellerName : t('unknownSeller'))}
                 </button>
+              )
             )}
         </div>
         <h3 className="text-lg font-black leading-tight text-white hover:text-[#FEBA4F] transition-colors line-clamp-2 cursor-pointer mb-4" onClick={onClick}>{item.title[language] || item.title['SLO']}</h3>
