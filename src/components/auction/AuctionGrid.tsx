@@ -41,14 +41,28 @@ export const AuctionGrid: React.FC<AuctionGridProps> = ({
     }
   });
 
-  const packageIds = Object.keys(packageGroups);
+  // A package/bundle requires at least 2 active items!
+  // If only 1 item remains or was relisted from a package, it must render as a single standalone auction card.
+  const validPackageIds: string[] = [];
+  Object.keys(packageGroups).forEach(pkgId => {
+    if (packageGroups[pkgId].items.length >= 2) {
+      validPackageIds.push(pkgId);
+    } else {
+      packageGroups[pkgId].items.forEach(singleItem => {
+        standaloneAuctions.push({
+          ...singleItem,
+          is_package: false
+        });
+      });
+    }
+  });
 
   return (
     <div className="space-y-8">
       {/* If there are packages, display package cards */}
-      {packageIds.length > 0 && (
+      {validPackageIds.length > 0 && (
         <div className="space-y-6">
-          {packageIds.map(pkgId => {
+          {validPackageIds.map(pkgId => {
             const group = packageGroups[pkgId];
             return (
               <PackageCard

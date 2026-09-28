@@ -116,7 +116,11 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
     currentAuction.winner_id === currentUserId ||
     (currentAuction.second_highest_bidder_id === currentUserId && (currentAuction.post_auction_status === 'offered_2nd' || currentAuction.post_auction_status === 'awaiting_payment_2nd'))
   );
-  const isSeller = currentUserId && (currentAuction.sellerId === currentUserId || currentAuction.seller_id === currentUserId);
+  const isSeller = Boolean(currentUserId && (
+    currentAuction.sellerId === currentUserId || 
+    currentAuction.seller_id === currentUserId ||
+    (currentAuction.seller && ((currentAuction.seller as any).id === currentUserId || currentAuction.seller.id === currentUserId))
+  ));
   const isEnded = currentAuction.status === 'completed' || currentAuction.status === 'cancelled' || isPaid || timeLeft === 0;
 
   const currentLeadingAmount = isWinner 
@@ -145,7 +149,7 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
   };
 
   const handlePlaceBid = async () => {
-    if (!bidAmount || isNaN(Number(bidAmount))) return;
+    if (!bidAmount || isNaN(Number(bidAmount)) || isSeller) return;
     
     setLoading(true);
     setError(null);
@@ -374,7 +378,7 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1">{t('currentBid')}</p>
                 </div>
               </div>
-              {!isEnded && (
+              {!isEnded && !isSeller && (
               <p className="text-[10px] font-bold text-slate-400 text-center mb-4 leading-relaxed bg-white/5 p-3 rounded-xl">
                   {isWinner 
                     ? (t('proxyBidLeadingTip') || 'Ste vodilni ponudnik! Vnesite višji znesek, če želite povišati vašo maksimalno ponudbo.')
@@ -386,35 +390,50 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
               {bidSuccess && <div className="mb-4 p-3 bg-green-500/10 text-green-400 rounded-xl font-bold text-[10px] uppercase tracking-widest text-center border border-green-500/20">{t('bidSuccessMsg')}</div>}
 
               {!isEnded && (
-                <div className="flex flex-col gap-3 w-full mt-auto">
-                  <div className="relative flex-1">
+                isSeller ? (
+                  <div className="bg-white/5 border border-white/10 rounded-2xl p-5 text-center my-2 mt-auto">
+                    <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[#FEBA4F] flex items-center justify-center mx-auto mb-2">
+                      <Lock size={18} />
+                    </div>
+                    <p className="text-xs font-black uppercase tracking-widest text-[#FEBA4F] mb-1">
+                      Vaša dražba
+                    </p>
+                    <p className="text-xs font-bold text-slate-400">
+                      Kot avtor dražbe ne morete oddajati ponudb na lasten predmet.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-3 w-full mt-auto">
+                    <div className="relative flex-1">
+                      <button 
+                        onClick={() => handleAdjustBid('down')}
+                        className="absolute left-2 top-2 bottom-2 aspect-square bg-white/10 border border-white/10 rounded-lg flex items-center justify-center hover:border-[#FEBA4F] hover:text-[#FEBA4F] text-slate-400 transition-colors"
+                      >
+                        <Minus size={20} />
+                      </button>
+                      <input 
+                        type="text" 
+                        value={`€ ${bidAmount}`}
+                        readOnly
+                        className="w-full h-14 bg-white/5 border-2 border-white/10 rounded-xl px-14 font-black text-xl text-white outline-none focus:border-[#FEBA4F] text-center transition-colors"
+                      >
+                      </input>
+                      <button 
+                        onClick={() => handleAdjustBid('up')}
+                        className="absolute right-2 top-2 bottom-2 aspect-square bg-white/10 border border-white/10 rounded-lg flex items-center justify-center hover:border-[#FEBA4F] hover:text-[#FEBA4F] text-slate-400 transition-colors"
+                      >
+                        <Plus size={20} />
+                      </button>
+                    </div>
                     <button 
-                      onClick={() => handleAdjustBid('down')}
-                      className="absolute left-2 top-2 bottom-2 aspect-square bg-white/10 border border-white/10 rounded-lg flex items-center justify-center hover:border-[#FEBA4F] hover:text-[#FEBA4F] text-slate-400 transition-colors"
+                      onClick={handlePlaceBid}
+                      disabled={loading}
+                      className="h-14 px-8 bg-[#FEBA4F] text-[#0A1128] rounded-xl font-black uppercase tracking-widest hover:bg-white transition-all shadow-lg disabled:opacity-50 w-full flex items-center justify-center gap-2"
                     >
-                      <Minus size={20} />
-                    </button>
-                    <input 
-                      type="text" 
-                      value={`€ ${bidAmount}`}
-                      readOnly
-                      className="w-full h-14 bg-white/5 border-2 border-white/10 rounded-xl px-14 font-black text-xl text-white outline-none focus:border-[#FEBA4F] text-center transition-colors"
-                    />
-                    <button 
-                      onClick={() => handleAdjustBid('up')}
-                      className="absolute right-2 top-2 bottom-2 aspect-square bg-white/10 border border-white/10 rounded-lg flex items-center justify-center hover:border-[#FEBA4F] hover:text-[#FEBA4F] text-slate-400 transition-colors"
-                    >
-                      <Plus size={20} />
+                      {loading ? '...' : isWinner ? (t('increaseBid') || 'Zvišaj ponudbo') : t('placeBid')}
                     </button>
                   </div>
-                  <button 
-                    onClick={handlePlaceBid}
-                    disabled={loading}
-                    className="h-14 px-8 bg-[#FEBA4F] text-[#0A1128] rounded-xl font-black uppercase tracking-widest hover:bg-white transition-all shadow-lg disabled:opacity-50 w-full flex items-center justify-center gap-2"
-                  >
-                    {loading ? '...' : isWinner ? (t('increaseBid') || 'Zvišaj ponudbo') : t('placeBid')}
-                  </button>
-                </div>
+                )
               )}
             </div>
 

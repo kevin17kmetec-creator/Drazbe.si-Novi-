@@ -605,7 +605,7 @@ export const SettingsView: React.FC<{
                   )}
                 </button>
 
-                {/* NEVARNO OBMOČJE / IZBRIS RAČUNA */}
+                {/* IZBRIS RAČUNA */}
                 <div className="mt-14 pt-10 border-t border-slate-200">
                   <div className="bg-red-50/70 border-2 border-red-200 rounded-[2.5rem] p-6 sm:p-8">
                     <div className="flex flex-col sm:flex-row items-start gap-5">
@@ -613,12 +613,11 @@ export const SettingsView: React.FC<{
                         <Trash2 size={24} />
                       </div>
                       <div className="flex-1">
-                        <span className="text-[10px] font-black uppercase tracking-widest text-red-600 block mb-1">Nevarno območje</span>
-                        <h4 className="text-xl font-black uppercase tracking-tight text-[#0A1128] mb-2">
+                        <h4 className="text-xl font-black uppercase tracking-tight text-[#0A1128] mb-1">
                           Izbris uporabniškega profila
                         </h4>
                         <p className="text-xs font-bold text-slate-600 mb-6 leading-relaxed">
-                          S tem dejanjem boste trajno izbrisali svoj uporabniški profil, vsa osebna nastavitve, shranjene dražbe, obvestila ter neprodane dražbe. Če ste prodali predmete kupcem, bodo te dražbe ostale na voljo kupcem za zaključek posla, vaš profil pa bo označen z »Uporabnik je bil izbrisan«.
+                          Dokončen izbris profila in podatkov.
                         </p>
                         <button
                           type="button"
@@ -998,7 +997,7 @@ export const SettingsView: React.FC<{
             </h3>
             
             <p className="text-sm font-bold text-slate-500 text-center mb-6 leading-relaxed">
-              Ali ste prepričani, da želite izbrisati svoj profil? To dejanje je <strong className="text-red-600">dokončno in nepovratno</strong>. Vsi vaši osebni podatki, shranjene dražbe in obvestila bodo trajno odstranjeni.
+              Dokončen izbris profila in podatkov.
             </p>
 
             <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 mb-6 text-xs text-slate-600 font-bold space-y-2">

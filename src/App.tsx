@@ -129,15 +129,12 @@ import {
   getIncrement,
   formatSeconds,
   calculateMarginalPlatformFee,
+  normalizeRegionName,
 } from "./lib/utils";
 
-const matchesSelectedRegion = (itemRegion: string | undefined, selected: string | null): boolean => {
+const matchesSelectedRegion = (itemRegion: string | undefined | null, selected: string | null): boolean => {
   if (!selected) return true;
-  if (!itemRegion) return false;
-  if (itemRegion === selected) return true;
-  const itemLower = itemRegion.toLowerCase();
-  const selLower = selected.toLowerCase();
-  return itemLower === selLower;
+  return normalizeRegionName(itemRegion) === normalizeRegionName(selected);
 };
 
 // --- MAIN APP COMPONENT ---
@@ -1286,6 +1283,11 @@ const MainApp: React.FC = () => {
 
   const itemsPerPage = Math.ceil(baseItemsPerPage / cols) * cols;
   const [currentPage, setCurrentPage] = useState(1);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedRegion, selectedCategory, searchQuery, activeView]);
+
   const [showBackToTop, setShowBackToTop] = useState(false);
 
   useEffect(() => {
@@ -1392,6 +1394,7 @@ const MainApp: React.FC = () => {
 
           return {
             ...d,
+            region: normalizeRegionName(d.region || (typeof d.location === 'object' ? d.location?.SLO : d.location)),
             endTime: new Date(d.end_time || d.endTime || Date.now()),
             createdAt: d.created_at || d.createdAt || new Date(0).toISOString(),
             currentBid: d.current_price || d.currentBid,
@@ -1895,7 +1898,7 @@ const MainApp: React.FC = () => {
           EN: "Unknown",
           DE: "Unbekannt",
         },
-        region: itemData.region || Region.Osrednjeslovenska,
+        region: normalizeRegionName(itemData.region || (typeof itemData.location === 'object' ? itemData.location?.SLO : itemData.location)),
         category: itemData.category || Category.Ostalo,
         condition: getConditionTranslations(itemData.condition || "Rabljeno"),
         specifications: {},
@@ -1909,7 +1912,11 @@ const MainApp: React.FC = () => {
         delivery_option: itemData.delivery_option || 'both',
         shipping_fee_type: itemData.shipping_fee_type || 'calculated',
         shipping_cost: itemData.shipping_cost !== undefined ? itemData.shipping_cost : null,
-        created_at: new Date().toISOString()
+        created_at: new Date().toISOString(),
+        is_package: false,
+        package_id: null,
+        packageId: null,
+        package_title: null,
       };
 
       let publishSuccess = false;
@@ -3632,7 +3639,14 @@ const MainApp: React.FC = () => {
                           onClick={() => {
                             navigateTo("createAuction", {
                               createMode: 'single',
-                              republishData: soldItem
+                              republishData: {
+                                ...soldItem,
+                                is_package: false,
+                                package_id: null,
+                                packageId: null,
+                                package_title: null,
+                                region: normalizeRegionName(soldItem.region || (typeof soldItem.location === 'object' ? soldItem.location?.SLO : soldItem.location)),
+                              }
                             });
                           }}
                           className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl flex items-center justify-center gap-2"
@@ -3863,23 +3877,40 @@ const MainApp: React.FC = () => {
               </div>
             </div>
             {(() => {
-              const packageMap = new Map<string, { title: string; items: AuctionItem[] }>();
+              const rawPackageMap = new Map<string, { title: string; items: AuctionItem[] }>();
               const standaloneItems: AuctionItem[] = [];
 
               currentAuctions.forEach(item => {
-                if (item.is_package && item.package_id) {
-                  if (!packageMap.has(item.package_id)) {
+                const pkgId = item.package_id || (item as any).packageId;
+                if (item.is_package && pkgId) {
+                  if (!rawPackageMap.has(pkgId)) {
                     const pkgTitle = (item as any).package_title || 
                       (typeof item.title === 'object' ? item.title[language] || item.title['SLO'] : item.title) || 
                       "Večpredmetna dražba";
-                    const allPkgItems = auctions.filter(a => a.package_id === item.package_id && a.status === 'active');
-                    packageMap.set(item.package_id, {
+                    const allPkgItems = auctions.filter(a => (a.package_id === pkgId || (a as any).packageId === pkgId) && a.status === 'active' && new Date(a.endTime).getTime() > Date.now());
+                    rawPackageMap.set(pkgId, {
                       title: pkgTitle,
                       items: allPkgItems.length > 0 ? allPkgItems : [item]
                     });
                   }
                 } else {
                   standaloneItems.push(item);
+                }
+              });
+
+              const packageMap = new Map<string, { title: string; items: AuctionItem[] }>();
+              rawPackageMap.forEach((pkgData, pkgId) => {
+                if (pkgData.items.length >= 2) {
+                  packageMap.set(pkgId, pkgData);
+                } else {
+                  pkgData.items.forEach(singleItem => {
+                    standaloneItems.push({
+                      ...singleItem,
+                      is_package: false,
+                      package_id: null,
+                      packageId: null
+                    });
+                  });
                 }
               });
 
@@ -4021,6 +4052,11 @@ const MainApp: React.FC = () => {
     if (!isLoggedIn) {
       toast.error(t("login")); setActiveView("login"); return "login_required";
     }
+    const itemSellerId = item.sellerId || (item as any).seller_id || (item.seller && ((item.seller as any).id || item.seller.id));
+    if (itemSellerId && (itemSellerId === userData?.id || itemSellerId === auth.currentUser?.uid)) {
+      toast.error("Kot avtor dražbe ne morete oddajati ponudb na lasten predmet.");
+      return "error";
+    }
     if ((userData as any).isBlocked || (userData as any).unpaidStrikes >= 3) {
       toast.error("Vaš račun je blokiran za ponujanje zaradi preveč neplačanih dražb (3 opomini).");
       return "error";
@@ -4063,6 +4099,12 @@ const MainApp: React.FC = () => {
       return;
     }
     const item = pendingBid.item;
+    const itemSellerId = item.sellerId || (item as any).seller_id || (item.seller && ((item.seller as any).id || item.seller.id));
+    if (itemSellerId && (itemSellerId === userData?.id || itemSellerId === auth.currentUser?.uid)) {
+      toast.error("Kot avtor dražbe ne morete oddajati ponudb na lasten predmet.");
+      if (bidResolverRef.current) bidResolverRef.current("error");
+      return;
+    }
     const amount = confirmedAmount !== undefined && !isNaN(confirmedAmount) && confirmedAmount > 0 
       ? confirmedAmount 
       : pendingBid.amount;
@@ -4079,6 +4121,10 @@ const MainApp: React.FC = () => {
                 throw new Error("Auction does not exist");
             }
             const data = auctionDoc.data();
+            const sellerId = data.seller_id || data.sellerId || (data.seller && (data.seller.id || (data.seller as any).id));
+            if (sellerId && (sellerId === userData.id || sellerId === auth.currentUser?.uid)) {
+                throw new Error("Kot avtor dražbe ne morete oddajati ponudb na lasten predmet.");
+            }
             const currentPrice = Number(data.current_price ?? data.currentBid ?? 0);
             const currentWinner = data.winner_id || data.winnerId;
             previousLeaderId = currentWinner || null;
@@ -4251,6 +4297,12 @@ const MainApp: React.FC = () => {
         currentProxyBid: null,
         hidden_max_bid: null,
         hiddenMaxBid: null,
+        is_package: false,
+        package_id: null,
+        packageId: null,
+        package_title: null,
+        package_description: null,
+        region: normalizeRegionName(item.region || (typeof item.location === 'object' ? item.location?.SLO : item.location)),
       });
 
       toast.success("Dražba je bila uspešno ponovno objavljena!");
@@ -4267,6 +4319,8 @@ const MainApp: React.FC = () => {
     try {
       setIsQuickRepublishing("package");
       const now = new Date();
+      const isSingleOnly = items.length < 2;
+
       for (const item of items) {
         const originalCreated = new Date(item.created_at || item.createdAt || Date.now() - 7 * 24 * 60 * 60 * 1000).getTime();
         const originalEnd = new Date(item.end_time || item.endTime || Date.now()).getTime();
@@ -4304,6 +4358,12 @@ const MainApp: React.FC = () => {
           currentProxyBid: null,
           hidden_max_bid: null,
           hiddenMaxBid: null,
+          is_package: !isSingleOnly,
+          package_id: isSingleOnly ? null : (item.package_id || (item as any).packageId),
+          packageId: isSingleOnly ? null : (item.package_id || (item as any).packageId),
+          package_title: isSingleOnly ? null : (item.package_title || null),
+          package_description: isSingleOnly ? null : (item.package_description || null),
+          region: normalizeRegionName(item.region || (typeof item.location === 'object' ? item.location?.SLO : item.location)),
         });
       }
       toast.success("Vsi predmeti paketa so bili uspešno ponovno objavljeni!");

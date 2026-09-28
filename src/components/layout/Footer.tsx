@@ -46,7 +46,7 @@ export const Footer: React.FC<FooterProps> = ({
                             <img 
                                 src="https://0iwzttasbg0fikhu.public.blob.vercel-storage.com/drazbeniksi-removebg-preview%281%29.png" 
                                 alt="Drazbenik.si" 
-                                className="h-11 md:h-13 object-contain group-hover:opacity-90 transition-opacity" 
+                                className="h-35 md:h-42 object-contain group-hover:scale-105 transition-transform" 
                             />
                         </div>
                         <p className="text-slate-400 text-xs md:text-sm font-semibold leading-relaxed max-w-sm">

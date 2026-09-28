@@ -1,3 +1,5 @@
+import { Region } from '../types';
+
 export const getIncrement = (amount: number) => {
   if (amount < 10) return 1;
   if (amount < 50) return 2;
@@ -178,4 +180,45 @@ export const getUserAuctionCycle = (auctions: any[], userId: string, userData?: 
         tier: 'FREE' as const,
         isCanceled: false
     };
+};
+
+export const normalizeRegionName = (reg: any): Region => {
+  if (!reg) return Region.Osrednjeslovenska;
+  const str = typeof reg === 'string' ? reg : (reg.SLO || reg.name || String(reg));
+  const clean = str.trim().toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/g, "");
+
+  if (clean.includes('pomur')) return Region.Pomurska;
+  if (clean.includes('podrav')) return Region.Podravska;
+  if (clean.includes('koros')) return Region.Koroska;
+  if (clean.includes('savin')) return Region.Savinjska;
+  if (clean.includes('zasav')) return Region.Zasavska;
+  if (clean.includes('posav')) return Region.Posavska;
+  if (clean.includes('jugovzhod')) return Region.JugovzhodnaSlovenija;
+  if (clean.includes('gorenj')) return Region.Gorenjska;
+  if (clean.includes('notranj')) return Region.PrimorskoNotranjska;
+  if (clean.includes('goris')) return Region.Goriska;
+  if (clean.includes('obal') || clean.includes('krask')) return Region.ObalnoKraska;
+  if (clean.includes('osrednj') || clean.includes('ljubl')) return Region.Osrednjeslovenska;
+
+  // City-based fallbacks if location city was passed
+  if (clean.includes('maribor') || clean.includes('ptuj')) return Region.Podravska;
+  if (clean.includes('celje') || clean.includes('velenje') || clean.includes('zalec')) return Region.Savinjska;
+  if (clean.includes('kranj') || clean.includes('jesenic') || clean.includes('bled')) return Region.Gorenjska;
+  if (clean.includes('koper') || clean.includes('izola') || clean.includes('piran') || clean.includes('sezana')) return Region.ObalnoKraska;
+  if (clean.includes('novagorica') || clean.includes('tolmin') || clean.includes('ajdovscina')) return Region.Goriska;
+  if (clean.includes('novomesto') || clean.includes('kocevje') || clean.includes('crnomelj')) return Region.JugovzhodnaSlovenija;
+  if (clean.includes('murskasobota') || clean.includes('lendava')) return Region.Pomurska;
+  if (clean.includes('slovenjgradec') || clean.includes('dravograd')) return Region.Koroska;
+  if (clean.includes('krsko') || clean.includes('brezice')) return Region.Posavska;
+  if (clean.includes('trbovlje') || clean.includes('zagorje')) return Region.Zasavska;
+  if (clean.includes('postojna') || clean.includes('ilirskabistrica')) return Region.PrimorskoNotranjska;
+
+  for (const r of Object.values(Region)) {
+    const rClean = r.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+    if (rClean === clean) return r;
+  }
+
+  return Region.Osrednjeslovenska;
 };

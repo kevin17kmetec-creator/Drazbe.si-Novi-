@@ -4,7 +4,7 @@ import { ViewState, Region, Category, AuctionItem } from "../../types";
 import { useChat } from "../../context/ChatContext";
 import { SloveniaMap } from "@/src/components/ui/SloveniaMap";
 import { getCategoryTranslation } from "../../lib/translations";
-import { getUserAuctionCycle } from "../../lib/utils";
+import { getUserAuctionCycle, normalizeRegionName } from "../../lib/utils";
 
 export const Header: React.FC<{ 
   onHome: () => void;
@@ -100,9 +100,27 @@ export const Header: React.FC<{
   const regionCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     Object.values(Region).forEach(r => counts[r] = 0);
-    auctions.filter(a => a.status === 'active').forEach(a => {
-      if (counts[a.region] !== undefined) counts[a.region]++;
-      else if (a.region) counts[a.region] = (counts[a.region] || 0) + 1;
+    const now = Date.now();
+    const seenPackages = new Set<string>();
+
+    auctions.forEach(a => {
+      const isStatusActive = a.status === 'active';
+      const isTimeActive = a.endTime ? new Date(a.endTime).getTime() > now : true;
+      if (!isStatusActive || !isTimeActive) return;
+
+      const normReg = normalizeRegionName(a.region || (typeof a.location === 'object' ? a.location?.SLO : a.location));
+      const pkgId = a.package_id || (a as any).packageId;
+
+      if (a.is_package && pkgId) {
+        if (!seenPackages.has(pkgId)) {
+          seenPackages.add(pkgId);
+          if (counts[normReg] !== undefined) counts[normReg]++;
+          else counts[normReg] = 1;
+        }
+      } else {
+        if (counts[normReg] !== undefined) counts[normReg]++;
+        else counts[normReg] = 1;
+      }
     });
     return counts;
   }, [auctions]);
