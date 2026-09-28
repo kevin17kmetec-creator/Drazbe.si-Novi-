@@ -3907,8 +3907,7 @@ const MainApp: React.FC = () => {
                     standaloneItems.push({
                       ...singleItem,
                       is_package: false,
-                      package_id: null,
-                      packageId: null
+                      package_id: null
                     });
                   });
                 }
@@ -4052,7 +4051,7 @@ const MainApp: React.FC = () => {
     if (!isLoggedIn) {
       toast.error(t("login")); setActiveView("login"); return "login_required";
     }
-    const itemSellerId = item.sellerId || (item as any).seller_id || (item.seller && ((item.seller as any).id || item.seller.id));
+    const itemSellerId = item.sellerId || (item as any).seller_id || ((item as any).seller && (((item as any).seller as any).id || (item as any).seller.id));
     if (itemSellerId && (itemSellerId === userData?.id || itemSellerId === auth.currentUser?.uid)) {
       toast.error("Kot avtor dražbe ne morete oddajati ponudb na lasten predmet.");
       return "error";
@@ -4099,7 +4098,7 @@ const MainApp: React.FC = () => {
       return;
     }
     const item = pendingBid.item;
-    const itemSellerId = item.sellerId || (item as any).seller_id || (item.seller && ((item.seller as any).id || item.seller.id));
+    const itemSellerId = item.sellerId || (item as any).seller_id || ((item as any).seller && (((item as any).seller as any).id || (item as any).seller.id));
     if (itemSellerId && (itemSellerId === userData?.id || itemSellerId === auth.currentUser?.uid)) {
       toast.error("Kot avtor dražbe ne morete oddajati ponudb na lasten predmet.");
       if (bidResolverRef.current) bidResolverRef.current("error");
