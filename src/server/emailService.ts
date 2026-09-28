@@ -189,3 +189,32 @@ export async function sendPaymentReminderNotification(params: {
     settingsUrl: `${baseUrl}/?tab=settings`,
   });
 }
+
+/**
+ * Triggered 24 hours after buyer receipt confirmation if review is not yet submitted
+ */
+export async function sendReviewReminderNotification(params: {
+  toEmail: string;
+  recipientName?: string;
+  auctionId: string;
+  auctionTitle: string;
+  auctionImageUrl?: string;
+}): Promise<{ success: boolean; error?: string }> {
+  const baseUrl = getBaseAppUrl();
+  const auctionUrl = `${baseUrl}/?drazba=${params.auctionId}`;
+  const reviewUrl = `${baseUrl}/?tab=winnings`;
+
+  const subject = `⭐ Kako ste zadovoljni z nakupom: ${params.auctionTitle}? - dražbenik.si`;
+
+  return sendAuctionEmail(params.toEmail, subject, {
+    type: 'review_reminder',
+    recipientName: params.recipientName || 'Spoštovani kupec',
+    auctionTitle: params.auctionTitle,
+    auctionImageUrl: params.auctionImageUrl,
+    currentPrice: 0,
+    auctionUrl,
+    paymentUrl: reviewUrl,
+    settingsUrl: `${baseUrl}/?tab=settings`,
+  });
+}
+

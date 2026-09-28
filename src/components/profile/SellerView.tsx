@@ -106,12 +106,15 @@ const SellerView: React.FC<SellerViewProps> = ({
           const d = docSnap.data();
           loadedReviews.push({
             id: docSnap.id,
-            author: d.author || d.author_name || 'Uporabnik',
+            author: d.author || d.author_name || 'Preverjen kupec',
             rating: Number(d.rating) || 5,
             comment: d.comment || '',
             date: d.date || (d.created_at ? new Date(d.created_at).toLocaleDateString('sl-SI') : 'Nedavno'),
             isVerified: d.isVerified ?? true,
-            wouldRecommend: d.wouldRecommend ?? true
+            wouldRecommend: d.wouldRecommend ?? (Number(d.rating) >= 4),
+            auction_id: d.auction_id || d.auctionId,
+            auction_title: d.auction_title || d.auctionTitle,
+            auction_image: d.auction_image || d.auctionImage,
           });
         });
 
@@ -123,12 +126,15 @@ const SellerView: React.FC<SellerViewProps> = ({
             const d = docSnap.data();
             loadedReviews.push({
               id: docSnap.id,
-              author: d.author || d.author_name || 'Uporabnik',
+              author: d.author || d.author_name || 'Preverjen kupec',
               rating: Number(d.rating) || 5,
               comment: d.comment || '',
               date: d.date || (d.created_at ? new Date(d.created_at).toLocaleDateString('sl-SI') : 'Nedavno'),
               isVerified: d.isVerified ?? true,
-              wouldRecommend: d.wouldRecommend ?? true
+              wouldRecommend: d.wouldRecommend ?? (Number(d.rating) >= 4),
+              auction_id: d.auction_id || d.auctionId,
+              auction_title: d.auction_title || d.auctionTitle,
+              auction_image: d.auction_image || d.auctionImage,
             });
           });
         }
@@ -182,13 +188,24 @@ const SellerView: React.FC<SellerViewProps> = ({
     return currentUserWinnings.some(w => w.sellerId === seller.id || (w as any).seller_id === seller.id);
   }, [isLoggedIn, seller.id, currentUserWinnings]);
 
+  const [ratingFilter, setRatingFilter] = useState<'all' | number>('all');
+
+  const filteredReviews = useMemo(() => {
+    if (ratingFilter === 'all') return reviews;
+    return reviews.filter(r => Math.round(Number(r.rating)) === ratingFilter);
+  }, [reviews, ratingFilter]);
+
+  const ratingCounts = useMemo(() => {
+    const counts: Record<number, number> = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
+    reviews.forEach(r => {
+      const star = Math.max(1, Math.min(5, Math.round(Number(r.rating) || 5)));
+      counts[star] = (counts[star] || 0) + 1;
+    });
+    return counts;
+  }, [reviews]);
+
   const handleAddReview = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newReview.comment.trim()) {
-      toast.error('Prosimo, vnesite vsebino mnenja.');
-      return;
-    }
-
     setIsSubmittingReview(true);
     const authorName = auth.currentUser?.displayName || 'Preverjen kupec';
     const reviewPayload = {
@@ -212,7 +229,7 @@ const SellerView: React.FC<SellerViewProps> = ({
       };
       setReviews(prev => [createdReview, ...prev]);
       setNewReview({ rating: 5, comment: '', wouldRecommend: true });
-      toast.success('Mnenje je bilo uspešno oddano!');
+      toast.success('Ocena je bila uspešno oddana!');
     } catch (err: any) {
       console.error('Error saving review to Firestore:', err);
       // Fallback local update
@@ -222,7 +239,7 @@ const SellerView: React.FC<SellerViewProps> = ({
       };
       setReviews(prev => [fallbackReview, ...prev]);
       setNewReview({ rating: 5, comment: '', wouldRecommend: true });
-      toast.success('Mnenje je bilo zabeleženo!');
+      toast.success('Ocena je bila zabeležena!');
     } finally {
       setIsSubmittingReview(false);
     }
@@ -620,48 +637,137 @@ const SellerView: React.FC<SellerViewProps> = ({
               </div>
             )}
 
+            {/* Reviews Summary & Filter Header */}
+            {reviews.length > 0 && (
+              <div className="bg-slate-50 rounded-[3rem] p-6 sm:p-8 border border-slate-100 mb-8 flex flex-col md:flex-row items-center justify-between gap-6">
+                <div className="flex items-center gap-5">
+                  <div className="w-16 h-16 rounded-3xl bg-[#0A1128] text-[#FEBA4F] flex flex-col items-center justify-center font-black shadow-lg">
+                    <span className="text-2xl leading-none">{averageRating || '5.0'}</span>
+                    <span className="text-[9px] uppercase tracking-widest text-white/70 mt-0.5">/ 5</span>
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-1.5 mb-1">
+                      {[1, 2, 3, 4, 5].map(s => (
+                        <Star key={s} size={16} className={averageRating && s <= Math.round(Number(averageRating)) ? "text-[#FEBA4F] fill-[#FEBA4F]" : "text-slate-300"} />
+                      ))}
+                    </div>
+                    <p className="text-xs font-black uppercase tracking-wider text-[#0A1128]">
+                      Skupaj {reviewCount} {reviewCount === 1 ? 'ocena' : reviewCount === 2 ? 'oceni' : reviewCount <= 4 ? 'ocene' : 'ocen'} kupcev
+                    </p>
+                  </div>
+                </div>
+
+                {/* Rating Filter Pills */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={() => setRatingFilter('all')}
+                    className={`px-3.5 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
+                      ratingFilter === 'all'
+                        ? 'bg-[#0A1128] text-[#FEBA4F] shadow-md'
+                        : 'bg-white border border-slate-200 text-slate-600 hover:border-[#FEBA4F]'
+                    }`}
+                  >
+                    Vse ({reviewCount})
+                  </button>
+                  {[5, 4, 3, 2, 1].map(star => {
+                    const count = ratingCounts[star] || 0;
+                    if (count === 0 && ratingFilter !== star) return null;
+                    return (
+                      <button
+                        key={star}
+                        onClick={() => setRatingFilter(star)}
+                        className={`px-3 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1 ${
+                          ratingFilter === star
+                            ? 'bg-[#0A1128] text-[#FEBA4F] shadow-md'
+                            : 'bg-white border border-slate-200 text-slate-600 hover:border-[#FEBA4F]'
+                        }`}
+                      >
+                        <span>{star}</span>
+                        <Star size={12} className="fill-[#FEBA4F] text-[#FEBA4F]" />
+                        <span className="text-[10px] text-slate-400">({count})</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* Reviews List */}
             <div className="space-y-6">
               {isLoadingReviews ? (
                 <div className="py-20 text-center text-slate-400 font-bold">Nalaganje ocen...</div>
-              ) : reviews.length > 0 ? (
-                reviews.map(review => (
-                  <div key={review.id} className="bg-white rounded-[2.5rem] p-8 shadow-lg border border-slate-100">
-                    <div className="flex justify-between items-start mb-6">
+              ) : filteredReviews.length > 0 ? (
+                filteredReviews.map(review => (
+                  <div key={review.id} className="bg-white rounded-[2.5rem] p-6 sm:p-8 shadow-lg border border-slate-100 transition-all hover:shadow-xl">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4 pb-4 border-b border-slate-100">
                       <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 rounded-2xl bg-slate-50 flex items-center justify-center text-[#0A1128] font-black border border-slate-100">
+                        <div className="w-12 h-12 rounded-2xl bg-slate-50 flex items-center justify-center text-[#0A1128] font-black border border-slate-200 text-base">
                           {review.author[0]?.toUpperCase() || 'U'}
                         </div>
                         <div>
                           <div className="flex items-center gap-2">
-                            <h4 className="font-black text-[#0A1128]">{review.author}</h4>
-                            {review.isVerified && <CheckCircle2 size={14} className="text-green-500" />}
+                            <h4 className="font-black text-sm sm:text-base text-[#0A1128]">{review.author}</h4>
+                            {review.isVerified && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-md">
+                                <CheckCircle2 size={11} className="text-green-600" /> Preverjen kupec
+                              </span>
+                            )}
                           </div>
-                          <p className="text-[10px] font-black text-slate-400 uppercase">{review.date}</p>
+                          <p className="text-[10px] font-black text-slate-400 uppercase mt-0.5">{review.date}</p>
                         </div>
                       </div>
-                      <div className="flex gap-1">
-                        {[1, 2, 3, 4, 5].map(s => (
-                          <Star key={s} size={14} className={s <= review.rating ? 'text-[#FEBA4F] fill-[#FEBA4F]' : 'text-slate-200'} />
-                        ))}
+
+                      <div className="flex items-center gap-2 bg-slate-50 px-3.5 py-1.5 rounded-xl border border-slate-100 self-start sm:self-auto">
+                        <div className="flex gap-0.5">
+                          {[1, 2, 3, 4, 5].map(s => (
+                            <Star key={s} size={14} className={s <= review.rating ? 'text-[#FEBA4F] fill-[#FEBA4F]' : 'text-slate-200'} />
+                          ))}
+                        </div>
+                        <span className="text-xs font-black text-[#0A1128] ml-1">{review.rating} / 5</span>
                       </div>
                     </div>
-                    <p className="text-slate-600 font-bold leading-relaxed mb-6 italic">"{review.comment}"</p>
+
+                    {/* Auction title badge if provided */}
+                    {review.auction_title && (
+                      <div className="mb-4">
+                        <span className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 bg-slate-50 border border-slate-200/60 px-3 py-1.5 rounded-xl">
+                          <Package size={13} className="text-[#FEBA4F]" />
+                          <span>Dražba: <strong>{review.auction_title}</strong></span>
+                        </span>
+                      </div>
+                    )}
+
+                    {review.comment ? (
+                      <p className="text-slate-700 font-medium leading-relaxed mb-4 text-sm sm:text-base italic bg-slate-50/50 p-4 rounded-2xl border border-slate-100">
+                        "{review.comment}"
+                      </p>
+                    ) : (
+                      <p className="text-slate-400 text-xs font-semibold mb-4 italic">
+                        (Ocena oddana brez dodatnega komentarja)
+                      </p>
+                    )}
+
                     <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest">
                       {review.wouldRecommend ? (
-                        <span className="text-green-600 flex items-center gap-1.5"><ThumbsUp size={14} /> {t('yesRecommend')}</span>
+                        <span className="text-green-600 flex items-center gap-1.5 bg-green-50 px-3 py-1 rounded-lg border border-green-100">
+                          <ThumbsUp size={13} /> {t('yesRecommend')}
+                        </span>
                       ) : (
-                        <span className="text-red-500 flex items-center gap-1.5">{t('noRecommend')}</span>
+                        <span className="text-red-500 flex items-center gap-1.5 bg-red-50 px-3 py-1 rounded-lg border border-red-100">
+                          {t('noRecommend')}
+                        </span>
                       )}
                     </div>
                   </div>
                 ))
               ) : (
-                <div className="py-24 text-center">
-                  <div className="bg-slate-100 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 text-slate-300">
-                    <MessageSquare size={40} />
+                <div className="py-20 text-center bg-white rounded-[3rem] p-8 border border-slate-100">
+                  <div className="bg-slate-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-300">
+                    <MessageSquare size={32} />
                   </div>
-                  <p className="text-slate-400 font-bold text-xl">{t('noReviews')}</p>
+                  <p className="text-slate-400 font-bold text-base">
+                    {ratingFilter === 'all' ? t('noReviews') : `Ni ocen z izbrano oceno (${ratingFilter}★).`}
+                  </p>
                 </div>
               )}
             </div>

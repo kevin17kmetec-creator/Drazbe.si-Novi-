@@ -16,7 +16,7 @@ import {
   Preview,
 } from '@react-email/components';
 
-export type EmailType = 'outbid' | 'ending_soon' | 'won' | 'payment_reminder' | 'payment_success';
+export type EmailType = 'outbid' | 'ending_soon' | 'won' | 'payment_reminder' | 'payment_success' | 'review_reminder';
 
 export interface AuctionEmailProps {
   type: EmailType;
@@ -127,6 +127,19 @@ export const AuctionEmailTemplate: React.FC<AuctionEmailProps> = ({
       ctaUrl = auctionUrl || 'https://drazbe.eu';
       priceLabel = 'Plačan znesek:';
       highlightNote = 'Dokumenti so priloženi k temu sporočilu v PDF obliki.';
+      break;
+
+    case 'review_reminder':
+      previewText = `Kako ste zadovoljni z nakupom predmeta "${auctionTitle}"? Oddajte oceno!`;
+      badgeText = 'OCENITE PRODAJALCA';
+      badgeBg = '#FEBA4F';
+      badgeColor = '#0A1128';
+      headline = 'Kako ste zadovoljni z nakupom?';
+      subheadline = `Minilo je 24 ur od potrditve prejema predmeta "${auctionTitle}". Vaša ocena in mnenje o prodajalcu sta izjemno pomembna za transparentnost in varnost celotne skupnosti.`;
+      ctaText = 'Oddaj oceno prodajalca';
+      ctaUrl = paymentUrl || `${auctionUrl}?tab=winnings`;
+      priceLabel = 'Kupljen artikel:';
+      highlightNote = 'Oddaja ocene vzame manj kot minuto (1–5 zvezdic ter po želji kratek komentar).';
       break;
   }
 

@@ -3844,6 +3844,8 @@ app.post("/api/auctions/confirm-receipt", async (req, res) => {
     
     await adminDb.collection('auctions').doc(auction_id).update({
       buyer_received: true,
+      received_at: new Date().toISOString(),
+      receipt_confirmed_at: new Date().toISOString(),
       post_auction_status: 'completed',
       status: 'completed'
     });
@@ -3851,6 +3853,115 @@ app.post("/api/auctions/confirm-receipt", async (req, res) => {
     res.json({ success: true });
   } catch (err: any) {
     console.error('Error in confirm-receipt:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==========================================
+// ODDAJA OCENE PRODAJALCA ZA ZMAGANO DRAŽBO
+// ==========================================
+
+app.post("/api/reviews/submit", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Niste prijavljeni.' });
+    }
+    const token = authHeader.split('Bearer ')[1];
+    const decodedToken = await adminAuth.verifyIdToken(token);
+    const buyerId = decodedToken.uid;
+    const { auction_id, seller_id, rating, comment, would_recommend } = req.body;
+
+    if (!auction_id || !rating) {
+      return res.status(400).json({ error: 'Manjkajoči podatki za oceno.' });
+    }
+
+    const numRating = Math.max(1, Math.min(5, Number(rating) || 5));
+    const trimmedComment = typeof comment === 'string' ? comment.trim() : '';
+
+    // Fetch auction
+    const auctionDoc = await adminDb.collection('auctions').doc(auction_id).get();
+    if (!isDocSnapshotExists(auctionDoc)) {
+      return res.status(404).json({ error: 'Dražba ni najdena.' });
+    }
+    const auctionData = getDocSnapshotData(auctionDoc) || {};
+
+    const actualSellerId = seller_id || auctionData.seller_id || auctionData.sellerId || auctionData.seller?.id;
+    if (!actualSellerId) {
+      return res.status(400).json({ error: 'Prodajalec ni določen.' });
+    }
+
+    // Fetch buyer info for author name
+    let authorName = 'Preverjen kupec';
+    try {
+      const buyerDoc = await adminDb.collection('users').doc(buyerId).get();
+      if (isDocSnapshotExists(buyerDoc)) {
+        const bData = getDocSnapshotData(buyerDoc) || {};
+        if (bData.company_name) authorName = bData.company_name;
+        else if (bData.first_name) authorName = `${bData.first_name} ${bData.last_name || ''}`.trim();
+        else if (bData.username) authorName = bData.username;
+        else if (bData.name) authorName = typeof bData.name === 'object' ? (bData.name.SLO || bData.name.EN) : bData.name;
+      }
+    } catch (e) {}
+
+    const auctionTitle = auctionData.title?.SLO || auctionData.title?.EN || (typeof auctionData.title === 'string' ? auctionData.title : 'Dražba');
+    const auctionImage = Array.isArray(auctionData.images) && auctionData.images.length > 0 ? auctionData.images[0] : null;
+
+    const reviewPayload = {
+      seller_id: actualSellerId,
+      sellerId: actualSellerId,
+      author_id: buyerId,
+      author: authorName,
+      rating: numRating,
+      comment: trimmedComment,
+      auction_id,
+      auctionId: auction_id,
+      auction_title: auctionTitle,
+      auction_image: auctionImage,
+      date: new Date().toLocaleDateString('sl-SI'),
+      created_at: new Date().toISOString(),
+      isVerified: true,
+      wouldRecommend: would_recommend !== undefined ? Boolean(would_recommend) : numRating >= 4,
+    };
+
+    const reviewRef = await adminDb.collection('reviews').add(reviewPayload);
+
+    // Update auction document
+    await adminDb.collection('auctions').doc(auction_id).update({
+      review_submitted: true,
+      review_rating: numRating,
+      review_comment: trimmedComment,
+      review_submitted_at: new Date().toISOString(),
+      review_id: reviewRef.id,
+    });
+
+    // Update seller user statistics
+    try {
+      const sellerReviewsSnap = await adminDb.collection('reviews')
+        .where('seller_id', '==', actualSellerId)
+        .get();
+      let totalRating = 0;
+      let count = 0;
+      sellerReviewsSnap.forEach(d => {
+        const rData = d.data();
+        if (rData.rating) {
+          totalRating += Number(rData.rating);
+          count++;
+        }
+      });
+      const avg = count > 0 ? Math.round((totalRating / count) * 10) / 10 : numRating;
+      await adminDb.collection('users').doc(actualSellerId).set({
+        rating: avg,
+        review_count: count,
+        reviews_count: count,
+      }, { merge: true });
+    } catch (statErr) {
+      console.warn('Error updating seller stats in submit review:', statErr);
+    }
+
+    res.json({ success: true, review_id: reviewRef.id });
+  } catch (err: any) {
+    console.error('Error in /api/reviews/submit:', err);
     res.status(500).json({ error: err.message });
   }
 });

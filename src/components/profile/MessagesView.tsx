@@ -17,7 +17,8 @@ import {
   Search,
   MapPin,
   Clock,
-  ShieldCheck
+  ShieldCheck,
+  Star
 } from 'lucide-react';
 import { AuctionItem } from '../../types';
 import { useChat } from "../../context/ChatContext";
@@ -45,6 +46,7 @@ export const MessagesView: React.FC<{
   onBack: () => void;
   onPayAuction?: (auction: AuctionItem) => void;
   onOpenAuction?: (auction: AuctionItem) => void;
+  onLeaveReview?: (auction: AuctionItem) => void;
 }> = ({
   userId,
   t,
@@ -53,7 +55,8 @@ export const MessagesView: React.FC<{
   auctions,
   onBack,
   onPayAuction,
-  onOpenAuction
+  onOpenAuction,
+  onLeaveReview
 }) => {
   const {
     conversations,
@@ -383,7 +386,28 @@ export const MessagesView: React.FC<{
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 sm:gap-3 flex-wrap justify-end">
+                  {isBuyer && isAuctionPaid && (
+                    (currentChatConv.auction as any).review_submitted ? (
+                      <button
+                        onClick={() => onLeaveReview && onLeaveReview(currentChatConv.auction)}
+                        className="flex items-center gap-1.5 bg-green-50 text-green-700 hover:bg-green-100 border-2 border-green-200 px-3.5 py-2 rounded-xl text-xs font-black uppercase tracking-wider shadow-sm transition-all"
+                        title="Vaša oddana ocena za prodajalca"
+                      >
+                        <Star size={13} className="text-[#FEBA4F] fill-[#FEBA4F]" /> Ocenjeno ({(currentChatConv.auction as any).review_rating || 5}★)
+                      </button>
+                    ) : onLeaveReview ? (
+                      <button
+                        onClick={() => onLeaveReview(currentChatConv.auction)}
+                        className="flex items-center gap-1.5 bg-[#FEBA4F] text-[#0A1128] hover:bg-[#0A1128] hover:text-[#FEBA4F] border-2 border-[#FEBA4F] px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-md font-sans"
+                        title="Oddajte oceno za prodajalca"
+                      >
+                        <Star size={14} className="fill-current" />
+                        <span>Oceni prodajalca</span>
+                      </button>
+                    ) : null
+                  )}
+
                   {onOpenAuction && (
                     <button
                       onClick={() => onOpenAuction(currentChatConv.auction)}

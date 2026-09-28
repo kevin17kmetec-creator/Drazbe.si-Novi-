@@ -35,7 +35,8 @@ import {
   checkAuctionsCronAction,
   cancelSubscriptionAction,
   confirmReceiptAction,
-  syncUserSubscriptionAction
+  syncUserSubscriptionAction,
+  submitReviewAction
 } from "@/src/actions/index";
 import {
   Search,
@@ -140,6 +141,7 @@ const matchesSelectedRegion = (itemRegion: string | undefined | null, selected: 
 // --- MAIN APP COMPONENT ---
 
 import { InvoiceModal } from "@/src/components/modals/InvoiceModal";
+import { ReviewModal } from "@/src/components/modals/ReviewModal";
 import { TestSandboxView } from "@/src/components/flow/TestSandboxView";
 import { 
   mockSandboxPackageId, 
@@ -1061,13 +1063,31 @@ const MainApp: React.FC = () => {
     auctionId: string;
     sellerId: string;
   }>({ isOpen: false, auctionId: "", sellerId: "" });
-  const [ratingModal, setRatingModal] = useState<{
+  const [reviewModalData, setReviewModalData] = useState<{
     isOpen: boolean;
-    auctionId: string;
-    sellerId: string;
-    rating: number;
-    comment: string;
-  }>({ isOpen: false, auctionId: "", sellerId: "", rating: 0, comment: "" });
+    auction: AuctionItem | null;
+    sellerName?: string;
+  }>({ isOpen: false, auction: null, sellerName: "" });
+
+  const openReviewModal = (auction: AuctionItem) => {
+    const sId = auction.sellerId || (auction as any).seller_id;
+    const seller = usersMap.get(sId);
+    let sName = auction.sellerName;
+    if (seller) {
+      if (seller.user_type === 'business' && seller.company_name) {
+        sName = seller.company_name;
+      } else if (seller.first_name) {
+        sName = `${seller.first_name} ${seller.last_name || ''}`.trim();
+      } else if (seller.username) {
+        sName = seller.username;
+      }
+    }
+    setReviewModalData({
+      isOpen: true,
+      auction,
+      sellerName: sName,
+    });
+  };
   const [deleteUnsoldModal, setDeleteUnsoldModal] = useState<{
     isOpen: boolean;
     item?: any;
@@ -3013,7 +3033,7 @@ const MainApp: React.FC = () => {
                             </div>
 
                             <div className="flex flex-col sm:flex-row gap-3 w-full shrink-0">
-                              <div className="flex flex-col gap-3 flex-1 min-w-[150px]">
+                              <div className="flex flex-col gap-3 flex-1 min-w-[140px]">
                                 <button
                                   onClick={() => {
                                     navigateTo("detail", { selectedItem: wonItem });
@@ -3039,7 +3059,7 @@ const MainApp: React.FC = () => {
                                 </button>
                               </div>
 
-                              <div className="flex flex-col gap-3 flex-1 min-w-[150px]">
+                              <div className="flex flex-col gap-3 flex-1 min-w-[140px]">
                                 {wonItem.delivery_method !== "post" ? (
                                   <button
                                     onClick={() => {
@@ -3060,7 +3080,7 @@ const MainApp: React.FC = () => {
 
                                 <div className="flex flex-col items-center justify-center gap-2 mt-auto h-[42px] w-full">
                                   {wonItem.buyer_received ? (
-                                    <div className="text-green-500 font-bold text-[10px] uppercase flex items-center gap-1 w-full justify-center bg-green-50 py-2 rounded-xl border border-green-100">
+                                    <div className="text-green-500 font-bold text-[10px] uppercase flex items-center gap-1 w-full justify-center bg-green-50 py-2 rounded-xl border border-green-100 h-[42px]">
                                       <CheckCircle2 size={12} /> Predmet prejet
                                     </div>
                                   ) : (
@@ -3078,6 +3098,28 @@ const MainApp: React.FC = () => {
                                     </button>
                                   )}
                                 </div>
+                              </div>
+
+                              <div className="flex flex-col gap-3 flex-1 min-w-[140px]">
+                                {(wonItem as any).review_submitted ? (
+                                  <button
+                                    onClick={() => openReviewModal(wonItem)}
+                                    className="bg-green-50 text-green-700 border-2 border-green-200 px-4 py-3 rounded-2xl font-black uppercase tracking-widest text-[11px] hover:bg-green-100 transition-all flex items-center justify-center gap-1.5 h-[42px] shadow-sm"
+                                    title="Vaša oddana ocena za prodajalca"
+                                  >
+                                    <Star size={14} className="text-[#FEBA4F] fill-[#FEBA4F]" />
+                                    <span>Ocenjeno ({(wonItem as any).review_rating || 5}★)</span>
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={() => openReviewModal(wonItem)}
+                                    className="bg-[#0A1128] text-[#FEBA4F] hover:bg-[#FEBA4F] hover:text-[#0A1128] border-2 border-[#FEBA4F]/40 px-4 py-3 rounded-2xl font-black uppercase tracking-widest text-[11px] transition-all shadow-md flex items-center justify-center gap-1.5 h-[42px]"
+                                    title="Oddajte oceno za prodajalca"
+                                  >
+                                    <Star size={14} className="fill-current" />
+                                    <span>Oceni prodajalca</span>
+                                  </button>
+                                )}
                               </div>
                             </div>
                           </div>
@@ -3676,6 +3718,9 @@ const MainApp: React.FC = () => {
           }}
           onOpenAuction={(auction) => {
             navigateTo("detail", { selectedItem: auction });
+          }}
+          onLeaveReview={(auction) => {
+            openReviewModal(auction);
           }}
           onPayAuction={(auction) => {
             const currentBid = auction.currentBid || 0;
@@ -4484,9 +4529,79 @@ const MainApp: React.FC = () => {
     }
   };
 
-  function handleRatingSubmit() {
-    setRatingModal(prev => ({ ...prev, isOpen: false }));
-    fetchAuctions();
+  const handleReviewSubmit = async (
+    auctionId: string,
+    sellerId: string,
+    rating: number,
+    comment: string
+  ): Promise<boolean> => {
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      if (!token) {
+        toast.error("Za oddajo ocene morate biti prijavljeni.");
+        return false;
+      }
+      const res = await submitReviewAction({
+        auction_id: auctionId,
+        seller_id: sellerId,
+        rating,
+        comment,
+        would_recommend: rating >= 4,
+      }, token);
+
+      if (res.success) {
+        toast.success("Hvala! Vaša ocena je bila uspešno oddana.");
+        setReviewModalData({ isOpen: false, auction: null, sellerName: "" });
+        fetchAuctions();
+        if (userData?.id) refreshUserData(userData.id);
+        return true;
+      } else {
+        // Fallback: direct write to firestore if server action had an issue
+        try {
+          const authorName = (userData as any)?.company_name || 
+            `${(userData as any)?.first_name || ''} ${(userData as any)?.last_name || ''}`.trim() || 
+            (userData as any)?.username || 
+            'Preverjen kupec';
+          
+          await addDoc(collection(db, 'reviews'), {
+            seller_id: sellerId,
+            sellerId: sellerId,
+            author: authorName,
+            author_id: auth.currentUser?.uid || '',
+            rating,
+            comment: comment.trim(),
+            auction_id: auctionId,
+            auctionId: auctionId,
+            auction_title: typeof reviewModalData.auction?.title === 'object' 
+              ? (reviewModalData.auction?.title?.SLO || 'Dražba') 
+              : (reviewModalData.auction?.title || 'Dražba'),
+            date: new Date().toLocaleDateString('sl-SI'),
+            created_at: new Date().toISOString(),
+            isVerified: true,
+            wouldRecommend: rating >= 4
+          });
+
+          await setDoc(doc(db, 'auctions', auctionId), {
+            review_submitted: true,
+            review_rating: rating,
+            review_comment: comment.trim(),
+            review_submitted_at: new Date().toISOString()
+          }, { merge: true });
+
+          toast.success("Hvala! Vaša ocena je bila uspešno oddana.");
+          setReviewModalData({ isOpen: false, auction: null, sellerName: "" });
+          fetchAuctions();
+          return true;
+        } catch (fbErr: any) {
+          toast.error(res.error || "Napaka pri oddaji ocene.");
+          return false;
+        }
+      }
+    } catch (err: any) {
+      console.error("Error submitting review:", err);
+      toast.error("Napaka pri oddaji ocene.");
+      return false;
+    }
   };
 
   if (isHydrating) {
@@ -4869,74 +4984,15 @@ const MainApp: React.FC = () => {
           </div>
         )}
 
-        {ratingModal.isOpen && (
-          <div className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-6 animate-in">
-            <div className="bg-white w-full max-w-lg rounded-[3rem] p-10 shadow-2xl relative">
-              <button
-                onClick={() =>
-                  setRatingModal({
-                    isOpen: false,
-                    auctionId: "",
-                    sellerId: "",
-                    rating: 0,
-                    comment: "",
-                  })
-                }
-                className="absolute top-8 right-8 text-slate-400 hover:text-[#0A1128] transition-colors"
-              >
-                <X size={24} />
-              </button>
-              <h2 className="text-2xl font-black text-[#0A1128] uppercase tracking-tighter mb-4 text-center">
-                Oceni prodajalca
-              </h2>
-              <p className="text-slate-500 font-bold mb-8 text-center">
-                Vaša ocena pomaga graditi zaupanje v skupnosti.
-              </p>
-
-              <div className="flex items-center justify-center gap-2 mb-8">
-                {[1, 2, 3, 4, 5].map((star) => (
-                  <button
-                    key={star}
-                    onClick={() =>
-                      setRatingModal((prev) => ({ ...prev, rating: star }))
-                    }
-                    className="group transition-transform hover:scale-110"
-                  >
-                    <Star
-                      size={40}
-                      className={`${star <= ratingModal.rating ? "text-[#FEBA4F] fill-[#FEBA4F]" : "text-slate-200"} group-hover:text-[#FEBA4F] transition-colors`}
-                    />
-                  </button>
-                ))}
-              </div>
-
-              <div className="mb-8">
-                <label className="block text-sm font-black text-[#0A1128] uppercase tracking-widest mb-3">
-                  Komentar (izbirno)
-                </label>
-                <textarea
-                  value={ratingModal.comment}
-                  onChange={(e) =>
-                    setRatingModal((prev) => ({
-                      ...prev,
-                      comment: e.target.value,
-                    }))
-                  }
-                  className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 font-bold text-sm focus:outline-none focus:border-[#FEBA4F] transition-colors h-32 resize-none"
-                  placeholder="Vpišite vašo izkušnjo s prodajalcem..."
-                />
-              </div>
-
-              <button
-                onClick={handleRatingSubmit}
-                disabled={ratingModal.rating === 0}
-                className="w-full bg-[#0A1128] text-white py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Oddaj oceno
-              </button>
-            </div>
-          </div>
-        )}
+        <ReviewModal
+          isOpen={reviewModalData.isOpen}
+          onClose={() => setReviewModalData({ isOpen: false, auction: null, sellerName: "" })}
+          auction={reviewModalData.auction}
+          sellerName={reviewModalData.sellerName}
+          language={language}
+          t={t}
+          onSubmitReview={handleReviewSubmit}
+        />
 
         {isCheckoutOpen && checkoutData && (
           <CheckoutModal

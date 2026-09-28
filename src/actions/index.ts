@@ -494,3 +494,21 @@ export async function deleteAccountAction(token: string): Promise<ActionResponse
   });
 }
 
+/**
+ * Oddaja ocene prodajalca za zmagano dražbo
+ */
+export async function submitReviewAction(params: {
+  auction_id: string;
+  seller_id: string;
+  rating: number;
+  comment?: string;
+  would_recommend?: boolean;
+}, token?: string): Promise<ActionResponse<{ review_id: string }>> {
+  'use server';
+  return safeApiCall<{ review_id: string }>('/api/reviews/submit', {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    body: JSON.stringify(params),
+  });
+}
+

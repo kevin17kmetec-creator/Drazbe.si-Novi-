@@ -3,6 +3,7 @@ import {
   sendEndingSoonNotification,
   sendAuctionWonNotification,
   sendPaymentReminderNotification,
+  sendReviewReminderNotification,
 } from './emailService';
 
 export interface CronRunResult {
@@ -15,6 +16,7 @@ export interface CronRunResult {
     unsoldUpdated: number;
     paymentRemindersSent: number;
     expired1stProcessed: number;
+    reviewRemindersSent: number;
   };
   details: string[];
 }
@@ -32,6 +34,7 @@ export async function processAuctionCrons(): Promise<CronRunResult> {
       unsoldUpdated: 0,
       paymentRemindersSent: 0,
       expired1stProcessed: 0,
+      reviewRemindersSent: 0,
     },
     details,
   };
@@ -366,6 +369,63 @@ export async function processAuctionCrons(): Promise<CronRunResult> {
           }
         }
       }
+    }
+
+    // -------------------------------------------------------------
+    // 6. REVIEW REMINDERS: 24 HOURS AFTER ITEM RECEIPT CONFIRMATION
+    // -------------------------------------------------------------
+    try {
+      const receivedAuctionsSnap = await adminDb.collection('auctions')
+        .where('buyer_received', '==', true)
+        .get();
+
+      const twentyFourHoursMs = 24 * 60 * 60 * 1000;
+
+      for (const aDoc of receivedAuctionsSnap.docs) {
+        const aData = aDoc.data();
+        // If already reviewed or reminder already sent, skip
+        if (aData.review_submitted || aData.review_reminder_sent) continue;
+
+        const receivedAtStr = aData.received_at || aData.receipt_confirmed_at || aData.paid_at;
+        if (!receivedAtStr) continue;
+
+        const receivedTime = new Date(receivedAtStr).getTime();
+        if (now.getTime() - receivedTime >= twentyFourHoursMs) {
+          const buyerId = aData.winner_id || aData.winnerId;
+          if (buyerId) {
+            try {
+              const buyerSnap = await adminDb.collection('users').doc(buyerId).get();
+              if (isDocSnapshotExists(buyerSnap)) {
+                const bData = getDocSnapshotData(buyerSnap) || {};
+                if (bData.email) {
+                  const aTitle = aData.title?.SLO || aData.title?.EN || (typeof aData.title === 'string' ? aData.title : 'Predmet dražbe');
+                  const aImage = Array.isArray(aData.images) && aData.images.length > 0 ? aData.images[0] : undefined;
+
+                  await sendReviewReminderNotification({
+                    toEmail: bData.email,
+                    recipientName: bData.first_name || bData.name || 'Spoštovani kupec',
+                    auctionId: aDoc.id,
+                    auctionTitle: aTitle,
+                    auctionImageUrl: aImage,
+                  });
+
+                  await aDoc.ref.update({
+                    review_reminder_sent: true,
+                    review_reminder_sent_at: now.toISOString(),
+                  });
+
+                  result.actions.reviewRemindersSent++;
+                  details.push(`Review reminder sent for auction ${aDoc.id} to buyer ${bData.email}`);
+                }
+              }
+            } catch (remErr: any) {
+              console.error(`[CRON] Error sending review reminder for auction ${aDoc.id}:`, remErr.message);
+            }
+          }
+        }
+      }
+    } catch (revCronErr: any) {
+      console.warn('[CRON] Error processing review reminders:', revCronErr.message);
     }
 
     // -------------------------------------------------------------

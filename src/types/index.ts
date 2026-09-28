@@ -54,6 +54,12 @@ export interface Review {
   date: string;
   isVerified: boolean;
   wouldRecommend: boolean;
+  auction_id?: string;
+  auction_title?: string;
+  auction_image?: string;
+  author_id?: string;
+  seller_id?: string;
+  created_at?: string;
 }
 
 export interface AuctionItem {
