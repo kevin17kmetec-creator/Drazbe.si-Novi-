@@ -256,7 +256,7 @@ const SellerView: React.FC<SellerViewProps> = ({
     return null;
   }, [seller]);
 
-  const isVerifiedSeller = Boolean((seller as any).verified || (seller as any).is_verified || (seller as any).isVerified);
+  const isVerifiedSeller = Boolean((seller as any).identity_verified === true || (seller as any).verified_identity === true || (seller as any).identity_verification_status === 'verified');
 
   return (
     <div className="max-w-[1600px] mx-auto py-16 px-6 animate-in">

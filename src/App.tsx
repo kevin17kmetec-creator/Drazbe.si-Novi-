@@ -499,6 +499,9 @@ const MainApp: React.FC = () => {
     email: "",
     profilePicture: "",
     is_verified: false,
+    profile_completed: false,
+    identity_verified: false,
+    email_verified: false,
     stripe_onboarding_complete: false,
     profile_picture_url: "",
     first_name: "",
@@ -1188,6 +1191,9 @@ const MainApp: React.FC = () => {
               countryCode: data.countryCode || data.country_code || prev.countryCode || 'SI',
               is_verified: data.is_verified ?? data.isVerified ?? false,
               isVerified: data.is_verified ?? data.isVerified ?? false,
+              profile_completed: data.profile_completed ?? (data.is_verified || data.isVerified) ?? false,
+              identity_verified: data.identity_verified === true,
+              email_verified: data.email_verified === true,
               user_type: data.user_type || data.userType || null,
               userType: data.userType || data.user_type || null,
               stripe_onboarding_complete: data.stripe_onboarding_complete ?? data.stripeOnboardingComplete ?? false,
@@ -1196,7 +1202,7 @@ const MainApp: React.FC = () => {
               held_cents: data.held_cents || 0,
               reserved_cents: data.reserved_cents || 0,
             }));
-            setIsVerified(data.is_verified || data.isVerified || false);
+            setIsVerified(Boolean(data.profile_completed || data.is_verified || data.isVerified || false));
             setUserType(data.user_type || data.userType || null);
             
             const now = new Date();
@@ -2675,8 +2681,7 @@ const MainApp: React.FC = () => {
               const updateData: any = {
                 id: userId,
                 email: data.email,
-                is_verified: true,
-                isVerified: true,
+                profile_completed: true,
                 user_type: type,
                 userType: type,
                 first_name: data.firstName || '',
@@ -2754,7 +2759,7 @@ const MainApp: React.FC = () => {
                   ...prev,
                   ...updatedUser,
                   id: userId,
-                  is_verified: true,
+                  profile_completed: true,
                 }));
               }
 
@@ -4132,11 +4137,11 @@ const MainApp: React.FC = () => {
 
   // Sync isVerified state with userData as a fallback
   useEffect(() => {
-    const userDataVerified = !!userData.is_verified;
+    const userDataVerified = !!(userData.profile_completed || userData.is_verified);
     if (isLoggedIn && isVerified !== userDataVerified) {
       setIsVerified(userDataVerified);
     }
-  }, [userData.is_verified, isLoggedIn, isVerified]);
+  }, [userData.profile_completed, userData.is_verified, isLoggedIn, isVerified]);
 
   const [dontShowTermsAgain, setDontShowTermsAgain] = useState(false);
 

@@ -125,12 +125,11 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
           setUnverifiedEmail(null);
 
           // E-pošta JE potrjena! Posodobimo uporabniški račun v Firestore:
-          if (user) {
+          if (user && (auth.currentUser?.emailVerified || user.emailVerified)) {
               try {
                   await setDoc(doc(db, "users", user.uid), { 
                     id: user.uid,
                     email: user.email || cleanEmail,
-                    is_verified: true,
                     email_verified: true,
                     registration_confirmed: true,
                     registration_confirmed_at: new Date().toISOString(),

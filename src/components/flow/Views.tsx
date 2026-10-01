@@ -67,11 +67,6 @@ export const VerificationView = ({ profile, onVerify, t }: { profile: any, onVer
     const handleVerify = async () => {
         setLoading(true);
         try {
-          let error = null;
-          try { await setDoc(doc(db, 'profiles', profile.id), { is_verified: true, user_type: type }, { merge: true }); } catch (e) { error = e; }
-          
-          if (error) throw error;
-          
           onVerify();
           setStep(2);
         } catch (err: any) {

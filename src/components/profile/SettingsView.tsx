@@ -218,7 +218,8 @@ export const SettingsView: React.FC<{
     }
   }, [user]);
 
-  const isVerified = user?.is_verified || user?.isVerified;
+  const isProfileCompleted = Boolean(user?.profile_completed || user?.is_verified || user?.isVerified);
+  const isIdentityVerified = Boolean(user?.identity_verified === true || user?.verified_identity === true || user?.identity_verification_status === 'verified');
   const userType = user?.user_type || user?.userType || 'individual';
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -359,7 +360,7 @@ export const SettingsView: React.FC<{
 
                     <div className="text-right">
                         <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{t('verificationStatus')}</p>
-                        {isVerified ? (
+                        {isProfileCompleted ? (
                             <div className="inline-flex items-center gap-2 px-4 py-2 bg-green-50 text-green-600 rounded-full text-xs font-black uppercase tracking-widest border border-green-100">
                                 <CheckCircle2 size={16} /> {t('verified')} ({userType === 'business' ? t('business') : t('individual')})
                             </div>
@@ -458,7 +459,7 @@ export const SettingsView: React.FC<{
                         {t('annualPurchaseLimitTitle')}
                       </h4>
                       <p className="text-xs text-slate-500 font-bold max-w-md">
-                        {isVerified 
+                        {isIdentityVerified 
                           ? t('annualLimitVerified')
                           : t('annualLimitUnverified')}
                       </p>
@@ -467,7 +468,7 @@ export const SettingsView: React.FC<{
                       <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-0.5">{t('spendingInYear')} {new Date().getFullYear()}</p>
                       <p className="text-base font-black text-[#0A1128]">
                         €{((user?.yearly_spent_by_year && user.yearly_spent_by_year[new Date().getFullYear()]) || (user?.yearly_spent_year === new Date().getFullYear() ? user?.yearly_spent : 0) || 0).toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        <span className="text-slate-400 text-xs font-normal"> / {isVerified ? '∞' : '€10.000,00'}</span>
+                        <span className="text-slate-400 text-xs font-normal"> / {isIdentityVerified ? '∞' : '€10.000,00'}</span>
                       </p>
                     </div>
                   </div>
@@ -638,7 +639,7 @@ export const SettingsView: React.FC<{
 
             {activeTab === 'personal' && (
               <div className="animate-in fade-in slide-in-from-right-4">
-                {!isVerified ? (
+                {!isProfileCompleted ? (
                     <div className="text-center py-20 bg-slate-50 rounded-[2rem] border-2 border-dashed border-slate-200">
                         <div className="w-20 h-20 bg-red-100 rounded-full flex flex-col items-center justify-center mx-auto mb-6 text-red-500">
                             <AlertCircle size={32} />
