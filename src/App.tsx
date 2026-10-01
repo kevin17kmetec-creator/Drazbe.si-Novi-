@@ -943,9 +943,20 @@ const MainApp: React.FC = () => {
         if (id) {
           let found = [].find((s) => s.id === id);
           if (!found) {
-            const snap = await getDoc(doc(db, 'users', id));
-            const data: any = snap.exists() ? { id: snap.id, ...snap.data() } : null;
-            if (data) found = data;
+            const snap = await getDoc(doc(db, 'public_profiles', id));
+            if (snap.exists()) {
+              const pData = snap.data();
+              const dName = pData.display_name || pData.username || 'Prodajalec';
+              found = {
+                id: snap.id,
+                ...pData,
+                name: { SLO: dName, EN: dName, DE: dName },
+                photoURL: pData.photo_url || null,
+                sold_count: pData.sold_count || 0,
+                unpaid_penalties: pData.unpaid_penalties || 0,
+                identity_verified: Boolean(pData.identity_verified)
+              };
+            }
           }
           if (found) {
             setSelectedSeller(found);
@@ -1854,26 +1865,31 @@ const MainApp: React.FC = () => {
 
     navigateTo("sellerProfile", { selectedSeller: targetSeller });
 
-    // Also fetch fresh user document from Firestore if sellerId exists to ensure real-time photo & bio
+    // Also fetch fresh user document from public_profiles if sellerId exists to ensure real-time photo & bio
     if (sellerId) {
-      getDoc(doc(db, 'users', sellerId)).then((userDoc) => {
+      getDoc(doc(db, 'public_profiles', sellerId)).then((userDoc) => {
         if (userDoc.exists()) {
-          const uData = userDoc.data();
-          const freshPhoto = uData.profile_picture_url || uData.profilePicture || uData.photoURL || null;
+          const pData = userDoc.data() || {};
+          const dName = pData.display_name || pData.username || 'Prodajalec';
+          const freshPhoto = pData.photo_url || null;
           setSelectedSeller(prev => {
             if (!prev || (prev.id !== sellerId && (prev as any).sellerId !== sellerId)) return prev;
             return {
               ...prev,
-              ...uData,
+              ...pData,
+              name: { SLO: dName, EN: dName, DE: dName },
               photoURL: freshPhoto || (prev as any).photoURL,
               profile_picture_url: freshPhoto || (prev as any).profile_picture_url,
               profilePicture: freshPhoto || (prev as any).profilePicture,
-              verified: Boolean(uData.is_verified ?? uData.isVerified ?? (prev as any).verified)
+              verified: pData.identity_verified === true,
+              identity_verified: pData.identity_verified === true,
+              unpaid_penalties: pData.unpaid_penalties || 0,
+              sold_count: pData.sold_count || 0
             };
           });
         }
       }).catch((err) => {
-        console.warn('Could not fetch seller user doc:', err);
+        console.warn('Could not fetch seller public profile doc:', err);
       });
     }
   };

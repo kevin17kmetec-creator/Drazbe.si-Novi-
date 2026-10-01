@@ -1,4 +1,5 @@
 import { adminDb, isDocSnapshotExists, getDocSnapshotData } from '../lib/firebase-admin';
+import { syncPublicProfile } from './publicProfile';
 import {
   sendEndingSoonNotification,
   sendAuctionWonNotification,
@@ -311,20 +312,40 @@ export async function processAuctionCrons(): Promise<CronRunResult> {
         const auctionId = auctionDoc.id;
         const winnerId = data.winner_id || data.winnerId;
 
-        // Apply unpaid strike to default winner
+        // Apply unpaid strike to default winner idempotently using a Firestore transaction
         if (winnerId) {
           try {
             const userRef = adminDb.collection('users').doc(winnerId);
-            const userDoc = await userRef.get();
-            if (isDocSnapshotExists(userDoc)) {
-              const udata = getDocSnapshotData(userDoc) || {};
-              const newStrikes = (udata.unpaidStrikes || 0) + 1;
-              const updates: any = { unpaidStrikes: newStrikes };
-              if (newStrikes >= 3) {
-                updates.isBlocked = true;
+            const auctionRef = adminDb.collection('auctions').doc(auctionId);
+
+            await adminDb.runTransaction(async (transaction) => {
+              const auctionSnap = await transaction.get(auctionRef);
+              if (!auctionSnap.exists) return;
+              const auctionData = auctionSnap.data() || {};
+              if (auctionData.unpaid_strike_applied === true) {
+                // Strike already applied for this auction
+                return;
               }
-              await userRef.update(updates);
-            }
+
+              const userSnap = await transaction.get(userRef);
+              const userData = userSnap.exists ? (userSnap.data() || {}) : {};
+              const currentStrikes = Number(userData.unpaidStrikes ?? userData.unpaid_penalties ?? userData.unpaidPenalties ?? 0);
+              const newStrikes = currentStrikes + 1;
+
+              const userUpdates: any = {
+                unpaidStrikes: newStrikes,
+                unpaid_penalties: newStrikes
+              };
+              if (newStrikes >= 3) {
+                userUpdates.isBlocked = true;
+              }
+
+              transaction.update(userRef, userUpdates);
+              transaction.update(auctionRef, { unpaid_strike_applied: true });
+            });
+
+            // Call syncPublicProfile after strike transaction
+            await syncPublicProfile(winnerId);
           } catch (strikeErr: any) {
             console.error(`[CRON] Error adding strike to user ${winnerId}:`, strikeErr.message);
           }

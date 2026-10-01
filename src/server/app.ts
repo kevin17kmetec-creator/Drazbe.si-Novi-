@@ -36,6 +36,7 @@ import {
   sendOutbidNotification
 } from './emailService';
 import { processAuctionCrons } from './cronProcessor';
+import { syncPublicProfile } from './publicProfile';
 import {
   adminDb,
   adminAuth,
@@ -392,65 +393,7 @@ function maskUsername(name?: string): string {
   return `${clean[0]}***${clean[clean.length - 1]}`;
 }
 
-/**
- * Helper to sync user profile data to public_profiles/{uid} collection.
- * Writes ONLY safe public profile fields. Never email, phone, street, postal code, tax numbers, wallet, subscription, or strikes.
- */
-export async function syncPublicProfile(uid: string) {
-  try {
-    if (!uid) return;
-    const userDoc = await adminDb.collection('users').doc(uid).get();
-    if (!userDoc.exists) return;
-    const user = userDoc.data() || {};
-
-    const userType = user.user_type || user.userType || 'individual';
-    const companyName = (user.company_name || user.companyName || '').trim();
-    const username = (user.username || user.userName || '').trim();
-    const firstName = (user.first_name || user.firstName || '').trim();
-    const lastName = (user.last_name || user.lastName || '').trim();
-
-    let displayName = '';
-    if (userType === 'business' && companyName) {
-      displayName = companyName;
-    } else if (username) {
-      displayName = username;
-    } else if (firstName) {
-      const lastInitial = lastName ? ` ${lastName.charAt(0).toUpperCase()}.` : '';
-      displayName = `${firstName}${lastInitial}`;
-    }
-
-    const photoUrl = user.profile_picture_url || user.profilePicture || user.photo_url || user.photoURL || null;
-    const city = user.city || user.company_city || user.companyCity || null;
-    const description = user.description || null;
-    const createdAt = user.created_at || user.createdAt || new Date().toISOString();
-
-    const soldCount = typeof user.sold_count === 'number' ? user.sold_count : (typeof user.soldCount === 'number' ? user.soldCount : 0);
-    const unpaidPenalties = typeof user.unpaid_penalties === 'number' ? user.unpaid_penalties : (typeof user.unpaidPenalties === 'number' ? user.unpaidPenalties : 0);
-
-    const identityVerified = Boolean(user.identity_verified || user.identityVerified || user.is_verified || user.isVerified);
-    const isDeleted = Boolean(user.is_deleted || user.isDeleted);
-
-    const publicProfileData = {
-      username: username || null,
-      display_name: displayName || 'Uporabnik',
-      user_type: userType,
-      company_name: companyName || null,
-      photo_url: photoUrl,
-      city: city || null,
-      description: description || null,
-      created_at: createdAt,
-      sold_count: soldCount,
-      unpaid_penalties: unpaidPenalties,
-      identity_verified: identityVerified,
-      is_deleted: isDeleted,
-      updated_at: new Date().toISOString()
-    };
-
-    await adminDb.collection('public_profiles').doc(uid).set(publicProfileData, { merge: true });
-  } catch (err: any) {
-    console.error(`[syncPublicProfile] Error syncing for user ${uid}:`, err);
-  }
-}
+// syncPublicProfile helper has been moved to its own file publicProfile.ts
 
 /**
  * Helper to record sale completion idempotently and increment seller's sold_count.
@@ -6000,6 +5943,196 @@ app.get("/api/transactions/partner-info", async (req, res) => {
     return res.json({ success: true, partner: partnerInfo });
   } catch (err: any) {
     console.error('Error in /api/transactions/partner-info:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Chat rate limiter using Upstash Redis sliding window (20 messages per minute)
+let chatRatelimit: Ratelimit | null = null;
+if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+  try {
+    const chatRedis = new Redis({
+      url: process.env.UPSTASH_REDIS_REST_URL,
+      token: process.env.UPSTASH_REDIS_REST_TOKEN,
+    });
+    chatRatelimit = new Ratelimit({
+      redis: chatRedis,
+      limiter: Ratelimit.slidingWindow(20, "1 m"),
+    });
+  } catch (err) {
+    console.warn("Failed to initialize chat rate limiter:", err);
+  }
+}
+
+// 1. POST /api/messages/send
+app.post("/api/messages/send", async (req, res) => {
+  try {
+    let uid: string;
+    try {
+      uid = await authenticateFirebaseUser(req);
+    } catch (authErr: any) {
+      return res.status(401).json({ error: authErr.message || 'Unauthorized' });
+    }
+
+    const { auction_id, content: rawContent, image_url } = req.body;
+    if (!auction_id) {
+      return res.status(400).json({ error: "Manjka ID dražbe (auction_id)." });
+    }
+
+    const auctionSnap = await adminDb.collection('auctions').doc(auction_id).get();
+    if (!auctionSnap.exists) {
+      return res.status(404).json({ error: "Dražba ni bila najdena." });
+    }
+
+    const auctionData = auctionSnap.data() || {};
+    const sellerId = auctionData.seller_id || auctionData.sellerId;
+    const winnerId = auctionData.winner_id || auctionData.winnerId;
+
+    if (uid !== sellerId && uid !== winnerId) {
+      return res.status(403).json({ error: "Nimate dostopa do tega klepeta." });
+    }
+
+    const isPaid = auctionData.payment_status === "paid" || auctionData.post_auction_status === "paid" || auctionData.status === "completed";
+    if (!isPaid) {
+      return res.status(400).json({ error: "Klepet je mogoč šele, ko je plačilo uspešno izvedeno." });
+    }
+
+    const content = (rawContent || '').trim();
+    const imageUrl = (image_url || '').trim();
+
+    if (!content && !imageUrl) {
+      return res.status(400).json({ error: "Sporočilo mora vsebovati besedilo ali sliko." });
+    }
+
+    if (content && content.length > 2000) {
+      return res.status(400).json({ error: "Besedilo sporočila je predolgo (največ 2000 znakov)." });
+    }
+
+    if (imageUrl) {
+      if (!imageUrl.startsWith("https://firebasestorage.googleapis.com/") && !imageUrl.startsWith("https://storage.googleapis.com/")) {
+        return res.status(400).json({ error: "Naslov slike mora biti veljaven HTTPS naslov v Firebase ali Google Storage." });
+      }
+      if (imageUrl.length > 1000) {
+        return res.status(400).json({ error: "Naslov slike je predolg (največ 1000 znakov)." });
+      }
+      if (imageUrl.startsWith("data:")) {
+        return res.status(400).json({ error: "Neposredno Base64 nalaganje (data: URL) ni dovoljeno." });
+      }
+    }
+
+    // Apply chat rate limit (max 20 messages per minute per user)
+    if (chatRatelimit) {
+      try {
+        const { success } = await chatRatelimit.limit(`chat_limit_${uid}`);
+        if (!success) {
+          return res.status(429).json({ error: "Presegli ste omejitev pošiljanja sporočil. Poskusite ponovno čez eno minuto." });
+        }
+      } catch (limErr) {
+        console.warn("Upstash limit check failed, bypassing:", limErr);
+      }
+    }
+
+    const nowIso = new Date().toISOString();
+    const recipientId = uid === sellerId ? winnerId : sellerId;
+    const conversationId = "conv_" + auction_id;
+
+    const batch = adminDb.batch();
+    const msgRef = adminDb.collection('messages').doc(); // Auto ID
+    const convRef = adminDb.collection('conversations').doc(conversationId);
+
+    const msgData: any = {
+      conversation_id: conversationId,
+      auction_id: auction_id,
+      sender_id: uid,
+      recipient_id: recipientId,
+      participants: [sellerId, winnerId],
+      content: content,
+      is_read: false,
+      created_at: nowIso
+    };
+    if (imageUrl) {
+      msgData.image_url = imageUrl;
+    }
+
+    batch.set(msgRef, msgData);
+
+    const lastMsgText = content ? content.substring(0, 200) : "[Slika]";
+    const convData = {
+      id: conversationId,
+      auction_id: auction_id,
+      participant_one: sellerId,
+      participant_two: winnerId,
+      participants: [sellerId, winnerId],
+      last_message: lastMsgText,
+      last_message_at: nowIso,
+      updated_at: nowIso,
+      [`unread_counts.${recipientId}`]: FieldValue.increment(1)
+    };
+
+    batch.set(convRef, convData, { merge: true });
+
+    await batch.commit();
+
+    return res.json({ id: msgRef.id, created_at: nowIso });
+  } catch (err: any) {
+    console.error('Error in /api/messages/send:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 2. POST /api/messages/mark-read
+app.post("/api/messages/mark-read", async (req, res) => {
+  try {
+    let uid: string;
+    try {
+      uid = await authenticateFirebaseUser(req);
+    } catch (authErr: any) {
+      return res.status(401).json({ error: authErr.message || 'Unauthorized' });
+    }
+
+    const { conversation_id } = req.body;
+    if (!conversation_id) {
+      return res.status(400).json({ error: "Manjka ID pogovora (conversation_id)." });
+    }
+
+    const convRef = adminDb.collection('conversations').doc(conversation_id);
+    const convSnap = await convRef.get();
+    if (!convSnap.exists) {
+      return res.status(404).json({ error: "Pogovor ni bil najden." });
+    }
+
+    const convData = convSnap.data() || {};
+    const participants = convData.participants || [];
+    if (!participants.includes(uid)) {
+      return res.status(403).json({ error: "Nimate dostopa do tega pogovora." });
+    }
+
+    const batch = adminDb.batch();
+
+    // Reset unread count for caller on conversation
+    batch.set(convRef, {
+      unread_counts: {
+        [uid]: 0
+      }
+    }, { merge: true });
+
+    // Mark messages where recipient is the caller and is_read is false as read
+    const unreadMsgsSnap = await adminDb.collection('messages')
+      .where('conversation_id', '==', conversation_id)
+      .where('recipient_id', '==', uid)
+      .where('is_read', '==', false)
+      .limit(400)
+      .get();
+
+    unreadMsgsSnap.docs.forEach((doc) => {
+      batch.update(doc.ref, { is_read: true });
+    });
+
+    await batch.commit();
+
+    return res.json({ success: true, marked_count: unreadMsgsSnap.size });
+  } catch (err: any) {
+    console.error('Error in /api/messages/mark-read:', err);
     return res.status(500).json({ error: err.message });
   }
 });
