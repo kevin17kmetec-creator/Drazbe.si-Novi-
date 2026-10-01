@@ -1191,7 +1191,7 @@ const MainApp: React.FC = () => {
               countryCode: data.countryCode || data.country_code || prev.countryCode || 'SI',
               is_verified: data.is_verified ?? data.isVerified ?? false,
               isVerified: data.is_verified ?? data.isVerified ?? false,
-              profile_completed: data.profile_completed ?? (data.is_verified || data.isVerified) ?? false,
+              profile_completed: data.profile_completed === true,
               identity_verified: data.identity_verified === true,
               email_verified: data.email_verified === true,
               user_type: data.user_type || data.userType || null,
@@ -1202,7 +1202,7 @@ const MainApp: React.FC = () => {
               held_cents: data.held_cents || 0,
               reserved_cents: data.reserved_cents || 0,
             }));
-            setIsVerified(Boolean(data.profile_completed || data.is_verified || data.isVerified || false));
+            setIsVerified(data.profile_completed === true);
             setUserType(data.user_type || data.userType || null);
             
             const now = new Date();
@@ -4137,11 +4137,11 @@ const MainApp: React.FC = () => {
 
   // Sync isVerified state with userData as a fallback
   useEffect(() => {
-    const userDataVerified = !!(userData.profile_completed || userData.is_verified);
+    const userDataVerified = !!userData.profile_completed;
     if (isLoggedIn && isVerified !== userDataVerified) {
       setIsVerified(userDataVerified);
     }
-  }, [userData.profile_completed, userData.is_verified, isLoggedIn, isVerified]);
+  }, [userData.profile_completed, isLoggedIn, isVerified]);
 
   const [dontShowTermsAgain, setDontShowTermsAgain] = useState(false);
 

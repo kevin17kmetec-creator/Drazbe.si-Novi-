@@ -382,6 +382,39 @@ function getBidIncrement(price: number): number {
   return 100;
 }
 
+/**
+ * Asserts compliance with the EU AML annual purchase limit (10,000 EUR).
+ * Reads the current-year spent amount in Europe/Ljubljana time zone.
+ * If buyer.identity_verified !== true and (spent + purchaseAmountEur) > 10,000 EUR,
+ * refuses the purchase with HTTP 400 status.
+ */
+function assertAmlLimit(buyer: any, purchaseAmountEur: number): void {
+  if (!buyer) return;
+  if (buyer.identity_verified === true) return;
+
+  const currentYearStr = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Europe/Ljubljana',
+    year: 'numeric'
+  }).format(new Date());
+  const currentYear = parseInt(currentYearStr, 10) || new Date().getFullYear();
+
+  let currentYearSpent = 0;
+  if (buyer.yearly_spent_by_year && buyer.yearly_spent_by_year[currentYear] !== undefined) {
+    currentYearSpent = Number(buyer.yearly_spent_by_year[currentYear]) || 0;
+  } else if (buyer.yearly_spent_by_year && buyer.yearly_spent_by_year[currentYearStr] !== undefined) {
+    currentYearSpent = Number(buyer.yearly_spent_by_year[currentYearStr]) || 0;
+  } else if ((buyer.yearly_spent_year === currentYear || buyer.yearly_spent_year === currentYearStr) && typeof buyer.yearly_spent === 'number') {
+    currentYearSpent = buyer.yearly_spent;
+  }
+
+  const projectedSpent = currentYearSpent + purchaseAmountEur;
+  if (projectedSpent > 10000) {
+    const err: any = new Error("V skladu z zakonodajo EU (ZPPDFT-2 / AML) je za skupne letne nakupe nad 10.000 € obvezna identifikacija z osebnim dokumentom. Prosimo, verificirajte svoj profil v nastavitvah pred nadaljevanjem.");
+    err.statusCode = 400;
+    throw err;
+  }
+}
+
 const app = express();
 
 const defaultAllowedOrigins = [
@@ -1225,25 +1258,9 @@ app.post("/api/create-checkout-session", async (req, res) => {
       console.warn("Could not fetch buyer from DB:", e.message);
     }
 
-    // Check EU AML law: 10,000 € annual limit check for buyers without ID verification
+    // Check buyer & customer
     if (buyer) {
       stripeCustomerId = await getOrCreateStripeCustomer(stripe, effectiveBuyerId, buyer);
-
-      const currentYear = new Date().getFullYear();
-      let currentYearSpent = 0;
-
-      if (buyer.yearly_spent_by_year && buyer.yearly_spent_by_year[currentYear]) {
-        currentYearSpent = Number(buyer.yearly_spent_by_year[currentYear]) || 0;
-      } else if (buyer.yearly_spent_year === currentYear && typeof buyer.yearly_spent === 'number') {
-        currentYearSpent = buyer.yearly_spent;
-      }
-
-      const isVerified = buyer.identity_verified === true;
-      if (currentYearSpent > 10000 && !isVerified) {
-        return res.status(400).json({
-          error: "V skladu z zakonodajo EU (ZPPDFT-2 / AML) je za skupne letne nakupe nad 10.000 € obvezna identifikacija z osebnim dokumentom. Prosimo, verificirajte svoj profil v nastavitvah pred nadaljevanjem."
-        });
-      }
     }
 
     if (type === "auction") {
@@ -1302,6 +1319,8 @@ app.post("/api/create-checkout-session", async (req, res) => {
       }
       const totals = calculateCheckoutTotals(authoritativePriceInCents, sellerTier);
       finalAmountCents = totals.buyerTotalInCents;
+
+      assertAmlLimit(buyer, finalAmountCents / 100);
 
       sessionMetadata = {
         type: 'auction',
@@ -1696,6 +1715,8 @@ app.post("/api/create-payment-intent", async (req, res) => {
     const totals = calculateCheckoutTotals(authoritativePriceInCents, sellerTier);
     const finalAmountCents = totals.buyerTotalInCents;
 
+    assertAmlLimit(buyer, finalAmountCents / 100);
+
     if (finalAmountCents <= 0) {
       return res.status(400).json({ error: "Invalid payment intent amount" });
     }
@@ -2002,6 +2023,8 @@ app.post("/api/payments/wallet-pay-auction", async (req, res) => {
       const buyerDoc = await t.get(buyerRef);
       const buyerData = buyerDoc.data() || {};
       
+      assertAmlLimit(buyerData, finalAmountCents / 100);
+
       // Ensure wallet migration
       const buyerWallet = ensureWalletMigrated(t, buyerRef, buyerData);
       if (buyerWallet.available_cents < finalAmountCents) {
@@ -2073,7 +2096,7 @@ app.post("/api/payments/wallet-pay-auction", async (req, res) => {
     res.json({ success: true, transaction_id: txId });
   } catch (error: any) {
     console.error("Wallet pay error:", error);
-    res.status(500).json({ error: error.message || "Napaka" });
+    res.status(error.statusCode || (error.message?.includes('AML') || error.message?.includes('10.000') ? 400 : 500)).json({ error: error.message || "Napaka" });
   }
 });
 
@@ -3799,7 +3822,6 @@ app.post("/api/auth/confirm-email", async (req, res) => {
     if (targetUserId) {
       await adminDb.collection('users').doc(targetUserId).set({
         email_verified: true,
-        is_verified: true,
         registration_confirmed: true,
         registration_confirmed_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
