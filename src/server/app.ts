@@ -383,6 +383,18 @@ function getBidIncrement(price: number): number {
 }
 
 /**
+ * Helper to get current Europe/Ljubljana year.
+ */
+function getLjubljanaYear(): { currentYear: number; currentYearStr: string } {
+  const currentYearStr = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Europe/Ljubljana',
+    year: 'numeric'
+  }).format(new Date());
+  const currentYear = parseInt(currentYearStr, 10) || new Date().getFullYear();
+  return { currentYear, currentYearStr };
+}
+
+/**
  * Asserts compliance with the EU AML annual purchase limit (10,000 EUR).
  * Reads the current-year spent amount in Europe/Ljubljana time zone.
  * If buyer.identity_verified !== true and (spent + purchaseAmountEur) > 10,000 EUR,
@@ -392,11 +404,7 @@ function assertAmlLimit(buyer: any, purchaseAmountEur: number): void {
   if (!buyer) return;
   if (buyer.identity_verified === true) return;
 
-  const currentYearStr = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Europe/Ljubljana',
-    year: 'numeric'
-  }).format(new Date());
-  const currentYear = parseInt(currentYearStr, 10) || new Date().getFullYear();
+  const { currentYear, currentYearStr } = getLjubljanaYear();
 
   let currentYearSpent = 0;
   if (buyer.yearly_spent_by_year && buyer.yearly_spent_by_year[currentYear] !== undefined) {
@@ -412,6 +420,73 @@ function assertAmlLimit(buyer: any, purchaseAmountEur: number): void {
     const err: any = new Error("V skladu z zakonodajo EU (ZPPDFT-2 / AML) je za skupne letne nakupe nad 10.000 € obvezna identifikacija z osebnim dokumentom. Prosimo, verificirajte svoj profil v nastavitvah pred nadaljevanjem.");
     err.statusCode = 400;
     throw err;
+  }
+}
+
+/**
+ * Records AML spending for a buyer idempotently.
+ * Uses aml_spend_log/{uniqueKey} to guarantee that each payment is counted exactly once.
+ * Updates yearly_spent_by_year.<year>, yearly_spent_year, yearly_spent, total_spent, purchases_count, and last_purchase_at.
+ * Can run in an existing transaction or create a new one.
+ */
+async function recordAmlSpend({
+  buyerId,
+  amountEur,
+  uniqueKey,
+  transaction
+}: {
+  buyerId: string;
+  amountEur: number;
+  uniqueKey: string;
+  transaction?: FirebaseFirestore.Transaction;
+}): Promise<{ recorded: boolean; already_recorded: boolean }> {
+  if (!buyerId || !uniqueKey || amountEur <= 0) {
+    return { recorded: false, already_recorded: false };
+  }
+
+  const { currentYear } = getLjubljanaYear();
+  const logRef = adminDb.collection('aml_spend_log').doc(uniqueKey);
+  const buyerRef = adminDb.collection('users').doc(buyerId);
+  const nowISO = new Date().toISOString();
+
+  const runWithTx = async (t: FirebaseFirestore.Transaction) => {
+    const logDoc = await t.get(logRef);
+    if (logDoc.exists) {
+      return { recorded: false, already_recorded: true };
+    }
+
+    const buyerDoc = await t.get(buyerRef);
+    const buyer = buyerDoc.data() || {};
+
+    const isCurrentYear = buyer.yearly_spent_year === currentYear;
+    const previousYearlySpent = isCurrentYear ? (Number(buyer.yearly_spent) || 0) : 0;
+    const newYearlySpent = previousYearlySpent + amountEur;
+
+    // Create log record
+    t.set(logRef, {
+      buyer_id: buyerId,
+      amount_eur: amountEur,
+      year: currentYear,
+      created_at: nowISO
+    });
+
+    // Update buyer document with FieldValue.increment
+    t.set(buyerRef, {
+      yearly_spent: newYearlySpent,
+      yearly_spent_year: currentYear,
+      [`yearly_spent_by_year.${currentYear}`]: FieldValue.increment(amountEur),
+      total_spent: FieldValue.increment(amountEur),
+      purchases_count: FieldValue.increment(1),
+      last_purchase_at: nowISO
+    }, { merge: true });
+
+    return { recorded: true, already_recorded: false };
+  };
+
+  if (transaction) {
+    return await runWithTx(transaction);
+  } else {
+    return await adminDb.runTransaction(runWithTx);
   }
 }
 
@@ -819,24 +894,32 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
 
       const vatAmount = platformFee * (vatRate / 100);
 
-      // 4. Create Transaction Record
+      // 4. Create Transaction Record (idempotent)
       let transaction: any = null;
       try {
-        const txRef = await adminDb.collection('transactions').add({
-          auction_id,
-          buyer_id,
-          seller_id,
-          stripe_payment_intent_id: paymentId,
-          amount_total: amountTotal,
-          platform_fee: platformFee,
-          vat_amount: vatAmount,
-          vat_rate: vatRate,
-          is_reverse_charge: isReverseCharge,
-          status: 'completed',
-          created_at: new Date().toISOString()
-        });
-        const snap = await safeGetDoc(txRef);
-        transaction = { id: txRef.id, ...snap.data() };
+        const existingTxSnap = await safeGetDocs(
+          adminDb.collection('transactions').where('stripe_payment_intent_id', '==', paymentId).limit(1)
+        );
+        if (!existingTxSnap.empty) {
+          const docSnap = existingTxSnap.docs[0];
+          transaction = { id: docSnap.id, ...docSnap.data() };
+        } else {
+          const txRef = await adminDb.collection('transactions').add({
+            auction_id,
+            buyer_id,
+            seller_id,
+            stripe_payment_intent_id: paymentId,
+            amount_total: amountTotal,
+            platform_fee: platformFee,
+            vat_amount: vatAmount,
+            vat_rate: vatRate,
+            is_reverse_charge: isReverseCharge,
+            status: 'completed',
+            created_at: new Date().toISOString()
+          });
+          const snap = await safeGetDoc(txRef);
+          transaction = { id: txRef.id, ...snap.data() };
+        }
       } catch (e: any) {
         console.error('Error creating transaction record:', e.message);
         throw e;
@@ -858,26 +941,16 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
         console.error('Error updating auction status or wallet:', e.message);
       }
 
-      // Track buyer spending for EU AML (10k annual limit) & purchase history
+      // Track buyer spending for EU AML (10k annual limit) & purchase history via idempotent recordAmlSpend
+      const stripePiId = isSession
+        ? (typeof sessionObj?.payment_intent === 'string' ? sessionObj.payment_intent : sessionObj?.payment_intent?.id || sessionObj?.id)
+        : paymentIntent?.id;
+
       try {
-        const currentYear = new Date().getFullYear();
-        const currentYearSpent = (buyer.yearly_spent_by_year && buyer.yearly_spent_by_year[currentYear])
-          ? Number(buyer.yearly_spent_by_year[currentYear]) || 0
-          : (buyer.yearly_spent_year === currentYear && typeof buyer.yearly_spent === 'number')
-            ? buyer.yearly_spent
-            : 0;
-
-        const updatedYearlySpent = currentYearSpent + amountTotal;
-        const updatedTotalSpent = (Number(buyer.total_spent) || 0) + amountTotal;
-        const updatedPurchasesCount = (Number(buyer.purchases_count) || 0) + 1;
-
-        await adminDb.collection('users').doc(buyer_id).update({
-          yearly_spent: updatedYearlySpent,
-          yearly_spent_year: currentYear,
-          [`yearly_spent_by_year.${currentYear}`]: updatedYearlySpent,
-          total_spent: updatedTotalSpent,
-          purchases_count: updatedPurchasesCount,
-          last_purchase_at: new Date().toISOString()
+        await recordAmlSpend({
+          buyerId: buyer_id,
+          amountEur: amountTotal,
+          uniqueKey: 'pi_' + stripePiId
         });
       } catch (spentErr: any) {
         console.error('Error updating buyer spending records in server webhook:', spentErr.message);
@@ -1833,28 +1906,18 @@ app.post("/api/confirm-checkout-session", async (req, res) => {
             console.error('Error recording transaction:', txErr);
           }
 
+          const stripePiId = typeof session.payment_intent === 'string'
+            ? session.payment_intent
+            : (session.payment_intent?.id || paymentIntent?.id || session.id);
+
           try {
-            const currentYear = new Date().getFullYear();
-            const currentYearSpent = (buyer.yearly_spent_by_year && buyer.yearly_spent_by_year[currentYear])
-              ? Number(buyer.yearly_spent_by_year[currentYear]) || 0
-              : (buyer.yearly_spent_year === currentYear && typeof buyer.yearly_spent === 'number')
-                ? buyer.yearly_spent
-                : 0;
-
-            const updatedYearlySpent = currentYearSpent + amountTotal;
-            const updatedTotalSpent = (Number(buyer.total_spent) || 0) + amountTotal;
-            const updatedPurchasesCount = (Number(buyer.purchases_count) || 0) + 1;
-
-            await adminDb.collection('users').doc(effectiveBuyerId).update({
-              yearly_spent: updatedYearlySpent,
-              yearly_spent_year: currentYear,
-              [`yearly_spent_by_year.${currentYear}`]: updatedYearlySpent,
-              total_spent: updatedTotalSpent,
-              purchases_count: updatedPurchasesCount,
-              last_purchase_at: new Date().toISOString()
+            await recordAmlSpend({
+              buyerId: effectiveBuyerId,
+              amountEur: amountTotal,
+              uniqueKey: 'pi_' + stripePiId
             });
-          } catch (amlErr) {
-            console.error('Error updating AML stats:', amlErr);
+          } catch (amlErr: any) {
+            console.error('Error updating AML stats in confirm-checkout-session:', amlErr.message);
           }
         }
 
@@ -2291,6 +2354,15 @@ app.post("/api/payments/wallet-pay-auction", async (req, res) => {
       
       assertAmlLimit(buyerData, finalAmountCents / 100);
 
+      const txId = 'WTX_' + Date.now();
+
+      await recordAmlSpend({
+        buyerId: buyer_id,
+        amountEur: finalAmountCents / 100,
+        uniqueKey: 'wallet_' + txId,
+        transaction: t
+      });
+
       // Ensure wallet migration
       const buyerWallet = ensureWalletMigrated(t, buyerRef, buyerData);
       if (buyerWallet.available_cents < finalAmountCents) {
@@ -2315,7 +2387,6 @@ app.post("/api/payments/wallet-pay-auction", async (req, res) => {
         status: 'completed',
       });
 
-      const txId = 'WTX_' + Date.now();
       t.set(adminDb.collection('transactions').doc(txId), {
         type: 'wallet_payment',
         auction_id,
