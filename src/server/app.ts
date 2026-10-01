@@ -415,6 +415,102 @@ function assertAmlLimit(buyer: any, purchaseAmountEur: number): void {
   }
 }
 
+/**
+ * Reserves an AML amount in Firestore to prevent race conditions during payment initialization.
+ * Runs in a single Firestore transaction:
+ * 1. Reads buyer doc
+ * 2. Reads all active reservations for this buyer
+ * 3. Filters out the current auction's reservation and expired reservations
+ * 4. Sums active unexpired reservations + current purchase amount + current year spend
+ * 5. If limit > 10,000 EUR and buyer.identity_verified !== true, throws 400 error
+ * 6. Sets/updates the reservation doc for `${buyerId}_${auctionId}` with status 'active'
+ */
+async function reserveAmlAmount({
+  buyerId,
+  auctionId,
+  amountEur
+}: {
+  buyerId: string;
+  auctionId: string;
+  amountEur: number;
+}): Promise<{ reservationId: string; expiresAt: string }> {
+  if (!buyerId || !auctionId || amountEur <= 0) {
+    return { reservationId: `${buyerId}_${auctionId}`, expiresAt: '' };
+  }
+
+  const reservationId = `${buyerId}_${auctionId}`;
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + 30 * 60 * 1000).toISOString();
+  const createdAt = now.toISOString();
+
+  const currentYearStr = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Europe/Ljubljana',
+    year: 'numeric'
+  }).format(now);
+  const currentYear = parseInt(currentYearStr, 10) || now.getFullYear();
+
+  await adminDb.runTransaction(async (t) => {
+    const buyerRef = adminDb.collection('users').doc(buyerId);
+    const buyerDoc = await t.get(buyerRef);
+    const buyer = buyerDoc.data() || {};
+
+    // If verified, skip limit check but still create reservation
+    if (buyer.identity_verified !== true) {
+      let currentYearSpent = 0;
+      if (buyer.yearly_spent_by_year && buyer.yearly_spent_by_year[currentYear] !== undefined) {
+        currentYearSpent = Number(buyer.yearly_spent_by_year[currentYear]) || 0;
+      } else if (buyer.yearly_spent_by_year && buyer.yearly_spent_by_year[currentYearStr] !== undefined) {
+        currentYearSpent = Number(buyer.yearly_spent_by_year[currentYearStr]) || 0;
+      } else if ((buyer.yearly_spent_year === currentYear || buyer.yearly_spent_year === currentYearStr) && typeof buyer.yearly_spent === 'number') {
+        currentYearSpent = buyer.yearly_spent;
+      }
+
+      // Read all active reservations for this buyer
+      const activeReservationsQuery = adminDb.collection('aml_reservations')
+        .where('buyer_id', '==', buyerId)
+        .where('status', '==', 'active');
+      const activeResSnap = await t.get(activeReservationsQuery);
+
+      const nowTime = now.getTime();
+      let otherActiveReservationsSum = 0;
+
+      for (const doc of activeResSnap.docs) {
+        if (doc.id === reservationId) {
+          // Exclude document of this same auction
+          continue;
+        }
+        const data = doc.data();
+        if (data.expires_at) {
+          const expTime = new Date(data.expires_at).getTime();
+          if (expTime > nowTime) {
+            otherActiveReservationsSum += Number(data.amount_eur) || 0;
+          }
+        }
+      }
+
+      const projectedTotal = currentYearSpent + otherActiveReservationsSum + amountEur;
+      if (projectedTotal > 10000) {
+        const err: any = new Error("V skladu z zakonodajo EU (ZPPDFT-2 / AML) je za skupne letne nakupe nad 10.000 € obvezna identifikacija z osebnim dokumentom. Prosimo, verificirajte svoj profil v nastavitvah pred nadaljevanjem.");
+        err.statusCode = 400;
+        throw err;
+      }
+    }
+
+    const reservationRef = adminDb.collection('aml_reservations').doc(reservationId);
+    t.set(reservationRef, {
+      buyer_id: buyerId,
+      auction_id: auctionId,
+      amount_eur: amountEur,
+      year: currentYear,
+      status: 'active',
+      expires_at: expiresAt,
+      created_at: createdAt
+    }, { merge: true });
+  });
+
+  return { reservationId, expiresAt };
+}
+
 const app = express();
 
 const defaultAllowedOrigins = [
@@ -787,6 +883,27 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
         console.error('Error updating buyer spending records in server webhook:', spentErr.message);
       }
 
+      // Mark AML reservation as consumed
+      try {
+        const reservationDocRef = adminDb.collection('aml_reservations').doc(`${buyer_id}_${auction_id}`);
+        const reservationDoc = await safeGetDoc(reservationDocRef);
+        if (reservationDoc.exists()) {
+          const resData = reservationDoc.data();
+          if (resData?.status !== 'active') {
+            console.warn(`[webhook] Consuming AML reservation for ${buyer_id}_${auction_id} which was in status '${resData?.status}'`);
+          }
+          await reservationDocRef.set({
+            status: 'consumed',
+            consumed_at: new Date().toISOString(),
+            stripe_payment_intent_id: paymentId
+          }, { merge: true });
+        } else {
+          console.warn(`[webhook] No active AML reservation found for ${buyer_id}_${auction_id} when consuming payment.`);
+        }
+      } catch (resErr: any) {
+        console.error('[webhook] Error consuming AML reservation:', resErr.message);
+      }
+
       // 6. Generate Invoice Numbers
       let salesInvoiceNo = `ITEM-${transaction.id.substring(0, 8)}`;
       let commissionInvoiceNo = `FEE-${transaction.id.substring(0, 8)}`;
@@ -910,6 +1027,76 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
       } catch (err: any) {
         console.error(`[webhook] Error updating user ${uid} for identity requires_input:`, err.message);
       }
+    }
+  } else if (event.type === 'checkout.session.expired') {
+    const session = event.data.object as Stripe.Checkout.Session;
+    const metadata = session?.metadata || {};
+    const { auction_id, buyer_id } = metadata;
+    const sessionId = session?.id;
+
+    try {
+      if (buyer_id && auction_id) {
+        const reservationId = `${buyer_id}_${auction_id}`;
+        await adminDb.collection('aml_reservations').doc(reservationId).set({
+          status: 'released',
+          released_at: new Date().toISOString(),
+          release_reason: 'checkout_session_expired'
+        }, { merge: true });
+        console.log(`[webhook] Released AML reservation ${reservationId} due to checkout.session.expired`);
+      } else if (sessionId) {
+        const qSnap = await adminDb.collection('aml_reservations')
+          .where('stripe_session_id', '==', sessionId)
+          .where('status', '==', 'active')
+          .limit(5)
+          .get();
+        for (const doc of qSnap.docs) {
+          await doc.ref.set({
+            status: 'released',
+            released_at: new Date().toISOString(),
+            release_reason: 'checkout_session_expired'
+          }, { merge: true });
+          console.log(`[webhook] Released AML reservation ${doc.id} by sessionId ${sessionId}`);
+        }
+      } else {
+        console.warn('[webhook] checkout.session.expired received without metadata or session id');
+      }
+    } catch (err: any) {
+      console.error('[webhook] Error releasing AML reservation for checkout.session.expired:', err.message);
+    }
+  } else if (event.type === 'payment_intent.payment_failed' || event.type === 'payment_intent.canceled') {
+    const paymentIntent = event.data.object as Stripe.PaymentIntent;
+    const metadata = paymentIntent?.metadata || {};
+    const { auction_id, buyer_id } = metadata;
+    const piId = paymentIntent?.id;
+
+    try {
+      if (buyer_id && auction_id) {
+        const reservationId = `${buyer_id}_${auction_id}`;
+        await adminDb.collection('aml_reservations').doc(reservationId).set({
+          status: 'released',
+          released_at: new Date().toISOString(),
+          release_reason: event.type
+        }, { merge: true });
+        console.log(`[webhook] Released AML reservation ${reservationId} due to ${event.type}`);
+      } else if (piId) {
+        const qSnap = await adminDb.collection('aml_reservations')
+          .where('stripe_payment_intent_id', '==', piId)
+          .where('status', '==', 'active')
+          .limit(5)
+          .get();
+        for (const doc of qSnap.docs) {
+          await doc.ref.set({
+            status: 'released',
+            released_at: new Date().toISOString(),
+            release_reason: event.type
+          }, { merge: true });
+          console.log(`[webhook] Released AML reservation ${doc.id} by paymentIntentId ${piId}`);
+        }
+      } else {
+        console.warn(`[webhook] ${event.type} received without metadata or payment intent id`);
+      }
+    } catch (err: any) {
+      console.error(`[webhook] Error releasing AML reservation for ${event.type}:`, err.message);
     }
   }
 
@@ -1247,6 +1434,8 @@ app.post("/api/create-checkout-session", async (req, res) => {
     let buyer: any = null;
     let stripeCustomerId: string | null = null;
     let finalAmountCents = 0;
+    let reservationId = '';
+    let reservationCreated = false;
 
     // Always load buyer from Firestore; ignore buyer_data from request body
     try {
@@ -1320,7 +1509,19 @@ app.post("/api/create-checkout-session", async (req, res) => {
       const totals = calculateCheckoutTotals(authoritativePriceInCents, sellerTier);
       finalAmountCents = totals.buyerTotalInCents;
 
-      assertAmlLimit(buyer, finalAmountCents / 100);
+      reservationId = `${userId}_${effectiveAuctionId}`;
+      reservationCreated = false;
+
+      try {
+        await reserveAmlAmount({
+          buyerId: userId,
+          auctionId: effectiveAuctionId,
+          amountEur: finalAmountCents / 100
+        });
+        reservationCreated = true;
+      } catch (amlErr: any) {
+        return res.status(amlErr.statusCode || 400).json({ error: amlErr.message });
+      }
 
       sessionMetadata = {
         type: 'auction',
@@ -1403,6 +1604,7 @@ app.post("/api/create-checkout-session", async (req, res) => {
         ...(type === 'subscription' ? { setup_future_usage: 'off_session' } : {})
       },
       mode: 'payment',
+      expires_at: Math.floor(Date.now() / 1000) + 1800,
       success_url: successUrl,
       cancel_url: cancelUrl,
     };
@@ -1422,12 +1624,38 @@ app.post("/api/create-checkout-session", async (req, res) => {
       sessionParams.customer_email = buyer.email;
     }
 
-    const session = await stripe.checkout.sessions.create(sessionParams);
+    let session: Stripe.Checkout.Session;
+    try {
+      session = await stripe.checkout.sessions.create(sessionParams);
+    } catch (stripeErr: any) {
+      if (reservationCreated) {
+        try {
+          await adminDb.collection('aml_reservations').doc(reservationId).set({
+            status: 'released',
+            released_at: new Date().toISOString(),
+            release_reason: 'stripe_checkout_create_failed'
+          }, { merge: true });
+        } catch (rErr: any) {
+          console.error('Error releasing reservation on Stripe checkout failure:', rErr.message);
+        }
+      }
+      throw stripeErr;
+    }
+
+    if (reservationCreated) {
+      try {
+        await adminDb.collection('aml_reservations').doc(reservationId).set({
+          stripe_session_id: session.id
+        }, { merge: true });
+      } catch (rErr: any) {
+        console.error('Error updating reservation with stripe_session_id:', rErr.message);
+      }
+    }
 
     res.json({ url: session.url, sessionId: session.id });
   } catch (error: any) {
     console.error("Stripe Checkout Error:", error);
-    res.status(500).json({ error: error.message });
+    res.status(error.statusCode || 500).json({ error: error.message });
   }
 });
 
@@ -1715,7 +1943,19 @@ app.post("/api/create-payment-intent", async (req, res) => {
     const totals = calculateCheckoutTotals(authoritativePriceInCents, sellerTier);
     const finalAmountCents = totals.buyerTotalInCents;
 
-    assertAmlLimit(buyer, finalAmountCents / 100);
+    const reservationId = `${userId}_${effectiveAuctionId}`;
+    let reservationCreated = false;
+
+    try {
+      await reserveAmlAmount({
+        buyerId: userId,
+        auctionId: effectiveAuctionId,
+        amountEur: finalAmountCents / 100
+      });
+      reservationCreated = true;
+    } catch (amlErr: any) {
+      return res.status(amlErr.statusCode || 400).json({ error: amlErr.message });
+    }
 
     if (finalAmountCents <= 0) {
       return res.status(400).json({ error: "Invalid payment intent amount" });
@@ -1739,14 +1979,40 @@ app.post("/api/create-payment-intent", async (req, res) => {
       intentParams.customer = stripeCustomerId;
     }
 
-    const paymentIntent = await stripe.paymentIntents.create(intentParams);
+    let paymentIntent: Stripe.PaymentIntent;
+    try {
+      paymentIntent = await stripe.paymentIntents.create(intentParams);
+    } catch (stripeErr: any) {
+      if (reservationCreated) {
+        try {
+          await adminDb.collection('aml_reservations').doc(reservationId).set({
+            status: 'released',
+            released_at: new Date().toISOString(),
+            release_reason: 'stripe_payment_intent_create_failed'
+          }, { merge: true });
+        } catch (rErr: any) {
+          console.error('Error releasing reservation on Stripe payment intent failure:', rErr.message);
+        }
+      }
+      throw stripeErr;
+    }
+
+    if (reservationCreated) {
+      try {
+        await adminDb.collection('aml_reservations').doc(reservationId).set({
+          stripe_payment_intent_id: paymentIntent.id
+        }, { merge: true });
+      } catch (rErr: any) {
+        console.error('Error updating reservation with stripe_payment_intent_id:', rErr.message);
+      }
+    }
 
     res.json({
       clientSecret: paymentIntent.client_secret,
     });
   } catch (error: any) {
     console.error("Stripe Payment Intent Error:", error);
-    res.status(500).json({ error: error.message });
+    res.status(error.statusCode || 500).json({ error: error.message });
   }
 });
 
