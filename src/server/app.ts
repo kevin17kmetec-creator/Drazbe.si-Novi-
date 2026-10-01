@@ -4640,41 +4640,29 @@ app.post("/api/auctions/confirm-receipt", async (req, res) => {
 // ==========================================
 
 app.post("/api/reviews/submit", async (req, res) => {
+  let buyerId: string;
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Niste prijavljeni.' });
-    }
-    const token = authHeader.split('Bearer ')[1];
-    const decodedToken = await adminAuth.verifyIdToken(token);
-    const buyerId = decodedToken.uid;
-    const { auction_id, seller_id, rating, comment, would_recommend } = req.body;
+    buyerId = await authenticateFirebaseUser(req);
+  } catch (authErr: any) {
+    return res.status(401).json({ error: authErr.message || 'Niste prijavljeni.' });
+  }
 
-    if (!auction_id || !rating) {
+  try {
+    const { auction_id, rating, comment, would_recommend } = req.body || {};
+
+    if (!auction_id || rating === undefined || rating === null) {
       return res.status(400).json({ error: 'Manjkajoči podatki za oceno.' });
     }
 
     const numRating = Math.max(1, Math.min(5, Number(rating) || 5));
     const trimmedComment = typeof comment === 'string' ? comment.trim() : '';
 
-    // Fetch auction
-    const auctionDoc = await adminDb.collection('auctions').doc(auction_id).get();
-    if (!isDocSnapshotExists(auctionDoc)) {
-      return res.status(404).json({ error: 'Dražba ni najdena.' });
-    }
-    const auctionData = getDocSnapshotData(auctionDoc) || {};
-
-    const actualSellerId = seller_id || auctionData.seller_id || auctionData.sellerId || auctionData.seller?.id;
-    if (!actualSellerId) {
-      return res.status(400).json({ error: 'Prodajalec ni določen.' });
-    }
-
     // Fetch buyer info for author name
     let authorName = 'Preverjen kupec';
     try {
-      const buyerDoc = await adminDb.collection('users').doc(buyerId).get();
-      if (isDocSnapshotExists(buyerDoc)) {
-        const bData = getDocSnapshotData(buyerDoc) || {};
+      const buyerDoc = await safeGetDoc(adminDb.collection('users').doc(buyerId));
+      if (buyerDoc.exists()) {
+        const bData = buyerDoc.data() || {};
         if (bData.company_name) authorName = bData.company_name;
         else if (bData.first_name) authorName = `${bData.first_name} ${bData.last_name || ''}`.trim();
         else if (bData.username) authorName = bData.username;
@@ -4682,35 +4670,69 @@ app.post("/api/reviews/submit", async (req, res) => {
       }
     } catch (e) {}
 
-    const auctionTitle = auctionData.title?.SLO || auctionData.title?.EN || (typeof auctionData.title === 'string' ? auctionData.title : 'Dražba');
-    const auctionImage = Array.isArray(auctionData.images) && auctionData.images.length > 0 ? auctionData.images[0] : null;
+    let actualSellerId = '';
+    let reviewId = '';
 
-    const reviewPayload = {
-      seller_id: actualSellerId,
-      sellerId: actualSellerId,
-      author_id: buyerId,
-      author: authorName,
-      rating: numRating,
-      comment: trimmedComment,
-      auction_id,
-      auctionId: auction_id,
-      auction_title: auctionTitle,
-      auction_image: auctionImage,
-      date: new Date().toLocaleDateString('sl-SI'),
-      created_at: new Date().toISOString(),
-      isVerified: true,
-      wouldRecommend: would_recommend !== undefined ? Boolean(would_recommend) : numRating >= 4,
-    };
+    await adminDb.runTransaction(async (t) => {
+      const aRef = adminDb.collection('auctions').doc(auction_id);
+      const aDoc = await t.get(aRef);
+      if (!aDoc.exists) {
+        throw { status: 404, message: "Dražba ni najdena." };
+      }
+      const auctionData = aDoc.data() || {};
+      actualSellerId = auctionData.seller_id || auctionData.sellerId || auctionData.seller?.id;
+      if (!actualSellerId) {
+        throw { status: 400, message: "Prodajalec ni določen na dražbi." };
+      }
 
-    const reviewRef = await adminDb.collection('reviews').add(reviewPayload);
+      if (buyerId === actualSellerId) {
+        throw { status: 400, message: "Prodajalec ne more oceniti samega sebe." };
+      }
 
-    // Update auction document
-    await adminDb.collection('auctions').doc(auction_id).update({
-      review_submitted: true,
-      review_rating: numRating,
-      review_comment: trimmedComment,
-      review_submitted_at: new Date().toISOString(),
-      review_id: reviewRef.id,
+      const winnerId = auctionData.winner_id || auctionData.winnerId;
+      if (winnerId !== buyerId) {
+        throw { status: 403, message: "Za oddajo ocene morate biti zmagovalec te dražbe." };
+      }
+
+      const isPaid = auctionData.payment_status === 'paid' || auctionData.post_auction_status === 'paid';
+      if (!isPaid) {
+        throw { status: 400, message: "Oceno lahko oddate le za plačane dražbe." };
+      }
+
+      if (auctionData.review_submitted) {
+        throw { status: 400, message: "Ocena je že oddana." };
+      }
+
+      const auctionTitle = auctionData.title?.SLO || auctionData.title?.EN || (typeof auctionData.title === 'string' ? auctionData.title : 'Dražba');
+      const auctionImage = Array.isArray(auctionData.images) && auctionData.images.length > 0 ? auctionData.images[0] : null;
+
+      const reviewRef = adminDb.collection('reviews').doc();
+      reviewId = reviewRef.id;
+
+      t.set(reviewRef, {
+        seller_id: actualSellerId,
+        sellerId: actualSellerId,
+        author_id: buyerId,
+        author: authorName,
+        rating: numRating,
+        comment: trimmedComment,
+        auction_id,
+        auctionId: auction_id,
+        auction_title: auctionTitle,
+        auction_image: auctionImage,
+        date: new Date().toLocaleDateString('sl-SI'),
+        created_at: new Date().toISOString(),
+        isVerified: true,
+        wouldRecommend: would_recommend !== undefined ? Boolean(would_recommend) : numRating >= 4,
+      });
+
+      t.update(aRef, {
+        review_submitted: true,
+        review_rating: numRating,
+        review_comment: trimmedComment,
+        review_submitted_at: new Date().toISOString(),
+        review_id: reviewId,
+      });
     });
 
     // Update seller user statistics
@@ -4737,10 +4759,13 @@ app.post("/api/reviews/submit", async (req, res) => {
       console.warn('Error updating seller stats in submit review:', statErr);
     }
 
-    res.json({ success: true, review_id: reviewRef.id });
+    res.json({ success: true, review_id: reviewId });
   } catch (err: any) {
+    if (err && typeof err === 'object' && err.status) {
+      return res.status(err.status).json({ error: err.message });
+    }
     console.error('Error in /api/reviews/submit:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: err.message || "Napaka pri oddaji ocene." });
   }
 });
 
@@ -5010,7 +5035,7 @@ app.post("/api/auctions/offer-second-chance", async (req, res) => {
   try {
     userId = await authenticateFirebaseUser(req);
   } catch (authErr: any) {
-    return res.status(401).json({ error: authErr.message || 'Unauthorized' });
+    return res.status(401).json({ error: authErr.message || 'Niste prijavljeni.' });
   }
 
   try {
@@ -5037,13 +5062,21 @@ app.post("/api/auctions/offer-second-chance", async (req, res) => {
       return res.status(400).json({ error: "Dražba se še ni zaključila." });
     }
 
-    if (auction.payment_status === 'paid') {
+    if (auction.payment_status === 'paid' || auction.post_auction_status === 'paid') {
       return res.status(400).json({ error: "Ta dražba je že plačana." });
     }
 
-    const disallowedStatuses = ['offered_2nd', 'awaiting_payment_2nd', 'paid', 'archived'];
-    if (disallowedStatuses.includes(auction.post_auction_status)) {
-      return res.status(400).json({ error: "Za to dražbo ni mogoče ponuditi druge možnosti." });
+    const pas = auction.post_auction_status;
+    const paymentDeadlineMs = auction.payment_deadline ? new Date(auction.payment_deadline).getTime() : 0;
+    const isPaymentDeadlinePast = paymentDeadlineMs > 0 && paymentDeadlineMs <= Date.now();
+
+    const isAllowedStatus = 
+      pas === 'failed_1st' || 
+      pas === 'unsold' || 
+      ((pas === 'awaiting_payment_1st' || pas === 'pending_payment' || pas === 'awaiting_payment' || !pas) && isPaymentDeadlinePast);
+
+    if (!isAllowedStatus) {
+      return res.status(400).json({ error: "Prvi zmagovalec ima še čas za plačilo." });
     }
 
     // Read top bids from auctions_private first, then fallback to auction document
@@ -5105,7 +5138,7 @@ app.post("/api/auctions/republish", async (req, res) => {
   try {
     userId = await authenticateFirebaseUser(req);
   } catch (authErr: any) {
-    return res.status(401).json({ error: authErr.message || 'Unauthorized' });
+    return res.status(401).json({ error: authErr.message || 'Niste prijavljeni.' });
   }
 
   try {
@@ -5132,8 +5165,25 @@ app.post("/api/auctions/republish", async (req, res) => {
       return res.status(400).json({ error: "Dražba je trenutno še aktivna in je ni mogoče ponovno objaviti." });
     }
 
-    if (auction.payment_status === 'paid') {
+    if (auction.payment_status === 'paid' || auction.post_auction_status === 'paid') {
       return res.status(400).json({ error: "Plačane dražbe ni mogoče ponovno objaviti." });
+    }
+
+    const pas = auction.post_auction_status;
+    const nowMs = Date.now();
+
+    if (pas === 'awaiting_payment_1st' || pas === 'pending_payment' || pas === 'awaiting_payment' || pas === 'awaiting_payment_2nd') {
+      const pDeadlineMs = auction.payment_deadline ? new Date(auction.payment_deadline).getTime() : 0;
+      if (pDeadlineMs > nowMs) {
+        return res.status(400).json({ error: "Dražbe ni mogoče ponovno objaviti, dokler teče rok za plačilo." });
+      }
+    }
+
+    if (pas === 'offered_2nd') {
+      const scDeadlineMs = auction.second_chance_deadline ? new Date(auction.second_chance_deadline).getTime() : 0;
+      if (scDeadlineMs > nowMs) {
+        return res.status(400).json({ error: "Dražbe ni mogoče ponovno objaviti, dokler teče rok za sprejem druge možnosti." });
+      }
     }
 
     const originalCreated = new Date(auction.created_at || auction.createdAt || Date.now() - 7 * 24 * 60 * 60 * 1000).getTime();
@@ -5214,6 +5264,253 @@ app.post("/api/auctions/republish", async (req, res) => {
   } catch (error: any) {
     console.error("[REPUBLISH ERROR]", error);
     res.status(500).json({ error: error.message || "Napaka pri ponovni objavi dražbe." });
+  }
+});
+
+// 1. Delete unsold auctions
+app.post("/api/auctions/delete-unsold", async (req, res) => {
+  let userId: string;
+  try {
+    userId = await authenticateFirebaseUser(req);
+  } catch (authErr: any) {
+    return res.status(401).json({ error: authErr.message || 'Niste prijavljeni.' });
+  }
+
+  try {
+    const { auction_ids } = req.body || {};
+    if (!Array.isArray(auction_ids) || auction_ids.length === 0 || auction_ids.length > 30) {
+      return res.status(400).json({ error: "Neveljavno število dražb za izbris (največ 30)." });
+    }
+
+    const nowMs = Date.now();
+    const disallowedPending = ['awaiting_payment_1st', 'offered_2nd', 'awaiting_payment_2nd'];
+
+    // Validate ALL auctions first
+    for (const id of auction_ids) {
+      if (typeof id !== 'string' || !id) {
+        return res.status(400).json({ error: "Neveljaven ID dražbe." });
+      }
+
+      const docRef = adminDb.collection('auctions').doc(id);
+      const snap = await safeGetDoc(docRef);
+      if (!snap.exists()) {
+        return res.status(404).json({ error: `Dražba ${id} ne obstaja.` });
+      }
+
+      const data = snap.data() || {};
+      const sellerId = data.seller_id || data.sellerId;
+      if (sellerId !== userId) {
+        return res.status(403).json({ error: `Nimate pravic za izbris dražbe ${id}. Niste prodajalec.` });
+      }
+
+      const rawEndTime = data.end_time || data.endTime;
+      const isEnded = (rawEndTime && new Date(rawEndTime).getTime() <= nowMs) || data.status !== 'active';
+      if (!isEnded) {
+        return res.status(400).json({ error: `Aktivne dražbe (${id}) ni mogoče izbrisati.` });
+      }
+
+      if (data.payment_status === 'paid' || data.post_auction_status === 'paid') {
+        return res.status(400).json({ error: `Plačane dražbe (${id}) ni mogoče izbrisati.` });
+      }
+
+      if (disallowedPending.includes(data.post_auction_status)) {
+        return res.status(400).json({ error: `Dražbe (${id}) s tekočim postopkom po koncu dražbe ni mogoče izbrisati.` });
+      }
+
+      const txSnap = await adminDb.collection('transactions').where('auction_id', '==', id).limit(1).get();
+      if (!txSnap.empty) {
+        return res.status(400).json({ error: `Dražbe (${id}) z obstoječimi transakcijami ni mogoče izbrisati.` });
+      }
+    }
+
+    // Perform deletions after validating all
+    for (const id of auction_ids) {
+      await adminDb.collection('auctions').doc(id).delete();
+      await adminDb.collection('auctions_private').doc(id).delete();
+      try {
+        const bidsRef = adminDb.collection('auctions').doc(id).collection('bids');
+        if (typeof (adminDb as any).recursiveDelete === 'function') {
+          await (adminDb as any).recursiveDelete(bidsRef);
+        } else {
+          const snap = await bidsRef.get();
+          if (!snap.empty) {
+            const batch = adminDb.batch();
+            snap.docs.forEach(d => batch.delete(d.ref));
+            await batch.commit();
+          }
+        }
+      } catch (bErr) {
+        console.warn(`[DELETE UNSOLD] Failed deleting bids subcollection for ${id}:`, bErr);
+      }
+    }
+
+    res.json({ success: true, message: "Dražbe so bile uspešno izbrisane." });
+  } catch (error: any) {
+    console.error("[DELETE UNSOLD ERROR]", error);
+    res.status(500).json({ error: error.message || "Napaka pri izbrisu dražb." });
+  }
+});
+
+// 2. Set delivery method
+app.post("/api/auctions/set-delivery-method", async (req, res) => {
+  let userId: string;
+  try {
+    userId = await authenticateFirebaseUser(req);
+  } catch (authErr: any) {
+    return res.status(401).json({ error: authErr.message || 'Niste prijavljeni.' });
+  }
+
+  try {
+    const { auction_id, delivery_method } = req.body || {};
+    if (!auction_id || !delivery_method) {
+      return res.status(400).json({ error: "Manjka ID dražbe ali način predaje." });
+    }
+
+    const validMethods = ['pickup', 'post', 'shipping'];
+    if (!validMethods.includes(delivery_method)) {
+      return res.status(400).json({ error: "Neveljaven način predaje." });
+    }
+
+    const docRef = adminDb.collection('auctions').doc(auction_id);
+    const snap = await safeGetDoc(docRef);
+    if (!snap.exists()) {
+      return res.status(404).json({ error: "Dražba ne obstaja." });
+    }
+
+    const data = snap.data() || {};
+    const sellerId = data.seller_id || data.sellerId;
+    if (sellerId !== userId) {
+      return res.status(403).json({ error: "Način predaje lahko nastavi le prodajalec te dražbe." });
+    }
+
+    const isPaid = data.payment_status === 'paid' || data.post_auction_status === 'paid';
+    if (!isPaid) {
+      return res.status(400).json({ error: "Način predaje je mogoče nastaviti le za plačane dražbe." });
+    }
+
+    await docRef.update({
+      delivery_method: delivery_method,
+      selected_delivery: delivery_method,
+    });
+
+    res.json({ success: true, message: "Način predaje uspešno nastavljen." });
+  } catch (error: any) {
+    console.error("[SET DELIVERY METHOD ERROR]", error);
+    res.status(500).json({ error: error.message || "Napaka pri nastavljanju načina predaje." });
+  }
+});
+
+// 3. Second chance respond (accept or reject)
+app.post("/api/auctions/second-chance-respond", async (req, res) => {
+  let userId: string;
+  try {
+    userId = await authenticateFirebaseUser(req);
+  } catch (authErr: any) {
+    return res.status(401).json({ error: authErr.message || 'Niste prijavljeni.' });
+  }
+
+  try {
+    const { auction_id, action } = req.body || {};
+    if (!auction_id || !['accept', 'reject'].includes(action)) {
+      return res.status(400).json({ error: "Neveljavno dejanje ali manjka ID dražbe." });
+    }
+
+    let resultMsg = '';
+
+    await adminDb.runTransaction(async (t) => {
+      const docRef = adminDb.collection('auctions').doc(auction_id);
+      const snap = await t.get(docRef);
+      if (!snap.exists) {
+        throw { status: 404, message: "Dražba ne obstaja." };
+      }
+
+      const data = snap.data() || {};
+      const secondWinner = data.second_winner_id || data.second_highest_bidder_id;
+      if (secondWinner !== userId) {
+        throw { status: 403, message: "Nimate pravic za odziv na to ponudbo." };
+      }
+
+      if (data.post_auction_status !== 'offered_2nd') {
+        throw { status: 400, message: "Dražba nima aktivne ponudbe druge možnosti." };
+      }
+
+      const deadlineStr = data.second_chance_deadline;
+      if (!deadlineStr || new Date(deadlineStr).getTime() <= Date.now()) {
+        throw { status: 400, message: "Rok za sprejem druge možnosti je potekel." };
+      }
+
+      if (action === 'accept') {
+        const paymentDeadline = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+        t.update(docRef, {
+          post_auction_status: 'awaiting_payment_2nd',
+          payment_deadline: paymentDeadline,
+          winner_id: userId,
+          winnerId: userId,
+        });
+        resultMsg = "Sprejeli ste ponudbo za drugo možnost. Imate 48 ur za plačilo.";
+      } else {
+        t.update(docRef, {
+          post_auction_status: 'rejected_2nd',
+        });
+        resultMsg = "Zavrnili ste ponudbo druge možnosti.";
+      }
+    });
+
+    res.json({ success: true, message: resultMsg });
+  } catch (error: any) {
+    if (error && typeof error === 'object' && error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error("[SECOND CHANCE RESPOND ERROR]", error);
+    res.status(500).json({ error: error.message || "Napaka pri obdelavi odziva." });
+  }
+});
+
+// 4. Archive ended unsold/unpaid auction
+app.post("/api/auctions/archive", async (req, res) => {
+  let userId: string;
+  try {
+    userId = await authenticateFirebaseUser(req);
+  } catch (authErr: any) {
+    return res.status(401).json({ error: authErr.message || 'Niste prijavljeni.' });
+  }
+
+  try {
+    const { auction_id } = req.body || {};
+    if (!auction_id) {
+      return res.status(400).json({ error: "Manjka ID dražbe." });
+    }
+
+    const docRef = adminDb.collection('auctions').doc(auction_id);
+    const snap = await safeGetDoc(docRef);
+    if (!snap.exists()) {
+      return res.status(404).json({ error: "Dražba ne obstaja." });
+    }
+
+    const data = snap.data() || {};
+    const sellerId = data.seller_id || data.sellerId;
+    if (sellerId !== userId) {
+      return res.status(403).json({ error: "Nimate pravic za arhiviranje te dražbe. Niste prodajalec." });
+    }
+
+    const rawEndTime = data.end_time || data.endTime;
+    const isEnded = (rawEndTime && new Date(rawEndTime).getTime() <= Date.now()) || data.status !== 'active';
+    if (!isEnded) {
+      return res.status(400).json({ error: "Dražba se še ni zaključila." });
+    }
+
+    if (data.payment_status === 'paid' || data.post_auction_status === 'paid') {
+      return res.status(400).json({ error: "Plačane dražbe ni mogoče arhivirati." });
+    }
+
+    await docRef.update({
+      post_auction_status: 'archived',
+    });
+
+    res.json({ success: true, message: "Dražba premaknjena v arhiv." });
+  } catch (error: any) {
+    console.error("[ARCHIVE AUCTION ERROR]", error);
+    res.status(500).json({ error: error.message || "Napaka pri arhiviranju dražbe." });
   }
 });
 

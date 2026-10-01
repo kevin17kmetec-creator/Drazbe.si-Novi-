@@ -4334,60 +4334,85 @@ const MainApp: React.FC = () => {
 
   const handleMoveToArchive = async (auction: any) => {
     try {
-      const auctionRef = doc(db, 'auctions', auction.id);
-      await updateDoc(auctionRef, {
-        post_auction_status: 'archived'
+      const res = await fetch('/api/auctions/archive', {
+        method: 'POST',
+        headers: await getAuthHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({
+          auction_id: auction.id,
+        }),
       });
-      toast.success("Dražba premaknjena v arhiv.");
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Napaka pri premikanju v arhiv.");
+      }
+      toast.success(data.message || "Dražba premaknjena v arhiv.");
       fetchAuctions();
     } catch (e: any) {
-      toast.error("Napaka pri premikanju: " + e.message);
+      toast.error(e.message || "Napaka pri premikanju v arhiv.");
     }
   };
 
-  
   const handleAcceptSecondChance = async (auction: any) => {
     try {
-      const now = new Date();
-      const paymentDeadline = new Date(now.getTime() + 48 * 60 * 60 * 1000).toISOString();
-      const auctionRef = doc(db, 'auctions', auction.id);
-      await updateDoc(auctionRef, {
-        post_auction_status: 'awaiting_payment_2nd',
-        payment_deadline: paymentDeadline,
-        winner_id: userData.id, // Update winner so it looks like they won
-        winnerId: userData.id
+      const res = await fetch('/api/auctions/second-chance-respond', {
+        method: 'POST',
+        headers: await getAuthHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({
+          auction_id: auction.id,
+          action: 'accept',
+        }),
       });
-      toast.success("Sprejeli ste ponudbo! Imate 48 ur za plačilo.");
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Napaka pri sprejemu ponudbe.");
+      }
+      toast.success(data.message || "Sprejeli ste ponudbo! Imate 48 ur za plačilo.");
       fetchAuctions();
     } catch (e: any) {
-      toast.error("Napaka: " + e.message);
+      toast.error(e.message || "Napaka pri sprejemu ponudbe.");
     }
   };
 
   const handleRejectSecondChance = async (auction: any) => {
     try {
-      const auctionRef = doc(db, 'auctions', auction.id);
-      await updateDoc(auctionRef, {
-        post_auction_status: 'rejected_2nd'
+      const res = await fetch('/api/auctions/second-chance-respond', {
+        method: 'POST',
+        headers: await getAuthHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({
+          auction_id: auction.id,
+          action: 'reject',
+        }),
       });
-      toast.success("Zavrnili ste ponudbo. Dražba je zaključena.");
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Napaka pri zavrnitvi ponudbe.");
+      }
+      toast.success(data.message || "Zavrnili ste ponudbo. Dražba je zaključena.");
       fetchAuctions();
     } catch (e: any) {
-      toast.error("Napaka: " + e.message);
+      toast.error(e.message || "Napaka pri zavrnitvi ponudbe.");
     }
   };
 
   async function handleDeliveryMethodSubmit() {
     if (!deliveryMethodModal.auctionId || !deliveryMethodModal.deliveryMethod) return;
     try {
-      await updateDoc(doc(db, 'auctions', deliveryMethodModal.auctionId), {
-        delivery_method: deliveryMethodModal.deliveryMethod,
-        selected_delivery: deliveryMethodModal.deliveryMethod,
+      const res = await fetch('/api/auctions/set-delivery-method', {
+        method: 'POST',
+        headers: await getAuthHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({
+          auction_id: deliveryMethodModal.auctionId,
+          delivery_method: deliveryMethodModal.deliveryMethod,
+        }),
       });
-      toast.success("Način predaje je bil uspešno posodobljen.");
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Napaka pri shranjevanju načina predaje.");
+      }
+      toast.success(data.message || "Način predaje je bil uspešno posodobljen.");
     } catch (e: any) {
       console.error("Napaka pri posodabljanju načina predaje:", e);
-      toast.error("Napaka pri shranjevanju načina predaje: " + e.message);
+      toast.error(e.message || "Napaka pri shranjevanju načina predaje.");
     } finally {
       setDeliveryMethodModal({ isOpen: false, auctionId: "", deliveryMethod: null });
       fetchAuctions();
@@ -4439,46 +4464,8 @@ const MainApp: React.FC = () => {
         if (userData?.id) refreshUserData(userData.id);
         return true;
       } else {
-        // Fallback: direct write to firestore if server action had an issue
-        try {
-          const authorName = (userData as any)?.company_name || 
-            `${(userData as any)?.first_name || ''} ${(userData as any)?.last_name || ''}`.trim() || 
-            (userData as any)?.username || 
-            'Preverjen kupec';
-          
-          await addDoc(collection(db, 'reviews'), {
-            seller_id: sellerId,
-            sellerId: sellerId,
-            author: authorName,
-            author_id: auth.currentUser?.uid || '',
-            rating,
-            comment: comment.trim(),
-            auction_id: auctionId,
-            auctionId: auctionId,
-            auction_title: typeof reviewModalData.auction?.title === 'object' 
-              ? (reviewModalData.auction?.title?.SLO || 'Dražba') 
-              : (reviewModalData.auction?.title || 'Dražba'),
-            date: new Date().toLocaleDateString('sl-SI'),
-            created_at: new Date().toISOString(),
-            isVerified: true,
-            wouldRecommend: rating >= 4
-          });
-
-          await setDoc(doc(db, 'auctions', auctionId), {
-            review_submitted: true,
-            review_rating: rating,
-            review_comment: comment.trim(),
-            review_submitted_at: new Date().toISOString()
-          }, { merge: true });
-
-          toast.success("Hvala! Vaša ocena je bila uspešno oddana.");
-          setReviewModalData({ isOpen: false, auction: null, sellerName: "" });
-          fetchAuctions();
-          return true;
-        } catch (fbErr: any) {
-          toast.error(res.error || "Napaka pri oddaji ocene.");
-          return false;
-        }
+        toast.error(res.error || "Napaka pri oddaji ocene.");
+        return false;
       }
     } catch (err: any) {
       console.error("Error submitting review:", err);
@@ -4719,19 +4706,27 @@ const MainApp: React.FC = () => {
                 <button
                   onClick={async () => {
                     try {
-                      if (deleteUnsoldModal.items) {
-                        for (const it of deleteUnsoldModal.items) {
-                          await deleteDoc(doc(db, 'auctions', it.id));
-                        }
-                        toast.success("Dražbe paketa so bile uspešno izbrisane.");
-                      } else if (deleteUnsoldModal.item) {
-                        await deleteDoc(doc(db, 'auctions', deleteUnsoldModal.item.id));
-                        toast.success("Dražba je bila uspešno izbrisana.");
+                      const idsToDelete = deleteUnsoldModal.items
+                        ? deleteUnsoldModal.items.map((it: any) => it.id)
+                        : deleteUnsoldModal.item
+                        ? [deleteUnsoldModal.item.id]
+                        : [];
+                      if (idsToDelete.length === 0) return;
+
+                      const res = await fetch('/api/auctions/delete-unsold', {
+                        method: 'POST',
+                        headers: await getAuthHeaders({ 'Content-Type': 'application/json' }),
+                        body: JSON.stringify({ auction_ids: idsToDelete }),
+                      });
+                      const data = await res.json();
+                      if (!res.ok) {
+                        throw new Error(data.error || "Napaka pri izbrisu dražb.");
                       }
+                      toast.success(data.message || "Dražbe so bile uspešno izbrisane.");
                       setDeleteUnsoldModal(null);
                       fetchAuctions();
                     } catch (err: any) {
-                      toast.error("Napaka pri brisanju: " + err.message);
+                      toast.error(err.message || "Napaka pri brisanju.");
                     }
                   }}
                   className="bg-red-600 hover:bg-red-700 text-white px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-xs transition-all shadow-lg shadow-red-600/30 flex items-center justify-center gap-2"
