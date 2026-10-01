@@ -383,6 +383,16 @@ function getBidIncrement(price: number): number {
 }
 
 /**
+ * Masks a username for public bid history (first letter + '***' + last letter).
+ * Falls back to 'U***r' if missing or too short.
+ */
+function maskUsername(name?: string): string {
+  const clean = (name || '').trim();
+  if (!clean || clean.length < 2) return 'U***r';
+  return `${clean[0]}***${clean[clean.length - 1]}`;
+}
+
+/**
  * Helper to get current Europe/Ljubljana year.
  */
 function getLjubljanaYear(): { currentYear: number; currentYearStr: string } {
@@ -1262,6 +1272,8 @@ app.post("/api/place-bid", async (req, res) => {
 
     const auctionRef = adminDb.collection('auctions').doc(auction_id);
     const userRef = adminDb.collection('users').doc(userId);
+    const privateRef = adminDb.collection('auctions_private').doc(auction_id);
+    const myBidRef = adminDb.collection('users').doc(userId).collection('my_bids').doc(auction_id);
 
     // Verify user existence and state
     const userSnap = await safeGetDoc(userRef);
@@ -1276,13 +1288,21 @@ app.post("/api/place-bid", async (req, res) => {
     let outbidUserToNotify: { userId: string; newPrice: number; auctionTitle: string; auctionImageUrl?: string } | null = null;
     let finalWinnerId = userId;
     let finalPrice = amount;
+    let finalMyMax = amount;
 
     await adminDb.runTransaction(async (transaction) => {
+      // 1. ALL READS FIRST
       const auctionDoc = await transaction.get(auctionRef);
       if (!isDocSnapshotExists(auctionDoc)) {
         throw new Error("Dražba ne obstaja.");
       }
       const data = getDocSnapshotData(auctionDoc) || {};
+
+      const privateDoc = await transaction.get(privateRef);
+      const privData = isDocSnapshotExists(privateDoc) ? (getDocSnapshotData(privateDoc) || {}) : {};
+
+      const myBidDoc = await transaction.get(myBidRef);
+      const myBidData = isDocSnapshotExists(myBidDoc) ? (getDocSnapshotData(myBidDoc) || {}) : {};
 
       // Pruefung, ob die Auktion aktiv ist und nicht in der Vergangenheit liegt
       const auctionStatus = data.status || 'active';
@@ -1304,7 +1324,8 @@ app.post("/api/place-bid", async (req, res) => {
         throw new Error("Ponudba mora biti višja od trenutne cene.");
       }
 
-      const currentProxy = data.current_proxy_bid || data.currentProxyBid;
+      // Read currentProxy from privateData with fallback to auction document
+      const currentProxy = privData.current_proxy_bid || data.current_proxy_bid || data.currentProxyBid;
       let newCurrentPrice = currentPrice;
       let newWinnerId = userId;
       let newProxyBid = { user_id: userId, amount };
@@ -1344,7 +1365,11 @@ app.post("/api/place-bid", async (req, res) => {
         newEndTimeStr = new Date(now + 60 * 1000).toISOString();
       }
 
-      let topBids = data.top_bids || [];
+      // Top bids calculation
+      let topBids = Array.isArray(privData.top_bids) && privData.top_bids.length > 0
+        ? [...privData.top_bids]
+        : (Array.isArray(data.top_bids) ? [...data.top_bids] : []);
+
       topBids.push({ user_id: userId, amount, timestamp: new Date().toISOString() });
       topBids.sort((a: any, b: any) => b.amount - a.amount);
 
@@ -1358,33 +1383,62 @@ app.post("/api/place-bid", async (req, res) => {
       }
       uniqueTopBids = uniqueTopBids.slice(0, 3);
 
-      const existingHistory = data.bidding_history || data.biddingHistory || [];
-      const newHistoryItem = {
-        user_id: userId,
-        userId: userId,
-        username: userData.username || userData.first_name || userData.email?.split('@')[0] || 'Uporabnik',
-        amount,
-        created_at: new Date().toISOString(),
-        createdAt: new Date().toISOString()
-      };
+      // Distinct bidder tracking & has_second_bidder
+      const existingBidderIds: string[] = Array.isArray(privData.bidder_ids) ? privData.bidder_ids : [];
+      const distinctBidders = new Set([...existingBidderIds, userId, ...uniqueTopBids.map((b: any) => b.user_id)]);
+      const hasSecondBidder = distinctBidders.size >= 2;
 
+      // my_max calculation
+      const previousMyMax = Number(myBidData.my_max) || 0;
+      const calculatedMyMax = Math.max(previousMyMax, amount);
+      finalMyMax = calculatedMyMax;
+
+      // Public bid entry in subcollection auctions/{id}/bids
+      const publicBidPrice = newWinnerId === userId ? newCurrentPrice : amount;
+      const maskedAlias = maskUsername(userData.username || userData.first_name || userData.email?.split('@')[0]);
+      const bidSubDocRef = adminDb.collection('auctions').doc(auction_id).collection('bids').doc();
+
+      // 2. ALL WRITES AFTER ALL READS
+      // A) Update public auction document
       transaction.update(auctionRef, {
         current_price: newCurrentPrice,
         currentBid: newCurrentPrice,
         winner_id: newWinnerId,
         winnerId: newWinnerId,
-        current_proxy_bid: newProxyBid,
-        currentProxyBid: newProxyBid,
-        hidden_max_bid: newProxyBid.amount,
-        hiddenMaxBid: newProxyBid.amount,
         bid_count: (data.bid_count || data.bidCount || 0) + 1,
         bidCount: (data.bid_count || data.bidCount || 0) + 1,
-        top_bids: uniqueTopBids,
+        has_second_bidder: hasSecondBidder,
         end_time: newEndTimeStr,
         endTime: newEndTimeStr,
-        bidding_history: [...existingHistory, newHistoryItem],
-        biddingHistory: [...existingHistory, newHistoryItem]
+        bidding_history: FieldValue.delete(),
+        biddingHistory: FieldValue.delete(),
+        top_bids: FieldValue.delete(),
+        current_proxy_bid: FieldValue.delete(),
+        currentProxyBid: FieldValue.delete(),
+        hidden_max_bid: FieldValue.delete(),
+        hiddenMaxBid: FieldValue.delete()
       });
+
+      // B) Write auctions_private document
+      transaction.set(privateRef, {
+        current_proxy_bid: newProxyBid,
+        top_bids: uniqueTopBids,
+        bidder_ids: FieldValue.arrayUnion(userId)
+      }, { merge: true });
+
+      // C) Write public subcollection bid document
+      transaction.set(bidSubDocRef, {
+        bidder_alias: maskedAlias,
+        price: publicBidPrice,
+        created_at: new Date().toISOString()
+      });
+
+      // D) Write user private my_bids document
+      transaction.set(myBidRef, {
+        auction_id,
+        my_max: calculatedMyMax,
+        updated_at: new Date().toISOString()
+      }, { merge: true });
 
       finalWinnerId = newWinnerId;
       finalPrice = newCurrentPrice;
@@ -1432,6 +1486,7 @@ app.post("/api/place-bid", async (req, res) => {
       resultStatus,
       newWinnerId: finalWinnerId,
       currentPrice: finalPrice,
+      my_max: finalMyMax,
     });
   } catch (e: any) {
     console.error("[PLACE BID ERROR]", e);
@@ -4946,6 +5001,219 @@ app.post("/api/delete-account", async (req, res) => {
   } catch (error: any) {
     console.error("[delete-account] Napaka pri brisanju profila:", error);
     res.status(500).json({ error: error.message || "Napaka pri brisanju profila." });
+  }
+});
+
+// Offer second chance to the 2nd highest bidder
+app.post("/api/auctions/offer-second-chance", async (req, res) => {
+  let userId: string;
+  try {
+    userId = await authenticateFirebaseUser(req);
+  } catch (authErr: any) {
+    return res.status(401).json({ error: authErr.message || 'Unauthorized' });
+  }
+
+  try {
+    const { auction_id } = req.body || {};
+    if (!auction_id) {
+      return res.status(400).json({ error: "Manjka ID dražbe." });
+    }
+
+    const auctionRef = adminDb.collection('auctions').doc(auction_id);
+    const auctionDoc = await safeGetDoc(auctionRef);
+    if (!auctionDoc.exists()) {
+      return res.status(404).json({ error: "Dražba ne obstaja." });
+    }
+
+    const auction = auctionDoc.data() || {};
+    const sellerId = auction.seller_id || auction.sellerId;
+    if (sellerId !== userId) {
+      return res.status(403).json({ error: "Nimate pravic za to dejanje. Niste prodajalec te dražbe." });
+    }
+
+    const rawEndTime = auction.end_time || auction.endTime;
+    const isEnded = (rawEndTime && new Date(rawEndTime).getTime() <= Date.now()) || auction.status === 'ended' || auction.status === 'completed';
+    if (!isEnded) {
+      return res.status(400).json({ error: "Dražba se še ni zaključila." });
+    }
+
+    if (auction.payment_status === 'paid') {
+      return res.status(400).json({ error: "Ta dražba je že plačana." });
+    }
+
+    const disallowedStatuses = ['offered_2nd', 'awaiting_payment_2nd', 'paid', 'archived'];
+    if (disallowedStatuses.includes(auction.post_auction_status)) {
+      return res.status(400).json({ error: "Za to dražbo ni mogoče ponuditi druge možnosti." });
+    }
+
+    // Read top bids from auctions_private first, then fallback to auction document
+    let topBids: any[] = [];
+    try {
+      const privDoc = await safeGetDoc(adminDb.collection('auctions_private').doc(auction_id));
+      if (privDoc.exists()) {
+        const privData = privDoc.data() || {};
+        topBids = privData.top_bids || [];
+      }
+    } catch (privErr) {
+      console.warn(`[OFFER 2ND CHANCE] Could not load auctions_private for ${auction_id}:`, privErr);
+    }
+
+    if (topBids.length < 2 && Array.isArray(auction.top_bids)) {
+      topBids = auction.top_bids;
+    }
+
+    if (!topBids || topBids.length < 2) {
+      return res.status(400).json({ error: "Ni 2. najvišjega ponudnika za to dražbo." });
+    }
+
+    const secondBid = topBids[1];
+    const secondWinnerId = secondBid.user_id || secondBid.userId;
+    const secondAmount = Number(secondBid.amount || secondBid.bid || 0);
+
+    if (!secondWinnerId || secondAmount <= 0) {
+      return res.status(400).json({ error: "Podatki o 2. ponudniku niso veljavni." });
+    }
+
+    const now = new Date();
+    const deadline = new Date(now.getTime() + 48 * 60 * 60 * 1000).toISOString();
+
+    await auctionRef.update({
+      post_auction_status: 'offered_2nd',
+      second_winner_id: secondWinnerId,
+      second_highest_bidder_id: secondWinnerId,
+      second_chance_deadline: deadline,
+      current_price: secondAmount,
+      currentBid: secondAmount
+    });
+
+    res.json({
+      success: true,
+      message: "Dražba je bila uspešno ponujena 2. najvišjemu ponudniku.",
+      second_winner_id: secondWinnerId,
+      second_chance_deadline: deadline,
+      price: secondAmount
+    });
+  } catch (error: any) {
+    console.error("[OFFER 2ND CHANCE ERROR]", error);
+    res.status(500).json({ error: error.message || "Napaka pri ponujanju druge možnosti." });
+  }
+});
+
+// Republish an unsold, expired or canceled auction
+app.post("/api/auctions/republish", async (req, res) => {
+  let userId: string;
+  try {
+    userId = await authenticateFirebaseUser(req);
+  } catch (authErr: any) {
+    return res.status(401).json({ error: authErr.message || 'Unauthorized' });
+  }
+
+  try {
+    const { auction_id } = req.body || {};
+    if (!auction_id) {
+      return res.status(400).json({ error: "Manjka ID dražbe." });
+    }
+
+    const auctionRef = adminDb.collection('auctions').doc(auction_id);
+    const auctionDoc = await safeGetDoc(auctionRef);
+    if (!auctionDoc.exists()) {
+      return res.status(404).json({ error: "Dražba ne obstaja." });
+    }
+
+    const auction = auctionDoc.data() || {};
+    const sellerId = auction.seller_id || auction.sellerId;
+    if (sellerId !== userId) {
+      return res.status(403).json({ error: "Nimate pravic za to dejanje. Niste prodajalec te dražbe." });
+    }
+
+    const rawEndTime = auction.end_time || auction.endTime;
+    const isEnded = (rawEndTime && new Date(rawEndTime).getTime() <= Date.now()) || auction.status !== 'active';
+    if (!isEnded && auction.status === 'active') {
+      return res.status(400).json({ error: "Dražba je trenutno še aktivna in je ni mogoče ponovno objaviti." });
+    }
+
+    if (auction.payment_status === 'paid') {
+      return res.status(400).json({ error: "Plačane dražbe ni mogoče ponovno objaviti." });
+    }
+
+    const originalCreated = new Date(auction.created_at || auction.createdAt || Date.now() - 7 * 24 * 60 * 60 * 1000).getTime();
+    const originalEnd = new Date(auction.end_time || auction.endTime || Date.now()).getTime();
+    let durationMs = originalEnd - originalCreated;
+    if (isNaN(durationMs) || durationMs <= 60 * 1000) {
+      durationMs = 7 * 24 * 60 * 60 * 1000;
+    }
+    const now = new Date();
+    const newEndTime = new Date(now.getTime() + durationMs);
+    const initialPrice = Number(auction.starting_price ?? auction.startingPrice ?? auction.start_price ?? auction.current_price ?? auction.currentBid ?? 1);
+
+    // 1. Update public auction document with fresh state
+    await auctionRef.update({
+      status: 'active',
+      created_at: now.toISOString(),
+      createdAt: now.toISOString(),
+      end_time: newEndTime.toISOString(),
+      endTime: newEndTime.toISOString(),
+      current_price: initialPrice,
+      currentBid: initialPrice,
+      starting_price: initialPrice,
+      startingPrice: initialPrice,
+      bid_count: 0,
+      bidCount: 0,
+      has_second_bidder: false,
+      winner_id: null,
+      winnerId: null,
+      payment_status: 'unpaid',
+      post_auction_status: null,
+      delivery_method: null,
+      selected_delivery: null,
+      paid_at: null,
+      invoice_url: null,
+      second_winner_id: null,
+      second_highest_bidder_id: null,
+      second_chance_deadline: null,
+      reminder_30m_sent: false,
+      reminder_end_sent: false,
+      bidding_history: FieldValue.delete(),
+      biddingHistory: FieldValue.delete(),
+      top_bids: FieldValue.delete(),
+      current_proxy_bid: FieldValue.delete(),
+      currentProxyBid: FieldValue.delete(),
+      hidden_max_bid: FieldValue.delete(),
+      hiddenMaxBid: FieldValue.delete()
+    });
+
+    // 2. Delete private auction secret data document
+    try {
+      await adminDb.collection('auctions_private').doc(auction_id).delete();
+    } catch (delPrivErr: any) {
+      console.warn(`[REPUBLISH] Could not delete auctions_private/${auction_id}:`, delPrivErr.message);
+    }
+
+    // 3. Delete all documents in public bids subcollection
+    try {
+      const bidsRef = adminDb.collection('auctions').doc(auction_id).collection('bids');
+      if (typeof (adminDb as any).recursiveDelete === 'function') {
+        await (adminDb as any).recursiveDelete(bidsRef);
+      } else {
+        const snap = await bidsRef.get();
+        if (!snap.empty) {
+          const batch = adminDb.batch();
+          snap.docs.forEach(d => batch.delete(d.ref));
+          await batch.commit();
+        }
+      }
+    } catch (delBidsErr: any) {
+      console.warn(`[REPUBLISH] Could not delete bids subcollection for ${auction_id}:`, delBidsErr.message);
+    }
+
+    res.json({
+      success: true,
+      message: "Dražba je bila uspešno ponovno objavljena.",
+      end_time: newEndTime.toISOString()
+    });
+  } catch (error: any) {
+    console.error("[REPUBLISH ERROR]", error);
+    res.status(500).json({ error: error.message || "Napaka pri ponovni objavi dražbe." });
   }
 });
 

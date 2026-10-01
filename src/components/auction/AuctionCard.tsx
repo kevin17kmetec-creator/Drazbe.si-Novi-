@@ -10,13 +10,14 @@ export const AuctionCard: React.FC<{
   isVerified: boolean;
   currentUserId?: string;
   hasBid?: boolean;
+  myMax?: number;
   isWatched: boolean;
   onWatchToggle: () => void;
   onClick: () => void;
   onBidSubmit?: (item: AuctionItem, amount: number) => Promise<'ok' | 'outbid' | 'error' | 'login_required' | 'cancelled'> | void;
   onSellerClick?: (seller: Seller) => void;
   onTimeUp?: (auctionId: string) => void;
-}> = ({ item, t, language, isVerified, currentUserId, hasBid, isWatched, onWatchToggle, onClick, onBidSubmit, onSellerClick, onTimeUp }) => {
+}> = ({ item, t, language, isVerified, currentUserId, hasBid, myMax, isWatched, onWatchToggle, onClick, onBidSubmit, onSellerClick, onTimeUp }) => {
   const [timeLeftStr, setTimeLeftStr] = useState('');
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [signedImages, setSignedImages] = useState<string[]>([]);
@@ -26,9 +27,9 @@ export const AuctionCard: React.FC<{
     (item as any).seller_id === currentUserId ||
     (seller && (seller.id === currentUserId || (seller as any).id === currentUserId))
   ));
-  const isWinner = currentUserId && (item.winnerId === currentUserId || (item as any).winner_id === currentUserId);
+  const isWinner = Boolean(currentUserId && (item.winnerId === currentUserId || (item as any).winner_id === currentUserId));
   const userMax = isWinner 
-    ? Math.max(item.currentBid, Number(item.hiddenMaxBid || (item as any).hidden_max_bid || (item as any).current_proxy_bid?.amount || (item as any).currentProxyBid?.amount || item.currentBid))
+    ? Math.max(item.currentBid, myMax || item.currentBid)
     : item.currentBid;
   const minNextBid = userMax + getIncrement(userMax);
   const [bidValue, setBidValue] = useState(minNextBid);
@@ -47,10 +48,10 @@ export const AuctionCard: React.FC<{
 
   useEffect(() => { 
     const baseline = isWinner 
-      ? Math.max(item.currentBid, Number(item.hiddenMaxBid || (item as any).hidden_max_bid || (item as any).current_proxy_bid?.amount || (item as any).currentProxyBid?.amount || item.currentBid))
+      ? Math.max(item.currentBid, myMax || item.currentBid)
       : item.currentBid;
     setBidValue(baseline + getIncrement(baseline)); 
-  }, [item.currentBid, isWinner, item.hiddenMaxBid, (item as any).hidden_max_bid, (item as any).current_proxy_bid]);
+  }, [item.currentBid, isWinner, myMax]);
   useEffect(() => {
     const update = () => {
       const diff = Math.max(0, Math.floor((item.endTime.getTime() - Date.now()) / 1000));
@@ -256,8 +257,8 @@ export const AuctionCard: React.FC<{
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{t('currentBid')}</p>
               <p className="text-xl font-black text-[#FEBA4F]">€{item.currentBid.toLocaleString('sl-SI')}</p>
-              {isWinner && (item.hiddenMaxBid || (item as any).hidden_max_bid) > item.currentBid && (
-                  <p className="text-[9px] font-black uppercase tracking-widest text-green-400 mt-1">Moja max: €{Number(item.hiddenMaxBid || (item as any).hidden_max_bid).toLocaleString('sl-SI')}</p>
+              {isWinner && (myMax || 0) > item.currentBid && (
+                  <p className="text-[9px] font-black uppercase tracking-widest text-green-400 mt-1">Moja max: €{Number(myMax).toLocaleString('sl-SI')}</p>
               )}
             </div>
             <div className="text-right">

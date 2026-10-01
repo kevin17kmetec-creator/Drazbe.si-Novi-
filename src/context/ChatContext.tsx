@@ -156,7 +156,7 @@ export const ChatProvider: React.FC<{
         for (const a of auctions) {
           // Check if user is seller or buyer
           const isSeller = a.sellerId === effectiveUserId || (a as any).seller_id === effectiveUserId;
-          const winnerId = a.winnerId || (a as any).winner_id || (a as any).winner || (a as any).second_highest_bidder_id || ((a as any).top_bids && (a as any).top_bids[0]?.bidder_id);
+          const winnerId = a.winnerId || (a as any).winner_id || (a as any).winner || (a as any).second_highest_bidder_id;
           const isBuyer = winnerId === effectiveUserId;
 
           if (!isSeller && !isBuyer) continue;

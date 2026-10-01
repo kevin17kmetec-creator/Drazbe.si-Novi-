@@ -75,17 +75,36 @@ export async function processAuctionCrons(): Promise<CronRunResult> {
         // Find interested users: bidders & watchers
         const userIdsToNotify = new Set<string>();
 
-        // Add users who bid on this auction
-        const history = data.bidding_history || data.biddingHistory || [];
-        for (const item of history) {
+        // Fetch auctions_private doc
+        let privateData: any = {};
+        try {
+          const privSnap = await adminDb.collection('auctions_private').doc(auctionId).get();
+          if (isDocSnapshotExists(privSnap)) {
+            privateData = getDocSnapshotData(privSnap) || {};
+          }
+        } catch (privErr) {
+          console.warn(`[CRON] Could not load auctions_private for ${auctionId}:`, privErr);
+        }
+
+        // Add distinct bidder IDs from auctions_private
+        const bidderIds: string[] = privateData.bidder_ids || [];
+        for (const uId of bidderIds) {
+          if (uId && uId !== data.seller_id && uId !== data.sellerId) {
+            userIdsToNotify.add(uId);
+          }
+        }
+
+        // Fallback to top_bids and legacy bidding_history if needed
+        const topBids = privateData.top_bids || data.top_bids || [];
+        for (const item of topBids) {
           const uId = item.user_id || item.userId;
           if (uId && uId !== data.seller_id && uId !== data.sellerId) {
             userIdsToNotify.add(uId);
           }
         }
 
-        const topBids = data.top_bids || [];
-        for (const item of topBids) {
+        const history = data.bidding_history || data.biddingHistory || [];
+        for (const item of history) {
           const uId = item.user_id || item.userId;
           if (uId && uId !== data.seller_id && uId !== data.sellerId) {
             userIdsToNotify.add(uId);
@@ -311,8 +330,18 @@ export async function processAuctionCrons(): Promise<CronRunResult> {
           }
         }
 
-        // Check if there is a 2nd highest bidder to offer 2nd chance
-        const topBids = data.top_bids || [];
+        // Check if there is a 2nd highest bidder to offer 2nd chance (read from auctions_private first)
+        let privTopBids = [];
+        try {
+          const privSnap = await adminDb.collection('auctions_private').doc(auctionId).get();
+          if (isDocSnapshotExists(privSnap)) {
+            const privData = getDocSnapshotData(privSnap) || {};
+            privTopBids = privData.top_bids || [];
+          }
+        } catch (privErr) {
+          console.warn(`[CRON] Could not load auctions_private for 2nd chance on ${auctionId}:`, privErr);
+        }
+        const topBids = privTopBids.length > 0 ? privTopBids : (data.top_bids || []);
         const secondBidder = topBids.length > 1 ? topBids[1] : null;
 
         if (secondBidder && secondBidder.user_id) {

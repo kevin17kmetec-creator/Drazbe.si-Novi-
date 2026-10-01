@@ -511,15 +511,11 @@ const MainApp: React.FC = () => {
     held_cents: 0,
     reserved_cents: 0,
   });
+  const [myBidsMap, setMyBidsMap] = useState<Map<string, number>>(new Map());
   const bidAuctionIds = useMemo(() => {
     if (!userData?.id) return [];
-    return auctions.filter((a: any) => {
-      const history = a.bidding_history || a.biddingHistory || [];
-      const topBids = a.top_bids || [];
-      return history.some((h: any) => h.userId === userData.id || h.user_id === userData.id) ||
-             topBids.some((b: any) => b.user_id === userData.id);
-    }).map(a => a.id);
-  }, [auctions, userData?.id]);
+    return Array.from(myBidsMap.keys());
+  }, [myBidsMap, userData?.id]);
   const [hasAcceptedTerms, setHasAcceptedTerms] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
   const [showConfirmBidModal, setShowConfirmBidModal] = useState(false);
@@ -922,7 +918,6 @@ const MainApp: React.FC = () => {
                 ...data,
                 endTime: new Date(data.end_time || data.endTime),
                 currentBid: data.current_price || data.currentBid,
-                hiddenMaxBid: data.hidden_max_bid || data.hiddenMaxBid,
                 bidCount: data.bid_count || data.bidCount,
                 winnerId: data.winner_id || data.winnerId,
                 winner_id: data.winner_id || data.winnerId,
@@ -1403,6 +1398,35 @@ const MainApp: React.FC = () => {
     return () => unsubUsers();
   }, [user]);
 
+  // Private stream: User's private maximum bids
+  useEffect(() => {
+    if (!user) {
+      setMyBidsMap(new Map());
+      return;
+    }
+    const unsubBids = registerSnapshotListener(
+      onSnapshot(collection(db, 'users', user.uid, 'my_bids'), (snap) => {
+        const m = new Map<string, number>();
+        snap.docs.forEach((d) => {
+          const data = d.data();
+          if (typeof data.my_max === 'number') {
+            m.set(d.id, data.my_max);
+          } else if (typeof data.amount === 'number') {
+            m.set(d.id, data.amount);
+          }
+        });
+        setMyBidsMap(m);
+      }, (error) => {
+        if (error.code === 'permission-denied') {
+          console.warn("Dostop do my_bids ni dovoljen.");
+        } else {
+          console.error("my_bids snapshot error:", error);
+        }
+      })
+    );
+    return () => unsubBids();
+  }, [user]);
+
   // Stream: Auctions (poslušalec se sproži SAMO takrat, ko je uporabnik prijavljen)
   useEffect(() => {
     if (!user) return;
@@ -1431,7 +1455,6 @@ const MainApp: React.FC = () => {
             endTime: new Date(d.end_time || d.endTime || Date.now()),
             createdAt: d.created_at || d.createdAt || new Date(0).toISOString(),
             currentBid: d.current_price || d.currentBid,
-            hiddenMaxBid: d.hidden_max_bid || d.hiddenMaxBid,
             bidCount: d.bid_count || d.bidCount,
             winnerId: d.winner_id || d.winnerId,
             winner_id: d.winner_id || d.winnerId,
@@ -1817,8 +1840,6 @@ const MainApp: React.FC = () => {
             category: itemData.category || "Ostalo",
             condition: getConditionTranslations(itemData.condition || "Rabljeno"),
             specifications: itemData.specifications || {},
-            bidding_history: [],
-            top_bids: [],
             winner_id: null,
             winnerId: null,
             payment_status: 'unpaid',
@@ -1935,8 +1956,6 @@ const MainApp: React.FC = () => {
         category: itemData.category || Category.Ostalo,
         condition: getConditionTranslations(itemData.condition || "Rabljeno"),
         specifications: itemData.specifications || {},
-        bidding_history: [],
-        top_bids: [],
         winner_id: null,
         winnerId: null,
         payment_status: 'unpaid',
@@ -2405,6 +2424,7 @@ const MainApp: React.FC = () => {
           watchlist={watchedIds}
           currentUserId={userData?.id || auth.currentUser?.uid}
           bidAuctionIds={bidAuctionIds}
+          myBidsMap={myBidsMap}
           onWatchToggle={toggleWatch}
           onBidSubmit={handleBidSubmit}
           onSellerClick={(seller) => navigateToSellerProfile(seller)}
@@ -2569,8 +2589,6 @@ const MainApp: React.FC = () => {
                     category: itemData.category || "Ostalo",
                     condition: getConditionTranslations(itemData.condition || "Rabljeno"),
                     specifications: {},
-                    bidding_history: [],
-                    top_bids: [],
                     winner_id: null,
                     winnerId: null,
                     payment_status: 'unpaid',
@@ -2613,6 +2631,8 @@ const MainApp: React.FC = () => {
             onWatchToggle={() => toggleWatch(selectedItem.id)}
             currentPlan={currentPlan}
             currentUserId={userData.id}
+            myMax={myBidsMap.get(selectedItem.id)}
+            myBidsMap={myBidsMap}
             onBack={() => {
               goBack("grid");
             }}
@@ -2858,7 +2878,7 @@ const MainApp: React.FC = () => {
                 .filter(
                   (a) =>
                     a.status === "active" && new Date(a.endTime) > new Date() &&
-                    ((a.top_bids && a.top_bids.some((b: any) => b.user_id === userData.id)) || bidAuctionIds.includes(a.id)),
+                    bidAuctionIds.includes(a.id),
                 )
                 .map((item) => (
                   <AuctionCard
@@ -2869,6 +2889,7 @@ const MainApp: React.FC = () => {
                     isVerified={isVerified}
                     currentUserId={userData.id}
                     hasBid={true}
+                    myMax={myBidsMap.get(item.id)}
                     isWatched={watchedIds.includes(item.id)}
                     onWatchToggle={() => toggleWatch(item.id)}
                     onClick={() => {
@@ -3264,7 +3285,7 @@ const MainApp: React.FC = () => {
                 </div>
               ) : (
                 currentUserSold.map((soldItem) => {
-                  const winnerId = soldItem.winnerId || (soldItem as any).winner_id || soldItem.second_highest_bidder_id || ((soldItem as any).top_bids && (soldItem as any).top_bids[0]?.bidder_id);
+                  const winnerId = soldItem.winnerId || (soldItem as any).winner_id || soldItem.second_highest_bidder_id;
                   const buyer = winnerId ? usersMap.get(winnerId) : null;
                   const isPostalShipping = soldItem.delivery_method === "post" ||
                     soldItem.delivery_method === "shipping" ||
@@ -3401,7 +3422,7 @@ const MainApp: React.FC = () => {
                         </button>
                         {soldItem.post_auction_status === "failed_1st" && (
                           <>
-                            {soldItem.top_bids && soldItem.top_bids.length > 1 ? (
+                            {(soldItem.has_second_bidder || (soldItem as any).hasSecondBidder) ? (
                               <button
                                 onClick={() => handleOfferToSecondBidder(soldItem)}
                                 className="bg-blue-600 text-white px-8 py-3 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-blue-700 transition-all flex items-center justify-center gap-2"
@@ -3823,6 +3844,7 @@ const MainApp: React.FC = () => {
                     isVerified={isVerified}
                     currentUserId={userData.id}
                     hasBid={bidAuctionIds.includes(item.id)}
+                    myMax={myBidsMap.get(item.id)}
                     isWatched={watchedIds.includes(item.id)}
                     onWatchToggle={() => toggleWatch(item.id)}
                     onClick={() => {
@@ -4054,6 +4076,7 @@ const MainApp: React.FC = () => {
                         isVerified={isVerified}
                         currentUserId={userData.id}
                         hasBid={bidAuctionIds.includes(item.id)}
+                        myMax={myBidsMap.get(item.id)}
                         isWatched={watchedIds.includes(item.id)}
                         onWatchToggle={() => toggleWatch(item.id)}
                         onClick={() => {
@@ -4248,52 +4271,16 @@ const MainApp: React.FC = () => {
   const handleDirectQuickRepublish = async (item: any) => {
     try {
       setIsQuickRepublishing(item.id);
-      const originalCreated = new Date(item.created_at || item.createdAt || Date.now() - 7 * 24 * 60 * 60 * 1000).getTime();
-      const originalEnd = new Date(item.end_time || item.endTime || Date.now()).getTime();
-      let durationMs = originalEnd - originalCreated;
-      if (isNaN(durationMs) || durationMs <= 60 * 1000) {
-        durationMs = 7 * 24 * 60 * 60 * 1000;
-      }
-      const now = new Date();
-      const newEndTime = new Date(now.getTime() + durationMs);
-      const initialPrice = Number(item.startingPrice || item.starting_price || item.currentBid || item.current_price || 1);
-
-      await updateDoc(doc(db, 'auctions', item.id), {
-        status: 'active',
-        created_at: now.toISOString(),
-        createdAt: now.toISOString(),
-        end_time: newEndTime.toISOString(),
-        endTime: newEndTime.toISOString(),
-        current_price: initialPrice,
-        currentBid: initialPrice,
-        starting_price: initialPrice,
-        startingPrice: initialPrice,
-        bid_count: 0,
-        bidCount: 0,
-        bidding_history: [],
-        biddingHistory: [],
-        top_bids: [],
-        winner_id: null,
-        winnerId: null,
-        payment_status: 'unpaid',
-        post_auction_status: null,
-        delivery_method: null,
-        selected_delivery: null,
-        paid_at: null,
-        invoice_url: null,
-        current_proxy_bid: null,
-        currentProxyBid: null,
-        hidden_max_bid: null,
-        hiddenMaxBid: null,
-        is_package: false,
-        package_id: null,
-        packageId: null,
-        package_title: null,
-        package_description: null,
-        region: normalizeRegionName(item.region || (typeof item.location === 'object' ? item.location?.SLO : item.location)),
+      const res = await fetch('/api/auctions/republish', {
+        method: 'POST',
+        headers: await getAuthHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ auction_id: item.id })
       });
-
-      toast.success("Dražba je bila uspešno ponovno objavljena!");
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Napaka pri ponovni objavi.");
+      }
+      toast.success(data.message || "Dražba je bila uspešno ponovno objavljena!");
       fetchAuctions();
     } catch (e: any) {
       console.error("Napaka pri hitri objavi:", e);
@@ -4306,53 +4293,16 @@ const MainApp: React.FC = () => {
   const handleDirectQuickRepublishPackage = async (items: any[]) => {
     try {
       setIsQuickRepublishing("package");
-      const now = new Date();
-      const isSingleOnly = items.length < 2;
-
       for (const item of items) {
-        const originalCreated = new Date(item.created_at || item.createdAt || Date.now() - 7 * 24 * 60 * 60 * 1000).getTime();
-        const originalEnd = new Date(item.end_time || item.endTime || Date.now()).getTime();
-        let durationMs = originalEnd - originalCreated;
-        if (isNaN(durationMs) || durationMs <= 60 * 1000) {
-          durationMs = 7 * 24 * 60 * 60 * 1000;
-        }
-        const newEndTime = new Date(now.getTime() + durationMs);
-        const initialPrice = Number(item.startingPrice || item.starting_price || item.currentBid || item.current_price || 1);
-
-        await updateDoc(doc(db, 'auctions', item.id), {
-          status: 'active',
-          created_at: now.toISOString(),
-          createdAt: now.toISOString(),
-          end_time: newEndTime.toISOString(),
-          endTime: newEndTime.toISOString(),
-          current_price: initialPrice,
-          currentBid: initialPrice,
-          starting_price: initialPrice,
-          startingPrice: initialPrice,
-          bid_count: 0,
-          bidCount: 0,
-          bidding_history: [],
-          biddingHistory: [],
-          top_bids: [],
-          winner_id: null,
-          winnerId: null,
-          payment_status: 'unpaid',
-          post_auction_status: null,
-          delivery_method: null,
-          selected_delivery: null,
-          paid_at: null,
-          invoice_url: null,
-          current_proxy_bid: null,
-          currentProxyBid: null,
-          hidden_max_bid: null,
-          hiddenMaxBid: null,
-          is_package: !isSingleOnly,
-          package_id: isSingleOnly ? null : (item.package_id || (item as any).packageId),
-          packageId: isSingleOnly ? null : (item.package_id || (item as any).packageId),
-          package_title: isSingleOnly ? null : (item.package_title || null),
-          package_description: isSingleOnly ? null : (item.package_description || null),
-          region: normalizeRegionName(item.region || (typeof item.location === 'object' ? item.location?.SLO : item.location)),
+        const res = await fetch('/api/auctions/republish', {
+          method: 'POST',
+          headers: await getAuthHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ auction_id: item.id })
         });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || `Napaka pri ponovni objavi predmeta ${item.id}`);
+        }
       }
       toast.success("Vsi predmeti paketa so bili uspešno ponovno objavljeni!");
       fetchAuctions();
@@ -4364,29 +4314,18 @@ const MainApp: React.FC = () => {
     }
   };
 
-  
   const handleOfferToSecondBidder = async (auction: any) => {
     try {
-      const topBids = auction.top_bids || [];
-      const secondBid = topBids.length > 1 ? topBids[1] : null;
-      if (!secondBid) {
-        toast.error("Ni 2. najvišjega ponudnika za to dražbo.");
-        return;
-      }
-      
-      const now = new Date();
-      const deadline = new Date(now.getTime() + 48 * 60 * 60 * 1000).toISOString();
-      const auctionRef = doc(db, 'auctions', auction.id);
-      
-      await updateDoc(auctionRef, {
-        post_auction_status: 'offered_2nd',
-        second_highest_bidder_id: secondBid.user_id,
-        second_chance_deadline: deadline,
-        currentBid: secondBid.amount,
-        current_price: secondBid.amount
+      const res = await fetch('/api/auctions/offer-second-chance', {
+        method: 'POST',
+        headers: await getAuthHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ auction_id: auction.id })
       });
-      
-      toast.success("Dražba je bila ponujena 2. najvišjemu ponudniku. Ima 48 ur, da jo sprejme.");
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Napaka pri ponujanju dražbe.");
+      }
+      toast.success(data.message || "Dražba je bila ponujena 2. najvišjemu ponudniku.");
       fetchAuctions();
     } catch (e: any) {
       toast.error("Napaka pri ponujanju dražbe: " + e.message);

@@ -86,6 +86,9 @@ export interface AuctionItem {
   top_bids?: Array<{ bidder_id: string; amount: number }>;
   paid_at?: string;
   winnerId?: string;
+  winner_id?: string;
+  has_second_bidder?: boolean;
+  hasSecondBidder?: boolean;
   hiddenMaxBid?: number; // For proxy bidding logic
   delivery_method?: 'pickup' | 'post' | 'shipping';
   delivery_option?: 'both' | 'pickup_only' | 'shipping_only' | string;

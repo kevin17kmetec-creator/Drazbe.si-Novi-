@@ -5,7 +5,7 @@ import {
   CreditCard, Landmark, Plus, Minus, X, Calendar as CalendarIcon, Phone, Mail, User,
   MessageSquare, Sparkles, Building2, Package, Tag, ShieldCheck
 } from 'lucide-react';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { doc, collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import { db, registerSnapshotListener } from "../../lib/firebase";
 import { getIncrement, calculateMarginalPlatformFee } from "../../lib/utils";
 import { formatAttributeLabel } from "../../lib/categoryAttributes";
@@ -17,7 +17,7 @@ const TimeBox = ({ value, label }: { value: number, label: string }) => (
   </div>
 );
 
-export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onSellerClick, t, language, isVerified, currentPlan, isWatched, onWatchToggle, currentUserId }: { 
+export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onSellerClick, t, language, isVerified, currentPlan, isWatched, onWatchToggle, currentUserId, myMax, myBidsMap }: { 
   item: any, 
   onBack: () => void, 
   onBidSubmit: (item: any, amount: number) => Promise<"error" | "ok" | "outbid" | "login_required" | "cancelled">,
@@ -29,7 +29,9 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
   currentPlan: string,
   isWatched?: boolean,
   onWatchToggle?: () => void,
-  currentUserId?: string
+  currentUserId?: string,
+  myMax?: number,
+  myBidsMap?: Map<string, number>
 }) {
   const [auctionData, setAuctionData] = useState<any>(item);
 
@@ -54,6 +56,29 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
   }, [item?.id]);
 
   const currentAuction = auctionData || item;
+
+  const [bidsHistory, setBidsHistory] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!item?.id) return;
+    const q = query(
+      collection(db, 'auctions', item.id, 'bids'),
+      orderBy('created_at', 'desc'),
+      limit(30)
+    );
+    const unsub = registerSnapshotListener(
+      onSnapshot(q, (snap) => {
+        setBidsHistory(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      }, (err) => {
+        if (err.code === 'permission-denied') {
+          console.warn("Dostop do zgodovine ponudb ni dovoljen.");
+        } else {
+          console.error("Bids history snapshot error:", err);
+        }
+      })
+    );
+    return () => unsub();
+  }, [item?.id]);
 
   const isPaid = Boolean(
     currentAuction?.payment_status === 'paid' || 
@@ -124,20 +149,21 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
   ));
   const isEnded = currentAuction.status === 'completed' || currentAuction.status === 'cancelled' || isPaid || timeLeft === 0;
 
+  const effectiveMyMax = myMax !== undefined ? myMax : (myBidsMap?.get(currentAuction?.id));
   const currentLeadingAmount = isWinner 
-    ? Math.max(currentBid, Number(currentAuction?.current_proxy_bid?.amount || currentAuction?.currentProxyBid?.amount || currentAuction?.hiddenMaxBid || currentAuction?.hidden_max_bid || currentBid))
+    ? Math.max(currentBid, Number(effectiveMyMax || currentBid))
     : currentBid;
   const minNextBid = currentLeadingAmount + getIncrement(currentLeadingAmount);
 
   useEffect(() => {
     const baseline = isWinner 
-      ? Math.max(currentBid, Number(currentAuction?.current_proxy_bid?.amount || currentAuction?.currentProxyBid?.amount || currentAuction?.hiddenMaxBid || currentAuction?.hidden_max_bid || currentBid))
+      ? Math.max(currentBid, Number(effectiveMyMax || currentBid))
       : currentBid;
     const requiredMin = baseline + getIncrement(baseline);
     if (!bidAmount || Number(bidAmount) < requiredMin) {
       setBidAmount(String(requiredMin));
     }
-  }, [currentBid, isWinner, currentAuction]);
+  }, [currentBid, isWinner, effectiveMyMax]);
 
   const handleAdjustBid = (dir: 'up' | 'down') => {
     const currentNum = Number(bidAmount) || minNextBid;
@@ -370,7 +396,7 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                 
                 <div className="text-center border-r border-white/10 pt-4 border-t">
                   <p className="text-2xl font-black text-green-400">
-                    {isWinner ? `€ ${currentAuction.current_proxy_bid?.amount || currentAuction.currentProxyBid?.amount || currentAuction.hiddenMaxBid || currentAuction.hidden_max_bid || currentAuction.currentBid || currentAuction.current_price || currentBid || '-'}` : '-'}
+                    {isWinner ? `€ ${effectiveMyMax || currentAuction.currentBid || currentAuction.current_price || currentBid || '-'}` : '-'}
                   </p>
                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1 flex items-center justify-center gap-1"><Lock size={10}/> {t('myMaxBid')}</p>
                 </div>
@@ -458,25 +484,25 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                 <h3 className="text-[#0A1128] font-black uppercase tracking-widest text-xs">{t('biddingHistory')}</h3>
               </div>
               <div className="p-0">
-                {item.bidding_history && item.bidding_history.length > 0 ? (
+                {bidsHistory && bidsHistory.length > 0 ? (
                   <div className="divide-y divide-slate-100">
-                    {[...item.bidding_history].reverse().map((bid: any, idx: number) => (
-                      <div key={idx} className="flex justify-between items-center p-4 hover:bg-slate-50 transition-colors">
+                    {bidsHistory.map((bid: any, idx: number) => (
+                      <div key={bid.id || idx} className="flex justify-between items-center p-4 hover:bg-slate-50 transition-colors">
                         <div className="flex items-center gap-3">
                           <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-400">
                             <User size={14} />
                           </div>
                           <div>
                             <p className="text-xs font-black text-[#0A1128]">
-                              {(bid.userId || bid.bidderId) === currentUserId ? t('you') : `${t('bidder')} ${(bid.userId || bid.bidderId)?.substring(0, 4) || 'Unknown'}...`}
+                              {bid.bidder_alias || t('bidder')}
                             </p>
                             <p className="text-[10px] font-bold text-slate-400">
-                              {new Date(bid.timestamp).toLocaleString('sl-SI')}
+                              {bid.created_at ? new Date(bid.created_at).toLocaleString('sl-SI') : '-'}
                             </p>
                           </div>
                         </div>
                         <div className="text-right">
-                          <p className="text-sm font-black text-[#FEBA4F]">€ {bid.amount.toLocaleString('sl-SI')}</p>
+                          <p className="text-sm font-black text-[#FEBA4F]">€ {Number(bid.price || 0).toLocaleString('sl-SI')}</p>
                         </div>
                       </div>
                     ))}
