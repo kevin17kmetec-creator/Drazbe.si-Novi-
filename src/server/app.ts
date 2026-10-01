@@ -41,6 +41,7 @@ import {
   adminDb,
   adminAuth,
   getAuth,
+  getAdminStorage,
   uploadBufferToStorage,
   isDocSnapshotExists,
   getDocSnapshotData,
@@ -156,9 +157,9 @@ async function createAndSendSubscriptionInvoice(params: {
     });
 
     const fileName = `racun_${invoiceNo}.pdf`;
-    let publicUrl: string | null = null;
+    let invoicePath: string | null = null;
     try {
-      publicUrl = await uploadBufferToStorage(pdfBuffer, `${userId}/${fileName}`);
+      invoicePath = await uploadBufferToStorage(pdfBuffer, `${userId}/${fileName}`);
     } catch (uploadErr: any) {
       console.warn('[subscription-invoice] Napaka pri nalaganju v Storage:', uploadErr.message);
     }
@@ -172,7 +173,7 @@ async function createAndSendSubscriptionInvoice(params: {
       amount: amountTotal,
       source_id: sourceId,
       payment_method: paymentMethod,
-      file_url: publicUrl,
+      invoice_path: invoicePath,
       created_at: new Date().toISOString()
     });
     console.log(`[subscription-invoice] Uspešno shranjen dokument računa ${invoiceNo} za uporabnika ${userId}`);
@@ -664,43 +665,63 @@ app.use((req, res, next) => {
   next();
 });
 
-// UPSTASH RATE LIMITER
-let ratelimit: Ratelimit | null = null;
+// UPSTASH RATE LIMITERS
+let authRateLimiter: Ratelimit | null = null;
+let placeBidRateLimiter: Ratelimit | null = null;
+let createAuctionRateLimiter: Ratelimit | null = null;
+let checkoutPaymentRateLimiter: Ratelimit | null = null;
+
 if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
   const redis = new Redis({
     url: process.env.UPSTASH_REDIS_REST_URL,
     token: process.env.UPSTASH_REDIS_REST_TOKEN,
   });
-  // 5 requests per minute
-  ratelimit = new Ratelimit({
+  authRateLimiter = new Ratelimit({
     redis,
     limiter: Ratelimit.slidingWindow(5, "1 m"),
+    prefix: "ratelimit_auth",
     analytics: true,
   });
+  placeBidRateLimiter = new Ratelimit({
+    redis,
+    limiter: Ratelimit.slidingWindow(30, "1 m"),
+    prefix: "ratelimit_bid",
+    analytics: true,
+  });
+  createAuctionRateLimiter = new Ratelimit({
+    redis,
+    limiter: Ratelimit.slidingWindow(10, "1 h"),
+    prefix: "ratelimit_auction",
+    analytics: true,
+  });
+  checkoutPaymentRateLimiter = new Ratelimit({
+    redis,
+    limiter: Ratelimit.slidingWindow(10, "1 m"),
+    prefix: "ratelimit_payment",
+    analytics: true,
+  });
+} else {
+  console.warn("Upstash Redis not configured. Rate limiting is disabled.");
 }
 
-// APPLY RATE LIMITING TO CRITICAL ROUTES
+// APPLY RATE LIMITING TO AUTH ROUTES (5 per minute per IP)
 app.use(async (req, res, next) => {
   if (
     req.path === "/api/auth/verify-captcha" ||
     req.path === "/api/auth/send-verification" ||
-    req.path === "/api/auth/send-password-reset" ||
-    req.path === "/api/place-bid" ||
-    req.path === "/api/auctions/create"
+    req.path === "/api/auth/send-password-reset"
   ) {
-    if (ratelimit) {
+    if (authRateLimiter) {
       const ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress || "127.0.0.1";
       const identifier = Array.isArray(ip) ? ip[0] : ip;
       try {
-        const { success } = await ratelimit.limit(identifier);
+        const { success } = await authRateLimiter.limit(identifier);
         if (!success) {
-          return res.status(429).json({ error: "Too many requests. Please try again later." });
+          return res.status(429).json({ error: "Preveč zahtev. Prosimo, poskusite kasneje." });
         }
       } catch (err) {
         console.warn("Rate limit check failed, skipping blocking:", err);
       }
-    } else {
-      console.warn("Rate limiting is disabled (missing UPSTASH_REDIS_REST_URL)");
     }
   }
   next();
@@ -1043,12 +1064,13 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
         const invoiceFileName = `racun_${salesInvoiceNo}.pdf`;
 
         // Upload to Storage via Admin SDK
-        const publicUrl = await uploadBufferToStorage(invoicePdfBuffer, `${buyer_id}/${invoiceFileName}`);
+        const invoicePath = await uploadBufferToStorage(invoicePdfBuffer, `${buyer_id}/${invoiceFileName}`);
         documentsToInsert.push({
           transaction_id: transaction.id,
           user_id: buyer_id,
+          auction_id: auction_id,
           type: 'invoice',
-          file_url: publicUrl,
+          invoice_path: invoicePath,
           created_at: new Date().toISOString()
         });
 
@@ -1294,6 +1316,17 @@ app.post("/api/place-bid", async (req, res) => {
     userId = await authenticateFirebaseUser(req);
   } catch (authErr: any) {
     return res.status(401).json({ error: authErr.message || 'Unauthorized' });
+  }
+
+  if (placeBidRateLimiter) {
+    try {
+      const { success } = await placeBidRateLimiter.limit(userId);
+      if (!success) {
+        return res.status(429).json({ error: "Preveč oddanih ponudb. Prosimo, počakajte." });
+      }
+    } catch (err) {
+      console.warn("Rate limit check failed:", err);
+    }
   }
 
   try {
@@ -1581,6 +1614,17 @@ app.post("/api/create-checkout-session", async (req, res) => {
     userId = await authenticateFirebaseUser(req);
   } catch (authErr: any) {
     return res.status(401).json({ error: authErr.message || 'Unauthorized' });
+  }
+
+  if (checkoutPaymentRateLimiter) {
+    try {
+      const { success } = await checkoutPaymentRateLimiter.limit(userId);
+      if (!success) {
+        return res.status(429).json({ error: "Preveč plačilnih zahtev. Prosimo, počakajte." });
+      }
+    } catch (err) {
+      console.warn("Rate limit check failed:", err);
+    }
   }
 
   try {
@@ -2038,6 +2082,17 @@ app.post("/api/create-payment-intent", async (req, res) => {
     userId = await authenticateFirebaseUser(req);
   } catch (authErr: any) {
     return res.status(401).json({ error: authErr.message || 'Unauthorized' });
+  }
+
+  if (checkoutPaymentRateLimiter) {
+    try {
+      const { success } = await checkoutPaymentRateLimiter.limit(userId);
+      if (!success) {
+        return res.status(429).json({ error: "Preveč plačilnih zahtev. Prosimo, počakajte." });
+      }
+    } catch (err) {
+      console.warn("Rate limit check failed:", err);
+    }
   }
 
   try {
@@ -3859,6 +3914,17 @@ app.post("/api/auctions/create", async (req, res) => {
     return res.status(401).json({ error: authErr.message || 'Unauthorized' });
   }
 
+  if (createAuctionRateLimiter) {
+    try {
+      const { success } = await createAuctionRateLimiter.limit(userId);
+      if (!success) {
+        return res.status(429).json({ error: "Preveč ustvarjenih dražb v tem časovnem okviru." });
+      }
+    } catch (err) {
+      console.warn("Rate limit check failed:", err);
+    }
+  }
+
   try {
     const { itemData } = req.body;
 
@@ -4269,7 +4335,49 @@ app.post("/api/orders/:id/open-dispute", async (req, res) => {
 
 // RECAPTCHA V3 VERIFICATION
 app.post("/api/auth/verify-captcha", async (req, res) => {
-  return res.json({ success: true, score: 1.0 });
+  try {
+    const { token, action } = req.body || {};
+    const secretKey = process.env.RECAPTCHA_SECRET_KEY;
+
+    if (!secretKey) {
+      if (process.env.NODE_ENV !== 'production') {
+        return res.json({ success: true, score: 1.0 });
+      }
+      return res.status(503).json({ error: "reCAPTCHA ni nastavljen." });
+    }
+
+    if (!token) {
+      return res.status(400).json({ error: "Manjka reCAPTCHA žeton." });
+    }
+
+    const params = new URLSearchParams();
+    params.append('secret', secretKey);
+    params.append('response', token);
+
+    const verifyRes = await fetch('https://www.google.com/recaptcha/api/siteverify', {
+      method: 'POST',
+      body: params
+    });
+    const data = await verifyRes.json() as any;
+
+    if (!data.success) {
+      return res.status(400).json({ error: "Preverjanje reCAPTCHA ni uspelo." });
+    }
+
+    if (action && data.action && data.action !== action) {
+      return res.status(400).json({ error: "Neveljavno dejanje reCAPTCHA." });
+    }
+
+    const score = typeof data.score === 'number' ? data.score : 1.0;
+    if (score < 0.5) {
+      return res.status(400).json({ error: "Zaznana je sumljiva aktivnost (nizka ocena reCAPTCHA)." });
+    }
+
+    return res.json({ success: true, score });
+  } catch (err: any) {
+    console.error("Error verifying reCAPTCHA:", err);
+    return res.status(500).json({ error: err.message || "Napaka pri preverjanju reCAPTCHA." });
+  }
 });
 
 // AUTH EMAILS
@@ -5157,23 +5265,125 @@ app.get("/api/subscription/download-invoice/:invoiceNo", async (req, res) => {
     }
 
     const docData = docSnap.docs[0].data();
-    const userDoc = await safeGetDoc(adminDb.collection('users').doc(authUid));
-    const userData = userDoc.data() || {};
+    const invoicePath = docData.invoice_path || docData.file_url;
+    if (!invoicePath) {
+      return res.status(404).json({ error: "Račun ni shranjen v shrambi." });
+    }
 
-    const pdfBuffer = await generateSubscriptionInvoicePDF({
-      invoiceNo: docData.invoice_no,
-      user: userData,
-      planId: docData.package_id || 'basic',
-      amount: docData.amount || 20,
-      paymentMethod: docData.payment_method || 'Spletno plačilo / Kartica (Stripe)',
-      paymentDate: new Date(docData.created_at).toLocaleDateString('sl-SI')
+    let storagePath = invoicePath;
+    if (storagePath.startsWith('http')) {
+      try {
+        storagePath = decodeURIComponent(storagePath.split('/o/')[1].split('?')[0]);
+      } catch (e) {}
+    }
+
+    const storage = getAdminStorage();
+    const bucketName = process.env.FIREBASE_STORAGE_BUCKET || 'drazbesi.firebasestorage.app';
+    const file = storage.bucket(bucketName).file(storagePath);
+    const [url] = await file.getSignedUrl({
+      version: 'v4',
+      action: 'read',
+      expires: Date.now() + 10 * 60 * 1000 // 10 minutes
     });
 
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="racun_${invoiceNo}.pdf"`);
-    res.send(pdfBuffer);
+    return res.json({ url });
   } catch (err: any) {
-    console.error("Error generating subscription invoice download:", err);
+    console.error("Error generating subscription invoice download URL:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/invoices/download-url", async (req, res) => {
+  try {
+    let authUid: string | null = null;
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith('Bearer ')) {
+      try {
+        const decoded = await adminAuth.verifyIdToken(authHeader.split('Bearer ')[1]);
+        authUid = decoded.uid;
+      } catch (e) {}
+    }
+    if (!authUid) {
+      return res.status(401).json({ error: "Niste prijavljeni." });
+    }
+
+    const { auction_id } = req.query;
+    if (!auction_id || typeof auction_id !== 'string') {
+      return res.status(400).json({ error: "Manjka ID dražbe." });
+    }
+
+    const auctionDoc = await safeGetDoc(adminDb.collection('auctions').doc(auction_id));
+    if (!auctionDoc.exists) {
+      return res.status(404).json({ error: "Dražba ni bila najdena." });
+    }
+    const auction = auctionDoc.data() || {};
+
+    const sellerId = auction.seller_id || auction.seller?.id;
+    const winnerId = auction.winner_id || auction.winner?.id || auction.buyer_id;
+
+    if (authUid !== sellerId && authUid !== winnerId) {
+      return res.status(403).json({ error: "Nimate pravic za dostop do tega računa." });
+    }
+
+    const isPaid = auction.status === 'completed' || auction.post_auction_status === 'awaiting_buyer_receipt' || auction.post_auction_status === 'buyer_received' || auction.is_paid;
+    if (!isPaid) {
+      return res.status(400).json({ error: "Dražba še ni plačana." });
+    }
+
+    const docsSnap = await safeGetDocs(
+      adminDb.collection('documents')
+        .where('auction_id', '==', auction_id)
+        .where('type', '==', 'invoice')
+        .limit(1)
+    );
+
+    let invoicePath: string | null = null;
+    if (!docsSnap.empty) {
+      const docData = docsSnap.docs[0].data();
+      invoicePath = docData.invoice_path || docData.file_url;
+    } else {
+      const txSnap = await safeGetDocs(
+        adminDb.collection('transactions')
+          .where('auction_id', '==', auction_id)
+          .limit(1)
+      );
+      if (!txSnap.empty) {
+        const txId = txSnap.docs[0].id;
+        const txDocsSnap = await safeGetDocs(
+          adminDb.collection('documents')
+            .where('transaction_id', '==', txId)
+            .where('type', '==', 'invoice')
+            .limit(1)
+        );
+        if (!txDocsSnap.empty) {
+          invoicePath = txDocsSnap.docs[0].data().invoice_path || txDocsSnap.docs[0].data().file_url;
+        }
+      }
+    }
+
+    if (!invoicePath) {
+      return res.status(404).json({ error: "Račun za to dražbo ni na voljo." });
+    }
+
+    let storagePath = invoicePath;
+    if (storagePath.startsWith('http')) {
+      try {
+        storagePath = decodeURIComponent(storagePath.split('/o/')[1].split('?')[0]);
+      } catch (e) {}
+    }
+
+    const storage = getAdminStorage();
+    const bucketName = process.env.FIREBASE_STORAGE_BUCKET || 'drazbesi.firebasestorage.app';
+    const file = storage.bucket(bucketName).file(storagePath);
+    const [url] = await file.getSignedUrl({
+      version: 'v4',
+      action: 'read',
+      expires: Date.now() + 10 * 60 * 1000 // 10 minutes
+    });
+
+    return res.json({ url });
+  } catch (err: any) {
+    console.error("Error generating invoice download URL:", err);
     res.status(500).json({ error: err.message });
   }
 });

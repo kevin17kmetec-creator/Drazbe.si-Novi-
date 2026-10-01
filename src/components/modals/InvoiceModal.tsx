@@ -125,37 +125,21 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
   const handleDownload = async () => {
     setIsGenerating(true);
     try {
-      // 1. Try to fetch the exact PDF from the server backend
-      const response = await fetch('/api/test/generate-pdf', {
-        method: 'POST',
-        headers: await getAuthHeaders(),
-        body: JSON.stringify({
-          auction,
-          seller,
-          buyer,
-          salesInvoiceNo: invoiceNumber,
-          commissionInvoiceNo: feeInvoiceNumber,
-          itemTitle,
-          itemPrice,
-          docType: 'invoice'
-        })
+      // 1. Request signed URL from server
+      const response = await fetch(`/api/invoices/download-url?auction_id=${encodeURIComponent(auction.id)}`, {
+        headers: await getAuthHeaders()
       });
 
       if (response.ok) {
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `Racun_${invoiceNumber}.pdf`;
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(url);
-        document.body.removeChild(a);
-        setIsGenerating(false);
-        return;
+        const data = await response.json();
+        if (data.url) {
+          window.open(data.url, '_blank');
+          setIsGenerating(false);
+          return;
+        }
       }
     } catch (e) {
-      console.warn('Backend PDF download error, falling back to print window:', e);
+      console.warn('Signed URL fetch error, falling back to print window:', e);
     }
 
     // 2. Fallback: print window

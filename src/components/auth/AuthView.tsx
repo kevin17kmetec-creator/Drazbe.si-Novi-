@@ -12,8 +12,11 @@ import {
 import { toast } from 'sonner';
 import { getAuthHeaders } from '../../lib/authFetch';
 import { sendEmailVerificationAction, sendPasswordResetAction } from "../../actions/auth-emails";
+import { useGoogleReCaptcha } from 'react-google-recaptcha-v3';
+import { verifyCaptchaAction } from '../../actions/captcha';
 
 export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerified: (v: boolean) => void; setAppLoggedIn: (val: boolean) => void }> = ({ t, onLoginSuccess, setIsVerified, setAppLoggedIn }) => {
+  const { executeRecaptcha } = useGoogleReCaptcha();
   const [isLogin, setIsLogin] = useState(true);
   const [isForgotPassword, setIsForgotPassword] = useState(false);
   const [email, setEmail] = useState('');
@@ -65,6 +68,20 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
     }
     setResendingVerification(true);
     try {
+      if (executeRecaptcha) {
+        try {
+          const token = await executeRecaptcha('register');
+          const captchaRes = await verifyCaptchaAction(token, 'register');
+          if (!captchaRes.success) {
+            toast.error(captchaRes.error || "Preverjanje reCAPTCHA ni uspelo. Prosimo, poskusite znova.");
+            setResendingVerification(false);
+            return;
+          }
+        } catch (e) {
+          console.warn("reCAPTCHA execution error:", e);
+        }
+      }
+
       const res = await sendEmailVerificationAction(targetEmail, targetEmail.split('@')[0]);
       if (res.success) {
         toast.success("Novo potrditveno sporočilo je bilo uspešno odposlano! Preverite svoj e-poštni predal (tudi mapo z vsiljeno pošto).");
@@ -97,6 +114,20 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
     setLoading(true);
     try {
       if (isLogin) {
+          if (executeRecaptcha) {
+            try {
+              const token = await executeRecaptcha('login');
+              const captchaRes = await verifyCaptchaAction(token, 'login');
+              if (!captchaRes.success) {
+                toast.error(captchaRes.error || "Preverjanje reCAPTCHA ni uspelo. Prosimo, poskusite znova.");
+                setLoading(false);
+                return;
+              }
+            } catch (e) {
+              console.warn("reCAPTCHA execution error:", e);
+            }
+          }
+
           const cred = await signInWithEmailAndPassword(auth, cleanEmail, password);
           const user = cred.user;
           
@@ -147,6 +178,21 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
           // REGISTRACIJA
           setRegisteringAuth(true);
           try {
+            if (executeRecaptcha) {
+              try {
+                const token = await executeRecaptcha('register');
+                const captchaRes = await verifyCaptchaAction(token, 'register');
+                if (!captchaRes.success) {
+                  toast.error(captchaRes.error || "Preverjanje reCAPTCHA ni uspelo. Prosimo, poskusite znova.");
+                  setRegisteringAuth(false);
+                  setLoading(false);
+                  return;
+                }
+              } catch (e) {
+                console.warn("reCAPTCHA execution error:", e);
+              }
+            }
+
             // 1. Ustvari uporabnika v Firebase Auth
             const userCredential = await createUserWithEmailAndPassword(auth, cleanEmail, password);
             const user = userCredential.user;
@@ -253,6 +299,20 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
       
       setLoading(true);
       try {
+          if (executeRecaptcha) {
+            try {
+              const token = await executeRecaptcha('password_reset');
+              const captchaRes = await verifyCaptchaAction(token, 'password_reset');
+              if (!captchaRes.success) {
+                toast.error(captchaRes.error || "Preverjanje reCAPTCHA ni uspelo. Prosimo, poskusite znova.");
+                setLoading(false);
+                return;
+              }
+            } catch (e) {
+              console.warn("reCAPTCHA execution error:", e);
+            }
+          }
+
           let resetSuccess = false;
           try {
             const res = await sendPasswordResetAction(email);

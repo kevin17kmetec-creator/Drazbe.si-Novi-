@@ -2,6 +2,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App.tsx';
+import { GoogleReCaptchaProvider } from 'react-google-recaptcha-v3';
 
 // =========================================================================
 // GLOBAL ERROR HANDLERS & SENTRY NOISE REDUCTION
@@ -110,17 +111,19 @@ if (!rootElement) {
   throw new Error("Could not find root element to mount to");
 }
 
-const siteKey = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY;
+const siteKey = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_RECAPTCHA_SITE_KEY) || process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY || '6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI';
 
 if (!siteKey) {
-  console.warn("[reCAPTCHA] NEXT_PUBLIC_RECAPTCHA_SITE_KEY is missing in Environment Variables.");
+  console.warn("[reCAPTCHA] VITE_RECAPTCHA_SITE_KEY is missing in Environment Variables.");
 }
 
 const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
-    <ErrorBoundary>
-      <App />
-    </ErrorBoundary>
+    <GoogleReCaptchaProvider reCaptchaKey={siteKey}>
+      <ErrorBoundary>
+        <App />
+      </ErrorBoundary>
+    </GoogleReCaptchaProvider>
   </React.StrictMode>
 );
