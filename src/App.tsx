@@ -120,7 +120,7 @@ import { Toaster } from "sonner";
 import { toast } from "@/src/lib/toast";
 
 import { ChatProvider } from "./context/ChatContext";
-import { collection, onSnapshot, setDoc, doc, getDocs, getDoc, updateDoc, addDoc, deleteDoc, query, where, runTransaction } from "firebase/firestore";
+import { collection, onSnapshot, setDoc, doc, getDocs, getDoc, updateDoc, addDoc, deleteDoc, query, where } from "firebase/firestore";
 import { db, auth, storage, safeSignOut, cleanupAllListeners, registerSnapshotListener, isRegisteringAuth } from "./lib/firebase";
 import { onAuthStateChanged, updatePassword } from "firebase/auth";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
@@ -4210,147 +4210,38 @@ const MainApp: React.FC = () => {
     
     setShowConfirmBidModal(false);
     try {
-        const auctionRef = doc(db, 'auctions', item.id);
-        let previousLeaderId: string | null = null;
-        let finalCalculatedPrice = amount;
+      const response = await fetch('/api/place-bid', {
+        method: 'POST',
+        headers: await getAuthHeaders(),
+        body: JSON.stringify({
+          auction_id: item.id,
+          amount,
+        }),
+      });
 
-        const finalWinnerId = await runTransaction(db, async (transaction) => {
-            const auctionDoc = await transaction.get(auctionRef);
-            if (!auctionDoc.exists()) {
-                throw new Error("Auction does not exist");
-            }
-            const data = auctionDoc.data();
-            const sellerId = data.seller_id || data.sellerId || (data.seller && (data.seller.id || (data.seller as any).id));
-            if (sellerId && (sellerId === userData.id || sellerId === auth.currentUser?.uid)) {
-                throw new Error("Kot avtor dražbe ne morete oddajati ponudb na lasten predmet.");
-            }
-            const currentPrice = Number(data.current_price ?? data.currentBid ?? 0);
-            const currentWinner = data.winner_id || data.winnerId;
-            previousLeaderId = currentWinner || null;
-            const isCurrentWinner = currentWinner === userData.id;
+      const data = await response.json();
 
-            if (amount <= currentPrice) {
-                throw new Error("Bid must be higher than current price");
-            }
-
-            // PROXY BIDDING LOGIC
-            const currentProxy = data.current_proxy_bid || data.currentProxyBid;
-            let newCurrentPrice = currentPrice;
-            let newWinnerId = userData.id;
-            let newProxyBid = { user_id: userData.id, amount: amount };
-            
-            const increment = getIncrement(currentPrice);
-            
-            if (currentProxy && currentProxy.user_id !== userData.id) {
-                if (amount > currentProxy.amount) {
-                    // New user outbids old proxy
-                    newCurrentPrice = Math.min(amount, currentProxy.amount + increment);
-                    newWinnerId = userData.id;
-                    newProxyBid = { user_id: userData.id, amount: amount };
-                } else if (amount === currentProxy.amount) {
-                    // Tie goes to earlier proxy
-                    newCurrentPrice = amount;
-                    newWinnerId = currentProxy.user_id;
-                    newProxyBid = currentProxy;
-                } else {
-                    // New user did not outbid old proxy
-                    newCurrentPrice = Math.min(currentProxy.amount, amount + increment);
-                    newWinnerId = currentProxy.user_id;
-                    newProxyBid = currentProxy;
-                }
-            } else if (isCurrentWinner || (currentProxy && currentProxy.user_id === userData.id)) {
-                // User is leading and increasing their max proxy bid; price stays current price unless this is their initial bid
-                newCurrentPrice = currentPrice; 
-                newWinnerId = userData.id;
-                newProxyBid = { user_id: userData.id, amount: amount };
-            } else {
-                 // No previous proxy, or starting fresh
-                 newCurrentPrice = Math.min(amount, currentPrice + increment);
-                 newWinnerId = userData.id;
-                 newProxyBid = { user_id: userData.id, amount: amount };
-            }
-            
-            finalCalculatedPrice = newCurrentPrice;
-            
-            const endTimeStr = data.end_time || data.endTime;
-            const endTime = endTimeStr ? new Date(endTimeStr).getTime() : 0;
-            const now = Date.now();
-            let newEndTimeStr = endTimeStr;
-            
-            if (endTime > now && endTime - now < 60 * 1000) {
-                // Extend by 1 minute if bid is in final 60 seconds
-                newEndTimeStr = new Date(now + 60 * 1000).toISOString();
-            }
-
-            // Update top bids to keep track of highest unique bidders
-            let topBids = data.top_bids || [];
-            topBids.push({ user_id: userData.id, amount, timestamp: new Date().toISOString() });
-            topBids.sort((a: any, b: any) => b.amount - a.amount);
-            
-            let uniqueTopBids: any[] = [];
-            let seenUsers = new Set();
-            for (let bid of topBids) {
-                if (!seenUsers.has(bid.user_id)) {
-                    uniqueTopBids.push(bid);
-                    seenUsers.add(bid.user_id);
-                }
-            }
-            uniqueTopBids = uniqueTopBids.slice(0, 3);
-            
-            const existingHistory = data.bidding_history || data.biddingHistory || [];
-            const newHistoryItem = {
-              user_id: userData.id,
-              userId: userData.id,
-              username: userData.username || userData.first_name || userData.email?.split('@')[0] || 'Uporabnik',
-              amount: amount,
-              created_at: new Date().toISOString(),
-              createdAt: new Date().toISOString()
-            };
-
-            transaction.update(auctionRef, { 
-                 current_price: newCurrentPrice, 
-                 currentBid: newCurrentPrice,
-                 winner_id: newWinnerId,
-                 winnerId: newWinnerId,
-                 current_proxy_bid: newProxyBid,
-                 currentProxyBid: newProxyBid,
-                 hidden_max_bid: newProxyBid.amount,
-                 hiddenMaxBid: newProxyBid.amount,
-                 bid_count: (data.bid_count || data.bidCount || 0) + 1, 
-                 bidCount: (data.bid_count || data.bidCount || 0) + 1,
-                 top_bids: uniqueTopBids,
-                 end_time: newEndTimeStr,
-                 endTime: newEndTimeStr,
-                 bidding_history: [...existingHistory, newHistoryItem],
-                 biddingHistory: [...existingHistory, newHistoryItem]
-            });
-            
-            return newWinnerId;
-        });
-        
-        let resultStatus: "ok" | "outbid" = "ok";
-        if (finalWinnerId !== userData.id) {
-            resultStatus = "outbid";
-            toast.error(t('bidOutbid') || "Ponudba je bila že presežena.");
-        } else {
-            toast.success("Ponudba uspešno oddana!");
-
-            // If we took the lead and replaced a previous bidder, trigger outbid email notification
-            if (previousLeaderId && previousLeaderId !== userData.id) {
-                notifyOutbidAction({
-                    auction_id: item.id,
-                    outbid_user_id: previousLeaderId,
-                    new_price: finalCalculatedPrice
-                }).catch(err => console.error("Outbid notify email error:", err));
-            }
-        }
-
-        if (bidResolverRef.current) bidResolverRef.current(resultStatus);
-        fetchAuctions();
-    } catch (e: any) {
-        console.error("Bid submission error:", e);
-        toast.error(e.message || "Error submitting bid");
+      if (!response.ok || !data.success) {
+        const errorMsg = data.error || "Napaka pri oddaji ponudbe";
+        toast.error(errorMsg);
         if (bidResolverRef.current) bidResolverRef.current("error");
+        setPendingBid(null);
+        return;
+      }
+
+      const resultStatus: "ok" | "outbid" = data.resultStatus === "outbid" ? "outbid" : "ok";
+      if (resultStatus === "outbid") {
+        toast.error(t('bidOutbid') || "Ponudba je bila že presežena.");
+      } else {
+        toast.success("Ponudba uspešno oddana!");
+      }
+
+      if (bidResolverRef.current) bidResolverRef.current(resultStatus);
+      fetchAuctions();
+    } catch (e: any) {
+      console.error("Bid submission error:", e);
+      toast.error(e.message || "Error submitting bid");
+      if (bidResolverRef.current) bidResolverRef.current("error");
     }
     setPendingBid(null);
   };
