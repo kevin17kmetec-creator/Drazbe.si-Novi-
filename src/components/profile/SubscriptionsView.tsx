@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Lock, Calendar, AlertTriangle, ArrowLeft, Clock, CheckCircle2, FileText, Download, Loader2 } from 'lucide-react';
 import { SubscriptionTier } from "../../types";
 import { auth } from "../../lib/firebase";
+import { getAuthHeaders } from "../../lib/authFetch";
 import { getSubscriptionInvoicesAction } from "../../actions";
 
 export const SubscriptionsView: React.FC<{ 
@@ -50,7 +51,7 @@ export const SubscriptionsView: React.FC<{
       const user = auth.currentUser;
       const token = user ? await user.getIdToken() : '';
       const response = await fetch(`/api/subscription/download-invoice/${encodeURIComponent(invoiceNo)}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {}
+        headers: await getAuthHeaders()
       });
       if (!response.ok) {
         throw new Error('Napaka pri prenosu računa');

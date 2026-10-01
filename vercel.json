@@ -5,20 +5,18 @@
     { "source": "/api", "destination": "/api/index" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ],
-  "headers": [
-    {
-      "source": "/(.*)",
-      "headers": [
-        { "key": "Access-Control-Allow-Origin", "value": "*" },
-        { "key": "Access-Control-Allow-Methods", "value": "GET,POST,PUT,PATCH,DELETE,OPTIONS" },
-        { "key": "Access-Control-Allow-Headers", "value": "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization" }
-      ]
-    }
-  ],
   "crons": [
     {
       "path": "/api/cron/check-auctions",
       "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/cron/process-shipping-deadlines",
+      "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/process-escrow-completions",
+      "schedule": "0 4 * * *"
     }
   ]
 }

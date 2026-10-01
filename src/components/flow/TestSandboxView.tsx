@@ -41,6 +41,7 @@ import {
   mockSandboxStandaloneItems 
 } from "../../data/mockSandboxData";
 import { auth } from "../../lib/firebase";
+import { getAuthHeaders } from "../../lib/authFetch";
 
 interface TestSandboxViewProps {
   onBack: () => void;
@@ -312,7 +313,7 @@ export const TestSandboxView: React.FC<TestSandboxViewProps> = ({
     try {
       const response = await fetch('/api/test/generate-pdf', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await getAuthHeaders(),
         body: JSON.stringify({
           relationshipType,
           sellerData: {
@@ -379,7 +380,7 @@ export const TestSandboxView: React.FC<TestSandboxViewProps> = ({
     try {
       const response = await fetch('/api/test/send-email', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await getAuthHeaders(),
         body: JSON.stringify({
           toEmail: targetEmail,
           type,
@@ -463,7 +464,7 @@ export const TestSandboxView: React.FC<TestSandboxViewProps> = ({
 
       const response = await fetch('/api/test/test-payout', {
         method: 'POST',
-        headers,
+        headers: await getAuthHeaders(),
         body: JSON.stringify({
           user_id: userData.id,
           amount: payoutAmount,
@@ -511,7 +512,7 @@ export const TestSandboxView: React.FC<TestSandboxViewProps> = ({
       const clientKey = `fund_${userData.id}_${Date.now()}`;
       const res = await fetch('/api/test/add-test-funds', {
         method: 'POST',
-        headers,
+        headers: await getAuthHeaders(),
         body: JSON.stringify({
           user_id: userData.id,
           amount: 100,
@@ -545,7 +546,8 @@ export const TestSandboxView: React.FC<TestSandboxViewProps> = ({
     setIsCronRunning(true);
     try {
       const res = await fetch('/api/cron/check-auctions', {
-        method: 'GET'
+        method: 'GET',
+        headers: await getAuthHeaders()
       });
       let data: any;
       const contentType = res.headers.get('content-type') || '';

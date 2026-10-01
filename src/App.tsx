@@ -29,6 +29,7 @@ import { MessagesView } from "@/src/components/profile/MessagesView";
 import { MissingInvoiceDataModal } from "@/src/components/modals/MissingInvoiceDataModal";
 import { CategoryFilterBar, FilterState } from "@/src/components/auction/CategoryFilterBar";
 import { checkUserInvoiceData } from "./lib/invoiceDataCheck";
+import { getAuthHeaders } from "./lib/authFetch";
 import { 
   createAuctionAction, 
   confirmCheckoutSessionAction, 
@@ -2130,9 +2131,8 @@ const MainApp: React.FC = () => {
           try {
              await fetch('/api/auth/send-email-change', {
                method: 'POST',
-               headers: { 'Content-Type': 'application/json' },
+               headers: await getAuthHeaders(),
                body: JSON.stringify({
-                 email: currentEmail,
                  newEmail: data.email,
                  displayName: userData?.first_name || userData?.username || currentEmail
                })

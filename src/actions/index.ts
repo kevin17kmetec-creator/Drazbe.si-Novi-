@@ -2,6 +2,7 @@
 
 import Stripe from 'stripe';
 import { auth } from '../lib/firebase';
+import { getAuthHeaders } from '../lib/authFetch';
 
 let stripeClient: Stripe | null = null;
 
@@ -149,7 +150,7 @@ export async function createCheckoutSessionAction(planOrParams?: any): Promise<{
 
       const res = await fetch('/api/create-checkout-session', {
         method: 'POST',
-        headers,
+        headers: await getAuthHeaders(),
         body: JSON.stringify(bodyObj),
       });
       const data = await res.json().catch(() => ({}));

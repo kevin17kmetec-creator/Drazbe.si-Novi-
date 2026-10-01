@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { X, FileText, Download } from 'lucide-react';
 import { AuctionItem } from "../../types";
+import { getAuthHeaders } from "../../lib/authFetch";
 
 interface InvoiceModalProps {
   isOpen: boolean;
@@ -127,7 +128,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
       // 1. Try to fetch the exact PDF from the server backend
       const response = await fetch('/api/test/generate-pdf', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await getAuthHeaders(),
         body: JSON.stringify({
           auction,
           seller,
