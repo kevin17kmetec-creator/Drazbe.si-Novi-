@@ -28,6 +28,7 @@ import React from 'react';
 import { AuctionEmailTemplate } from '../emails/AuctionEmailTemplate';
 import { AuthEmailTemplate } from '../emails/AuthEmailTemplate';
 import { GoogleGenAI } from "@google/genai";
+import { finalizeAuction, processAuctionCrons } from './cronProcessor';
 import { generateInvoicePDF, generateCertificatePDF, generateSubscriptionInvoicePDF } from '../lib/pdfGenerator';
 import {
   sendEndingSoonNotification,
@@ -35,7 +36,6 @@ import {
   sendPaymentReminderNotification,
   sendOutbidNotification
 } from './emailService';
-import { processAuctionCrons } from './cronProcessor';
 import { syncPublicProfile } from './publicProfile';
 import {
   adminDb,
@@ -1588,6 +1588,9 @@ app.post("/api/create-checkout-session", async (req, res) => {
     const stripe = getStripe();
 
     const effectiveAuctionId = auction_id || auctionId;
+    if (effectiveAuctionId) {
+      await finalizeAuction(effectiveAuctionId);
+    }
     const effectiveBuyerId = userId;
     let auctionTitle = "Plačilo";
     let sessionMetadata: any = { type };
@@ -2041,6 +2044,9 @@ app.post("/api/create-payment-intent", async (req, res) => {
     const { currency = "eur", auction_id, auctionId } = req.body || {};
     const stripe = getStripe();
     const effectiveAuctionId = auction_id || auctionId;
+    if (effectiveAuctionId) {
+      await finalizeAuction(effectiveAuctionId);
+    }
 
     if (!effectiveAuctionId) {
       return res.status(400).json({ error: "Missing required auction fields for payment" });
@@ -2383,6 +2389,9 @@ app.post("/api/payments/wallet-pay-auction", async (req, res) => {
     const { auction_id } = req.body || {};
     if (!auction_id) {
       return res.status(400).json({ error: "Manjkajoči podatki" });
+    }
+    if (auction_id) {
+      await finalizeAuction(auction_id);
     }
 
     let seller_id = '';
@@ -3538,8 +3547,191 @@ app.post("/api/test/add-test-funds", async (req, res) => {
   }
 });
 
+// Upstash rate limiters for AI endpoints
+let enhanceRateLimitMin: Ratelimit | null = null;
+let enhanceRateLimitDay: Ratelimit | null = null;
+let analyzeRateLimitHour: Ratelimit | null = null;
+
+if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+  try {
+    const redisClient = new Redis({
+      url: process.env.UPSTASH_REDIS_REST_URL,
+      token: process.env.UPSTASH_REDIS_REST_TOKEN,
+    });
+    enhanceRateLimitMin = new Ratelimit({
+      redis: redisClient,
+      limiter: Ratelimit.slidingWindow(5, "1 m"),
+    });
+    enhanceRateLimitDay = new Ratelimit({
+      redis: redisClient,
+      limiter: Ratelimit.slidingWindow(30, "24 h"),
+    });
+    analyzeRateLimitHour = new Ratelimit({
+      redis: redisClient,
+      limiter: Ratelimit.slidingWindow(10, "1 h"),
+    });
+  } catch (err) {
+    console.warn("Failed to initialize AI Upstash limiters:", err);
+  }
+}
+
+async function checkEnhanceRateLimit(uid: string): Promise<boolean> {
+  if (enhanceRateLimitMin && enhanceRateLimitDay) {
+    try {
+      const minResult = await enhanceRateLimitMin.limit(`enhance_min_${uid}`);
+      if (!minResult.success) return false;
+      const dayResult = await enhanceRateLimitDay.limit(`enhance_day_${uid}`);
+      return dayResult.success;
+    } catch (e) {
+      console.warn("Upstash limit check error, falling back to Firestore:", e);
+    }
+  }
+
+  try {
+    const limitRef = adminDb.collection('user_rate_limits').doc(uid);
+    const limitSnap = await limitRef.get();
+    const now = Date.now();
+    const limitData = limitSnap.exists ? (limitSnap.data() || {}) : {};
+
+    const minTimestamp = limitData.enhance_min_ts || 0;
+    let minCount = limitData.enhance_min_cnt || 0;
+    if (now - minTimestamp > 60 * 1000) {
+      minCount = 0;
+    }
+    if (minCount >= 5) return false;
+
+    const dayTimestamp = limitData.enhance_day_ts || 0;
+    let dayCount = limitData.enhance_day_cnt || 0;
+    if (now - dayTimestamp > 24 * 60 * 60 * 1000) {
+      dayCount = 0;
+    }
+    if (dayCount >= 30) return false;
+
+    const updates: any = {};
+    if (minCount === 0) updates.enhance_min_ts = now;
+    updates.enhance_min_cnt = minCount + 1;
+
+    if (dayCount === 0) updates.enhance_day_ts = now;
+    updates.enhance_day_cnt = dayCount + 1;
+
+    await limitRef.set(updates, { merge: true });
+    return true;
+  } catch (fsErr) {
+    console.warn("Firestore rate limit fallback error:", fsErr);
+    return true;
+  }
+}
+
+async function checkAnalyzeRateLimit(uid: string): Promise<boolean> {
+  if (analyzeRateLimitHour) {
+    try {
+      const result = await analyzeRateLimitHour.limit(`analyze_hour_${uid}`);
+      return result.success;
+    } catch (e) {
+      console.warn("Upstash limit check error for analyze, falling back:", e);
+    }
+  }
+
+  try {
+    const limitRef = adminDb.collection('user_rate_limits').doc(uid);
+    const limitSnap = await limitRef.get();
+    const now = Date.now();
+    const limitData = limitSnap.exists ? (limitSnap.data() || {}) : {};
+
+    const hourTimestamp = limitData.analyze_hour_ts || 0;
+    let hourCount = limitData.analyze_hour_cnt || 0;
+    if (now - hourTimestamp > 60 * 60 * 1000) {
+      hourCount = 0;
+    }
+    if (hourCount >= 10) return false;
+
+    const updates: any = {};
+    if (hourCount === 0) updates.analyze_hour_ts = now;
+    updates.analyze_hour_cnt = hourCount + 1;
+
+    await limitRef.set(updates, { merge: true });
+    return true;
+  } catch (fsErr) {
+    console.warn("Firestore rate limit analyze fallback error:", fsErr);
+    return true;
+  }
+}
+
+// 2. POST /api/ai/enhance-image (secure, server-side image quality enhancement)
+app.post("/api/ai/enhance-image", async (req, res) => {
+  try {
+    let uid: string;
+    try {
+      uid = await authenticateFirebaseUser(req);
+    } catch (authErr: any) {
+      return res.status(401).json({ error: authErr.message || 'Unauthorized' });
+    }
+
+    const { image_base64, mime_type } = req.body;
+    if (!image_base64) {
+      return res.status(400).json({ error: "Manjka slikovni podatek (image_base64)." });
+    }
+
+    if (!mime_type || (mime_type !== 'image/jpeg' && mime_type !== 'image/png' && mime_type !== 'image/webp')) {
+      return res.status(400).json({ error: "Nepodprt tip slike (mime_type). Dovoljeni so: image/jpeg, image/png ali image/webp." });
+    }
+
+    const decodedLength = (image_base64.length * 3) / 4 - (image_base64.endsWith('==') ? 2 : (image_base64.endsWith('=') ? 1 : 0));
+    if (decodedLength > 4 * 1024 * 1024) {
+      return res.status(400).json({ error: "Slika presega največjo dovoljeno velikost 4 MB." });
+    }
+
+    const allowed = await checkEnhanceRateLimit(uid);
+    if (!allowed) {
+      return res.status(429).json({ error: "Presegli ste omejitev pošiljanja za polepšanje slik (največ 5 na minuto in 30 na dan)." });
+    }
+
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              data: image_base64,
+              mimeType: mime_type,
+            },
+          },
+          {
+            text: 'Enhance the quality, lighting, and sharpness of this image. Keep the original subject exactly the same, just make it look more professional and appealing.',
+          },
+        ],
+      },
+    });
+
+    let newBase64 = null;
+    let newMime = mime_type;
+
+    for (const part of response.candidates?.[0]?.content?.parts || []) {
+      if (part.inlineData) {
+        newBase64 = part.inlineData.data;
+        newMime = part.inlineData.mimeType || mime_type;
+        break;
+      }
+    }
+
+    if (!newBase64) {
+      newBase64 = image_base64;
+    }
+
+    return res.json({
+      image_base64: newBase64,
+      mime_type: newMime
+    });
+
+  } catch (err: any) {
+    console.error('Error in /api/ai/enhance-image:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 3. POST /api/analyze-receipt (secure, hardened receipt scanner)
 app.post("/api/analyze-receipt", async (req, res) => {
-  // Nutzer-ID ausschliesslich aus dem verifizierten Token
   let userId: string;
   try {
     userId = await authenticateFirebaseUser(req);
@@ -3549,12 +3741,65 @@ app.post("/api/analyze-receipt", async (req, res) => {
 
   try {
     const { imageUrl } = req.body;
-    if (!imageUrl) return res.status(400).json({ error: "No imageUrl provided" });
+    if (!imageUrl || typeof imageUrl !== 'string' || !imageUrl.startsWith('https://')) {
+      return res.status(400).json({ error: "Invalid image URL. Must be a secure HTTPS link." });
+    }
 
-    const response = await fetch(imageUrl);
-    const arrayBuffer = await response.arrayBuffer();
+    try {
+      const parsedUrl = new URL(imageUrl);
+      const host = parsedUrl.host;
+      if (host !== 'firebasestorage.googleapis.com' && host !== 'storage.googleapis.com') {
+        return res.status(400).json({ error: "Dostop zavrnjen. Gostitelj slike mora biti firebasestorage.googleapis.com ali storage.googleapis.com." });
+      }
+
+      const bucketName = process.env.FIREBASE_STORAGE_BUCKET || 'drazbesi.firebasestorage.app';
+      if (!imageUrl.includes(bucketName)) {
+        return res.status(400).json({ error: "Dostop zavrnjen. Slika ne pripada dovoljenemu vedru shranjevanja." });
+      }
+    } catch (urlErr) {
+      return res.status(400).json({ error: "Neveljaven URL slike." });
+    }
+
+    const allowed = await checkAnalyzeRateLimit(userId);
+    if (!allowed) {
+      return res.status(429).json({ error: "Presegli ste urno omejitev analiziranja računov (največ 10 na uro)." });
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+    let fetchResponse;
+    try {
+      fetchResponse = await fetch(imageUrl, { signal: controller.signal });
+    } catch (fetchErr: any) {
+      if (fetchErr.name === 'AbortError') {
+        return res.status(400).json({ error: "Čas za prenos slike je potekel (največ 10 sekund)." });
+      }
+      throw fetchErr;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+
+    const contentType = fetchResponse.headers.get('content-type') || '';
+    if (!contentType.startsWith('image/')) {
+      return res.status(400).json({ error: "Napačna vrsta vsebine. Dovoljene so le slike." });
+    }
+
+    const contentLengthStr = fetchResponse.headers.get('content-length');
+    if (contentLengthStr) {
+      const contentLength = parseInt(contentLengthStr, 10);
+      if (contentLength > 5 * 1024 * 1024) {
+        return res.status(400).json({ error: "Slika je prevelika (največja dovoljena velikost je 5 MB)." });
+      }
+    }
+
+    const arrayBuffer = await fetchResponse.arrayBuffer();
+    if (arrayBuffer.byteLength > 5 * 1024 * 1024) {
+      return res.status(400).json({ error: "Slika je prevelika (največja dovoljena velikost je 5 MB)." });
+    }
+
     const base64Data = Buffer.from(arrayBuffer).toString('base64');
-    const mimeType = response.headers.get('content-type') || 'image/jpeg';
+    const mimeType = contentType || 'image/jpeg';
 
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
     const geminiResponse = await ai.models.generateContent({
@@ -3637,6 +3882,42 @@ app.post("/api/auctions/create", async (req, res) => {
       delete itemData.bidding_history;
       delete itemData.payment_status;
       delete itemData.post_auction_status;
+
+      // STRICT IMAGE URL VALIDATION (TASK 27)
+      const images = itemData.images || [];
+      if (!Array.isArray(images)) {
+        return res.status(400).json({ error: "Slike morajo biti seznam povezav (polje)." });
+      }
+      if (images.length > 10) {
+        return res.status(400).json({ error: "Dovoljenih je največ 10 slik." });
+      }
+
+      const bucketName = process.env.FIREBASE_STORAGE_BUCKET || 'drazbesi.firebasestorage.app';
+      const allowedPrefixEncoded = `auction-images%2F${userId}%2F`;
+      const allowedPrefixDecoded = `auction-images/${userId}/`;
+
+      for (const imgUrl of images) {
+        if (typeof imgUrl !== 'string') {
+          return res.status(400).json({ error: "Neveljaven URL slike." });
+        }
+        if (!imgUrl.startsWith('https://')) {
+          return res.status(400).json({ error: "Vse slike morajo uporabljati varno HTTPS povezavo." });
+        }
+        try {
+          const parsedUrl = new URL(imgUrl);
+          if (parsedUrl.host !== 'firebasestorage.googleapis.com') {
+            return res.status(400).json({ error: "Slike morajo biti shranjene na firebasestorage.googleapis.com." });
+          }
+          if (!imgUrl.includes(bucketName)) {
+            return res.status(400).json({ error: "Slike morajo pripadati projektu drazba.si." });
+          }
+          if (!imgUrl.includes(allowedPrefixEncoded) && !imgUrl.includes(allowedPrefixDecoded)) {
+            return res.status(400).json({ error: `Nalagate lahko le slike v svojo mapo (${allowedPrefixDecoded}).` });
+          }
+        } catch (e) {
+          return res.status(400).json({ error: "Neveljaven URL slike." });
+        }
+      }
     }
 
     const userDoc = await safeGetDoc(adminDb.collection('users').doc(userId));
@@ -3673,6 +3954,12 @@ app.post("/api/auctions/create", async (req, res) => {
       if (blockedUntil > new Date()) {
         return res.status(403).json({ error: `Objavljanje novih dražb vam je onemogočeno do ${blockedUntil.toLocaleDateString()} zaradi večkratnih kršitev roka za odpošiljanje predmeta.` });
       }
+    }
+
+    if (itemData) {
+      if (itemData.end_time) itemData.end_time = new Date(itemData.end_time).toISOString();
+      if (itemData.endTime) itemData.endTime = new Date(itemData.endTime).toISOString();
+      if (itemData.payment_deadline) itemData.payment_deadline = new Date(itemData.payment_deadline).toISOString();
     }
 
     const newDocRef = itemData.id ? adminDb.collection('auctions').doc(itemData.id) : adminDb.collection('auctions').doc();
@@ -5083,6 +5370,9 @@ app.post("/api/auctions/offer-second-chance", async (req, res) => {
     if (!auction_id) {
       return res.status(400).json({ error: "Manjka ID dražbe." });
     }
+    if (auction_id) {
+      await finalizeAuction(auction_id);
+    }
 
     const auctionRef = adminDb.collection('auctions').doc(auction_id);
     const auctionDoc = await safeGetDoc(auctionRef);
@@ -5185,6 +5475,9 @@ app.post("/api/auctions/republish", async (req, res) => {
     const { auction_id } = req.body || {};
     if (!auction_id) {
       return res.status(400).json({ error: "Manjka ID dražbe." });
+    }
+    if (auction_id) {
+      await finalizeAuction(auction_id);
     }
 
     const auctionRef = adminDb.collection('auctions').doc(auction_id);
@@ -5655,6 +5948,25 @@ app.post("/api/profile/update", async (req, res) => {
       }
       if (!profilePictureUrl.startsWith('https://')) {
         return res.status(400).json({ error: "Profilna slika mora biti veljavna HTTPS povezava." });
+      }
+
+      const bucketName = process.env.FIREBASE_STORAGE_BUCKET || 'drazbesi.firebasestorage.app';
+      try {
+        const parsedUrl = new URL(profilePictureUrl);
+        if (parsedUrl.host !== 'firebasestorage.googleapis.com') {
+          return res.status(400).json({ error: "Profilna slika mora biti gostovana na firebasestorage.googleapis.com." });
+        }
+        if (!profilePictureUrl.includes(bucketName)) {
+          return res.status(400).json({ error: "Profilna slika mora pripadati projektu drazba.si." });
+        }
+
+        const allowedProfEncoded = `profile-pictures%2F${uid}%2F`;
+        const allowedProfDecoded = `profile-pictures/${uid}/`;
+        if (!profilePictureUrl.includes(allowedProfEncoded) && !profilePictureUrl.includes(allowedProfDecoded)) {
+          return res.status(400).json({ error: `Nalagate lahko le profilno sliko v svojo mapo (${allowedProfDecoded}).` });
+        }
+      } catch (e) {
+        return res.status(400).json({ error: "Neveljaven URL profilne slike." });
       }
     }
 
@@ -6133,6 +6445,108 @@ app.post("/api/messages/mark-read", async (req, res) => {
     return res.json({ success: true, marked_count: unreadMsgsSnap.size });
   } catch (err: any) {
     console.error('Error in /api/messages/mark-read:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Finalize rate limiter (30 per minute per user)
+let finalizeRatelimit: Ratelimit | null = null;
+if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+  try {
+    const redis = new Redis({
+      url: process.env.UPSTASH_REDIS_REST_URL,
+      token: process.env.UPSTASH_REDIS_REST_TOKEN,
+    });
+    finalizeRatelimit = new Ratelimit({
+      redis,
+      limiter: Ratelimit.slidingWindow(30, "1 m"),
+    });
+  } catch (err) {
+    console.warn("Failed to initialize finalize rate limiter:", err);
+  }
+}
+
+async function checkFinalizeRateLimit(uid: string): Promise<boolean> {
+  if (finalizeRatelimit) {
+    try {
+      const { success } = await finalizeRatelimit.limit(`finalize_limit_${uid}`);
+      return success;
+    } catch (e) {
+      console.warn("Upstash limit check failed, falling back to Firestore:", e);
+    }
+  }
+  try {
+    const limitRef = adminDb.collection('user_rate_limits').doc(uid);
+    const limitSnap = await limitRef.get();
+    const now = Date.now();
+    const limitData = limitSnap.exists ? (limitSnap.data() || {}) : {};
+    const timestamp = limitData.finalize_ts || 0;
+    let count = limitData.finalize_cnt || 0;
+    if (now - timestamp > 60 * 1000) {
+      count = 0;
+    }
+    if (count >= 30) return false;
+    const updates: any = {};
+    if (count === 0) updates.finalize_ts = now;
+    updates.finalize_cnt = count + 1;
+    await limitRef.set(updates, { merge: true });
+    return true;
+  } catch (fsErr) {
+    return true;
+  }
+}
+
+// POST /api/auctions/finalize
+app.post("/api/auctions/finalize", async (req, res) => {
+  let uid: string;
+  try {
+    uid = await authenticateFirebaseUser(req);
+  } catch (authErr: any) {
+    return res.status(401).json({ error: authErr.message || 'Unauthorized' });
+  }
+
+  const allowed = await checkFinalizeRateLimit(uid);
+  if (!allowed) {
+    return res.status(429).json({ error: "Presegli ste omejitev klicev za zaključevanje dražb. Poskusite ponovno čez minuto." });
+  }
+
+  const { auction_id } = req.body || {};
+  if (!auction_id) {
+    return res.status(400).json({ error: "Manjka ID dražbe (auction_id)." });
+  }
+
+  try {
+    const result = await finalizeAuction(auction_id);
+    return res.json({
+      finalized: !!result.finalized,
+      post_auction_status: result.post_auction_status || null,
+      status: result.status || null
+    });
+  } catch (err: any) {
+    console.error('Error in /api/auctions/finalize:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/run-cron
+app.post("/api/admin/run-cron", async (req, res) => {
+  let uid: string;
+  try {
+    uid = await authenticateFirebaseUser(req);
+  } catch (authErr: any) {
+    return res.status(401).json({ error: authErr.message || 'Unauthorized' });
+  }
+
+  const adminUids = (process.env.ADMIN_UIDS || 'admin,owner').split(',').map(s => s.trim()).filter(Boolean);
+  if (!adminUids.includes(uid) && uid !== 'admin' && uid !== 'owner') {
+    return res.status(403).json({ error: "Nimate administratorskih pravic." });
+  }
+
+  try {
+    const result = await processAuctionCrons();
+    return res.json(result);
+  } catch (err: any) {
+    console.error('Error in /api/admin/run-cron:', err);
     return res.status(500).json({ error: err.message });
   }
 });

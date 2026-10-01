@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { MapPin, ChevronLeft, ChevronRight, Clock, Eye, Building2, Minus, Plus, Lock, Trophy, ShieldCheck, Truck, Sparkles, Tag } from 'lucide-react';
 import { AuctionItem, Seller } from "../../types";
-import { getIncrement, formatSeconds } from "../../lib/utils";
+import { getIncrement, formatSeconds, checkAndFinalizeAuctionClient } from "../../lib/utils";
 
 export const AuctionCard: React.FC<{
   item: AuctionItem;
@@ -59,6 +59,7 @@ export const AuctionCard: React.FC<{
       
       if (diff === 0 && !hasEndedFiredRef.current) {
         hasEndedFiredRef.current = true;
+        checkAndFinalizeAuctionClient(item.id);
         if (onTimeUp) {
             setTimeout(() => {
                 onTimeUp(item.id);

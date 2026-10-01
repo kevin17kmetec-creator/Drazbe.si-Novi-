@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { doc, collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import { db, registerSnapshotListener } from "../../lib/firebase";
-import { getIncrement, calculateMarginalPlatformFee } from "../../lib/utils";
+import { getIncrement, calculateMarginalPlatformFee, checkAndFinalizeAuctionClient } from "../../lib/utils";
 import { formatAttributeLabel } from "../../lib/categoryAttributes";
 
 const TimeBox = ({ value, label }: { value: number, label: string }) => (
@@ -128,6 +128,9 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
       const now = new Date().getTime();
       const diff = Math.max(0, Math.floor((end - now) / 1000));
       setTimeLeft(diff);
+      if (diff === 0 && currentAuction?.id) {
+        checkAndFinalizeAuctionClient(currentAuction.id);
+      }
     };
     updateTimer();
     const interval = setInterval(updateTimer, 1000);
@@ -135,7 +138,7 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
     return () => {
       clearInterval(interval);
     };
-  }, [endTime, currentAuction?.status]);
+  }, [endTime, currentAuction?.status, currentAuction?.id]);
 
   const isWinner = currentUserId && (
     currentAuction.winnerId === currentUserId || 

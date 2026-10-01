@@ -1,4 +1,5 @@
 import { Region } from '../types';
+import { getAuthHeaders } from './authFetch';
 
 export const getIncrement = (amount: number) => {
   if (amount < 10) return 1;
@@ -222,3 +223,22 @@ export const normalizeRegionName = (reg: any): Region => {
 
   return Region.Osrednjeslovenska;
 };
+
+const finalizedAuctionIds = new Set<string>();
+
+export async function checkAndFinalizeAuctionClient(auctionId: string, onRefresh?: () => void) {
+  if (!auctionId || finalizedAuctionIds.has(auctionId)) return;
+  finalizedAuctionIds.add(auctionId);
+  try {
+    const headers = await getAuthHeaders();
+    await fetch('/api/auctions/finalize', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ auction_id: auctionId })
+    });
+    if (onRefresh) onRefresh();
+  } catch (e) {
+    console.warn("Failed to finalize auction on client:", e);
+  }
+}
+

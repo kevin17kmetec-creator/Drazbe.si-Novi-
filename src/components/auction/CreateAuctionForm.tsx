@@ -2,10 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, Layers, FileUp, Trash2, Gavel, Wand2, X, Eye, ChevronLeft, ChevronRight, GripHorizontal, AlertCircle } from 'lucide-react';
 import { Category, Region, AuctionItem } from "../../types";
 import { getCategoryTranslation } from "../../lib/translations";
-import { storage } from "../../lib/firebase";
+import { storage, auth } from "../../lib/firebase";
 import { ref, uploadBytesResumable, getDownloadURL, deleteObject, UploadTask } from 'firebase/storage';
 import { toast } from 'sonner';
-import { GoogleGenAI } from '@google/genai';
+import { getAuthHeaders } from '../../lib/authFetch';
 import imageCompression from 'browser-image-compression';
 import { AuctionCard } from "@/src/components/auction/AuctionCard";
 import AuctionView from "@/src/components/auction/AuctionView";
@@ -305,39 +305,32 @@ export const CreateAuctionForm: React.FC<{
                 const mimeType = file.type;
 
                 try {
-                    const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
-                    if (!apiKey) {
-                        throw new Error('Gemini API Key is missing. Prosimo preverite .env datoteko in dodajte VITE_GEMINI_API_KEY.');
-                    }
-                    const ai = new GoogleGenAI({ apiKey });
-                    
-                    const response = await ai.models.generateContent({
-                        model: 'gemini-2.5-flash-image',
-                        contents: {
-                            parts: [
-                                {
-                                    inlineData: {
-                                        data: base64Data,
-                                        mimeType: mimeType,
-                                    },
-                                },
-                                {
-                                    text: 'Enhance the quality, lighting, and sharpness of this image. Keep the original subject exactly the same, just make it look more professional and appealing.',
-                                },
-                            ],
+                    const response = await fetch('/api/ai/enhance-image', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...await getAuthHeaders()
                         },
+                        body: JSON.stringify({
+                            image_base64: base64Data,
+                            mime_type: mimeType
+                        })
                     });
 
-                    let newImageUrl = null;
-                    let newBase64 = null;
-                    // Iterate through parts to find the image part as per skill
-                    for (const part of response.candidates?.[0]?.content?.parts || []) {
-                        if (part.inlineData) {
-                            newBase64 = part.inlineData.data;
-                            newImageUrl = `data:${part.inlineData.mimeType || 'image/png'};base64,${newBase64}`;
-                            break;
-                        }
+                    if (!response.ok) {
+                        const errText = await response.text();
+                        let parsedErr = t('imageEnhanceError');
+                        try {
+                            const parsed = JSON.parse(errText);
+                            parsedErr = parsed.error || parsedErr;
+                        } catch {}
+                        throw new Error(parsedErr);
                     }
+
+                    const resData = await response.json();
+                    const newBase64 = resData.image_base64;
+                    const newMime = resData.mime_type || 'image/png';
+                    const newImageUrl = `data:${newMime};base64,${newBase64}`;
 
                     if (newImageUrl && newBase64) {
                         // Create a new File object from the base64 data
@@ -347,7 +340,7 @@ export const CreateAuctionForm: React.FC<{
                             byteNumbers[i] = byteCharacters.charCodeAt(i);
                         }
                         const byteArray = new Uint8Array(byteNumbers);
-                        const newFile = new File([byteArray], `enhanced-${file.name}`, { type: 'image/png' });
+                        const newFile = new File([byteArray], `enhanced-${file.name}`, { type: newMime });
 
                         setImageFiles(prev => {
                             const newFiles = [...prev];
@@ -361,17 +354,12 @@ export const CreateAuctionForm: React.FC<{
                         });
                         toast.success(t('imageEnhanced'));
                     } else {
-                        // If no image part was returned, it might have just returned text
                         toast.info(t('imageNotChanged'));
                     }
                     
                 } catch (err: any) {
-                    console.error("Gemini API error:", err);
-                    if (err.message?.includes('API Key is missing')) {
-                         toast.error('Gemini API ključ manjka. Prosimo preverite .env datoteko.', { duration: 5000 });
-                    } else {
-                         toast.error(t('imageEnhanceError'));
-                    }
+                    console.error("Gemini enhancement API error:", err);
+                    toast.error(err.message || t('imageEnhanceError'));
                 } finally {
                     setEnhancingIndex(null);
                 }
@@ -397,6 +385,21 @@ export const CreateAuctionForm: React.FC<{
             }
         };
     }, []);
+
+    const getStorageRefFromUrlOrPath = (urlOrPath: string) => {
+        if (urlOrPath.startsWith('http')) {
+            try {
+                const decoded = decodeURIComponent(urlOrPath.split('/o/')[1].split('?')[0]);
+                return ref(storage, decoded);
+            } catch (e) {
+                // fallback
+            }
+        }
+        if (urlOrPath.startsWith('auction-images/')) {
+            return ref(storage, urlOrPath);
+        }
+        return ref(storage, `auction-images/${urlOrPath}`);
+    };
 
     const handlePublish = async (e?: any, asDraft = false) => {
         if (!asDraft && userData && auctions) {
@@ -472,8 +475,9 @@ export const CreateAuctionForm: React.FC<{
                     if (cancelRef.current) throw new Error('CANCELED');
                     setUploadProgress(prev => ({ ...prev, [i]: { state: t('preparing'), percent: 20 } }));
                     
-                    const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}-${compressedFile.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
-                    const storageRef = ref(storage, `auction-images/${fileName}`);
+                    const uid = auth.currentUser?.uid || 'anonymous';
+                    const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}-${compressedFile.name.replace(/[^a-zA-r0-9.]/g, '_')}`;
+                    const storageRef = ref(storage, `auction-images/${uid}/${fileName}`);
                     
                     const uploadTask = uploadBytesResumable(storageRef, compressedFile, { contentType: compressedFile.type });
                     activeTasks.push(uploadTask);
@@ -489,7 +493,7 @@ export const CreateAuctionForm: React.FC<{
                     try {
                         await uploadTask;
                         downloadUrl = await getDownloadURL(storageRef);
-                        uploadedFilesRef.current.push(fileName);
+                        uploadedFilesRef.current.push(`${uid}/${fileName}`);
                     } catch (e: any) {
                         if (cancelRef.current || e?.code === 'storage/canceled') {
                             throw new Error('CANCELED');
@@ -580,7 +584,7 @@ export const CreateAuctionForm: React.FC<{
                     const filesToDelete = [...uploadedFilesRef.current];
                     uploadedFilesRef.current = [];
                     for (const path of filesToDelete) {
-                        try { await deleteObject(ref(storage, `auction-images/${path}`)); } catch (e) {}
+                        try { await deleteObject(getStorageRefFromUrlOrPath(path)); } catch (e) {}
                     }
                 }
                 return;
@@ -617,7 +621,7 @@ export const CreateAuctionForm: React.FC<{
             uploadedFilesRef.current = [];
             for (const path of filesToDelete) {
                 try {
-                    await deleteObject(ref(storage, `auction-images/${path}`));
+                    await deleteObject(getStorageRefFromUrlOrPath(path));
                 } catch (e) {
                     console.error("Failed to delete partially uploaded image:", e);
                 }
