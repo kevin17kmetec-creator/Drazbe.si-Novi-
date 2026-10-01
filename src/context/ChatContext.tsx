@@ -118,21 +118,32 @@ export const ChatProvider: React.FC<{
 
   const effectiveUserId = userId || authUserId || (auth.currentUser && (auth.currentUser.emailVerified || !auth.currentUser.providerData.some(p => p.providerId === 'password')) ? auth.currentUser.uid : "");
 
-  // Helper to fetch/cache user info
+  // Helper to fetch/cache user info from public_profiles
   const fetchUserInfo = useCallback(async (targetUserId: string): Promise<OtherUser | undefined> => {
     if (!targetUserId) return undefined;
     if (usersCacheRef.current.has(targetUserId)) {
       return usersCacheRef.current.get(targetUserId);
     }
     try {
-      const snap = await getDoc(doc(db, "users", targetUserId));
+      const snap = await getDoc(doc(db, "public_profiles", targetUserId));
       if (snap.exists()) {
-        const u = { id: snap.id, ...snap.data() } as OtherUser;
+        const data = snap.data() || {};
+        const u = {
+          id: snap.id,
+          first_name: data.display_name || 'Uporabnik',
+          last_name: '',
+          username: data.username || '',
+          photoURL: data.photo_url || null,
+          photo_url: data.photo_url || null,
+          profile_picture_url: data.photo_url || null,
+          identity_verified: Boolean(data.identity_verified),
+          user_type: data.user_type || 'individual'
+        } as OtherUser;
         usersCacheRef.current.set(targetUserId, u);
         return u;
       }
     } catch (e) {
-      console.warn("Failed to fetch user in chat:", targetUserId, e);
+      console.warn("Failed to fetch public profile in chat:", targetUserId, e);
     }
     return undefined;
   }, []);

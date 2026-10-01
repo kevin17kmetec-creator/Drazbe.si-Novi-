@@ -100,8 +100,7 @@ import {
 } from "lucide-react";
 
 import imageCompression from "browser-image-compression";
-
-import { seedDatabase } from "./lib/seed";
+import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 
 import {
   AuctionItem,
@@ -123,7 +122,7 @@ import { ChatProvider } from "./context/ChatContext";
 import { collection, onSnapshot, setDoc, doc, getDocs, getDoc, updateDoc, addDoc, deleteDoc, query, where } from "firebase/firestore";
 import { db, auth, storage, safeSignOut, cleanupAllListeners, registerSnapshotListener, isRegisteringAuth } from "./lib/firebase";
 import { onAuthStateChanged, updatePassword } from "firebase/auth";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+
 
 // --- CONFIGURATION ---
 
@@ -1026,20 +1025,31 @@ const MainApp: React.FC = () => {
 
 
   const toggleWatch = async (id: string) => {
-    const newWatchedIds = watchedIds.includes(id)
+    const user = auth.currentUser;
+    if (!user) {
+      toast.error(t("loginRequired"));
+      return;
+    }
+
+    const isWatched = watchedIds.includes(id);
+    const newWatchedIds = isWatched
       ? watchedIds.filter((i) => i !== id)
       : [...watchedIds, id];
 
     setWatchedIds(newWatchedIds);
 
     try {
-      const user = auth.currentUser;
-      const session = user ? { user: { id: user.uid, email: user.email } } : null;
-      if (session?.user) {
-        await setDoc(doc(db, 'users', session.user.id), { id: session.user.id, email: session.user.email, watched_auctions: newWatchedIds }, { merge: true });
+      const watchDocRef = doc(db, 'users', user.uid, 'watched', id);
+      if (isWatched) {
+        await deleteDoc(watchDocRef);
+      } else {
+        await setDoc(watchDocRef, {
+          auction_id: id,
+          created_at: new Date().toISOString()
+        });
       }
     } catch (err) {
-      console.error("Error updating watched auctions:", err);
+      console.error("Error updating watched auctions subcollection:", err);
     }
   };
   const [activeLegal, setActiveLegal] = useState<
@@ -1076,13 +1086,13 @@ const MainApp: React.FC = () => {
 
   const openReviewModal = (auction: AuctionItem) => {
     const sId = auction.sellerId || (auction as any).seller_id;
-    const seller = usersMap.get(sId);
+    const seller = profilesMap.get(sId);
     let sName = auction.sellerName;
     if (seller) {
       if (seller.user_type === 'business' && seller.company_name) {
         sName = seller.company_name;
-      } else if (seller.first_name) {
-        sName = `${seller.first_name} ${seller.last_name || ''}`.trim();
+      } else if (seller.display_name) {
+        sName = seller.display_name;
       } else if (seller.username) {
         sName = seller.username;
       }
@@ -1228,19 +1238,16 @@ const MainApp: React.FC = () => {
               setSubscribedAt(undefined);
             }
           } else {
-            await setDoc(doc(db, 'users', authUser.uid), {
-              id: authUser.uid,
-              email: authUser.email,
-              is_verified: false,
-              subscription: 'FREE'
-            }, { merge: true });
+            await fetch('/api/profile/init', {
+              method: 'POST',
+              headers: await getAuthHeaders()
+            }).catch(err => console.warn("Init profile error:", err));
             
             setUserData((prev) => ({
               ...prev,
               id: authUser.uid,
               email: authUser.email,
             }));
-            setIsVerified(false);
           }
           setIsAuthLoading(false);
         }, (error) => {
@@ -1377,25 +1384,95 @@ const MainApp: React.FC = () => {
     meta.setAttribute("content", metaDesc);
   }, [activeView, selectedItem, selectedSeller, language]);
 
-  const [usersMap, setUsersMap] = useState<Map<string, any>>(new Map());
+  const [profilesMap, setProfilesMap] = useState<Map<string, any>>(new Map());
 
-  // Private stream: Users
-  useEffect(() => {
-    // OPTIMIZACIJA: Odstranjen client-side cron. Vercel cron bo samodejno klical endpoint 1-krat na dan.
-  }, []);
-  
-  useEffect(() => {
+  const missingProfileIdsFetch = useCallback(async (sellerIds: string[]) => {
+    const missing = sellerIds.filter(id => id && !profilesMap.has(id));
+    if (missing.length === 0) return;
+
+    try {
+      const results = await Promise.all(
+        missing.map(async (id) => {
+          try {
+            const snap = await getDoc(doc(db, 'public_profiles', id));
+            return [id, snap.exists() ? snap.data() : null] as [string, any];
+          } catch {
+            return [id, null] as [string, any];
+          }
+        })
+      );
+      setProfilesMap((prev) => {
+        const next = new Map(prev);
+        results.forEach(([id, data]) => {
+          if (data) next.set(id, data);
+        });
+        return next;
+      });
+    } catch (e) {
+      console.warn("Error fetching profiles:", e);
+    }
+  }, [profilesMap]);
+
+  const [transactionPartners, setTransactionPartners] = useState<Map<string, any>>(new Map());
+
+  const fetchTransactionPartner = useCallback(async (auctionId: string) => {
     if (!user) return;
-    const unsubUsers = registerSnapshotListener(onSnapshot(collection(db, 'users'), (snap) => {
-      setUsersMap(new Map(snap.docs.map(d => [d.id, d.data()])));
-    }, (error) => {
-      if (error.code === 'permission-denied') {
-        console.warn("Dostop do uporabnikov ni dovoljen.");
-      } else {
-        console.error('Users snapshot error:', error);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch(`/api/transactions/partner-info?auction_id=${auctionId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.success && data.partner) {
+          setTransactionPartners((prev) => {
+            const next = new Map(prev);
+            next.set(auctionId, data.partner);
+            return next;
+          });
+        }
       }
-    }));
-    return () => unsubUsers();
+    } catch (e) {
+      console.warn("Error fetching transaction partner info:", e);
+    }
+  }, [user]);
+
+  // Load transaction partner info automatically for paid auctions the user won or sold
+  useEffect(() => {
+    if (!user || !userData?.id) return;
+    const paidWinnings = currentUserWinnings.filter(a => a.payment_status === "paid" || a.post_auction_status === "paid" || a.post_auction_status === "completed" || a.status === "completed");
+    const currentUserSold = auctions.filter(
+      (a) =>
+        (a.sellerId === userData.id || (a as any).seller_id === userData.id) &&
+        (a.status === "completed" || a.endTime.getTime() <= Date.now())
+    );
+    const paidSold = currentUserSold.filter(a => a.payment_status === "paid" || a.post_auction_status === "paid" || a.post_auction_status === "completed" || a.status === "completed");
+
+    const allPaid = [...paidWinnings, ...paidSold];
+    allPaid.forEach((a) => {
+      if (!transactionPartners.has(a.id)) {
+        fetchTransactionPartner(a.id);
+      }
+    });
+  }, [user, currentUserWinnings, auctions, userData?.id, fetchTransactionPartner, transactionPartners]);
+
+  // Private stream: User's watched auctions
+  useEffect(() => {
+    if (!user) {
+      setWatchedIds([]);
+      return;
+    }
+    const unsubWatched = registerSnapshotListener(
+      onSnapshot(collection(db, 'users', user.uid, 'watched'), (snap) => {
+        const ids = snap.docs.map(d => d.id);
+        setWatchedIds(ids);
+      }, (error) => {
+        console.warn("Watched snapshot error:", error);
+      })
+    );
+    return () => unsubWatched();
   }, [user]);
 
   // Private stream: User's private maximum bids
@@ -1427,25 +1504,27 @@ const MainApp: React.FC = () => {
     return () => unsubBids();
   }, [user]);
 
-  // Stream: Auctions (poslušalec se sproži SAMO takrat, ko je uporabnik prijavljen)
+  // Stream: Auctions
   useEffect(() => {
     if (!user) return;
     const unsubscribe = registerSnapshotListener(onSnapshot(collection(db, "auctions"), 
       (snap) => {
-        const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        const fetchedData: AuctionItem[] = data.map((d: any) => {
-          const seller = usersMap.get(d.seller_id) || usersMap.get(d.sellerId) || {};
-          let sellerName = "";
-          const isDeletedUser = d.is_seller_deleted || seller.is_deleted || seller.isDeleted || d.sellerName === "Uporabnik je bil izbrisan";
-          if (isDeletedUser) {
-            sellerName = "Uporabnik je bil izbrisan";
-          } else if (seller.user_type === "business" && seller.company_name) {
-            sellerName = seller.company_name;
-          } else if (seller.username) {
-            sellerName = seller.username;
-          } else if (seller.first_name && seller.last_name) {
-            sellerName = `${seller.first_name} ${seller.last_name}`;
-          }
+        const rawAuctions = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+        // Load public profiles for distinct seller IDs
+        const distinctSellerIds = Array.from(new Set(
+          rawAuctions.map((a: any) => a.seller_id || a.sellerId).filter(Boolean)
+        ));
+
+        missingProfileIdsFetch(distinctSellerIds);
+
+        const fetchedData: AuctionItem[] = rawAuctions.map((d: any) => {
+          const sellerId = d.seller_id || d.sellerId;
+          const seller = profilesMap.get(sellerId) || {};
+          const isDeletedUser = Boolean(d.is_seller_deleted || seller.is_deleted || d.sellerName === "Uporabnik je bil izbrisan");
+          const sellerName = isDeletedUser
+            ? "Uporabnik je bil izbrisan"
+            : (seller.display_name || d.sellerName || seller.username || "Prodajalec");
 
           const isItemPaid = d.payment_status === "paid" || d.post_auction_status === "paid";
 
@@ -1458,39 +1537,34 @@ const MainApp: React.FC = () => {
             bidCount: d.bid_count || d.bidCount,
             winnerId: d.winner_id || d.winnerId,
             winner_id: d.winner_id || d.winnerId,
-            sellerId: d.seller_id || d.sellerId,
+            sellerId: sellerId,
             is_seller_deleted: isDeletedUser,
             payment_status: isItemPaid ? "paid" : (d.payment_status || "unpaid"),
             post_auction_status: d.post_auction_status,
             paid_at: d.paid_at,
-            sellerName: isDeletedUser ? "Uporabnik je bil izbrisan" : (d.sellerName || sellerName),
+            sellerName: sellerName,
             seller: { 
-              id: d.seller_id || d.sellerId, 
+              id: sellerId, 
               name: { SLO: sellerName, EN: isDeletedUser ? 'User deleted' : sellerName, DE: isDeletedUser ? 'Benutzer gelöscht' : sellerName }, 
               is_deleted: isDeletedUser,
-              photoURL: isDeletedUser ? null : (seller.photoURL || seller.photoUrl || seller.photo_url || null), 
-              created_at: seller.created_at || seller.createdAt, 
-              sold_count: seller.sold_count, 
-              unpaid_penalties: seller.unpaid_penalties 
-            },
-            delivery_method: d.delivery_method,
-            buyer_received: d.buyer_received,
-          };
+              photoURL: isDeletedUser ? null : (seller.photo_url || null), 
+              created_at: seller.created_at, 
+              sold_count: seller.sold_count || 0,
+              unpaid_penalties: seller.unpaid_penalties || 0,
+              identity_verified: Boolean(seller.identity_verified)
+            }
+          } as AuctionItem;
         });
 
         setAuctions(fetchedData);
       },
       (error) => {
-        if (error.code === 'permission-denied') {
-          console.warn("Dostop do dražb ni dovoljen.");
-        } else {
-          console.error("Firestore napaka:", error);
-        }
+        console.error("Auctions snapshot error:", error);
       }
     ));
-
     return () => unsubscribe();
-  }, [user, usersMap]);
+  }, [user, profilesMap]);
+
 
   const fetchAuctions = async () => {
     // OPTIMIZATION: Removed redundant manual getDocs calls. 
@@ -1664,11 +1738,12 @@ const MainApp: React.FC = () => {
     if (sellerInput && typeof sellerInput === 'object') {
       targetSeller = { ...sellerInput };
     } else if (typeof sellerInput === 'string' && sellerInput.trim() !== '') {
-      const foundUser = usersMap.get(sellerInput);
+      const foundUser = profilesMap.get(sellerInput);
       if (foundUser) {
         targetSeller = {
           id: sellerInput,
           ...foundUser,
+          photoURL: foundUser.photo_url || null,
         };
       } else {
         const matchingAuction = auctions.find(a => 
@@ -1701,10 +1776,11 @@ const MainApp: React.FC = () => {
     }
 
     const sellerId = targetSeller.id || targetSeller.sellerId || (targetSeller as any).seller_id;
-    const foundUser = sellerId ? usersMap.get(sellerId) : null;
+    const foundUser = sellerId ? profilesMap.get(sellerId) : null;
     if (foundUser) {
       targetSeller = {
         ...foundUser,
+        photoURL: foundUser.photo_url || null,
         ...targetSeller,
       };
     }
@@ -1715,7 +1791,8 @@ const MainApp: React.FC = () => {
       };
     }
 
-    const displayName = targetSeller.company_name || 
+    const displayName = targetSeller.display_name ||
+      targetSeller.company_name || 
       targetSeller.username || 
       (targetSeller.first_name ? `${targetSeller.first_name} ${targetSeller.last_name || ''}`.trim() : '') || 
       (typeof targetSeller.name === 'string' ? targetSeller.name : targetSeller.name?.SLO) || 
@@ -1863,18 +1940,21 @@ const MainApp: React.FC = () => {
           }
       }
       
-      // Upsert package document
-      const { doc, setDoc } = await import('firebase/firestore');
-      const { db } = await import('./lib/firebase');
-      const pkgRef = doc(db, 'packages', pkg.packageId);
-      await setDoc(pkgRef, {
-          id: pkg.packageId,
+      // Upsert package document via server API route
+      const pkgRes = await fetch('/api/packages/publish', {
+        method: 'POST',
+        headers: await getAuthHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({
+          package_id: pkg.packageId,
           title: pkg.title,
-          seller_id: userData.id,
-          auction_ids: auctionIds,
-          status: 'active',
-          created_at: new Date().toISOString()
-      }, { merge: true });
+          auction_ids: auctionIds
+        })
+      });
+      const pkgData = await pkgRes.json();
+      if (!pkgRes.ok) {
+        toast.error(pkgData.error || "Napaka pri objavi paketa.");
+        return;
+      }
 
       toast.success("Zbirka je uspešno objavljena!");
       setActiveView("grid");
@@ -1977,28 +2057,14 @@ const MainApp: React.FC = () => {
         const res = await createAuctionAction({ itemData: auctionPayload, user_id: userData.id });
         if (res.success) {
           publishSuccess = true;
-        } else if (res.error) {
-          // If action reported an explicit error, verify if it's an API route failure where client fallback can handle it
-          console.warn("API create returned error, falling back to direct Firestore:", res.error);
-          const newDocRef = itemData.id ? doc(db, 'auctions', itemData.id) : doc(collection(db, 'auctions'));
-          await setDoc(newDocRef, {
-            ...auctionPayload,
-            id: newDocRef.id,
-            seller_id: userData.id,
-            status: "active"
-          }, { merge: true });
-          publishSuccess = true;
+        } else {
+          toast.error(res.error || t("publishError"));
+          return;
         }
-      } catch (fetchErr) {
-        console.warn("Direct API create failed, using direct Firestore save fallback:", fetchErr);
-        const newDocRef = itemData.id ? doc(db, 'auctions', itemData.id) : doc(collection(db, 'auctions'));
-        await setDoc(newDocRef, {
-          ...auctionPayload,
-          id: newDocRef.id,
-          seller_id: userData.id,
-          status: "active"
-        }, { merge: true });
-        publishSuccess = true;
+      } catch (fetchErr: any) {
+        console.error("API create failed:", fetchErr);
+        toast.error(fetchErr.message || t("publishError"));
+        return;
       }
 
       if (publishSuccess) {
@@ -2069,39 +2135,27 @@ const MainApp: React.FC = () => {
       [SubscriptionTier.FREE]: t("freeTier"),
     };
 
-    const saveSubscription = async (newTier: SubscriptionTier) => {
-      setCurrentPlan(newTier);
-      setIsSubscriptionCanceled(false);
-      try {
-        const user = auth.currentUser;
-        const session = user ? { user: { id: user.uid, email: user.email } } : null;
-        if (session?.user) {
-          const now = new Date();
-          const validUntil = new Date(now);
-          validUntil.setMonth(validUntil.getMonth() + 1);
-          await setDoc(doc(db, 'users', session.user.id), { 
-            id: session.user.id, 
-            email: session.user.email, 
-            subscription: newTier,
-            subscription_tier: newTier,
-            subscription_active: newTier !== SubscriptionTier.FREE,
-            subscription_paid_at: now.toISOString(),
-            subscription_started_at: now.toISOString(),
-            subscription_cycle_started_at: now.toISOString(),
-            subscription_valid_until: validUntil.toISOString(),
-            subscription_canceled: false
-          }, { merge: true });
-        }
-      } catch (err) {
-        console.error("Error saving subscription:", err);
-      }
-    };
-
     if (tier === SubscriptionTier.FREE) {
-      await saveSubscription(tier);
-      toast.success(t("paymentSuccess"));
+      try {
+        const res = await fetch('/api/subscription/downgrade-free', {
+          method: 'POST',
+          headers: await getAuthHeaders()
+        });
+        const resData = await res.json();
+        if (!res.ok) {
+          toast.error(resData.error || "Napaka pri spremembi naročnine.");
+          return;
+        }
+        setCurrentPlan(SubscriptionTier.FREE);
+        setIsSubscriptionCanceled(false);
+        toast.success(t("paymentSuccess"));
+        if (userData?.id) refreshUserData(userData.id);
+      } catch (err: any) {
+        toast.error("Napaka pri spremembi naročnine.");
+      }
       return;
     }
+
     setCheckoutData({
       amount: prices[tier],
       title: `${t("subscription")} - ${planNames[tier]}`,
@@ -2116,8 +2170,8 @@ const MainApp: React.FC = () => {
       },
       onSuccess: async () => {
         setIsCheckoutOpen(false);
-        await saveSubscription(tier);
         toast.success(t("paymentSuccess"));
+        if (userData?.id) refreshUserData(userData.id);
       },
     });
     setIsCheckoutOpen(true);
@@ -2128,13 +2182,11 @@ const MainApp: React.FC = () => {
       console.log("handleSaveSettings called with data:", data);
       const uid = auth.currentUser?.uid || userData?.id;
       if (!uid) {
-        console.log("No user ID found in state");
         toast.error("Uporabnik ni prijavljen.");
         return;
       }
 
       try {
-        // Update password if provided
         if (data.newPassword && data.oldPassword) {
           let passError = null;
           try {
@@ -2148,10 +2200,7 @@ const MainApp: React.FC = () => {
           }
         }
 
-        // Update user profile data
-        
         const currentEmail = userData?.email || auth.currentUser?.email || '';
-        
         if (data.email && data.email !== currentEmail && auth.currentUser?.providerData.some(p => p.providerId === 'password')) {
           try {
              await fetch('/api/auth/send-email-change', {
@@ -2168,121 +2217,85 @@ const MainApp: React.FC = () => {
           }
         }
 
-        const updateData: any = {
-          email: currentEmail,
+        let profilePictureUrl = data.profilePicture;
+        if (profilePictureUrl && profilePictureUrl.startsWith("data:image")) {
+          try {
+            const base64Parts = profilePictureUrl.split(",");
+            const mimeType = base64Parts[0].match(/:(.*?);/)?.[1] || "image/jpeg";
+            const base64Data = base64Parts[1];
+            const byteCharacters = atob(base64Data);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+              byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            const blob = new Blob([byteArray], { type: mimeType });
+            const file = new File([blob], "avatar.jpg", { type: mimeType });
 
-          phone: data.phone ?? '',
-          phoneNumber: data.phone ?? '',
-          username: data.username ?? '',
-          userName: data.username ?? '',
+            const options = {
+              maxSizeMB: 0.1,
+              maxWidthOrHeight: 500,
+              useWebWorker: true,
+              initialQuality: 0.7,
+            };
+            const compressedFile = await imageCompression(file, options);
+            const fileRef = storageRef(storage, `profile-pictures/${uid}/avatar.jpg`);
+            await uploadBytes(fileRef, compressedFile);
+            profilePictureUrl = await getDownloadURL(fileRef);
+          } catch (imgErr) {
+            console.warn("Profile picture upload error:", imgErr);
+            toast.error("Napaka pri nalaganju profilne slike.");
+            return;
+          }
+        }
+
+        const payload = {
           first_name: data.firstName ?? '',
-          firstName: data.firstName ?? '',
           last_name: data.lastName ?? '',
-          lastName: data.lastName ?? '',
-          street: data.street ?? '',
-          city: data.city ?? '',
-          postal_code: data.postalCode ?? '',
-          postalCode: data.postalCode ?? '',
+          username: data.username ?? '',
+          user_type: (userData as any)?.user_type || (userData as any)?.userType || 'individual',
           company_name: data.companyName ?? '',
-          companyName: data.companyName ?? '',
-          tax_number: data.taxNumber ?? '',
-          taxNumber: data.taxNumber ?? '',
+          street_address: data.street ?? data.companyStreet ?? '',
+          postal_code: data.postalCode ?? data.companyPostalCode ?? '',
+          city: data.city ?? data.companyCity ?? '',
+          country: data.countryCode || 'SI',
+          phone: data.phone ?? '',
           tax_id: data.taxNumber ?? '',
-          taxId: data.taxNumber ?? '',
           registration_number: data.regNumber ?? '',
-          regNumber: data.regNumber ?? '',
-          company_street: data.companyStreet ?? '',
-          companyStreet: data.companyStreet ?? '',
-          company_city: data.companyCity ?? '',
-          companyCity: data.companyCity ?? '',
-          company_postal_code: data.companyPostalCode ?? '',
-          companyPostalCode: data.companyPostalCode ?? '',
           representative: data.representative ?? '',
-          country_code: data.countryCode || 'SI',
-          countryCode: data.countryCode || 'SI',
           auto_invoice_generation: data.autoInvoiceGeneration !== false,
-          autoInvoiceGeneration: data.autoInvoiceGeneration !== false,
-          email_notifications: data.emailNotifications || { marketing: true, outbid: true, endingSoon: true, won: true, paymentReminder: true, bids: true, messages: true, invoices: true },
-          emailNotifications: data.emailNotifications || { marketing: true, outbid: true, endingSoon: true, won: true, paymentReminder: true, bids: true, messages: true, invoices: true },
-          address: (userData as any)?.user_type === 'individual' || (!data.companyName && !data.companyStreet)
-            ? `${data.street || ''}, ${data.postalCode || ''} ${data.city || ''}`.trim().replace(/^,|,$/g, '').trim()
-            : `${data.companyStreet || ''}, ${data.companyPostalCode || ''} ${data.companyCity || ''}`.trim().replace(/^,|,$/g, '').trim(),
+          email_notifications: data.emailNotifications,
+          profile_picture_url: profilePictureUrl || null
         };
 
-        if (
-          data.profilePicture &&
-          data.profilePicture.startsWith("data:image")
-        ) {
-            console.log("Processing profile picture...");
-            try {
-              // Manual base64 to Blob conversion to avoid CSP fetch issues
-              const base64Parts = data.profilePicture.split(",");
-              const mimeType =
-                base64Parts[0].match(/:(.*?);/)?.[1] || "image/jpeg";
-              const base64Data = base64Parts[1];
-              const byteCharacters = atob(base64Data);
-              const byteNumbers = new Array(byteCharacters.length);
-              for (let i = 0; i < byteCharacters.length; i++) {
-                byteNumbers[i] = byteCharacters.charCodeAt(i);
-              }
-              const byteArray = new Uint8Array(byteNumbers);
-              const blob = new Blob([byteArray], { type: mimeType });
-              const file = new File([blob], "profile.jpg", { type: mimeType });
+        const res = await fetch('/api/profile/update', {
+          method: 'POST',
+          headers: await getAuthHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify(payload)
+        });
 
-              // Compress image to small footprint (<60KB) for instant, reliable Firestore storage
-              const options = {
-                maxSizeMB: 0.06,
-                maxWidthOrHeight: 500,
-                useWebWorker: true,
-                initialQuality: 0.6,
-              };
-
-              const superCompressed = await imageCompression(file, options);
-              const compressedBase64 = await new Promise<string>((resolve, reject) => {
-                  const reader = new FileReader();
-                  reader.onloadend = () => resolve(reader.result as string);
-                  reader.onerror = error => reject(error);
-                  reader.readAsDataURL(superCompressed);
-              });
-              updateData.profile_picture_url = compressedBase64;
-              updateData.profilePicture = compressedBase64;
-              console.log("Profile picture processed successfully");
-            } catch (compErr) {
-              console.warn("Using direct data url fallback:", compErr);
-              updateData.profile_picture_url = data.profilePicture;
-              updateData.profilePicture = data.profilePicture;
-            }
-        } else if (data.profilePicture) {
-          updateData.profile_picture_url = data.profilePicture;
-          updateData.profilePicture = data.profilePicture;
-        } else if ((userData as any)?.profile_picture_url || (userData as any)?.profilePicture) {
-          updateData.profile_picture_url = (userData as any)?.profile_picture_url || (userData as any)?.profilePicture;
-          updateData.profilePicture = updateData.profile_picture_url;
-        } else {
-          updateData.profile_picture_url = null;
-          updateData.profilePicture = null;
+        const resData = await res.json();
+        if (res.status === 409) {
+          toast.error(resData.error || "To uporabniško ime je že zasedeno.");
+          return;
+        }
+        if (!res.ok) {
+          toast.error(resData.error || "Napaka pri shranjevanju profila.");
+          return;
         }
 
-        console.log("Updating database with:", updateData);
-        await setDoc(doc(db, "users", uid), updateData, { merge: true });
-
-        const updatedUser = { id: uid, ...updateData };
-
-        if (updatedUser) {
-          console.log("User updated successfully:", updatedUser);
-          setUserData((prev) => ({ ...prev, ...updatedUser }));
-        }
+        setUserData((prev) => ({
+          ...prev,
+          ...payload,
+          profile_completed: resData.profile_completed,
+          profilePicture: profilePictureUrl || null,
+          profile_picture_url: profilePictureUrl || null
+        }));
 
         toast.success(t("saveChanges") + " - " + t("success"));
       } catch (err: any) {
         console.error("Error saving settings:", err);
-        if (err.code === "23505" && err.message?.includes("username")) {
-          toast.error("To uporabniško ime je že zasedeno. Prosimo, izberite drugega.");
-        } else if (err.message === "IMAGE_UPLOAD_FAILED" || (err.code && err.code.startsWith("storage/"))) {
-            toast.error("Napaka pri nalaganju profilne slike.");
-        } else {
-          toast.error(`Napaka pri shranjevanju: ${err.message || err}`);
-        }
+        toast.error(`Napaka pri shranjevanju: ${err.message || err}`);
       }
     },
     [userData?.id, userData?.email, t],
@@ -2697,48 +2710,33 @@ const MainApp: React.FC = () => {
                 throw new Error("Uporabnik ni prijavljen.");
               }
 
-              // Prepare data to override ALL relevant fields
-              const updateData: any = {
-                id: userId,
-                email: data.email,
-                profile_completed: true,
+              const updatePayload: any = {
                 user_type: type,
-                userType: type,
                 first_name: data.firstName || '',
-                firstName: data.firstName || '',
                 last_name: data.lastName || '',
-                lastName: data.lastName || '',
-                street: data.street || '',
-                city: data.city || '',
-                postal_code: data.postalCode || '',
-                postalCode: data.postalCode || '',
-                tax_number: data.taxNumber || '',
-                taxNumber: data.taxNumber || '',
+                street_address: data.street || data.companyStreet || '',
+                city: data.city || data.companyCity || '',
+                postal_code: data.postalCode || data.companyPostalCode || '',
                 tax_id: data.taxNumber || '',
-                taxId: data.taxNumber || '',
                 registration_number: data.regNumber || '',
-                regNumber: data.regNumber || '',
                 company_name: data.companyName || '',
-                companyName: data.companyName || '',
-                company_street: data.companyStreet || '',
-                companyStreet: data.companyStreet || '',
-                company_city: data.companyCity || '',
-                companyCity: data.companyCity || '',
-                company_postal_code: data.companyPostalCode || '',
-                companyPostalCode: data.companyPostalCode || '',
                 representative: data.representative || '',
-                address: type === 'individual' 
-                  ? `${data.street || ''}, ${data.postalCode || ''} ${data.city || ''}`.trim().replace(/^,|,$/g, '').trim()
-                  : `${data.companyStreet || ''}, ${data.companyPostalCode || ''} ${data.companyCity || ''}`.trim().replace(/^,|,$/g, '').trim(),
               };
 
-              console.log("Updating verification data:", updateData);
+              console.log("Updating verification data via API:", updatePayload);
 
               const updatePromise = (async () => {
                 try {
-                  await setDoc(doc(db, 'users', userId), updateData, { merge: true });
-                  const snap = await getDoc(doc(db, 'users', userId));
-                  return { data: snap.exists() ? { id: snap.id, ...snap.data() } : null, error: null };
+                  const res = await fetch('/api/profile/update', {
+                    method: 'POST',
+                    headers: await getAuthHeaders({ 'Content-Type': 'application/json' }),
+                    body: JSON.stringify(updatePayload)
+                  });
+                  const resData = await res.json();
+                  if (!res.ok) {
+                    return { data: null, error: new Error(resData.error || "Napaka pri shranjevanju podatkov.") };
+                  }
+                  return { data: { id: userId, ...updatePayload, profile_completed: resData.profile_completed }, error: null };
                 } catch(e) { return { data: null, error: e }; }
               })();
 
@@ -3096,12 +3094,33 @@ const MainApp: React.FC = () => {
                                 </button>
                                 
                                 <button
-                                  onClick={() => {
-                                    const seller = usersMap.get(wonItem.sellerId);
+                                  onClick={async () => {
+                                    let seller = transactionPartners.get(wonItem.id);
+                                    if (!seller) {
+                                      try {
+                                        const token = await user?.getIdToken();
+                                        const res = await fetch(`/api/transactions/partner-info?auction_id=${wonItem.id}`, {
+                                          headers: { 'Authorization': `Bearer ${token}` }
+                                        });
+                                        if (res.ok) {
+                                          const data = await res.json();
+                                          if (data?.success && data?.partner) {
+                                            seller = data.partner;
+                                            setTransactionPartners(prev => {
+                                              const next = new Map(prev);
+                                              next.set(wonItem.id, data.partner);
+                                              return next;
+                                            });
+                                          }
+                                        }
+                                      } catch (e) {
+                                        console.warn("Error fetching seller details:", e);
+                                      }
+                                    }
                                     setInvoiceModalData({
                                       isOpen: true,
                                       auction: wonItem,
-                                      seller: seller,
+                                      seller: seller || null,
                                       buyer: userData
                                     });
                                   }}
@@ -3286,7 +3305,7 @@ const MainApp: React.FC = () => {
               ) : (
                 currentUserSold.map((soldItem) => {
                   const winnerId = soldItem.winnerId || (soldItem as any).winner_id || soldItem.second_highest_bidder_id;
-                  const buyer = winnerId ? usersMap.get(winnerId) : null;
+                  const buyer = transactionPartners.get(soldItem.id) || null;
                   const isPostalShipping = soldItem.delivery_method === "post" ||
                     soldItem.delivery_method === "shipping" ||
                     (soldItem as any).selected_delivery === "post" ||
@@ -3443,12 +3462,34 @@ const MainApp: React.FC = () => {
 
                         {soldItem.payment_status === "paid" && (
                           <button
-                            onClick={() => {
+                            onClick={async () => {
+                              let b = transactionPartners.get(soldItem.id);
+                              if (!b) {
+                                try {
+                                  const token = await user?.getIdToken();
+                                  const res = await fetch(`/api/transactions/partner-info?auction_id=${soldItem.id}`, {
+                                    headers: { 'Authorization': `Bearer ${token}` }
+                                  });
+                                  if (res.ok) {
+                                    const data = await res.json();
+                                    if (data?.success && data?.partner) {
+                                      b = data.partner;
+                                      setTransactionPartners(prev => {
+                                        const next = new Map(prev);
+                                        next.set(soldItem.id, data.partner);
+                                        return next;
+                                      });
+                                    }
+                                  }
+                                } catch (e) {
+                                  console.warn("Error fetching buyer details:", e);
+                                }
+                              }
                               setInvoiceModalData({
                                 isOpen: true,
                                 auction: soldItem,
                                 seller: userData,
-                                buyer: buyer
+                                buyer: b || null
                               });
                             }}
                             className="bg-slate-100 text-[#0A1128] border-2 border-slate-200 px-4 py-3.5 rounded-2xl font-black uppercase tracking-widest text-sm hover:border-slate-400 hover:bg-slate-200 transition-all flex items-center justify-center gap-2 mt-auto"

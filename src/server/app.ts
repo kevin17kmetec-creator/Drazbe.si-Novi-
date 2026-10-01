@@ -393,6 +393,92 @@ function maskUsername(name?: string): string {
 }
 
 /**
+ * Helper to sync user profile data to public_profiles/{uid} collection.
+ * Writes ONLY safe public profile fields. Never email, phone, street, postal code, tax numbers, wallet, subscription, or strikes.
+ */
+export async function syncPublicProfile(uid: string) {
+  try {
+    if (!uid) return;
+    const userDoc = await adminDb.collection('users').doc(uid).get();
+    if (!userDoc.exists) return;
+    const user = userDoc.data() || {};
+
+    const userType = user.user_type || user.userType || 'individual';
+    const companyName = (user.company_name || user.companyName || '').trim();
+    const username = (user.username || user.userName || '').trim();
+    const firstName = (user.first_name || user.firstName || '').trim();
+    const lastName = (user.last_name || user.lastName || '').trim();
+
+    let displayName = '';
+    if (userType === 'business' && companyName) {
+      displayName = companyName;
+    } else if (username) {
+      displayName = username;
+    } else if (firstName) {
+      const lastInitial = lastName ? ` ${lastName.charAt(0).toUpperCase()}.` : '';
+      displayName = `${firstName}${lastInitial}`;
+    }
+
+    const photoUrl = user.profile_picture_url || user.profilePicture || user.photo_url || user.photoURL || null;
+    const city = user.city || user.company_city || user.companyCity || null;
+    const description = user.description || null;
+    const createdAt = user.created_at || user.createdAt || new Date().toISOString();
+
+    const soldCount = typeof user.sold_count === 'number' ? user.sold_count : (typeof user.soldCount === 'number' ? user.soldCount : 0);
+    const unpaidPenalties = typeof user.unpaid_penalties === 'number' ? user.unpaid_penalties : (typeof user.unpaidPenalties === 'number' ? user.unpaidPenalties : 0);
+
+    const identityVerified = Boolean(user.identity_verified || user.identityVerified || user.is_verified || user.isVerified);
+    const isDeleted = Boolean(user.is_deleted || user.isDeleted);
+
+    const publicProfileData = {
+      username: username || null,
+      display_name: displayName || 'Uporabnik',
+      user_type: userType,
+      company_name: companyName || null,
+      photo_url: photoUrl,
+      city: city || null,
+      description: description || null,
+      created_at: createdAt,
+      sold_count: soldCount,
+      unpaid_penalties: unpaidPenalties,
+      identity_verified: identityVerified,
+      is_deleted: isDeleted,
+      updated_at: new Date().toISOString()
+    };
+
+    await adminDb.collection('public_profiles').doc(uid).set(publicProfileData, { merge: true });
+  } catch (err: any) {
+    console.error(`[syncPublicProfile] Error syncing for user ${uid}:`, err);
+  }
+}
+
+/**
+ * Helper to record sale completion idempotently and increment seller's sold_count.
+ */
+export async function recordSaleCompletion(auctionId: string, sellerIdOverride?: string) {
+  try {
+    if (!auctionId) return;
+    const auctionRef = adminDb.collection('auctions').doc(auctionId);
+    const snap = await safeGetDoc(auctionRef);
+    if (!snap.exists) return;
+    const data = snap.data() || {};
+    if (data.sold_count_recorded) return;
+
+    const sellerId = sellerIdOverride || data.seller_id || data.sellerId;
+    await auctionRef.update({ sold_count_recorded: true });
+
+    if (sellerId) {
+      await adminDb.collection('users').doc(sellerId).set({
+        sold_count: FieldValue.increment(1)
+      }, { merge: true });
+      await syncPublicProfile(sellerId);
+    }
+  } catch (err: any) {
+    console.error(`[recordSaleCompletion] Error for auction ${auctionId}:`, err);
+  }
+}
+
+/**
  * Helper to get current Europe/Ljubljana year.
  */
 function getLjubljanaYear(): { currentYear: number; currentYearStr: string } {
@@ -947,6 +1033,7 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
         // Credit seller's held wallet
         const currentPriceCents = Math.round(currentPrice * 100);
         await addHeldFunds(seller_id, currentPriceCents, 'stripe_' + paymentId, { stripe_payment_intent_id: paymentId, auction_id });
+        await recordSaleCompletion(auction_id, seller_id);
       } catch (e: any) {
         console.error('Error updating auction status or wallet:', e.message);
       }
@@ -1090,6 +1177,7 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
           identity_verified_at: new Date().toISOString(),
           identity_verification_status: 'verified',
         }, { merge: true });
+        await syncPublicProfile(uid);
         console.log(`[webhook] User ${uid} identity verified successfully.`);
       } catch (err: any) {
         console.error(`[webhook] Error updating user ${uid} for identity verified:`, err.message);
@@ -1106,6 +1194,7 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
           identity_verification_status: 'requires_input',
           identity_verified: false,
         }, { merge: true });
+        await syncPublicProfile(uid);
         console.log(`[webhook] User ${uid} identity verification status set to requires_input.`);
       } catch (err: any) {
         console.error(`[webhook] Error updating user ${uid} for identity requires_input:`, err.message);
@@ -1909,6 +1998,7 @@ app.post("/api/confirm-checkout-session", async (req, res) => {
           post_auction_status: 'paid',
           paid_at: new Date().toISOString()
         });
+        await recordSaleCompletion(effectiveAuctionId, effectiveSellerId);
 
         if (effectiveBuyerId && effectiveSellerId) {
           const buyerDoc = await safeGetDoc(adminDb.collection('users').doc(effectiveBuyerId));
@@ -2352,6 +2442,7 @@ app.post("/api/payments/wallet-pay-auction", async (req, res) => {
       return res.status(400).json({ error: "Manjkajoči podatki" });
     }
 
+    let seller_id = '';
     const txId = await adminDb.runTransaction(async (t) => {
       let auction: any = null;
       const auctionRef = adminDb.collection('auctions').doc(auction_id);
@@ -2376,7 +2467,7 @@ app.post("/api/payments/wallet-pay-auction", async (req, res) => {
 
       const buyer_id = userId;
       
-      const seller_id = auction.seller_id;
+      seller_id = auction.seller_id;
       if (!seller_id) throw new Error("Missing seller info");
 
       let authoritativePriceInCents = 0;
@@ -2484,6 +2575,8 @@ app.post("/api/payments/wallet-pay-auction", async (req, res) => {
       
       return txId;
     });
+
+    await recordSaleCompletion(auction_id, seller_id);
 
     res.json({ success: true, transaction_id: txId });
   } catch (error: any) {
@@ -4628,6 +4721,8 @@ app.post("/api/auctions/confirm-receipt", async (req, res) => {
       status: 'completed'
     });
 
+    await recordSaleCompletion(auction_id, tx.seller_id);
+
     res.json({ success: true });
   } catch (err: any) {
     console.error('Error in confirm-receipt:', err);
@@ -5012,6 +5107,8 @@ app.post("/api/delete-account", async (req, res) => {
       subscription_tier: 'FREE',
       deleted_at: new Date().toISOString()
     }, { merge: false });
+
+    await syncPublicProfile(authUid);
 
     // 5. Izbris računa iz Firebase Authentication
     try {
@@ -5511,6 +5608,399 @@ app.post("/api/auctions/archive", async (req, res) => {
   } catch (error: any) {
     console.error("[ARCHIVE AUCTION ERROR]", error);
     res.status(500).json({ error: error.message || "Napaka pri arhiviranju dražbe." });
+  }
+});
+
+// ==========================================
+// USER PROFILE & SUBSCRIPTION SERVER ROUTES
+// ==========================================
+
+// 1. POST /api/profile/init (idempotent profile initialization)
+app.post("/api/profile/init", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const token = authHeader.split('Bearer ')[1];
+    const decodedToken = await adminAuth.verifyIdToken(token);
+    const uid = decodedToken.uid;
+    const email = decodedToken.email || '';
+    const emailVerified = Boolean(decodedToken.email_verified);
+    const authProvider = decodedToken.firebase?.sign_in_provider || 'password';
+
+    const userRef = adminDb.collection('users').doc(uid);
+    const userSnap = await userRef.get();
+
+    if (!userSnap.exists) {
+      const now = new Date().toISOString();
+      await userRef.set({
+        id: uid,
+        email,
+        created_at: now,
+        subscription: 'FREE',
+        subscription_tier: 'FREE',
+        profile_completed: false,
+        identity_verified: false,
+        email_verified: emailVerified,
+        auth_provider: authProvider,
+      });
+    } else {
+      const updates: any = {};
+      if (emailVerified) {
+        updates.email_verified = true;
+      }
+      const existingData = userSnap.data() || {};
+      if (!existingData.auth_provider) {
+        updates.auth_provider = authProvider;
+      }
+      if (Object.keys(updates).length > 0) {
+        await userRef.update(updates);
+      }
+    }
+
+    await syncPublicProfile(uid);
+    return res.json({ success: true, message: 'Profil inicializiran.' });
+  } catch (err: any) {
+    console.error('Error in /api/profile/init:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 2. POST /api/profile/update (safe user profile update)
+app.post("/api/profile/update", async (req, res) => {
+  try {
+    let uid: string;
+    try {
+      uid = await authenticateFirebaseUser(req);
+    } catch (authErr: any) {
+      return res.status(401).json({ error: authErr.message || 'Unauthorized' });
+    }
+
+    const body = req.body || {};
+
+    const cleanStr = (val: any, maxLen = 200) => {
+      if (typeof val !== 'string') return '';
+      const trimmed = val.trim();
+      return trimmed.length > maxLen ? trimmed.substring(0, maxLen) : trimmed;
+    };
+
+    const firstName = cleanStr(body.first_name || body.firstName);
+    const lastName = cleanStr(body.last_name || body.lastName);
+    const rawUsername = cleanStr(body.username || body.userName);
+    const userType = (body.user_type || body.userType) === 'business' ? 'business' : 'individual';
+    const companyName = cleanStr(body.company_name || body.companyName);
+    const companyStatus = cleanStr(body.company_status || body.companyStatus);
+    const street = cleanStr(body.street_address || body.street || body.company_street || body.companyStreet);
+    const postalCode = cleanStr(body.postal_code || body.postalCode || body.company_postal_code || body.companyPostalCode);
+    const city = cleanStr(body.city || body.company_city || body.companyCity);
+    const country = cleanStr(body.country || body.country_code || body.countryCode || 'SI');
+    const phone = cleanStr(body.phone || body.phoneNumber);
+    const taxId = cleanStr(body.tax_id || body.tax_number || body.taxNumber || body.taxId);
+    const vatId = cleanStr(body.vat_id || body.vatId);
+    const regNumber = cleanStr(body.registration_number || body.regNumber);
+    const description = cleanStr(body.description, 1000);
+    const language = cleanStr(body.language || 'sl');
+    const representative = cleanStr(body.representative);
+    const autoInvoiceGen = body.auto_invoice_generation !== false && body.autoInvoiceGeneration !== false;
+    const emailNotifs = typeof body.email_notifications === 'object' ? body.email_notifications : (typeof body.emailNotifications === 'object' ? body.emailNotifications : undefined);
+
+    const profilePictureUrl = cleanStr(body.profile_picture_url || body.profilePicture, 1000);
+    if (profilePictureUrl) {
+      if (profilePictureUrl.startsWith('data:')) {
+        return res.status(400).json({ error: "Profilna slika mora biti HTTPS povezava." });
+      }
+      if (!profilePictureUrl.startsWith('https://')) {
+        return res.status(400).json({ error: "Profilna slika mora biti veljavna HTTPS povezava." });
+      }
+    }
+
+    let validatedUsername = rawUsername;
+    if (validatedUsername) {
+      const usernameRegex = /^[a-zA-Z0-9._-]{3,30}$/;
+      if (!usernameRegex.test(validatedUsername)) {
+        return res.status(400).json({ error: "Uporabniško ime lahko vsebuje le črke, številke, piko, podčrtaj in vezaj (3-30 znakov)." });
+      }
+
+      const lowerNewUsername = validatedUsername.toLowerCase();
+
+      const currentUserDoc = await adminDb.collection('users').doc(uid).get();
+      const currentData = currentUserDoc.data() || {};
+      const oldUsername = (currentData.username || currentData.userName || '').trim();
+      const lowerOldUsername = oldUsername.toLowerCase();
+
+      if (lowerNewUsername !== lowerOldUsername) {
+        try {
+          await adminDb.runTransaction(async (transaction) => {
+            const newUsernameRef = adminDb.collection('usernames').doc(lowerNewUsername);
+            const newUsernameDoc = await transaction.get(newUsernameRef);
+
+            if (newUsernameDoc.exists && newUsernameDoc.data()?.uid !== uid) {
+              throw new Error("409_USERNAME_TAKEN");
+            }
+
+            transaction.set(newUsernameRef, { uid });
+
+            if (lowerOldUsername) {
+              const oldUsernameRef = adminDb.collection('usernames').doc(lowerOldUsername);
+              transaction.delete(oldUsernameRef);
+            }
+          });
+        } catch (txErr: any) {
+          if (txErr.message === "409_USERNAME_TAKEN") {
+            return res.status(409).json({ error: "To uporabniško ime je že zasedeno." });
+          }
+          throw txErr;
+        }
+      }
+    }
+
+    let isProfileCompleted = Boolean(
+      firstName && lastName && street && postalCode && city
+    );
+    if (userType === 'business') {
+      isProfileCompleted = isProfileCompleted && Boolean(companyName && taxId);
+    }
+
+    const updatePayload: any = {
+      first_name: firstName,
+      firstName: firstName,
+      last_name: lastName,
+      lastName: lastName,
+      username: validatedUsername,
+      userName: validatedUsername,
+      user_type: userType,
+      userType: userType,
+      company_name: companyName,
+      companyName: companyName,
+      company_status: companyStatus,
+      street_address: street,
+      street: street,
+      postal_code: postalCode,
+      postalCode: postalCode,
+      city: city,
+      country: country,
+      country_code: country,
+      countryCode: country,
+      phone: phone,
+      phoneNumber: phone,
+      tax_id: taxId,
+      tax_number: taxId,
+      taxNumber: taxId,
+      taxId: taxId,
+      vat_id: vatId,
+      vatId: vatId,
+      registration_number: regNumber,
+      regNumber: regNumber,
+      description: description,
+      language: language,
+      representative: representative,
+      auto_invoice_generation: autoInvoiceGen,
+      autoInvoiceGeneration: autoInvoiceGen,
+      profile_picture_url: profilePictureUrl || null,
+      profilePicture: profilePictureUrl || null,
+      profile_completed: isProfileCompleted,
+      address: `${street}, ${postalCode} ${city}`.trim().replace(/^,|,$/g, '').trim(),
+      updated_at: new Date().toISOString()
+    };
+
+    if (emailNotifs) {
+      updatePayload.email_notifications = emailNotifs;
+      updatePayload.emailNotifications = emailNotifs;
+    }
+
+    await adminDb.collection('users').doc(uid).set(updatePayload, { merge: true });
+
+    await syncPublicProfile(uid);
+
+    return res.json({
+      success: true,
+      message: "Profil uspešno posodobljen.",
+      profile_completed: isProfileCompleted
+    });
+  } catch (err: any) {
+    console.error('Error in /api/profile/update:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 3. POST /api/subscription/downgrade-free
+app.post("/api/subscription/downgrade-free", async (req, res) => {
+  try {
+    let uid: string;
+    try {
+      uid = await authenticateFirebaseUser(req);
+    } catch (authErr: any) {
+      return res.status(401).json({ error: authErr.message || 'Unauthorized' });
+    }
+
+    await adminDb.collection('users').doc(uid).set({
+      subscription: 'FREE',
+      subscription_tier: 'FREE',
+      subscription_active: false,
+      subscription_canceled: false,
+      updated_at: new Date().toISOString()
+    }, { merge: true });
+
+    return res.json({ success: true, message: 'Naročnina spremenjena na Brezplačni paket.' });
+  } catch (err: any) {
+    console.error('Error in /api/subscription/downgrade-free:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 4. POST /api/packages/publish
+app.post("/api/packages/publish", async (req, res) => {
+  try {
+    let uid: string;
+    try {
+      uid = await authenticateFirebaseUser(req);
+    } catch (authErr: any) {
+      return res.status(401).json({ error: authErr.message || 'Unauthorized' });
+    }
+
+    const { package_id, title, auction_ids } = req.body || {};
+
+    if (!package_id || !title || !Array.isArray(auction_ids) || auction_ids.length === 0) {
+      return res.status(400).json({ error: 'Neveljavni podatki paketa.' });
+    }
+
+    for (const auctionId of auction_ids) {
+      const auctionSnap = await adminDb.collection('auctions').doc(auctionId).get();
+      if (!auctionSnap.exists) {
+        return res.status(404).json({ error: `Dražba ${auctionId} ne obstaja.` });
+      }
+      const auctionData = auctionSnap.data() || {};
+      const sellerId = auctionData.seller_id || auctionData.sellerId;
+      if (sellerId !== uid) {
+        return res.status(403).json({ error: 'Nimate pravic za te dražbe.' });
+      }
+    }
+
+    const pkgRef = adminDb.collection('packages').doc(package_id);
+    const existingPkg = await pkgRef.get();
+    if (existingPkg.exists) {
+      const existingData = existingPkg.data() || {};
+      if (existingData.seller_id && existingData.seller_id !== uid) {
+        return res.status(403).json({ error: 'Paket pripada drugemu uporabniku.' });
+      }
+    }
+
+    await pkgRef.set({
+      id: package_id,
+      title: title,
+      seller_id: uid,
+      auction_ids: auction_ids,
+      status: 'active',
+      created_at: new Date().toISOString()
+    }, { merge: true });
+
+    return res.json({ success: true, message: 'Paket uspešno objavljen.' });
+  } catch (err: any) {
+    console.error('Error in /api/packages/publish:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 5. GET /api/transactions/partner-info?auction_id=...
+app.get("/api/transactions/partner-info", async (req, res) => {
+  try {
+    let uid: string;
+    try {
+      uid = await authenticateFirebaseUser(req);
+    } catch (authErr: any) {
+      return res.status(401).json({ error: authErr.message || 'Unauthorized' });
+    }
+
+    const auctionId = req.query.auction_id as string;
+    if (!auctionId) {
+      return res.status(400).json({ error: 'Manjka auction_id.' });
+    }
+
+    const auctionSnap = await adminDb.collection('auctions').doc(auctionId).get();
+    if (!auctionSnap.exists) {
+      return res.status(404).json({ error: 'Dražba ni najdena.' });
+    }
+
+    const auction = auctionSnap.data() || {};
+    const isPaid = auction.payment_status === 'paid' || auction.post_auction_status === 'paid' || auction.post_auction_status === 'completed' || auction.status === 'completed';
+    if (!isPaid) {
+      return res.status(400).json({ error: 'Dražba še ni plačana.' });
+    }
+
+    const sellerId = auction.seller_id || auction.sellerId;
+    const buyerId = auction.winner_id || auction.winnerId;
+
+    let partnerUid: string | null = null;
+    if (uid === sellerId) {
+      partnerUid = buyerId;
+    } else if (uid === buyerId) {
+      partnerUid = sellerId;
+    } else {
+      return res.status(403).json({ error: 'Nimate pravic za ogled teh podatkov.' });
+    }
+
+    if (!partnerUid) {
+      return res.status(404).json({ error: 'Podatki partnerja niso na voljo.' });
+    }
+
+    const partnerSnap = await adminDb.collection('users').doc(partnerUid).get();
+    if (!partnerSnap.exists) {
+      return res.status(404).json({ error: 'Partner ni najden.' });
+    }
+
+    const pData = partnerSnap.data() || {};
+
+    const partnerInfo = {
+      id: partnerUid,
+      first_name: pData.first_name || pData.firstName || '',
+      firstName: pData.first_name || pData.firstName || '',
+      last_name: pData.last_name || pData.lastName || '',
+      lastName: pData.last_name || pData.lastName || '',
+      username: pData.username || pData.userName || '',
+      userName: pData.username || pData.userName || '',
+      user_type: pData.user_type || pData.userType || 'individual',
+      userType: pData.user_type || pData.userType || 'individual',
+      company_name: pData.company_name || pData.companyName || '',
+      companyName: pData.company_name || pData.companyName || '',
+      company_status: pData.company_status || pData.companyStatus || '',
+      companyStatus: pData.company_status || pData.companyStatus || '',
+      street_address: pData.street_address || pData.street || '',
+      street: pData.street_address || pData.street || '',
+      city: pData.city || pData.company_city || pData.companyCity || '',
+      postal_code: pData.postal_code || pData.postalCode || '',
+      postalCode: pData.postal_code || pData.postalCode || '',
+      country_code: pData.country_code || pData.countryCode || 'SI',
+      countryCode: pData.country_code || pData.countryCode || 'SI',
+      phone: pData.phone || pData.phoneNumber || '',
+      phoneNumber: pData.phone || pData.phoneNumber || '',
+      email: pData.email || '',
+      tax_id: pData.tax_id || pData.tax_number || pData.taxNumber || pData.taxId || '',
+      taxId: pData.tax_id || pData.tax_number || pData.taxNumber || pData.taxId || '',
+      tax_number: pData.tax_id || pData.tax_number || pData.taxNumber || pData.taxId || '',
+      taxNumber: pData.tax_id || pData.tax_number || pData.taxNumber || pData.taxId || '',
+      vat_id: pData.vat_id || pData.vatId || '',
+      vatId: pData.vat_id || pData.vatId || '',
+      registration_number: pData.registration_number || pData.regNumber || '',
+      regNumber: pData.registration_number || pData.regNumber || '',
+      company_street: pData.company_street || pData.companyStreet || '',
+      companyStreet: pData.company_street || pData.companyStreet || '',
+      company_city: pData.company_city || pData.companyCity || '',
+      companyCity: pData.company_city || pData.companyCity || '',
+      company_postal_code: pData.company_postal_code || pData.companyPostalCode || '',
+      companyPostalCode: pData.company_postal_code || pData.companyPostalCode || '',
+      address: pData.address || '',
+      representative: pData.representative || '',
+      profile_picture_url: pData.profile_picture_url || pData.profilePicture || null,
+      profilePicture: pData.profile_picture_url || pData.profilePicture || null,
+      is_deleted: Boolean(pData.is_deleted || pData.isDeleted),
+      isDeleted: Boolean(pData.is_deleted || pData.isDeleted)
+    };
+
+    return res.json({ success: true, partner: partnerInfo });
+  } catch (err: any) {
+    console.error('Error in /api/transactions/partner-info:', err);
+    return res.status(500).json({ error: err.message });
   }
 });
 
