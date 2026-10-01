@@ -9,6 +9,7 @@ import { GoogleGenAI } from '@google/genai';
 import imageCompression from 'browser-image-compression';
 import { AuctionCard } from "@/src/components/auction/AuctionCard";
 import AuctionView from "@/src/components/auction/AuctionView";
+import { CategoryAttributesInput } from "./CategoryAttributesInput";
 import { checkUserInvoiceData, InvoiceDataCheckResult } from "../../lib/invoiceDataCheck";
 import { MissingInvoiceDataModal } from "@/src/components/modals/MissingInvoiceDataModal";
 import { getUserAuctionCycle } from "../../lib/utils";
@@ -129,7 +130,8 @@ export const CreateAuctionForm: React.FC<{
             endTime: defaultTimeStr,
             delivery_option: initialData?.delivery_option || 'both',
             shipping_fee_type: initialData?.shipping_fee_type || 'calculated',
-            shipping_cost: initialData?.shipping_cost?.toString() || ''
+            shipping_cost: initialData?.shipping_cost?.toString() || '',
+            specifications: (initialData?.specifications || {}) as Record<string, string>
         };
     });
     const [existingImages, setExistingImages] = useState<string[]>(initialData?.images || []);
@@ -175,7 +177,8 @@ export const CreateAuctionForm: React.FC<{
                 location: locVal || prev.location,
                 delivery_option: initialData.delivery_option || prev.delivery_option,
                 shipping_fee_type: initialData.shipping_fee_type || prev.shipping_fee_type,
-                shipping_cost: initialData.shipping_cost !== undefined && initialData.shipping_cost !== null ? initialData.shipping_cost.toString() : prev.shipping_cost
+                shipping_cost: initialData.shipping_cost !== undefined && initialData.shipping_cost !== null ? initialData.shipping_cost.toString() : prev.shipping_cost,
+                specifications: initialData.specifications || prev.specifications || {}
             }));
             if (customVal) {
                 setCustomLocation(customVal);
@@ -552,7 +555,8 @@ export const CreateAuctionForm: React.FC<{
                 images: imageUrls,
                 delivery_option: formData.delivery_option,
                 shipping_fee_type: formData.shipping_fee_type,
-                shipping_cost: formData.shipping_fee_type === 'fixed' ? Number(formData.shipping_cost || 0) : null
+                shipping_cost: formData.shipping_fee_type === 'fixed' ? Number(formData.shipping_cost || 0) : null,
+                specifications: formData.specifications || {}
             };
             if (asDraft && onSaveDraft) {
                 await onSaveDraft(payload);
@@ -748,7 +752,7 @@ export const CreateAuctionForm: React.FC<{
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                         <div className="space-y-4">
                             <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">{t('category')}</label>
-                            <select value={formData.category} className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl py-4 px-6 font-bold text-lg text-[#0A1128] focus:ring-0 focus:border-[#FEBA4F] transition-all outline-none appearance-none cursor-pointer shadow-inner" onChange={e => setFormData({...formData, category: e.target.value as Category})}>
+                            <select value={formData.category} className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl py-4 px-6 font-bold text-lg text-[#0A1128] focus:ring-0 focus:border-[#FEBA4F] transition-all outline-none appearance-none cursor-pointer shadow-inner" onChange={e => setFormData({...formData, category: e.target.value as Category, specifications: {} })}>
                                 {Object.values(Category).map(c => <option key={c} value={c}>{getCategoryTranslation(c, t)}</option>)}
                             </select>
                         </div>
@@ -763,6 +767,12 @@ export const CreateAuctionForm: React.FC<{
                             </select>
                         </div>
                     </div>
+
+                    <CategoryAttributesInput 
+                        category={formData.category} 
+                        specifications={formData.specifications || {}} 
+                        onChange={(newSpecs) => setFormData(prev => ({ ...prev, specifications: newSpecs }))} 
+                    />
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                         <div className="space-y-4">
@@ -1029,6 +1039,10 @@ export const CreateAuctionForm: React.FC<{
                                              category: formData.category,
                                              region: formData.region,
                                              condition: formData.condition,
+                                             delivery_option: formData.delivery_option,
+                                             shipping_fee_type: formData.shipping_fee_type,
+                                             shipping_cost: formData.shipping_fee_type === 'fixed' ? Number(formData.shipping_cost || 0) : null,
+                                             specifications: formData.specifications || {},
                                              createdAt: new Date()
                                           } as unknown as AuctionItem} 
                                           t={t} 

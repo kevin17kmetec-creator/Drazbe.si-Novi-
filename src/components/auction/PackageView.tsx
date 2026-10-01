@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowLeft, Layers, Clock, ShieldCheck, Building2 } from 'lucide-react';
+import { ArrowLeft, Layers, Clock, ShieldCheck, Building2, MapPin, Truck } from 'lucide-react';
 import { AuctionItem, Seller } from '../../types';
 import { AuctionCard } from "@/src/components/auction/AuctionCard";
 import { formatSeconds } from "../../lib/utils";
@@ -94,13 +94,31 @@ export const PackageView: React.FC<PackageViewProps> = ({
       <div className="bg-[#0A1128] text-white rounded-[2.5rem] p-8 sm:p-12 shadow-2xl mb-12 border border-white/10 relative overflow-hidden">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-8 relative z-10">
           <div>
-            <div className="flex items-center gap-3 mb-3">
+            <div className="flex items-center gap-3 mb-3 flex-wrap">
               <span className="bg-[#FEBA4F] text-[#0A1128] text-xs font-black uppercase px-3.5 py-1.5 rounded-xl tracking-widest flex items-center gap-1.5 shadow-md">
                 <Layers size={15} /> Zbirka dražb
               </span>
               <span className="bg-white/10 text-white border border-white/10 text-xs font-black uppercase px-3.5 py-1.5 rounded-xl tracking-widest flex items-center gap-1">
                 {items.length} {items.length === 2 ? 'artikla' : items.length <= 4 ? 'artikli' : 'artiklov'} v zbirki
               </span>
+              {firstItem && (
+                <span className="bg-white/10 text-slate-200 border border-white/10 text-xs font-black uppercase px-3.5 py-1.5 rounded-xl tracking-widest flex items-center gap-1.5">
+                  <MapPin size={13} className="text-[#FEBA4F]" />
+                  <span>{firstItem.region || (typeof firstItem.location === 'object' ? firstItem.location?.SLO : firstItem.location)}</span>
+                </span>
+              )}
+              {firstItem && (
+                <span className="bg-white/10 text-slate-200 border border-white/10 text-xs font-black uppercase px-3.5 py-1.5 rounded-xl tracking-widest flex items-center gap-1.5">
+                  <Truck size={13} className="text-[#FEBA4F]" />
+                  <span>
+                    {(firstItem as any).delivery_option === 'pickup_only' || firstItem.delivery_method === 'pickup'
+                      ? 'Samo osebni prevzem'
+                      : (firstItem as any).delivery_option === 'shipping_only' || firstItem.delivery_method === 'post' || firstItem.delivery_method === 'shipping'
+                        ? 'Samo pošiljanje'
+                        : 'Osebni prevzem in pošiljanje'}
+                  </span>
+                </span>
+              )}
             </div>
             <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black text-white tracking-tight">{packageTitle}</h1>
             <div className="flex items-center gap-4 mt-4 text-sm text-slate-300">

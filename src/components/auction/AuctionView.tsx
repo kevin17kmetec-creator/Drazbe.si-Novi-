@@ -3,11 +3,12 @@ import {
   Clock, Lock, CheckCircle2, AlertCircle, Image as ImageIcon,
   ChevronLeft, ChevronRight, Eye, MapPin, Info, Gavel, Truck, Trophy,
   CreditCard, Landmark, Plus, Minus, X, Calendar as CalendarIcon, Phone, Mail, User,
-  MessageSquare
+  MessageSquare, Sparkles, Building2, Package, Tag, ShieldCheck
 } from 'lucide-react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db, registerSnapshotListener } from "../../lib/firebase";
 import { getIncrement, calculateMarginalPlatformFee } from "../../lib/utils";
+import { formatAttributeLabel } from "../../lib/categoryAttributes";
 
 const TimeBox = ({ value, label }: { value: number, label: string }) => (
   <div className="flex flex-col items-center justify-center bg-white/10 rounded-xl w-14 h-14 md:w-16 md:h-16 border border-white/10">
@@ -490,52 +491,187 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
             )}
           </div>
 
-          <div className="lg:col-span-4 order-4 hidden">
-            <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-              <div className="p-4 border-b border-slate-100 bg-slate-50">
-                <h3 className="text-[#0A1128] font-black uppercase tracking-widest text-xs">{t('information')}</h3>
+          <div className="lg:col-span-4 order-4 space-y-6">
+            {/* Key Buyer Decision Information: Delivery, Location, Condition */}
+            <div className="bg-white border-2 border-slate-200/90 rounded-[2rem] overflow-hidden shadow-lg">
+              <div className="p-5 border-b border-slate-100 bg-[#0A1128] text-white flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-[#FEBA4F] text-[#0A1128] flex items-center justify-center font-black">
+                    <Truck size={16} />
+                  </div>
+                  <h3 className="font-black uppercase tracking-wider text-xs sm:text-sm">
+                    Prevzem in ključni podatki
+                  </h3>
+                </div>
+                <span className="text-[10px] font-black uppercase text-[#FEBA4F] tracking-widest bg-white/10 px-2.5 py-1 rounded-lg">
+                  Pomembno
+                </span>
               </div>
-              <div className="p-4 space-y-4">
+              
+              <div className="p-6 space-y-5">
+                {/* Delivery Option */}
                 <div>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{t('seller')}:</p>
-                  {(item as any).is_seller_deleted || item.sellerName === "Uporabnik je bil izbrisan" || ((item as any).seller && ((item as any).seller.is_deleted || (item as any).seller.isDeleted)) ? (
-                    <span className="text-sm font-black text-slate-400">
-                      Uporabnik je bil izbrisan
+                  <div className="flex items-center gap-2 mb-1.5 text-slate-400">
+                    <Truck size={14} className="text-[#FEBA4F]" />
+                    <p className="text-[10px] font-black uppercase tracking-widest">Način predaje:</p>
+                  </div>
+                  <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80">
+                    <p className="text-sm font-extrabold text-[#0A1128]">
+                      {(currentAuction.delivery_option === 'both' || (currentAuction as any).delivery_method === 'both')
+                        ? 'Oboje (pošiljanje po pošti ali osebni prevzem)'
+                        : (currentAuction.delivery_option === 'pickup_only' || (currentAuction as any).delivery_method === 'pickup')
+                          ? 'Samo osebni prevzem'
+                          : 'Samo pošiljanje po pošti'}
+                    </p>
+                    {/* Shipping cost info */}
+                    {currentAuction.delivery_option !== 'pickup_only' && (currentAuction as any).delivery_method !== 'pickup' && (
+                      <p className="text-xs font-bold text-slate-500 mt-1 flex items-center gap-1.5">
+                        <Tag size={12} className="text-[#FEBA4F]" />
+                        <span>
+                          Strošek pošiljanja:{' '}
+                          {(currentAuction as any).shipping_fee_type === 'fixed' && (currentAuction as any).shipping_cost !== undefined && (currentAuction as any).shipping_cost !== null
+                            ? Number((currentAuction as any).shipping_cost) === 0
+                              ? 'Brezplačna poštnina'
+                              : `Fiksno €${Number((currentAuction as any).shipping_cost).toFixed(2)}`
+                            : 'Po obračunu (poštna tarifa ob pošiljanju)'}
+                        </span>
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Location */}
+                <div>
+                  <div className="flex items-center gap-2 mb-1.5 text-slate-400">
+                    <MapPin size={14} className="text-[#FEBA4F]" />
+                    <p className="text-[10px] font-black uppercase tracking-widest">Nastavljena lokacija:</p>
+                  </div>
+                  <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80">
+                    <p className="text-sm font-extrabold text-[#0A1128] flex items-center gap-2">
+                      <span>{location || (typeof currentAuction.location === 'object' ? currentAuction.location?.SLO : currentAuction.location) || 'Slovenija'}</span>
+                      <span className="text-xs text-slate-400 font-bold">• {currentAuction.region || 'Slovenija'}</span>
+                    </p>
+                  </div>
+                </div>
+
+                {/* Condition */}
+                <div>
+                  <div className="flex items-center gap-2 mb-1.5 text-slate-400">
+                    <Sparkles size={14} className="text-[#FEBA4F]" />
+                    <p className="text-[10px] font-black uppercase tracking-widest">{t('condition') || 'Stanje predmeta'}:</p>
+                  </div>
+                  {(() => {
+                    const condText = typeof currentAuction.condition === 'string'
+                      ? currentAuction.condition
+                      : (currentAuction.condition?.[language] || currentAuction.condition?.['SLO'] || 'Rabljeno');
+                    const isNew = condText.toLowerCase().includes('nov');
+                    return (
+                      <div className={`p-3.5 rounded-2xl border flex items-center justify-between ${
+                        isNew ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-slate-50 border-slate-200/80 text-[#0A1128]'
+                      }`}>
+                        <span className="text-sm font-extrabold">{condText}</span>
+                        <span className={`text-[10px] font-black uppercase px-2.5 py-0.5 rounded-lg ${
+                          isNew ? 'bg-emerald-200/60 text-emerald-800' : 'bg-slate-200 text-slate-600'
+                        }`}>
+                          {isNew ? 'Brezhibno' : 'Pregledano'}
+                        </span>
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {/* Seller Info */}
+                <div className="pt-3 border-t border-slate-100">
+                  <div className="flex items-center gap-2 mb-1.5 text-slate-400">
+                    <Building2 size={14} className="text-[#FEBA4F]" />
+                    <p className="text-[10px] font-black uppercase tracking-widest">{t('seller')}:</p>
+                  </div>
+                  <div className="flex items-center justify-between p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80">
+                    {(currentAuction as any).is_seller_deleted || currentAuction.sellerName === "Uporabnik je bil izbrisan" || ((currentAuction as any).seller && ((currentAuction as any).seller.is_deleted || (currentAuction as any).seller.isDeleted)) ? (
+                      <span className="text-sm font-bold text-slate-400">
+                        Uporabnik je bil izbrisan
+                      </span>
+                    ) : (
+                      <button 
+                        onClick={() => {
+                          const sellerInput = (currentAuction as any).seller || currentAuction.sellerId || (currentAuction as any).seller_id;
+                          if (sellerInput && onSellerClick) onSellerClick(sellerInput);
+                        }}
+                        className="text-sm font-black text-[#0A1128] hover:text-[#FEBA4F] transition-colors flex items-center gap-1.5 text-left"
+                      >
+                        <span className="underline underline-offset-2">
+                          {currentAuction.sellerName && currentAuction.sellerName !== "Neznan prodajalec" && currentAuction.sellerName !== "Neznan Prodajalec" 
+                            ? currentAuction.sellerName 
+                            : (t('unknownSeller') || 'Prodajalec')}
+                        </span>
+                      </button>
+                    )}
+                    <span className="text-[10px] font-black uppercase text-emerald-600 bg-emerald-100/70 px-2 py-0.5 rounded-md flex items-center gap-1">
+                      <ShieldCheck size={12} /> Preverjen
                     </span>
-                  ) : (
-                    <button 
-                      onClick={() => item.sellerId && onSellerClick?.(item.sellerId)}
-                      className="text-sm font-black text-[#FEBA4F] hover:underline"
-                    >
-                      {item.sellerName && item.sellerName !== "Neznan prodajalec" && item.sellerName !== "Neznan Prodajalec" ? item.sellerName : (t('unknownSeller') || t('unknown'))}
-                    </button>
-                  )}
+                  </div>
                 </div>
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{t('region')}:</p>
-                  <p className="text-sm font-bold text-[#0A1128]">{item.region}{location && location !== item.region && location !== t('slovenia') ? ` - ${location}` : ''}</p>
-                </div>
-                {item.condition && (
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{t('condition')}:</p>
-                  <p className="text-sm font-bold text-[#0A1128]">{typeof item.condition === 'string' ? item.condition : item.condition[language] || item.condition['SLO']}</p>
-                </div>
-                )}
-                {item.delivery_option && (
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Način predaje:</p>
-                  <p className="text-sm font-bold text-[#0A1128]">
-                    {item.delivery_option === 'both' ? 'Oboje (izbere kupec)' : item.delivery_option === 'pickup_only' ? 'Samo osebni prevzem' : 'Samo pošiljanje'}
-                  </p>
-                </div>
-                )}
-                <div className="pt-4 border-t border-slate-100">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{t('feesAndTerms')}:</p>
-                  <p className="font-bold text-[#0A1128] text-sm">€{absoluteFee.toFixed(2)} {t('auctionFee')}</p>
-                  <p className="font-bold text-[#0A1128] text-sm">22 {t('percent')} {t('vat')}</p>
+
+                {/* Fees and Terms */}
+                <div className="pt-3 border-t border-slate-100">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5">{t('feesAndTerms')}:</p>
+                  <div className="flex items-center justify-between text-xs font-bold text-slate-600">
+                    <span>Provizija platforme:</span>
+                    <span className="font-extrabold text-[#0A1128]">€{absoluteFee.toFixed(2)}</span>
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1">Vključuje 22 % DDV in zaščito kupca (escrow hramba sredstev).</p>
                 </div>
               </div>
             </div>
+
+            {/* Specifications Card (if any are filled) */}
+            {(() => {
+              const specs = (currentAuction.specifications || {}) as Record<string, any>;
+              const entries: { key: string; val: string }[] = [];
+              for (const [k, v] of Object.entries(specs)) {
+                if (typeof v === 'string' && v.trim() !== '') {
+                  entries.push({ key: k, val: v });
+                } else if (v && typeof v === 'object') {
+                  for (const [subK, subV] of Object.entries(v)) {
+                    if (typeof subV === 'string' && subV.trim() !== '') {
+                      entries.push({ key: subK, val: subV });
+                    }
+                  }
+                }
+              }
+              if (entries.length === 0) return null;
+
+              return (
+                <div className="bg-white border-2 border-slate-200/90 rounded-[2rem] overflow-hidden shadow-lg animate-in fade-in">
+                  <div className="p-5 border-b border-slate-100 bg-[#0A1128] text-white flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-[#FEBA4F] text-[#0A1128] flex items-center justify-center font-black">
+                        <Tag size={16} />
+                      </div>
+                      <h3 className="font-black uppercase tracking-wider text-xs sm:text-sm">
+                        Specifikacije artikla
+                      </h3>
+                    </div>
+                    <span className="text-[10px] font-black uppercase text-slate-300 bg-white/10 px-2.5 py-1 rounded-lg">
+                      {currentAuction.category || 'Podrobnosti'}
+                    </span>
+                  </div>
+
+                  <div className="p-6 divide-y divide-slate-100">
+                    {entries.map(({ key, val }) => (
+                      <div key={key} className="py-2.5 first:pt-0 last:pb-0 flex items-center justify-between gap-4">
+                        <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                          {formatAttributeLabel(key)}:
+                        </span>
+                        <span className="text-xs sm:text-sm font-extrabold text-[#0A1128] text-right bg-slate-50 border border-slate-200/60 px-3 py-1 rounded-xl">
+                          {val}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
       </div>

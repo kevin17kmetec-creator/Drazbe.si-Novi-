@@ -27,6 +27,7 @@ import { SettingsView } from "@/src/components/profile/SettingsView";
 import { ConfirmBidModal } from "@/src/components/modals/ConfirmBidModal";
 import { MessagesView } from "@/src/components/profile/MessagesView";
 import { MissingInvoiceDataModal } from "@/src/components/modals/MissingInvoiceDataModal";
+import { CategoryFilterBar, FilterState } from "@/src/components/auction/CategoryFilterBar";
 import { checkUserInvoiceData } from "./lib/invoiceDataCheck";
 import { 
   createAuctionAction, 
@@ -532,6 +533,11 @@ const MainApp: React.FC = () => {
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(
     null,
   );
+  const [categoryFilters, setCategoryFilters] = useState<FilterState>({
+    delivery_option: undefined,
+    condition: undefined,
+    specifications: {}
+  });
   const [selectedItem, setSelectedItem] = useState<AuctionItem | null>(null);
   const [selectedSeller, setSelectedSeller] = useState<Seller | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -1803,7 +1809,7 @@ const MainApp: React.FC = () => {
             region: itemData.region || "Osrednjeslovenska",
             category: itemData.category || "Ostalo",
             condition: getConditionTranslations(itemData.condition || "Rabljeno"),
-            specifications: {},
+            specifications: itemData.specifications || {},
             bidding_history: [],
             top_bids: [],
             winner_id: null,
@@ -1921,7 +1927,7 @@ const MainApp: React.FC = () => {
         region: normalizeRegionName(itemData.region || (typeof itemData.location === 'object' ? itemData.location?.SLO : itemData.location)),
         category: itemData.category || Category.Ostalo,
         condition: getConditionTranslations(itemData.condition || "Rabljeno"),
-        specifications: {},
+        specifications: itemData.specifications || {},
         bidding_history: [],
         top_bids: [],
         winner_id: null,
@@ -2273,6 +2279,27 @@ const MainApp: React.FC = () => {
         if (selectedRegion && !matchesSelectedRegion(item.region, selectedRegion)) return false;
         if (selectedCategory && item.category !== selectedCategory)
           return false;
+        if (categoryFilters.delivery_option) {
+          const itemDel = (item as any).delivery_option || item.delivery_method || 'both';
+          if (categoryFilters.delivery_option === 'pickup' && itemDel === 'shipping_only') return false;
+          if (categoryFilters.delivery_option === 'shipping' && itemDel === 'pickup_only') return false;
+        }
+        if (categoryFilters.condition) {
+          const condText = typeof item.condition === 'string'
+            ? item.condition
+            : (item.condition?.[language] || item.condition?.['SLO'] || '');
+          if (!condText.toLowerCase().includes(categoryFilters.condition.toLowerCase())) return false;
+        }
+        if (categoryFilters.specifications) {
+          for (const [key, val] of Object.entries(categoryFilters.specifications)) {
+            if (val) {
+              const itemVal = item.specifications?.[key];
+              if (!itemVal || !String(itemVal).toLowerCase().includes(String(val).toLowerCase())) {
+                return false;
+              }
+            }
+          }
+        }
         if (searchQuery) {
           const q = searchQuery.toLowerCase();
           const titleMatch = (item.title[language] || item.title["SLO"])
@@ -2294,6 +2321,7 @@ const MainApp: React.FC = () => {
     activeView,
     selectedRegion,
     selectedCategory,
+    categoryFilters,
     searchQuery,
     language,
   ]);
@@ -3897,7 +3925,19 @@ const MainApp: React.FC = () => {
                     onClick={() => setSelectedRegion(null)}
                     className="flex items-center gap-1.5 bg-[#0A1128] text-[#FEBA4F] hover:bg-[#FEBA4F] hover:text-[#0A1128] text-xs font-black uppercase px-3 py-1.5 rounded-full transition-all border border-[#FEBA4F]/30"
                   >
-                    <span>{t("clearFilter") || "Počisti filter"}</span>
+                    <span>{t("clearFilter") || "Počisti regijo"}</span>
+                    <X size={14} />
+                  </button>
+                )}
+                {selectedCategory && (
+                  <button
+                    onClick={() => {
+                      setSelectedCategory(null);
+                      setCategoryFilters({ delivery_option: undefined, condition: undefined, specifications: {} });
+                    }}
+                    className="flex items-center gap-1.5 bg-[#0A1128] text-[#FEBA4F] hover:bg-[#FEBA4F] hover:text-[#0A1128] text-xs font-black uppercase px-3 py-1.5 rounded-full transition-all border border-[#FEBA4F]/30"
+                  >
+                    <span>{t("clearFilter") || "Počisti kategorijo"}</span>
                     <X size={14} />
                   </button>
                 )}
@@ -3921,6 +3961,21 @@ const MainApp: React.FC = () => {
                 </select>
               </div>
             </div>
+
+            {/* Dynamic Category & Specification Filter Bar */}
+            <CategoryFilterBar
+              category={selectedCategory}
+              filters={categoryFilters}
+              onFilterChange={(newFilters) => {
+                setCategoryFilters(newFilters);
+                setCurrentPage(1);
+              }}
+              onResetFilters={() => {
+                setCategoryFilters({ delivery_option: undefined, condition: undefined, specifications: {} });
+                setCurrentPage(1);
+              }}
+              totalResultsCount={getFilteredAuctions.length}
+            />
             {(() => {
               const rawPackageMap = new Map<string, { title: string; items: AuctionItem[] }>();
               const standaloneItems: AuctionItem[] = [];
@@ -4659,6 +4714,7 @@ const MainApp: React.FC = () => {
         )}
         <Header
           onHome={() => {
+            setCategoryFilters({ delivery_option: undefined, condition: undefined, specifications: {} });
             navigateTo("grid", {
               selectedRegion: null,
               selectedCategory: null,
@@ -4675,6 +4731,7 @@ const MainApp: React.FC = () => {
             navigateTo("grid", { selectedRegion: reg });
           }}
           onCategorySelect={(cat) => {
+            setCategoryFilters({ delivery_option: undefined, condition: undefined, specifications: {} });
             navigateTo("grid", { selectedCategory: cat });
           }}
           onLastChance={() => {

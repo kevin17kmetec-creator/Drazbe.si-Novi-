@@ -75,7 +75,7 @@ export interface AuctionItem {
   region: Region; 
   description: Record<string, string>;
   condition: Record<string, string>;
-  specifications: Record<string, Record<string, string>>;
+  specifications?: Record<string, any>;
   biddingHistory: BidHistory[];
   sellerId: string;
   sellerName?: string;

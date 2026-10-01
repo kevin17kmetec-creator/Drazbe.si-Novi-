@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Layers, Clock, ChevronRight, Gavel, Sparkles, Building2 } from 'lucide-react';
+import { Layers, Clock, ChevronRight, Gavel, Sparkles, Building2, MapPin, Truck } from 'lucide-react';
 import { AuctionItem, Seller } from '../../types';
 import { formatSeconds } from "../../lib/utils";
 
@@ -89,13 +89,31 @@ export const PackageCard: React.FC<PackageCardProps> = ({
             <Layers size={22} />
           </div>
           <div>
-            <div className="flex items-center gap-2 mb-1">
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
               <span className="bg-[#FEBA4F] text-[#0A1128] text-[9px] font-black uppercase px-3 py-1 rounded-xl tracking-widest shadow-md">
                 Zbirka dražb
               </span>
               <span className="bg-white/10 text-white text-[9px] font-black uppercase px-3 py-1 rounded-xl border border-white/10 tracking-widest flex items-center gap-1">
                 <Sparkles size={10} className="text-[#FEBA4F]" /> {items.length} {items.length === 2 ? 'artikla' : items.length <= 4 ? 'artikli' : 'artiklov'}
               </span>
+              {items[0] && (
+                <span className="bg-[#0A1128]/90 text-slate-200 border border-white/10 text-[9px] font-black uppercase px-3 py-1 rounded-xl tracking-widest flex items-center gap-1">
+                  <MapPin size={10} className="text-[#FEBA4F]" />
+                  <span>{items[0].region || (typeof items[0].location === 'object' ? items[0].location?.SLO : items[0].location)}</span>
+                </span>
+              )}
+              {items[0] && (
+                <span className="bg-[#0A1128]/90 text-slate-200 border border-white/10 text-[9px] font-black uppercase px-3 py-1 rounded-xl tracking-widest flex items-center gap-1">
+                  <Truck size={10} className="text-[#FEBA4F]" />
+                  <span>
+                    {(items[0] as any).delivery_option === 'pickup_only' || items[0].delivery_method === 'pickup'
+                      ? 'Osebni prevzem'
+                      : (items[0] as any).delivery_option === 'shipping_only' || items[0].delivery_method === 'post' || items[0].delivery_method === 'shipping'
+                        ? 'Pošiljanje'
+                        : 'Osebno / Pošta'}
+                  </span>
+                </span>
+              )}
             </div>
             <h2 className="text-xl sm:text-2xl font-black text-white group-hover:text-[#FEBA4F] transition-colors">
               {title}
@@ -170,6 +188,11 @@ export const PackageCard: React.FC<PackageCardProps> = ({
                   <div className="absolute top-2 left-2 bg-[#0A1128]/90 backdrop-blur-sm text-white border border-white/10 text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg">
                     {item.region}
                   </div>
+                  {item.condition && (
+                    <div className="absolute top-2 right-2 bg-[#FEBA4F] text-[#0A1128] text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md shadow">
+                      {typeof item.condition === 'string' ? item.condition : (item.condition[language] || item.condition['SLO'] || 'Rabljeno')}
+                    </div>
+                  )}
                   <div className="absolute bottom-2 right-2 bg-[#0A1128]/95 backdrop-blur-sm text-[#FEBA4F] text-xs font-black px-2.5 py-1 rounded-lg border border-white/10 shadow-lg">
                     €{item.currentBid?.toLocaleString('sl-SI') || 1}
                   </div>
