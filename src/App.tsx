@@ -2620,9 +2620,7 @@ const MainApp: React.FC = () => {
                   t("auctionFallback"),
                 onSuccess: async () => {
                   setIsCheckoutOpen(false);
-                  await setDoc(doc(db, 'auctions', item.id), { payment_status: 'paid', post_auction_status: 'paid', status: 'completed', paid_at: new Date().toISOString() }, { merge: true });
-                  toast.success(t("paymentSuccess"));
-                  setSelectedItem((prev: any) => prev?.id === item.id ? { ...prev, payment_status: 'paid', post_auction_status: 'paid', status: 'completed', paid_at: new Date().toISOString() } : prev);
+                  toast.success(t("paymentSuccessEmail") || "Plačilo sprejeto. Potrditev lahko traja nekaj sekund.");
                   fetchAuctions();
                   if (userData?.id) refreshUserData(userData.id);
                 },
@@ -3175,8 +3173,7 @@ const MainApp: React.FC = () => {
                                     title: `${t("paymentFor")}: ${wonItem.title[language as keyof typeof wonItem.title] || wonItem.title.SLO}`,
                                     onSuccess: async () => {
                                       setIsCheckoutOpen(false);
-                                      await setDoc(doc(db, 'auctions', wonItem.id), { payment_status: 'paid', paid_at: new Date().toISOString(), post_auction_status: 'paid', status: 'completed' }, { merge: true });
-                                      toast.success(t("paymentSuccessEmail"));
+                                      toast.success(t("paymentSuccessEmail") || "Plačilo sprejeto. Potrditev lahko traja nekaj sekund.");
                                       fetchAuctions();
                                       if (userData?.id) refreshUserData(userData.id);
                                     },
@@ -3759,13 +3756,9 @@ const MainApp: React.FC = () => {
               title: `${t("paymentFor")}: ${auction.title[language as keyof typeof auction.title] || auction.title.SLO}`,
               onSuccess: async () => {
                 setIsCheckoutOpen(false);
-                await setDoc(doc(db, 'auctions', auction.id), {
-                  payment_status: 'paid',
-                  paid_at: new Date().toISOString(),
-                  post_auction_status: 'paid'
-                }, { merge: true });
-                toast.success(t("paymentSuccessEmail") || "Plačilo uspešno!");
-                setTimeout(() => fetchAuctions(), 1000);
+                toast.success(t("paymentSuccessEmail") || "Plačilo sprejeto. Potrditev lahko traja nekaj sekund.");
+                fetchAuctions();
+                if (userData?.id) refreshUserData(userData.id);
               },
               metadata: {
                 auction_id: auction.id,
