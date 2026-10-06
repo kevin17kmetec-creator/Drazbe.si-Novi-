@@ -30,6 +30,7 @@ import { MissingInvoiceDataModal } from "@/src/components/modals/MissingInvoiceD
 import { CategoryFilterBar, FilterState } from "@/src/components/auction/CategoryFilterBar";
 import { checkUserInvoiceData } from "./lib/invoiceDataCheck";
 import { getAuthHeaders } from "./lib/authFetch";
+import { friendlyError } from "./lib/friendlyError";
 import { 
   createAuctionAction, 
   confirmCheckoutSessionAction, 
@@ -99,7 +100,6 @@ import {
   FileUp,
 } from "lucide-react";
 
-import imageCompression from "browser-image-compression";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 
 import {
@@ -358,9 +358,60 @@ const MainApp: React.FC = () => {
     [language],
   );
 
-  const [auctions, setAuctions] = useState<AuctionItem[]>(
-    [],
-  );
+  const [rawAuctions, setRawAuctions] = useState<any[]>([]);
+  const [extraAuctions, setExtraAuctions] = useState<any[]>([]);
+  const [profilesMap, setProfilesMap] = useState<Map<string, any>>(new Map());
+  const profilesMapRef = useRef(profilesMap);
+  profilesMapRef.current = profilesMap;
+
+  const auctions = useMemo(() => {
+    const combinedMap = new Map<string, any>();
+    extraAuctions.forEach((item) => {
+      if (item && item.id) combinedMap.set(item.id, item);
+    });
+    rawAuctions.forEach((item) => {
+      if (item && item.id) combinedMap.set(item.id, item);
+    });
+    const combinedList = Array.from(combinedMap.values());
+
+    return combinedList.map((d: any) => {
+      const sellerId = d.seller_id || d.sellerId;
+      const seller = profilesMap.get(sellerId) || {};
+      const isDeletedUser = Boolean(d.is_seller_deleted || seller.is_deleted || d.sellerName === "Uporabnik je bil izbrisan");
+      const sellerName = isDeletedUser
+        ? "Uporabnik je bil izbrisan"
+        : (seller.display_name || d.sellerName || seller.username || "Prodajalec");
+
+      const isItemPaid = d.payment_status === "paid" || d.post_auction_status === "paid";
+
+      return {
+        ...d,
+        region: normalizeRegionName(d.region || (typeof d.location === 'object' ? d.location?.SLO : d.location)),
+        endTime: new Date(d.end_time || d.endTime || Date.now()),
+        createdAt: d.created_at || d.createdAt || new Date(0).toISOString(),
+        currentBid: d.current_price || d.currentBid,
+        bidCount: d.bid_count || d.bidCount,
+        winnerId: d.winner_id || d.winnerId,
+        winner_id: d.winner_id || d.winnerId,
+        sellerId: sellerId,
+        is_seller_deleted: isDeletedUser,
+        payment_status: isItemPaid ? "paid" : (d.payment_status || "unpaid"),
+        post_auction_status: d.post_auction_status,
+        paid_at: d.paid_at,
+        sellerName: sellerName,
+        seller: { 
+          id: sellerId, 
+          name: { SLO: sellerName, EN: isDeletedUser ? 'User deleted' : sellerName, DE: isDeletedUser ? 'Benutzer gelöscht' : sellerName }, 
+          is_deleted: isDeletedUser,
+          photoURL: isDeletedUser ? null : (seller.photo_url || null), 
+          created_at: seller.created_at, 
+          sold_count: seller.sold_count || 0,
+          unpaid_penalties: seller.unpaid_penalties || 0,
+          identity_verified: Boolean(seller.identity_verified)
+        }
+      } as AuctionItem;
+    });
+  }, [rawAuctions, extraAuctions, profilesMap]);
   const [lastSeenWinnings, setLastSeenWinnings] = useState(() => Number(localStorage.getItem('last_seen_winnings') || "0"));
   const [activeView, setActiveView] = useState<ViewState>(() => {
     if (typeof window === "undefined") return "grid";
@@ -537,6 +588,25 @@ const MainApp: React.FC = () => {
     condition: undefined,
     specifications: {}
   });
+  const [showFilters, setShowFilters] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    try {
+      const stored = localStorage.getItem("drazbenik_show_filters");
+      if (stored !== null) return stored === "true";
+      return window.innerWidth >= 1024;
+    } catch {
+      return true;
+    }
+  });
+  const [isMobileFiltersOpen, setIsMobileFiltersOpen] = useState(false);
+
+  const activeCategoryFilterCount = useMemo(() => {
+    return (
+      (categoryFilters.delivery_option ? 1 : 0) +
+      (categoryFilters.condition ? 1 : 0) +
+      Object.keys(categoryFilters.specifications).filter(k => !!categoryFilters.specifications[k]).length
+    );
+  }, [categoryFilters]);
   const [selectedItem, setSelectedItem] = useState<AuctionItem | null>(null);
   const [selectedSeller, setSelectedSeller] = useState<Seller | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -1395,10 +1465,8 @@ const MainApp: React.FC = () => {
     meta.setAttribute("content", metaDesc);
   }, [activeView, selectedItem, selectedSeller, language]);
 
-  const [profilesMap, setProfilesMap] = useState<Map<string, any>>(new Map());
-
   const missingProfileIdsFetch = useCallback(async (sellerIds: string[]) => {
-    const missing = sellerIds.filter(id => id && !profilesMap.has(id));
+    const missing = sellerIds.filter(id => id && !profilesMapRef.current.has(id)).slice(0, 25);
     if (missing.length === 0) return;
 
     try {
@@ -1422,7 +1490,15 @@ const MainApp: React.FC = () => {
     } catch (e) {
       console.warn("Error fetching profiles:", e);
     }
-  }, [profilesMap]);
+  }, []);
+
+  // Fetch seller profiles once in a batch
+  useEffect(() => {
+    const distinctSellerIds = Array.from(new Set(
+      rawAuctions.map((a: any) => a.seller_id || a.sellerId).filter(Boolean)
+    ));
+    missingProfileIdsFetch(distinctSellerIds);
+  }, [rawAuctions, missingProfileIdsFetch]);
 
   const [transactionPartners, setTransactionPartners] = useState<Map<string, any>>(new Map());
 
@@ -1515,73 +1591,173 @@ const MainApp: React.FC = () => {
     return () => unsubBids();
   }, [user]);
 
-  // Stream: Auctions
+  const listenerMapsRef = useRef<{
+    a: Map<string, any>;
+    b: Map<string, any>;
+    c: Map<string, any>;
+    d: Map<string, any>;
+  }>({
+    a: new Map(),
+    b: new Map(),
+    c: new Map(),
+    d: new Map(),
+  });
+
+  // Stream: Auctions (Listener A always/guests, B/C/D for user's won/sold/second-chance)
   useEffect(() => {
-    if (!user) return;
-    const unsubscribe = registerSnapshotListener(onSnapshot(collection(db, "auctions"), 
-      (snap) => {
-        const rawAuctions = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const unsubs: (() => void)[] = [];
+    const uid = user?.uid;
 
-        // Load public profiles for distinct seller IDs
-        const distinctSellerIds = Array.from(new Set(
-          rawAuctions.map((a: any) => a.seller_id || a.sellerId).filter(Boolean)
-        ));
+    listenerMapsRef.current = {
+      a: new Map(),
+      b: new Map(),
+      c: new Map(),
+      d: new Map(),
+    };
 
-        missingProfileIdsFetch(distinctSellerIds);
+    const mergeAndSet = () => {
+      const mergedMap = new Map<string, any>();
+      // Merging maps: later maps override earlier ones by document id (A -> B -> C -> D)
+      listenerMapsRef.current.a.forEach((val, id) => mergedMap.set(id, val));
+      listenerMapsRef.current.b.forEach((val, id) => mergedMap.set(id, val));
+      listenerMapsRef.current.c.forEach((val, id) => mergedMap.set(id, val));
+      listenerMapsRef.current.d.forEach((val, id) => mergedMap.set(id, val));
+      setRawAuctions(Array.from(mergedMap.values()));
+    };
 
-        const fetchedData: AuctionItem[] = rawAuctions.map((d: any) => {
-          const sellerId = d.seller_id || d.sellerId;
-          const seller = profilesMap.get(sellerId) || {};
-          const isDeletedUser = Boolean(d.is_seller_deleted || seller.is_deleted || d.sellerName === "Uporabnik je bil izbrisan");
-          const sellerName = isDeletedUser
-            ? "Uporabnik je bil izbrisan"
-            : (seller.display_name || d.sellerName || seller.username || "Prodajalec");
+    // Listener A (always, also for guests): active auctions
+    const qA = query(collection(db, "auctions"), where("status", "==", "active"));
+    const unsubA = registerSnapshotListener(
+      onSnapshot(
+        qA,
+        (snap) => {
+          const mapA = new Map<string, any>();
+          snap.docs.forEach((docSnap) => {
+            mapA.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
+          });
+          listenerMapsRef.current.a = mapA;
+          mergeAndSet();
+        },
+        (error) => {
+          console.error("Auctions listener A error:", error);
+        }
+      )
+    );
+    unsubs.push(unsubA);
 
-          const isItemPaid = d.payment_status === "paid" || d.post_auction_status === "paid";
+    if (uid) {
+      // Listener B: user won auctions
+      const qB = query(collection(db, "auctions"), where("winner_id", "==", uid));
+      const unsubB = registerSnapshotListener(
+        onSnapshot(
+          qB,
+          (snap) => {
+            const mapB = new Map<string, any>();
+            snap.docs.forEach((docSnap) => {
+              mapB.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
+            });
+            listenerMapsRef.current.b = mapB;
+            mergeAndSet();
+          },
+          (error) => {
+            console.error("Auctions listener B error:", error);
+          }
+        )
+      );
+      unsubs.push(unsubB);
 
-          return {
-            ...d,
-            region: normalizeRegionName(d.region || (typeof d.location === 'object' ? d.location?.SLO : d.location)),
-            endTime: new Date(d.end_time || d.endTime || Date.now()),
-            createdAt: d.created_at || d.createdAt || new Date(0).toISOString(),
-            currentBid: d.current_price || d.currentBid,
-            bidCount: d.bid_count || d.bidCount,
-            winnerId: d.winner_id || d.winnerId,
-            winner_id: d.winner_id || d.winnerId,
-            sellerId: sellerId,
-            is_seller_deleted: isDeletedUser,
-            payment_status: isItemPaid ? "paid" : (d.payment_status || "unpaid"),
-            post_auction_status: d.post_auction_status,
-            paid_at: d.paid_at,
-            sellerName: sellerName,
-            seller: { 
-              id: sellerId, 
-              name: { SLO: sellerName, EN: isDeletedUser ? 'User deleted' : sellerName, DE: isDeletedUser ? 'Benutzer gelöscht' : sellerName }, 
-              is_deleted: isDeletedUser,
-              photoURL: isDeletedUser ? null : (seller.photo_url || null), 
-              created_at: seller.created_at, 
-              sold_count: seller.sold_count || 0,
-              unpaid_penalties: seller.unpaid_penalties || 0,
-              identity_verified: Boolean(seller.identity_verified)
+      // Listener C: user seller auctions
+      const qC = query(collection(db, "auctions"), where("seller_id", "==", uid));
+      const unsubC = registerSnapshotListener(
+        onSnapshot(
+          qC,
+          (snap) => {
+            const mapC = new Map<string, any>();
+            snap.docs.forEach((docSnap) => {
+              mapC.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
+            });
+            listenerMapsRef.current.c = mapC;
+            mergeAndSet();
+          },
+          (error) => {
+            console.error("Auctions listener C error:", error);
+          }
+        )
+      );
+      unsubs.push(unsubC);
+
+      // Listener D: second chance auctions
+      const qD = query(collection(db, "auctions"), where("second_winner_id", "==", uid));
+      const unsubD = registerSnapshotListener(
+        onSnapshot(
+          qD,
+          (snap) => {
+            const mapD = new Map<string, any>();
+            snap.docs.forEach((docSnap) => {
+              mapD.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
+            });
+            listenerMapsRef.current.d = mapD;
+            mergeAndSet();
+          },
+          (error) => {
+            console.error("Auctions listener D error:", error);
+          }
+        )
+      );
+      unsubs.push(unsubD);
+    }
+
+    return () => {
+      unsubs.forEach((unsub) => unsub());
+    };
+  }, [user?.uid]);
+
+  // Ended auctions user bid on that are not active or won/sold
+  useEffect(() => {
+    if (!myBidsMap || myBidsMap.size === 0) {
+      return;
+    }
+    const rawIds = new Set(rawAuctions.map((a: any) => a.id));
+    const extraIds = new Set(extraAuctions.map((a: any) => a.id));
+    const bidKeys = Array.from(myBidsMap.keys()).reverse();
+    const missingIds = bidKeys.filter((id) => id && !rawIds.has(id) && !extraIds.has(id)).slice(0, 30);
+    if (missingIds.length === 0) return;
+
+    let isMounted = true;
+    (async () => {
+      try {
+        const docs = await Promise.all(
+          missingIds.map(async (id) => {
+            try {
+              const snap = await getDoc(doc(db, "auctions", id));
+              return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+            } catch {
+              return null;
             }
-          } as AuctionItem;
-        });
-
-        setAuctions(fetchedData);
-      },
-      (error) => {
-        console.error("Auctions snapshot error:", error);
+          })
+        );
+        if (isMounted) {
+          const loaded = docs.filter(Boolean);
+          if (loaded.length > 0) {
+            setExtraAuctions((prev) => {
+              const nextMap = new Map<string, any>();
+              prev.forEach((item) => nextMap.set(item.id, item));
+              loaded.forEach((item) => nextMap.set(item.id, item));
+              return Array.from(nextMap.values());
+            });
+          }
+        }
+      } catch (err) {
+        console.warn("Error fetching extra bid auctions:", err);
       }
-    ));
-    return () => unsubscribe();
-  }, [user, profilesMap]);
+    })();
 
+    return () => {
+      isMounted = false;
+    };
+  }, [myBidsMap, rawAuctions.length]);
 
-  const fetchAuctions = async () => {
-    // OPTIMIZATION: Removed redundant manual getDocs calls. 
-    // The active onSnapshot listener (unsubAuctions) already receives all real-time updates instantly.
-    // This dramatically reduces Firebase reads and prevents UI blocking/lag.
-  };
+  const fetchAuctions = async () => {};
 
   const refreshUserData = async (uid?: string) => {
     const id = uid || userData.id;
@@ -1653,7 +1829,6 @@ const MainApp: React.FC = () => {
               await refreshUserData(userData.id);
             }
           } else {
-            toast.success(t("paymentSuccessEmail") || "Plačilo uspešno! Račun in potrdilo sta bila poslana.");
             await fetchAuctions();
             if (userData?.id) {
               await refreshUserData(userData.id);
@@ -1695,13 +1870,22 @@ const MainApp: React.FC = () => {
             if (userData?.id) refreshUserData(userData.id);
             if (res?.type === 'subscription' || typeParam === 'subscription') {
               toast.success("Naročnina je bila uspešno aktivirana!");
+            } else {
+              toast.success(t("paymentSuccessEmail") || "Plačilo uspešno! Račun in potrdilo sta bila poslana.");
             }
           })
-          .catch(console.error);
+          .catch((err) => {
+            console.error(err);
+            toast.error(friendlyError(err, "Napaka pri potrditvi plačila."));
+          });
       } else {
         fetchAuctions();
+        if (typeParam === 'subscription') {
+          toast.success("Naročnina je bila uspešno aktivirana!");
+        } else {
+          toast.success(t("paymentSuccessEmail") || "Plačilo uspešno! Račun in potrdilo sta bila poslana.");
+        }
       }
-      toast.success(t("paymentSuccessEmail") || "Plačilo uspešno! Račun in potrdilo sta bila poslana.");
     } else if (stripeParam === 'success') {
       const cleanUrl = window.location.pathname;
       window.history.replaceState({}, document.title, cleanUrl);
@@ -1951,8 +2135,7 @@ const MainApp: React.FC = () => {
           if (res.success) {
              auctionIds.push(res.data?.id || itemData.id || crypto.randomUUID());
           } else {
-             toast.error(`Napaka pri objavi '${payload.title.SLO}': ${res.error || 'Neznana napaka'}`);
-             throw new Error(res.error || "Failed to publish item");
+             throw new Error(friendlyError(res.error, `Napaka pri objavi predmeta '${payload.title.SLO}'.`));
           }
       }
       
@@ -1968,7 +2151,7 @@ const MainApp: React.FC = () => {
       });
       const pkgData = await pkgRes.json();
       if (!pkgRes.ok) {
-        toast.error(pkgData.error || "Napaka pri objavi paketa.");
+        toast.error(friendlyError(pkgData.error, "Napaka pri objavi paketa."));
         return;
       }
 
@@ -1976,8 +2159,8 @@ const MainApp: React.FC = () => {
       setActiveView("grid");
       setCreateMode("choice");
       fetchAuctions();
-    } catch (e) {
-      toast.error("Napaka pri povezavi");
+    } catch (e: any) {
+      toast.error(friendlyError(e, "Napaka pri objavi paketa. Poskusite znova."));
     }
   };
 
@@ -2074,12 +2257,12 @@ const MainApp: React.FC = () => {
         if (res.success) {
           publishSuccess = true;
         } else {
-          toast.error(res.error || t("publishError"));
+          toast.error(friendlyError(res.error, t("publishError") || "Napaka pri objavi dražbe."));
           return;
         }
       } catch (fetchErr: any) {
         console.error("API create failed:", fetchErr);
-        toast.error(fetchErr.message || t("publishError"));
+        toast.error(friendlyError(fetchErr, t("publishError") || "Napaka pri objavi dražbe."));
         return;
       }
 
@@ -2090,7 +2273,7 @@ const MainApp: React.FC = () => {
       }
     } catch (error: any) {
       console.error("HandlePublish Exception:", error);
-      toast.error(t("publishError"));
+      toast.error(friendlyError(error, t("publishError") || "Napaka pri objavi dražbe."));
     }
   };
 
@@ -2159,7 +2342,7 @@ const MainApp: React.FC = () => {
         });
         const resData = await res.json();
         if (!res.ok) {
-          toast.error(resData.error || "Napaka pri spremembi naročnine.");
+          toast.error(friendlyError(resData.error, "Napaka pri spremembi naročnine."));
           return;
         }
         setCurrentPlan(SubscriptionTier.FREE);
@@ -2167,7 +2350,7 @@ const MainApp: React.FC = () => {
         toast.success(t("paymentSuccess"));
         if (userData?.id) refreshUserData(userData.id);
       } catch (err: any) {
-        toast.error("Napaka pri spremembi naročnine.");
+        toast.error(friendlyError(err, "Napaka pri spremembi naročnine."));
       }
       return;
     }
@@ -2195,31 +2378,60 @@ const MainApp: React.FC = () => {
 
   const handleSaveSettings = useCallback(
     async (data: any) => {
-      console.log("handleSaveSettings called with data:", data);
       const uid = auth.currentUser?.uid || userData?.id;
       if (!uid) {
-        toast.error("Uporabnik ni prijavljen.");
-        return;
+        throw new Error("Uporabnik ni prijavljen.");
       }
 
       try {
-        if (data.newPassword && data.oldPassword) {
-          let passError = null;
-          try {
-            if (auth.currentUser) await updatePassword(auth.currentUser, data.newPassword);
-          } catch (e) {
-            passError = e;
-          }
-          if (passError) {
-            toast.error(`Napaka pri spremembi gesla: ${passError.message}`);
-            return;
-          }
+        let profilePictureUrl = data.profilePicture;
+        // Make sure a blob: URL is never sent to the server: if profilePictureUrl starts with blob: and there is no file, set it to previous profile_picture_url
+        if (typeof profilePictureUrl === 'string' && profilePictureUrl.startsWith('blob:') && !data.profilePictureFile) {
+          profilePictureUrl = userData?.profile_picture_url || userData?.profilePicture || null;
         }
 
+        const parallelTasks: Promise<any>[] = [];
+
+        // 1. Password change step
+        if (data.newPassword && data.oldPassword) {
+          parallelTasks.push(
+            (async () => {
+              try {
+                if (auth.currentUser) await updatePassword(auth.currentUser, data.newPassword);
+              } catch (passError: any) {
+                throw new Error(friendlyError(passError, "Gesla ni bilo mogoče spremeniti. Poskusite znova."));
+              }
+            })()
+          );
+        }
+
+        // 2. Profile picture upload step (in parallel with password change)
+        if (data.profilePictureFile) {
+          parallelTasks.push(
+            (async () => {
+              try {
+                const fileRef = storageRef(storage, `profile-pictures/${uid}/avatar.jpg`);
+                await uploadBytes(fileRef, data.profilePictureFile, {
+                  contentType: data.profilePictureFile.type || "image/jpeg"
+                });
+                profilePictureUrl = await getDownloadURL(fileRef);
+              } catch (imgErr) {
+                console.warn("Profile picture upload error:", imgErr);
+                throw new Error("Napaka pri nalaganju profilne slike.");
+              }
+            })()
+          );
+        }
+
+        if (parallelTasks.length > 0) {
+          await Promise.all(parallelTasks);
+        }
+
+        let emailChangeSent = false;
         const currentEmail = userData?.email || auth.currentUser?.email || '';
         if (data.email && data.email !== currentEmail && auth.currentUser?.providerData.some(p => p.providerId === 'password')) {
           try {
-             await fetch('/api/auth/send-email-change', {
+             const emailRes = await fetch('/api/auth/send-email-change', {
                method: 'POST',
                headers: await getAuthHeaders(),
                body: JSON.stringify({
@@ -2227,41 +2439,12 @@ const MainApp: React.FC = () => {
                  displayName: userData?.first_name || userData?.username || currentEmail
                })
              });
-             toast.success("Na nov e-poštni naslov smo poslali potrditveno povezavo. Sledite ji za dokončanje spremembe.");
+             if (!emailRes.ok) {
+               throw new Error("E-poštnega naslova ni bilo mogoče spremeniti. Poskusite znova.");
+             }
+             emailChangeSent = true;
           } catch (e: any) {
-             toast.error(`Napaka pri pošiljanju potrditvenega e-poštnega sporočila: ${e.message}`);
-          }
-        }
-
-        let profilePictureUrl = data.profilePicture;
-        if (profilePictureUrl && profilePictureUrl.startsWith("data:image")) {
-          try {
-            const base64Parts = profilePictureUrl.split(",");
-            const mimeType = base64Parts[0].match(/:(.*?);/)?.[1] || "image/jpeg";
-            const base64Data = base64Parts[1];
-            const byteCharacters = atob(base64Data);
-            const byteNumbers = new Array(byteCharacters.length);
-            for (let i = 0; i < byteCharacters.length; i++) {
-              byteNumbers[i] = byteCharacters.charCodeAt(i);
-            }
-            const byteArray = new Uint8Array(byteNumbers);
-            const blob = new Blob([byteArray], { type: mimeType });
-            const file = new File([blob], "avatar.jpg", { type: mimeType });
-
-            const options = {
-              maxSizeMB: 0.1,
-              maxWidthOrHeight: 500,
-              useWebWorker: true,
-              initialQuality: 0.7,
-            };
-            const compressedFile = await imageCompression(file, options);
-            const fileRef = storageRef(storage, `profile-pictures/${uid}/avatar.jpg`);
-            await uploadBytes(fileRef, compressedFile);
-            profilePictureUrl = await getDownloadURL(fileRef);
-          } catch (imgErr) {
-            console.warn("Profile picture upload error:", imgErr);
-            toast.error("Napaka pri nalaganju profilne slike.");
-            return;
+             throw new Error("E-poštnega naslova ni bilo mogoče spremeniti. Poskusite znova.");
           }
         }
 
@@ -2292,12 +2475,10 @@ const MainApp: React.FC = () => {
 
         const resData = await res.json();
         if (res.status === 409) {
-          toast.error(resData.error || "To uporabniško ime je že zasedeno.");
-          return;
+          throw new Error(resData.error || "To uporabniško ime je že zasedeno.");
         }
         if (!res.ok) {
-          toast.error(resData.error || "Napaka pri shranjevanju profila.");
-          return;
+          throw new Error(resData.error || "Napaka pri shranjevanju profila.");
         }
 
         setUserData((prev) => ({
@@ -2308,10 +2489,10 @@ const MainApp: React.FC = () => {
           profile_picture_url: profilePictureUrl || null
         }));
 
-        toast.success(t("saveChanges") + " - " + t("success"));
+        return { emailChangeSent };
       } catch (err: any) {
         console.error("Error saving settings:", err);
-        toast.error(`Napaka pri shranjevanju: ${err.message || err}`);
+        throw err;
       }
     },
     [userData?.id, userData?.email, t],
@@ -2659,7 +2840,7 @@ const MainApp: React.FC = () => {
             isWatched={watchedIds.includes(selectedItem.id)}
             onWatchToggle={() => toggleWatch(selectedItem.id)}
             currentPlan={currentPlan}
-            currentUserId={userData.id}
+            currentUserId={userData?.id || ""}
             myMax={myBidsMap.get(selectedItem.id)}
             myBidsMap={myBidsMap}
             onBack={() => {
@@ -2801,9 +2982,7 @@ const MainApp: React.FC = () => {
               return true;
             } catch (err: any) {
               console.error("Detailed verification error:", err);
-              toast.error(
-                err.message || "Prišlo je do napake pri verifikaciji.",
-              );
+              toast.error(friendlyError(err, "Prišlo je do napake pri verifikaciji."));
               throw err;
             }
           }}
@@ -2851,7 +3030,7 @@ const MainApp: React.FC = () => {
                   "Avtomatska bremenitev je preklicana. Naročnina vam ostane veljavna do konca obračunskega obdobja."
                 );
               } else {
-                toast.error(res.error || "Napaka pri preklicu naročnine.");
+                toast.error(friendlyError(res.error, "Napaka pri preklicu naročnine."));
               }
             }
           }}
@@ -2901,7 +3080,7 @@ const MainApp: React.FC = () => {
                     t={t}
                     language={language}
                     isVerified={isVerified}
-                    currentUserId={userData.id}
+                    currentUserId={userData?.id || ""}
                     hasBid={true}
                     myMax={myBidsMap.get(item.id)}
                     isWatched={watchedIds.includes(item.id)}
@@ -3816,7 +3995,7 @@ const MainApp: React.FC = () => {
     case "messages":
       content = (
         <MessagesView
-          userId={userData.id}
+          userId={userData?.id || ""}
           t={t}
           language={language}
           initialAuctionId={activeConversationId}
@@ -3899,7 +4078,7 @@ const MainApp: React.FC = () => {
                     t={t}
                     language={language}
                     isVerified={isVerified}
-                    currentUserId={userData.id}
+                    currentUserId={userData?.id || ""}
                     hasBid={bidAuctionIds.includes(item.id)}
                     myMax={myBidsMap.get(item.id)}
                     isWatched={watchedIds.includes(item.id)}
@@ -4020,6 +4199,37 @@ const MainApp: React.FC = () => {
                 )}
               </div>
               <div className="flex items-center gap-4">
+                {/* Toggle button "Filtri" with badge */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+                      setIsMobileFiltersOpen(true);
+                    } else {
+                      setShowFilters((prev) => {
+                        const next = !prev;
+                        try {
+                          localStorage.setItem('drazbenik_show_filters', String(next));
+                        } catch {}
+                        return next;
+                      });
+                    }
+                  }}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border-2 font-black text-xs uppercase tracking-wider transition-all shadow-sm ${
+                    showFilters || activeCategoryFilterCount > 0
+                      ? "bg-[#0A1128] text-white border-[#0A1128] hover:bg-[#142247]"
+                      : "bg-white text-slate-700 border-slate-200 hover:border-slate-300"
+                  }`}
+                >
+                  <Filter size={14} className={activeCategoryFilterCount > 0 ? "text-[#FEBA4F]" : ""} />
+                  <span>Filtri</span>
+                  {activeCategoryFilterCount > 0 && (
+                    <span className="w-5 h-5 rounded-full bg-[#FEBA4F] text-[#0A1128] text-[10px] font-black flex items-center justify-center">
+                      {activeCategoryFilterCount}
+                    </span>
+                  )}
+                </button>
+
                 <span className="text-[10px] font-black uppercase text-slate-400">
                   {t("itemsPerPage")}
                 </span>
@@ -4039,167 +4249,176 @@ const MainApp: React.FC = () => {
               </div>
             </div>
 
-            {/* Dynamic Category & Specification Filter Bar */}
-            <CategoryFilterBar
-              category={selectedCategory}
-              filters={categoryFilters}
-              onFilterChange={(newFilters) => {
-                setCategoryFilters(newFilters);
-                setCurrentPage(1);
-              }}
-              onResetFilters={() => {
-                setCategoryFilters({ delivery_option: undefined, condition: undefined, specifications: {} });
-                setCurrentPage(1);
-              }}
-              totalResultsCount={getFilteredAuctions.length}
-            />
-            {(() => {
-              const rawPackageMap = new Map<string, { title: string; items: AuctionItem[] }>();
-              const standaloneItems: AuctionItem[] = [];
+            {/* Dynamic Category & Specification Filter Bar & Auction Grid */}
+            <div className={showFilters ? "lg:grid lg:grid-cols-[280px_1fr] lg:gap-6 items-start" : "w-full"}>
+              <CategoryFilterBar
+                category={selectedCategory}
+                filters={categoryFilters}
+                onFilterChange={(newFilters) => {
+                  setCategoryFilters(newFilters);
+                  setCurrentPage(1);
+                }}
+                onResetFilters={() => {
+                  setCategoryFilters({ delivery_option: undefined, condition: undefined, specifications: {} });
+                  setCurrentPage(1);
+                }}
+                totalResultsCount={getFilteredAuctions.length}
+                showDesktopPanel={showFilters}
+                isMobileOpen={isMobileFiltersOpen}
+                onCloseMobile={() => setIsMobileFiltersOpen(false)}
+              />
 
-              currentAuctions.forEach(item => {
-                const pkgId = item.package_id || (item as any).packageId;
-                if (item.is_package && pkgId) {
-                  if (!rawPackageMap.has(pkgId)) {
-                    const pkgTitle = (item as any).package_title || 
-                      (typeof item.title === 'object' ? item.title[language] || item.title['SLO'] : item.title) || 
-                      "Večpredmetna dražba";
-                    const allPkgItems = auctions.filter(a => (a.package_id === pkgId || (a as any).packageId === pkgId) && a.status === 'active' && new Date(a.endTime).getTime() > Date.now());
-                    rawPackageMap.set(pkgId, {
-                      title: pkgTitle,
-                      items: allPkgItems.length > 0 ? allPkgItems : [item]
-                    });
-                  }
-                } else {
-                  standaloneItems.push(item);
-                }
-              });
+              <div className="w-full min-w-0">
+                {(() => {
+                  const rawPackageMap = new Map<string, { title: string; items: AuctionItem[] }>();
+                  const standaloneItems: AuctionItem[] = [];
 
-              const packageMap = new Map<string, { title: string; items: AuctionItem[] }>();
-              rawPackageMap.forEach((pkgData, pkgId) => {
-                if (pkgData.items.length >= 2) {
-                  packageMap.set(pkgId, pkgData);
-                } else {
-                  pkgData.items.forEach(singleItem => {
-                    standaloneItems.push({
-                      ...singleItem,
-                      is_package: false,
-                      package_id: null
-                    });
+                  currentAuctions.forEach(item => {
+                    const pkgId = item.package_id || (item as any).packageId;
+                    if (item.is_package && pkgId) {
+                      if (!rawPackageMap.has(pkgId)) {
+                        const pkgTitle = (item as any).package_title || 
+                          (typeof item.title === 'object' ? item.title[language] || item.title['SLO'] : item.title) || 
+                          "Večpredmetna dražba";
+                        const allPkgItems = auctions.filter(a => (a.package_id === pkgId || (a as any).packageId === pkgId) && a.status === 'active' && new Date(a.endTime).getTime() > Date.now());
+                        rawPackageMap.set(pkgId, {
+                          title: pkgTitle,
+                          items: allPkgItems.length > 0 ? allPkgItems : [item]
+                        });
+                      }
+                    } else {
+                      standaloneItems.push(item);
+                    }
                   });
-                }
-              });
 
-              return (
-                <div className="space-y-10">
-                  {/* Render Packages */}
-                  {Array.from(packageMap.entries()).map(([pkgId, pkgData]) => (
-                    <PackageCard
-                      key={pkgId}
-                      packageId={pkgId}
-                      title={pkgData.title}
-                      sellerName={pkgData.items[0]?.sellerName}
-                      items={pkgData.items}
-                      t={t}
-                      language={language}
-                      isVerified={isVerified}
-                      currentUserId={userData?.id || auth.currentUser?.uid}
-                      bidAuctionIds={bidAuctionIds}
-                      onSelectPackage={(id) => {
-                        navigateTo("package", { selectedPackageId: id });
-                      }}
-                      onAuctionClick={(item) => {
-                        navigateTo("detail", { selectedItem: item });
-                      }}
-                      onSellerClick={(seller) => {
-                        navigateToSellerProfile(seller, pkgData.items[0]?.sellerName);
-                      }}
-                    />
-                  ))}
+                  const packageMap = new Map<string, { title: string; items: AuctionItem[] }>();
+                  rawPackageMap.forEach((pkgData, pkgId) => {
+                    if (pkgData.items.length >= 2) {
+                      packageMap.set(pkgId, pkgData);
+                    } else {
+                      pkgData.items.forEach(singleItem => {
+                        standaloneItems.push({
+                          ...singleItem,
+                          is_package: false,
+                          package_id: null
+                        });
+                      });
+                    }
+                  });
 
-                  {/* Render Standalone Auctions */}
-                  <div
-                    className="grid gap-8 justify-center"
-                    style={{
-                      gridTemplateColumns: "repeat(auto-fit, minmax(320px, 320px))",
-                    }}
-                  >
-                    {standaloneItems.map((item) => (
-                      <AuctionCard
-                        key={item.id}
-                        item={item}
-                        t={t}
-                        language={language}
-                        isVerified={isVerified}
-                        currentUserId={userData.id}
-                        hasBid={bidAuctionIds.includes(item.id)}
-                        myMax={myBidsMap.get(item.id)}
-                        isWatched={watchedIds.includes(item.id)}
-                        onWatchToggle={() => toggleWatch(item.id)}
-                        onClick={() => {
-                          navigateTo("detail", { selectedItem: item });
+                  return (
+                    <div className="space-y-10">
+                      {/* Render Packages */}
+                      {Array.from(packageMap.entries()).map(([pkgId, pkgData]) => (
+                        <PackageCard
+                          key={pkgId}
+                          packageId={pkgId}
+                          title={pkgData.title}
+                          sellerName={pkgData.items[0]?.sellerName}
+                          items={pkgData.items}
+                          t={t}
+                          language={language}
+                          isVerified={isVerified}
+                          currentUserId={userData?.id || auth.currentUser?.uid}
+                          bidAuctionIds={bidAuctionIds}
+                          onSelectPackage={(id) => {
+                            navigateTo("package", { selectedPackageId: id });
+                          }}
+                          onAuctionClick={(item) => {
+                            navigateTo("detail", { selectedItem: item });
+                          }}
+                          onSellerClick={(seller) => {
+                            navigateToSellerProfile(seller, pkgData.items[0]?.sellerName);
+                          }}
+                        />
+                      ))}
+
+                      {/* Render Standalone Auctions */}
+                      <div
+                        className="grid gap-8 justify-center"
+                        style={{
+                          gridTemplateColumns: "repeat(auto-fit, minmax(320px, 320px))",
                         }}
-                        onBidSubmit={handleBidSubmit}
-                        onSellerClick={(seller) => {
-                          navigateToSellerProfile(seller, item.sellerName);
-                        }}
-                        onTimeUp={(auctionId) => {
-                          // Force a re-render so activeAuctions filter recalculates and removes this item
-                          setAuctions((prev) => [...prev]);
-                        }}
-                      />
-                    ))}
+                      >
+                        {standaloneItems.map((item) => (
+                          <AuctionCard
+                            key={item.id}
+                            item={item}
+                            t={t}
+                            language={language}
+                            isVerified={isVerified}
+                            currentUserId={userData?.id || ""}
+                            hasBid={bidAuctionIds.includes(item.id)}
+                            myMax={myBidsMap.get(item.id)}
+                            isWatched={watchedIds.includes(item.id)}
+                            onWatchToggle={() => toggleWatch(item.id)}
+                            onClick={() => {
+                              navigateTo("detail", { selectedItem: item });
+                            }}
+                            onBidSubmit={handleBidSubmit}
+                            onSellerClick={(seller) => {
+                              navigateToSellerProfile(seller, item.sellerName);
+                            }}
+                            onTimeUp={(auctionId) => {
+                              // Force a re-render so activeAuctions filter recalculates and removes this item
+                              setRawAuctions((prev) => [...prev]);
+                            }}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {totalPages > 1 && (
+                  <div className="mt-20 flex flex-col md:flex-row items-center justify-between gap-8 border-t-2 border-slate-100 pt-12">
+                    <div className="flex flex-col gap-2">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                        {t("showing")} {indexOfFirstItem + 1} -{" "}
+                        {Math.min(indexOfLastItem, getFilteredAuctions.length)}{" "}
+                        {t("of")} {getFilteredAuctions.length} {t("auctions")}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => handlePageChange(currentPage - 1)}
+                        disabled={currentPage === 1}
+                        className={`p-4 rounded-2xl border-2 transition-all ${currentPage === 1 ? "border-slate-50 text-slate-200" : "border-slate-100 text-[#0A1128] hover:border-[#FEBA4F]"}`}
+                      >
+                        <ChevronLeft size={20} />
+                      </button>
+                      <div className="flex items-center gap-2">
+                        {paginationNumbers.map((p, idx) =>
+                          typeof p === "string" ? (
+                            <span
+                              key={idx}
+                              className="px-3 text-slate-400 font-bold"
+                            >
+                              ...
+                            </span>
+                          ) : (
+                            <button
+                              key={idx}
+                              onClick={() => handlePageChange(p as number)}
+                              className={`w-12 h-12 rounded-2xl font-black text-sm transition-all shadow-sm ${currentPage === p ? "bg-[#0A1128] text-white scale-110" : "bg-white border-2 border-slate-50 text-slate-400 hover:border-slate-200"}`}
+                            >
+                              {p}
+                            </button>
+                          ),
+                        )}
+                      </div>
+                      <button
+                        onClick={() => handlePageChange(currentPage + 1)}
+                        disabled={currentPage === totalPages}
+                        className={`p-4 rounded-2xl border-2 transition-all ${currentPage === totalPages ? "border-slate-50 text-slate-200" : "border-slate-100 text-[#0A1128] hover:border-[#FEBA4F]"}`}
+                      >
+                        <ChevronRight size={20} />
+                      </button>
+                    </div>
                   </div>
-                </div>
-              );
-            })()}
-            {totalPages > 1 && (
-              <div className="mt-20 flex flex-col md:flex-row items-center justify-between gap-8 border-t-2 border-slate-100 pt-12">
-                <div className="flex flex-col gap-2">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                    {t("showing")} {indexOfFirstItem + 1} -{" "}
-                    {Math.min(indexOfLastItem, getFilteredAuctions.length)}{" "}
-                    {t("of")} {getFilteredAuctions.length} {t("auctions")}
-                  </p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => handlePageChange(currentPage - 1)}
-                    disabled={currentPage === 1}
-                    className={`p-4 rounded-2xl border-2 transition-all ${currentPage === 1 ? "border-slate-50 text-slate-200" : "border-slate-100 text-[#0A1128] hover:border-[#FEBA4F]"}`}
-                  >
-                    <ChevronLeft size={20} />
-                  </button>
-                  <div className="flex items-center gap-2">
-                    {paginationNumbers.map((p, idx) =>
-                      typeof p === "string" ? (
-                        <span
-                          key={idx}
-                          className="px-3 text-slate-400 font-bold"
-                        >
-                          ...
-                        </span>
-                      ) : (
-                        <button
-                          key={idx}
-                          onClick={() => handlePageChange(p as number)}
-                          className={`w-12 h-12 rounded-2xl font-black text-sm transition-all shadow-sm ${currentPage === p ? "bg-[#0A1128] text-white scale-110" : "bg-white border-2 border-slate-50 text-slate-400 hover:border-slate-200"}`}
-                        >
-                          {p}
-                        </button>
-                      ),
-                    )}
-                  </div>
-                  <button
-                    onClick={() => handlePageChange(currentPage + 1)}
-                    disabled={currentPage === totalPages}
-                    className={`p-4 rounded-2xl border-2 transition-all ${currentPage === totalPages ? "border-slate-50 text-slate-200" : "border-slate-100 text-[#0A1128] hover:border-[#FEBA4F]"}`}
-                  >
-                    <ChevronRight size={20} />
-                  </button>
-                </div>
+                )}
               </div>
-            )}
+            </div>
           </div>
         </div>
       );
@@ -4300,7 +4519,7 @@ const MainApp: React.FC = () => {
       const data = await response.json();
 
       if (!response.ok || !data.success) {
-        const errorMsg = data.error || "Napaka pri oddaji ponudbe";
+        const errorMsg = friendlyError(data.error, "Napaka pri oddaji ponudbe.");
         toast.error(errorMsg);
         if (bidResolverRef.current) bidResolverRef.current("error");
         setPendingBid(null);
@@ -4318,7 +4537,7 @@ const MainApp: React.FC = () => {
       fetchAuctions();
     } catch (e: any) {
       console.error("Bid submission error:", e);
-      toast.error(e.message || "Error submitting bid");
+      toast.error(friendlyError(e, "Napaka pri oddaji ponudbe. Poskusite znova."));
       if (bidResolverRef.current) bidResolverRef.current("error");
     }
     setPendingBid(null);
@@ -4341,7 +4560,7 @@ const MainApp: React.FC = () => {
       fetchAuctions();
     } catch (e: any) {
       console.error("Napaka pri hitri objavi:", e);
-      toast.error(e.message || "Napaka pri ponovni objavi");
+      toast.error(friendlyError(e, "Napaka pri ponovni objavi"));
     } finally {
       setIsQuickRepublishing(null);
     }
@@ -4365,7 +4584,7 @@ const MainApp: React.FC = () => {
       fetchAuctions();
     } catch (e: any) {
       console.error("Napaka pri hitri objavi paketa:", e);
-      toast.error(e.message || "Napaka pri ponovni objavi");
+      toast.error(friendlyError(e, "Napaka pri ponovni objavi paketa."));
     } finally {
       setIsQuickRepublishing(null);
     }
@@ -4385,7 +4604,7 @@ const MainApp: React.FC = () => {
       toast.success(data.message || "Dražba je bila ponujena 2. najvišjemu ponudniku.");
       fetchAuctions();
     } catch (e: any) {
-      toast.error("Napaka pri ponujanju dražbe: " + e.message);
+      toast.error(friendlyError(e, "Napaka pri ponujanju dražbe."));
     }
   };
 
@@ -4405,7 +4624,7 @@ const MainApp: React.FC = () => {
       toast.success(data.message || "Dražba premaknjena v arhiv.");
       fetchAuctions();
     } catch (e: any) {
-      toast.error(e.message || "Napaka pri premikanju v arhiv.");
+      toast.error(friendlyError(e, "Napaka pri premikanju v arhiv."));
     }
   };
 
@@ -4426,7 +4645,7 @@ const MainApp: React.FC = () => {
       toast.success(data.message || "Sprejeli ste ponudbo! Imate 48 ur za plačilo.");
       fetchAuctions();
     } catch (e: any) {
-      toast.error(e.message || "Napaka pri sprejemu ponudbe.");
+      toast.error(friendlyError(e, "Napaka pri sprejemu ponudbe."));
     }
   };
 
@@ -4447,7 +4666,7 @@ const MainApp: React.FC = () => {
       toast.success(data.message || "Zavrnili ste ponudbo. Dražba je zaključena.");
       fetchAuctions();
     } catch (e: any) {
-      toast.error(e.message || "Napaka pri zavrnitvi ponudbe.");
+      toast.error(friendlyError(e, "Napaka pri zavrnitvi ponudbe."));
     }
   };
 
@@ -4469,7 +4688,7 @@ const MainApp: React.FC = () => {
       toast.success(data.message || "Način predaje je bil uspešno posodobljen.");
     } catch (e: any) {
       console.error("Napaka pri posodabljanju načina predaje:", e);
-      toast.error(e.message || "Napaka pri shranjevanju načina predaje.");
+      toast.error(friendlyError(e, "Napaka pri shranjevanju načina predaje."));
     } finally {
       setDeliveryMethodModal({ isOpen: false, auctionId: "", deliveryMethod: null });
       fetchAuctions();
@@ -4484,10 +4703,10 @@ const MainApp: React.FC = () => {
       if (res.success) {
         toast.success("Prejem uspešno potrjen. Sredstva so sproščena prodajalcu.");
       } else {
-        toast.error(res.error || "Napaka pri potrditvi prejema.");
+        toast.error(friendlyError(res.error, "Napaka pri potrditvi prejema."));
       }
     } catch (e) {
-      toast.error("Napaka pri potrditvi prejema.");
+      toast.error(friendlyError(e, "Napaka pri potrditvi prejema."));
     } finally {
       setReceiptConfirmModal(prev => ({ ...prev, isOpen: false }));
       fetchAuctions();
@@ -4521,12 +4740,12 @@ const MainApp: React.FC = () => {
         if (userData?.id) refreshUserData(userData.id);
         return true;
       } else {
-        toast.error(res.error || "Napaka pri oddaji ocene.");
+        toast.error(friendlyError(res.error, "Napaka pri oddaji ocene."));
         return false;
       }
     } catch (err: any) {
       console.error("Error submitting review:", err);
-      toast.error("Napaka pri oddaji ocene.");
+      toast.error(friendlyError(err, "Napaka pri oddaji ocene."));
       return false;
     }
   };
@@ -4540,7 +4759,7 @@ const MainApp: React.FC = () => {
   }
 
   return (
-    <ChatProvider userId={userData.id} auctions={auctions} appWakeupTrigger={appWakeupTrigger}>
+    <ChatProvider userId={userData?.id || ""} auctions={auctions} appWakeupTrigger={appWakeupTrigger}>
       <div className="min-h-screen flex flex-col bg-[#f3f4f6] font-sans selection:bg-[#FEBA4F] selection:text-[#0A1128] overflow-x-hidden">
         <Toaster
           position="top-center"
@@ -4650,11 +4869,11 @@ const MainApp: React.FC = () => {
           onLanguageChange={setLanguage}
           t={t}
           auctions={auctions}
-          userEmail={userData.email}
+          userEmail={userData?.email || ""}
           userProfilePicture={
-            userData.profile_picture_url || userData.profilePicture
+            userData?.profile_picture_url || userData?.profilePicture || ""
           }
-          userWalletBalance={userData.wallet_balance || 0}
+          userWalletBalance={userData?.wallet_balance || 0}
           userData={userData}
         />
         <main className="flex-1 flex flex-col">{content}</main>
@@ -4783,7 +5002,7 @@ const MainApp: React.FC = () => {
                       setDeleteUnsoldModal(null);
                       fetchAuctions();
                     } catch (err: any) {
-                      toast.error(err.message || "Napaka pri brisanju.");
+                      toast.error(friendlyError(err, "Napaka pri brisanju."));
                     }
                   }}
                   className="bg-red-600 hover:bg-red-700 text-white px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-xs transition-all shadow-lg shadow-red-600/30 flex items-center justify-center gap-2"
@@ -4941,7 +5160,7 @@ const MainApp: React.FC = () => {
             onClose={() => setIsCheckoutOpen(false)}
             onSuccess={checkoutData.onSuccess}
             metadata={checkoutData.metadata}
-            userWalletBalance={userData.wallet_balance || 0}
+            userWalletBalance={userData?.wallet_balance || 0}
           />
         )}
         <MissingInvoiceDataModal

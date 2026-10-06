@@ -18,6 +18,7 @@ import {
 } from "firebase/firestore";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import imageCompression from "browser-image-compression";
+import { friendlyError } from "../lib/friendlyError";
 import { getAuthHeaders } from "../lib/authFetch";
 import { AuctionItem } from "../types";
 import { toast } from "@/src/lib/toast";
@@ -537,7 +538,7 @@ export const ChatProvider: React.FC<{
     } catch (e: any) {
       console.error("Error sending message:", e);
       setMessages(prev => prev.map(m => m.id === tempId ? { ...m, status: "error" } : m));
-      toast.error(e.message || "Napaka pri pošiljanju sporočila.");
+      toast.error(friendlyError(e, "Napaka pri pošiljanju sporočila."));
     } finally {
       setIsSending(false);
     }
@@ -568,7 +569,7 @@ export const ChatProvider: React.FC<{
         const options = {
           maxSizeMB: 0.1,
           maxWidthOrHeight: 800,
-          useWebWorker: true,
+          useWebWorker: false,
           initialQuality: 0.7,
         };
         fileToUpload = await imageCompression(file, options);
@@ -585,7 +586,7 @@ export const ChatProvider: React.FC<{
       await sendMessage("", imageUrl);
     } catch (e: any) {
       console.error("Error uploading image:", e);
-      toast.error("Napaka pri nalaganju slike: " + (e.message || ""));
+      toast.error(friendlyError(e, "Napaka pri nalaganju slike. Poskusite znova."));
     } finally {
       setIsSending(false);
     }

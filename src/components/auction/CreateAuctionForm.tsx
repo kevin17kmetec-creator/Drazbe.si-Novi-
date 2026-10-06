@@ -13,6 +13,7 @@ import { CategoryAttributesInput } from "./CategoryAttributesInput";
 import { checkUserInvoiceData, InvoiceDataCheckResult } from "../../lib/invoiceDataCheck";
 import { MissingInvoiceDataModal } from "@/src/components/modals/MissingInvoiceDataModal";
 import { getUserAuctionCycle } from "../../lib/utils";
+import { friendlyError } from "../../lib/friendlyError";
 
 const REGION_LOCATIONS: Record<Region, string[]> = {
     [Region.Pomurska]: ['Murska Sobota', 'Lendava', 'Ljutomer', 'Gornja Radgona', 'Beltinci', 'Drugo'],
@@ -230,7 +231,7 @@ export const CreateAuctionForm: React.FC<{
         try {
             const compressedFiles = await Promise.all(
                 files.map(async (file) => {
-                    const options = { maxSizeMB: 1, maxWidthOrHeight: 1200, useWebWorker: true, initialQuality: 0.8 };
+                    const options = { maxSizeMB: 1, maxWidthOrHeight: 1200, useWebWorker: false, initialQuality: 0.8 };
                     return await imageCompression(file, options);
                 })
             );
@@ -359,7 +360,7 @@ export const CreateAuctionForm: React.FC<{
                     
                 } catch (err: any) {
                     console.error("Gemini enhancement API error:", err);
-                    toast.error(err.message || t('imageEnhanceError'));
+                    toast.error(friendlyError(err, t('imageEnhanceError') || "Napaka pri izboljšavi slike."));
                 } finally {
                     setEnhancingIndex(null);
                 }
@@ -505,7 +506,7 @@ export const CreateAuctionForm: React.FC<{
                             const superCompressed = await imageCompression(compressedFile, { 
                                 maxSizeMB: 0.07, 
                                 maxWidthOrHeight: 800, 
-                                useWebWorker: true,
+                                useWebWorker: false,
                                 initialQuality: 0.6
                             });
                             downloadUrl = await new Promise<string>((resolve, reject) => {
@@ -575,7 +576,7 @@ export const CreateAuctionForm: React.FC<{
                     ...(error.correctedDateStr ? { endDate: error.correctedDateStr } : {})
                 }));
                 setErrorMessage('');
-                toast.success(error.message, { duration: 5000 });
+                toast.error(friendlyError(error, "Čas zaključka dražbe je bil prilagojen."), { duration: 5000 });
                 setUploading(false);
                 return;
             }
@@ -592,7 +593,7 @@ export const CreateAuctionForm: React.FC<{
             console.error("Error publishing auction:", error); 
             const errorMsg = error.message || JSON.stringify(error);
             setErrorMessage(errorMsg);
-            toast.error(`${t('imageUploadError')} ${errorMsg}`, { duration: 5000 });
+            toast.error(friendlyError(error, t('imageUploadError') || "Napaka pri nalaganju slik."), { duration: 5000 });
         } finally { 
             activeUploadTaskRef.current = null;
             setUploading(false); 

@@ -33,7 +33,6 @@ export const AuctionCard: React.FC<{
     : item.currentBid;
   const minNextBid = userMax + getIncrement(userMax);
   const [bidValue, setBidValue] = useState(minNextBid);
-  const [bidStatus, setBidStatus] = useState<'ok' | 'outbid' | 'error' | null>(null);
   const [isBidding, setIsBidding] = useState(false);
   const hasEndedFiredRef = useRef(false);
 
@@ -80,14 +79,9 @@ export const AuctionCard: React.FC<{
   const handleBidClick = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!onBidSubmit || isSeller) return;
-    setBidStatus(null);
     setIsBidding(true);
-    const result = await onBidSubmit(item, bidValue);
+    await onBidSubmit(item, bidValue);
     setIsBidding(false);
-    if (result === 'ok' || result === 'outbid' || result === 'error') {
-        setBidStatus(result);
-        setTimeout(() => setBidStatus(null), 4000);
-    }
   };
 
   // Border logic
@@ -296,21 +290,6 @@ export const AuctionCard: React.FC<{
                       isWinner ? (t('increaseBid') || 'Zvišaj') : t('placeBid')
                   )}
                </button>
-               
-               {/* Inline Feedback */}
-               {bidStatus && (
-                   <div className={`absolute -top-12 left-0 right-0 flex justify-center animate-in fade-in slide-in-from-bottom-2 duration-300 z-10`}>
-                       <div className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest shadow-xl border ${
-                           bidStatus === 'ok' ? 'bg-green-500/90 text-white border-green-400/50' :
-                           bidStatus === 'outbid' ? 'bg-orange-500/90 text-white border-orange-400/50' :
-                           'bg-red-500/90 text-white border-red-400/50'
-                       }`}>
-                           {bidStatus === 'ok' ? t('bidSuccessMsg') :
-                            bidStatus === 'outbid' ? t('bidOutbid') :
-                            t('bidError')}
-                       </div>
-                   </div>
-               )}
             </div>
           )}
         </div>

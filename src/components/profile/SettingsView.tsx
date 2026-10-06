@@ -7,6 +7,7 @@ import { PhoneInput } from "@/src/components/ui/PhoneInput";
 import { requestPayoutAction, checkStripeAccountStatusAction, deleteAccountAction } from '@/src/actions/index';
 import { auth } from "../../lib/firebase";
 import { signOut } from "firebase/auth";
+import { friendlyError } from '../../lib/friendlyError';
 
 const COUNTRIES = [
   { code: 'AT', name: 'Avstrija / Austria' },
@@ -46,7 +47,7 @@ export const SettingsView: React.FC<{
   language: string; 
   user: any; 
   auctions?: any[];
-  onSave: (data: any) => Promise<void>; 
+  onSave: (data: any) => Promise<{ emailChangeSent: boolean } | void>; 
   onVerify: () => void; 
   onStripeVerified: () => void;
   onRefreshUser?: () => Promise<void>;
@@ -102,7 +103,7 @@ export const SettingsView: React.FC<{
       await signOut(auth);
       window.location.href = '/';
     } catch (err: any) {
-      toast.error(err.message || "Prišlo je do napake pri brisanju računa.");
+      toast.error(friendlyError(err, "Prišlo je do napake pri brisanju računa."));
     } finally {
       setIsDeleting(false);
       setShowDeleteModal(false);
@@ -221,6 +222,7 @@ export const SettingsView: React.FC<{
   const isProfileCompleted = Boolean(user?.profile_completed || user?.is_verified || user?.isVerified);
   const isIdentityVerified = Boolean(user?.identity_verified === true || user?.verified_identity === true || user?.identity_verification_status === 'verified');
   const userType = user?.user_type || user?.userType || 'individual';
+  const [pendingAvatarFile, setPendingAvatarFile] = useState<File | null>(null);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -228,29 +230,30 @@ export const SettingsView: React.FC<{
       isFormDirtyRef.current = true;
       try {
         const compressed = await imageCompression(file, {
-          maxSizeMB: 0.07,
-          maxWidthOrHeight: 600,
-          useWebWorker: true,
-          initialQuality: 0.6
+          maxSizeMB: 0.1,
+          maxWidthOrHeight: 500,
+          useWebWorker: false,
+          initialQuality: 0.7
         });
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          setFormData(prev => ({ ...prev, profilePicture: reader.result as string }));
-        };
-        reader.readAsDataURL(compressed);
+        setPendingAvatarFile(compressed);
+        setFormData(prev => {
+          if (prev.profilePicture && prev.profilePicture.startsWith('blob:')) {
+            try {
+              URL.revokeObjectURL(prev.profilePicture);
+            } catch {}
+          }
+          const objectUrl = URL.createObjectURL(compressed);
+          return { ...prev, profilePicture: objectUrl };
+        });
       } catch (err) {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          setFormData(prev => ({ ...prev, profilePicture: reader.result as string }));
-        };
-        reader.readAsDataURL(file);
+        console.warn("Avatar compression error:", err);
+        toast.error("Slike ni bilo mogoče obdelati. Izberite drugo sliko.");
       }
     }
   };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log("Settings form submitted with data:", formData);
     if (formData.newPassword && formData.newPassword !== formData.confirmPassword) {
       toast.error(t('passwordsNotMatch'));
       return;
@@ -263,13 +266,18 @@ export const SettingsView: React.FC<{
     setIsSaving(true);
     setErrorMessage(null);
     try {
-      await onSave(formData);
+      const result = await onSave({ ...formData, profilePictureFile: pendingAvatarFile || null });
+      setPendingAvatarFile(null);
       isFormDirtyRef.current = false;
-      toast.success(t('profileSaved') || "Nastavitve so bile uspešno shranjene.");
+      if (result && result.emailChangeSent) {
+        toast.success("Podatki so shranjeni. Na nov e-poštni naslov smo poslali potrditveno povezavo.");
+      } else {
+        toast.success("Podatki so shranjeni.");
+      }
     } catch (err: any) {
       console.error("Save profile error:", err);
-      setErrorMessage(err?.message || "Napaka pri shranjevanju podatkov.");
-      toast.error(err?.message || "Napaka pri shranjevanju podatkov.");
+      setErrorMessage(friendlyError(err, "Podatkov ni bilo mogoče shraniti. Poskusite znova."));
+      toast.error(friendlyError(err, "Podatkov ni bilo mogoče shraniti. Poskusite znova."));
     } finally {
       setIsSaving(false);
     }
@@ -781,7 +789,7 @@ export const SettingsView: React.FC<{
                             }
                           } catch (err: any) {
                             console.error("Payout error:", err);
-                            toast.error(err.message || "Napaka pri izplačilu.");
+                            toast.error(friendlyError(err, "Napaka pri izplačilu."));
                           } finally {
                             setIsWithdrawing(false);
                           }

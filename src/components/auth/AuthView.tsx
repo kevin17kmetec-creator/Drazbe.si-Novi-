@@ -14,6 +14,7 @@ import { getAuthHeaders } from '../../lib/authFetch';
 import { sendEmailVerificationAction, sendPasswordResetAction } from "../../actions/auth-emails";
 import { useGoogleReCaptcha } from 'react-google-recaptcha-v3';
 import { verifyCaptchaAction } from '../../actions/captcha';
+import { friendlyError } from '../../lib/friendlyError';
 
 export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerified: (v: boolean) => void; setAppLoggedIn: (val: boolean) => void }> = ({ t, onLoginSuccess, setIsVerified, setAppLoggedIn }) => {
   const { executeRecaptcha } = useGoogleReCaptcha();
@@ -73,7 +74,7 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
           const token = await executeRecaptcha('register');
           const captchaRes = await verifyCaptchaAction(token, 'register');
           if (!captchaRes.success) {
-            toast.error(captchaRes.error || "Preverjanje reCAPTCHA ni uspelo. Prosimo, poskusite znova.");
+            toast.error(friendlyError(captchaRes.error, "Preverjanje reCAPTCHA ni uspelo. Prosimo, poskusite znova."));
             setResendingVerification(false);
             return;
           }
@@ -86,10 +87,10 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
       if (res.success) {
         toast.success("Novo potrditveno sporočilo je bilo uspešno odposlano! Preverite svoj e-poštni predal (tudi mapo z vsiljeno pošto).");
       } else {
-        toast.error("Napaka pri pošiljanju potrditvenega sporočila: " + (res.error || "Prosimo, poskusite ponovno čez nekaj trenutkov."));
+        toast.error(friendlyError(res.error, "Napaka pri pošiljanju potrditvenega sporočila. Prosimo, poskusite ponovno čez nekaj trenutkov."));
       }
     } catch (err: any) {
-      toast.error("Napaka pri povezavi: " + (err.message || 'Neznana napaka'));
+      toast.error(friendlyError(err, "Napaka pri povezavi. Poskusite znova."));
     } finally {
       setResendingVerification(false);
     }
@@ -119,7 +120,7 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
               const token = await executeRecaptcha('login');
               const captchaRes = await verifyCaptchaAction(token, 'login');
               if (!captchaRes.success) {
-                toast.error(captchaRes.error || "Preverjanje reCAPTCHA ni uspelo. Prosimo, poskusite znova.");
+                toast.error(friendlyError(captchaRes.error, "Preverjanje reCAPTCHA ni uspelo. Prosimo, poskusite znova."));
                 setLoading(false);
                 return;
               }
@@ -183,7 +184,7 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
                 const token = await executeRecaptcha('register');
                 const captchaRes = await verifyCaptchaAction(token, 'register');
                 if (!captchaRes.success) {
-                  toast.error(captchaRes.error || "Preverjanje reCAPTCHA ni uspelo. Prosimo, poskusite znova.");
+                  toast.error(friendlyError(captchaRes.error, "Preverjanje reCAPTCHA ni uspelo. Prosimo, poskusite znova."));
                   setRegisteringAuth(false);
                   setLoading(false);
                   return;
@@ -226,7 +227,7 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
             if (emailRes.success) {
               toast.success("Račun je uspešno ustvarjen! Na vaš e-poštni naslov smo poslali sporočilo s potrditvenim gumbom. Pred prvo prijavo preverite svoj predal in potrdite naslov.");
             } else {
-              toast.error("Račun je bil ustvarjen, vendar e-pošte ni bilo mogoče odposlati: " + (emailRes.error || "Napaka pri komunikaciji s strežnikom. Uporabite spodnji gumb za ponovno pošiljanje."));
+              toast.error(friendlyError(emailRes.error, "Račun je bil ustvarjen, vendar e-pošte ni bilo mogoče odposlati. Uporabite spodnji gumb za ponovno pošiljanje."));
             }
           } catch (authError: any) {
             console.error("Registracija spodletela:", authError);
@@ -241,7 +242,7 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
             } else if (errorCode === "auth/invalid-email") {
               toast.error("Vnesite veljaven e-poštni naslov.");
             } else {
-              toast.error(t("authError") + " " + (authError.message || ""));
+              toast.error(friendlyError(authError, "Registracija ni uspela. Poskusite znova."));
             }
           } finally {
             setRegisteringAuth(false);
@@ -263,7 +264,7 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
             toast.error("Ta e-poštni naslov je že registriran. Če še niste potrdili naslova, se poskusite prijaviti ali zahtevajte ponovno pošiljanje povezave.");
             setIsLogin(true);
         } else {
-            toast.error(t("authError") + " " + errorMsg);
+            toast.error(friendlyError(error, "Prijava ni uspela. Poskusite znova."));
         }
     } finally { 
         setRegisteringAuth(false);
@@ -284,10 +285,12 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
       
       onLoginSuccess();
     } catch (error: any) {
-      if (error.code === 'auth/account-exists-with-different-credential') {
-          toast.error("Ta e-mail je že registriran. Prosimo, prijavite se z e-mailom in geslom.");
+      if (error?.code === 'auth/popup-closed-by-user' || error?.code === 'auth/cancelled-popup-request') {
+        // No toast when popup was closed or cancelled by user
+      } else if (error?.code === 'auth/account-exists-with-different-credential') {
+        toast.error("Ta e-mail je že registriran. Prosimo, prijavite se z e-mailom in geslom.");
       } else {
-          toast.error(`${t("googleLoginError")} ${error.message}`);
+        toast.error(friendlyError(error, "Prijava z Google računom ni uspela. Poskusite znova."));
       }
       setLoading(false);
     }
@@ -304,7 +307,7 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
               const token = await executeRecaptcha('password_reset');
               const captchaRes = await verifyCaptchaAction(token, 'password_reset');
               if (!captchaRes.success) {
-                toast.error(captchaRes.error || "Preverjanje reCAPTCHA ni uspelo. Prosimo, poskusite znova.");
+                toast.error(friendlyError(captchaRes.error, "Preverjanje reCAPTCHA ni uspelo. Prosimo, poskusite znova."));
                 setLoading(false);
                 return;
               }
@@ -331,8 +334,7 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
           toast.success(t('resetLinkSent') || 'Povezava za ponastavitev je poslana na vaš e-mail.');
           setIsForgotPassword(false);
       } catch (error: any) {
-        let errorMsg = error.message || JSON.stringify(error);
-        toast.error(t("authError") + " " + errorMsg);
+        toast.error(friendlyError(error, "Napaka pri ponastavitvi gesla. Poskusite znova."));
       } finally { setLoading(false); }
   };
 
