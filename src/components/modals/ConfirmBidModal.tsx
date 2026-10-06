@@ -3,6 +3,7 @@ import { X, CheckCircle, AlertTriangle } from 'lucide-react';
 import { AuctionItem, SubscriptionTier } from '../../types';
 import { calculateCommissionTaxes, TaxResult } from "../../lib/taxLogic";
 import { calculateMarginalPlatformFee } from "../../lib/utils";
+import { Portal } from '../ui/Portal';
 
 export const ConfirmBidModal: React.FC<{
   isOpen: boolean;
@@ -77,7 +78,8 @@ export const ConfirmBidModal: React.FC<{
   };
 
   return (
-    <div className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-4 animate-in">
+    <Portal>
+      <div className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-4 animate-in">
       <div className="bg-white rounded-2xl max-w-sm w-full shadow-2xl overflow-hidden relative">
         <button 
           onClick={onClose}
@@ -173,5 +175,6 @@ export const ConfirmBidModal: React.FC<{
         </div>
       </div>
     </div>
+  </Portal>
   );
 };

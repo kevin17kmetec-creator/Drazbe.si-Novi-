@@ -2,6 +2,7 @@ import React, { useRef, useState } from 'react';
 import { X, FileText, Download } from 'lucide-react';
 import { AuctionItem } from "../../types";
 import { getAuthHeaders } from "../../lib/authFetch";
+import { Portal } from '../ui/Portal';
 
 interface InvoiceModalProps {
   isOpen: boolean;
@@ -206,10 +207,11 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 sm:p-6">
-      <div className="absolute inset-0 bg-[#0A1128]/80 backdrop-blur-sm" onClick={onClose} />
-      
-      <div className="relative w-full max-w-4xl max-h-[90vh] bg-slate-100 rounded-[2rem] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+    <Portal>
+      <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4 sm:p-6">
+        <div className="absolute inset-0 bg-[#0A1128]/80 backdrop-blur-sm" onClick={onClose} />
+        
+        <div className="relative w-full max-w-4xl max-h-[90vh] bg-slate-100 rounded-[2rem] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
         
         {/* Modal Header */}
         <div className="flex items-center justify-between px-8 py-5 bg-white border-b border-slate-200 shrink-0">
@@ -530,5 +532,6 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
         </div>
       </div>
     </div>
+  </Portal>
   );
 };

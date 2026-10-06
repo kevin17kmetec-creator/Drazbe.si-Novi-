@@ -288,7 +288,7 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
       if (error?.code === 'auth/popup-closed-by-user' || error?.code === 'auth/cancelled-popup-request') {
         // No toast when popup was closed or cancelled by user
       } else if (error?.code === 'auth/account-exists-with-different-credential') {
-        toast.error("Ta e-mail je že registriran. Prosimo, prijavite se z e-mailom in geslom.");
+        toast.error("Za ta e-poštni naslov že obstaja račun z geslom. Prijavite se z e-pošto in geslom, nato v Nastavitvah povežite Google račun.");
       } else {
         toast.error(friendlyError(error, "Prijava z Google računom ni uspela. Poskusite znova."));
       }

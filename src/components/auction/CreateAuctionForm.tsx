@@ -14,6 +14,7 @@ import { checkUserInvoiceData, InvoiceDataCheckResult } from "../../lib/invoiceD
 import { MissingInvoiceDataModal } from "@/src/components/modals/MissingInvoiceDataModal";
 import { getUserAuctionCycle } from "../../lib/utils";
 import { friendlyError } from "../../lib/friendlyError";
+import { Portal } from "../ui/Portal";
 
 const REGION_LOCATIONS: Record<Region, string[]> = {
     [Region.Pomurska]: ['Murska Sobota', 'Lendava', 'Ljutomer', 'Gornja Radgona', 'Beltinci', 'Drugo'],
@@ -297,15 +298,23 @@ export const CreateAuctionForm: React.FC<{
         try {
             setEnhancingIndex(index);
             const file = imageFiles[index];
+            if (!file) {
+                setEnhancingIndex(null);
+                return;
+            }
             
             // Convert file to base64
             const reader = new FileReader();
             reader.readAsDataURL(file);
+            reader.onerror = () => {
+                toast.error(friendlyError(new Error("Napaka pri branju slike."), t('imageEnhanceError')));
+                setEnhancingIndex(null);
+            };
             reader.onload = async () => {
-                const base64Data = (reader.result as string).split(',')[1];
-                const mimeType = file.type;
-
                 try {
+                    const base64Data = (reader.result as string).split(',')[1];
+                    const mimeType = file.type || 'image/jpeg';
+
                     const response = await fetch('/api/ai/enhance-image', {
                         method: 'POST',
                         headers: {
@@ -318,17 +327,12 @@ export const CreateAuctionForm: React.FC<{
                         })
                     });
 
+                    const resData = await response.json().catch(() => ({}));
                     if (!response.ok) {
-                        const errText = await response.text();
-                        let parsedErr = t('imageEnhanceError');
-                        try {
-                            const parsed = JSON.parse(errText);
-                            parsedErr = parsed.error || parsedErr;
-                        } catch {}
+                        const parsedErr = resData?.error || t('imageEnhanceError') || "Napaka pri izboljšavi slike.";
                         throw new Error(parsedErr);
                     }
 
-                    const resData = await response.json();
                     const newBase64 = resData.image_base64;
                     const newMime = resData.mime_type || 'image/png';
                     const newImageUrl = `data:${newMime};base64,${newBase64}`;
@@ -365,9 +369,9 @@ export const CreateAuctionForm: React.FC<{
                     setEnhancingIndex(null);
                 }
             };
-        } catch (error) {
+        } catch (error: any) {
             console.error("Error enhancing image:", error);
-            toast.error(t('imageEnhanceError'));
+            toast.error(friendlyError(error, t('imageEnhanceError')));
             setEnhancingIndex(null);
         }
     };
@@ -857,11 +861,17 @@ export const CreateAuctionForm: React.FC<{
                         <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-4 animate-in">
                             {existingImages.map((src, i) => (
                                 <div key={`ex-${i}`} className="flex flex-col gap-2">
-                                     <div className="relative group aspect-square rounded-2xl overflow-hidden border-2 border-slate-100 shadow-sm transition-transform hover:scale-105 cursor-pointer" onClick={() => setZoomedImage(src.startsWith('http') ? src : undefined)}>
+                                    <div className="h-6 flex items-center justify-center">
+                                        {i === 0 && (
+                                            <span className="bg-[#FEBA4F] text-[#0A1128] text-[10px] font-black px-3 py-0.5 rounded-full uppercase tracking-widest">
+                                                {t('mainImage')}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div className="relative group aspect-square rounded-2xl overflow-hidden border-2 border-slate-100 shadow-sm transition-transform hover:scale-105 cursor-pointer" onClick={() => setZoomedImage(src.startsWith('http') ? src : undefined)}>
                                         <SignedImg src={src} alt={`existing-${i}`} className="w-full h-full object-cover" />
-                                        {i === 0 && <div className="absolute top-2 left-2 bg-[#FEBA4F] text-[#0A1128] text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest z-10">{t('mainImage')}</div>}
                                         <button onClick={(e) => { e.stopPropagation(); setExistingImages(prev => prev.filter((_, idx) => idx !== i)); }} type="button" className="absolute top-2 right-2 bg-red-500 text-white p-1.5 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity hover:scale-110 shadow-lg z-20"><Trash2 size={16} /></button>
-                                     </div>
+                                    </div>
                                 </div>
                             ))}
                             {previews.map((src, i) => (
@@ -873,9 +883,15 @@ export const CreateAuctionForm: React.FC<{
                                     onDragOver={(e) => e.preventDefault()}
                                     onDrop={(e) => handleDrop(e, i)}
                                 >
+                                    <div className="h-6 flex items-center justify-center">
+                                        {existingImages.length === 0 && i === 0 && (
+                                            <span className="bg-[#FEBA4F] text-[#0A1128] text-[10px] font-black px-3 py-0.5 rounded-full uppercase tracking-widest">
+                                                {t('mainImage')}
+                                            </span>
+                                        )}
+                                    </div>
                                     <div className="relative group aspect-square rounded-2xl overflow-hidden border-2 border-slate-100 shadow-sm transition-transform hover:scale-105 cursor-pointer" onClick={() => setZoomedImage(src)}>
                                         <img src={src} className="w-full h-full object-cover" />
-                                        {existingImages.length === 0 && i === 0 && <div className="absolute top-2 left-2 bg-[#FEBA4F] text-[#0A1128] text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest z-10">{t('mainImage')}</div>}
                                         <div className="absolute inset-x-0 top-0 h-1/2 bg-gradient-to-b from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-start justify-center pt-2">
                                             <div className="bg-white/80 backdrop-blur-sm shadow text-[#0A1128] p-1.5 rounded-lg cursor-grab active:cursor-grabbing hover:bg-white" onClick={e => e.stopPropagation()}>
                                                 <GripHorizontal size={16} />
@@ -972,62 +988,27 @@ export const CreateAuctionForm: React.FC<{
             </div>
 
             {zoomedImage && (
-                <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 animate-in" onClick={() => setZoomedImage(null)}>
-                    <button onClick={() => setZoomedImage(null)} className="absolute top-6 right-6 w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center text-white hover:bg-white hover:text-black transition-all cursor-pointer"><X size={20} strokeWidth={3} /></button>
-                    <img src={zoomedImage} className="max-w-full max-h-full rounded-xl shadow-2xl object-contain" onClick={e => e.stopPropagation()} />
-                </div>
+                <Portal>
+                    <div className="fixed inset-0 z-[2100] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 animate-in" onClick={() => setZoomedImage(null)}>
+                        <button onClick={() => setZoomedImage(null)} className="absolute top-6 right-6 w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center text-white hover:bg-white hover:text-black transition-all cursor-pointer"><X size={20} strokeWidth={3} /></button>
+                        <img src={zoomedImage} className="max-w-full max-h-full rounded-xl shadow-2xl object-contain" onClick={e => e.stopPropagation()} />
+                    </div>
+                </Portal>
             )}
 
             {showPreview && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 lg:p-8 overflow-y-auto" onClick={() => setShowPreview(false)}>
-                    <div className="bg-[#f8fafc] w-full max-w-7xl rounded-[3rem] border border-white/20 shadow-2xl overflow-hidden relative mt-20 md:mt-0" onClick={e => e.stopPropagation()}>
-                        <div className="flex justify-between items-center p-6 border-b border-slate-200 bg-white sticky top-0 z-20">
-                            <h2 className="text-2xl font-black uppercase tracking-tighter text-[#0A1128]">{t('auctionPreview')}</h2>
-                            <button onClick={() => setShowPreview(false)} className="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-500 hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all cursor-pointer"><X size={20} strokeWidth={3} /></button>
-                        </div>
-                        <div className="p-8 h-[80vh] overflow-y-auto flex flex-col gap-12" onClick={e => e.stopPropagation()}>
-                            <div>
-                               <h3 className="text-xl font-black uppercase tracking-tighter text-[#0A1128] mb-6 border-b pb-4">{t('cardPreview')}</h3>
-                               <div className="w-full max-w-sm mx-auto">
-                                   <AuctionCard 
-                                      item={{
-                                         id: 'preview',
-                                         title: { SLO: formData.title || 'Naslov', EN: formData.title, DE: formData.title },
-                                         description: formData.description || 'Opis',
-                                         currentBid: parseInt(formData.startingPrice) || 0,
-                                         startingPrice: parseInt(formData.startingPrice) || 0,
-                                         bidCount: 0,
-                                         images: previews.length > 0 ? previews : ['https://picsum.photos/seed/placeholder/800/800'],
-                                         endTime: new Date(`${formData.endDate}T${formData.endTime}`),
-                                         sellerId: 'preview_seller_id',
-                                         sellerName: 'Predogled',
-                                         location: { SLO: formData.location || 'Lokacija' },
-                                         status: 'active',
-                                         category: formData.category,
-                                         region: formData.region,
-                                         condition: formData.condition,
-                                         delivery_option: formData.delivery_option,
-                                         shipping_fee_type: formData.shipping_fee_type,
-                                         shipping_cost: formData.shipping_fee_type === 'fixed' ? Number(formData.shipping_cost || 0) : null,
-                                         createdAt: new Date()
-                                      } as unknown as AuctionItem} 
-                                      t={t} 
-                                      language={language} 
-                                      isVerified={isLoggedIn} 
-                                      currentUserId="mock" 
-                                      isWatched={false} 
-                                      onWatchToggle={()=>{}} 
-                                      onClick={()=>{}} 
-                                      onBidSubmit={async () => undefined} 
-                                      onSellerClick={()=>{}} 
-                                   />
-                               </div>
+                <Portal>
+                    <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 lg:p-8 overflow-y-auto" onClick={() => setShowPreview(false)}>
+                        <div className="bg-[#f8fafc] w-full max-w-7xl rounded-[3rem] border border-white/20 shadow-2xl overflow-hidden relative mt-20 md:mt-0" onClick={e => e.stopPropagation()}>
+                            <div className="flex justify-between items-center p-6 border-b border-slate-200 bg-white sticky top-0 z-20">
+                                <h2 className="text-2xl font-black uppercase tracking-tighter text-[#0A1128]">{t('auctionPreview')}</h2>
+                                <button onClick={() => setShowPreview(false)} className="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-500 hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all cursor-pointer"><X size={20} strokeWidth={3} /></button>
                             </div>
-                            <div className="pb-12">
-                               <h3 className="text-xl font-black uppercase tracking-tighter text-[#0A1128] mb-6 border-b pb-4">{t('pagePreview')}</h3>
-                               <div className="border border-slate-200 rounded-[2.5rem] overflow-hidden bg-slate-50 w-full relative h-[600px] md:h-[800px] overflow-x-auto">
-                                   <div className="pointer-events-none w-[1280px] origin-top-left transform scale-[0.4] sm:scale-[0.5] md:scale-[0.7] lg:scale-[0.8] xl:scale-[0.9]">
-                                       <AuctionView 
+                            <div className="p-8 h-[80vh] overflow-y-auto flex flex-col gap-12" onClick={e => e.stopPropagation()}>
+                                <div>
+                                   <h3 className="text-xl font-black uppercase tracking-tighter text-[#0A1128] mb-6 border-b pb-4">{t('cardPreview')}</h3>
+                                   <div className="w-full max-w-sm mx-auto">
+                                       <AuctionCard 
                                           item={{
                                              id: 'preview',
                                              title: { SLO: formData.title || 'Naslov', EN: formData.title, DE: formData.title },
@@ -1047,27 +1028,66 @@ export const CreateAuctionForm: React.FC<{
                                              delivery_option: formData.delivery_option,
                                              shipping_fee_type: formData.shipping_fee_type,
                                              shipping_cost: formData.shipping_fee_type === 'fixed' ? Number(formData.shipping_cost || 0) : null,
-                                             specifications: formData.specifications || {},
                                              createdAt: new Date()
                                           } as unknown as AuctionItem} 
                                           t={t} 
                                           language={language} 
                                           isVerified={isLoggedIn} 
                                           currentUserId="mock" 
-                                          currentPlan="FREE"
-                                          isWatched={false}
-                                          onWatchToggle={()=>{}}
-                                          onBack={()=>{}} 
-                                          onBidSubmit={async () => 'ok'} 
-                                          onCheckout={()=>{}} 
+                                          isWatched={false} 
+                                          onWatchToggle={()=>{}} 
+                                          onClick={()=>{}} 
+                                          onBidSubmit={async () => undefined} 
                                           onSellerClick={()=>{}} 
                                        />
                                    </div>
-                               </div>
+                                </div>
+                                <div className="pb-12">
+                                   <h3 className="text-xl font-black uppercase tracking-tighter text-[#0A1128] mb-6 border-b pb-4">{t('pagePreview')}</h3>
+                                   <div className="border border-slate-200 rounded-[2.5rem] overflow-hidden bg-slate-50 w-full relative h-[600px] md:h-[800px] overflow-x-auto">
+                                       <div className="pointer-events-none w-[1280px] origin-top-left transform scale-[0.4] sm:scale-[0.5] md:scale-[0.7] lg:scale-[0.8] xl:scale-[0.9]">
+                                           <AuctionView 
+                                              item={{
+                                                 id: 'preview',
+                                                 title: { SLO: formData.title || 'Naslov', EN: formData.title, DE: formData.title },
+                                                 description: formData.description || 'Opis',
+                                                 currentBid: parseInt(formData.startingPrice) || 0,
+                                                 startingPrice: parseInt(formData.startingPrice) || 0,
+                                                 bidCount: 0,
+                                                 images: previews.length > 0 ? previews : ['https://picsum.photos/seed/placeholder/800/800'],
+                                                 endTime: new Date(`${formData.endDate}T${formData.endTime}`),
+                                                 sellerId: 'preview_seller_id',
+                                                 sellerName: 'Predogled',
+                                                 location: { SLO: formData.location || 'Lokacija' },
+                                                 status: 'active',
+                                                 category: formData.category,
+                                                 region: formData.region,
+                                                 condition: formData.condition,
+                                                 delivery_option: formData.delivery_option,
+                                                 shipping_fee_type: formData.shipping_fee_type,
+                                                 shipping_cost: formData.shipping_fee_type === 'fixed' ? Number(formData.shipping_cost || 0) : null,
+                                                 specifications: formData.specifications || {},
+                                                 createdAt: new Date()
+                                              } as unknown as AuctionItem} 
+                                              t={t} 
+                                              language={language} 
+                                              isVerified={isLoggedIn} 
+                                              currentUserId="mock" 
+                                              currentPlan="FREE"
+                                              isWatched={false}
+                                              onWatchToggle={()=>{}}
+                                              onBack={()=>{}} 
+                                              onBidSubmit={async () => 'ok'} 
+                                              onCheckout={()=>{}} 
+                                              onSellerClick={()=>{}} 
+                                           />
+                                       </div>
+                                   </div>
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
+                </Portal>
             )}
 
             <MissingInvoiceDataModal

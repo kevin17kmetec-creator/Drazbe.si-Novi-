@@ -3743,7 +3743,7 @@ app.post("/api/ai/enhance-image", async (req, res) => {
 
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: process.env.GEMINI_IMAGE_MODEL || 'gemini-3.1-flash-image',
       contents: {
         parts: [
           {
@@ -3756,6 +3756,9 @@ app.post("/api/ai/enhance-image", async (req, res) => {
             text: 'Enhance the quality, lighting, and sharpness of this image. Keep the original subject exactly the same, just make it look more professional and appealing.',
           },
         ],
+      },
+      config: {
+        responseModalities: ['IMAGE', 'TEXT'],
       },
     });
 
@@ -3771,7 +3774,7 @@ app.post("/api/ai/enhance-image", async (req, res) => {
     }
 
     if (!newBase64) {
-      newBase64 = image_base64;
+      return res.status(502).json({ error: "Polepšanje slike trenutno ni uspelo. Poskusite znova ali uporabite izvirno sliko." });
     }
 
     return res.json({
@@ -3781,7 +3784,7 @@ app.post("/api/ai/enhance-image", async (req, res) => {
 
   } catch (err: any) {
     console.error('Error in /api/ai/enhance-image:', err);
-    return res.status(500).json({ error: err.message });
+    return res.status(502).json({ error: "Storitev umetne inteligence trenutno ni na voljo. Poskusite znova pozneje." });
   }
 });
 
@@ -3858,7 +3861,7 @@ app.post("/api/analyze-receipt", async (req, res) => {
 
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
     const geminiResponse = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: process.env.GEMINI_TEXT_MODEL || 'gemini-3.8-flash',
       contents: [
         {
           role: 'user',
@@ -3876,8 +3879,8 @@ app.post("/api/analyze-receipt", async (req, res) => {
     const resultText = geminiResponse.text || '{}';
     res.json(JSON.parse(resultText));
   } catch (e: any) {
-    console.error("Gemini Vision error:", e);
-    res.status(500).json({ error: e.message });
+    console.error("Gemini Vision error in /api/analyze-receipt:", e);
+    res.status(502).json({ error: "Storitev umetne inteligence trenutno ni na voljo. Poskusite znova pozneje." });
   }
 });
 

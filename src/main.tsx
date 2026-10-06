@@ -2,6 +2,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App.tsx';
+import { ConfirmEmailPage } from './components/auth/ConfirmEmailPage';
 import { GoogleReCaptchaProvider } from 'react-google-recaptcha-v3';
 
 // =========================================================================
@@ -118,12 +119,25 @@ if (!siteKey) {
 }
 
 const root = ReactDOM.createRoot(rootElement);
-root.render(
-  <React.StrictMode>
-    <GoogleReCaptchaProvider reCaptchaKey={siteKey}>
-      <ErrorBoundary>
-        <App />
-      </ErrorBoundary>
-    </GoogleReCaptchaProvider>
-  </React.StrictMode>
-);
+
+const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+const verifyToken = searchParams?.get('verify_token');
+const verifyEmail = searchParams?.get('email') || undefined;
+
+if (verifyToken) {
+  root.render(
+    <React.StrictMode>
+      <ConfirmEmailPage token={verifyToken} email={verifyEmail} />
+    </React.StrictMode>
+  );
+} else {
+  root.render(
+    <React.StrictMode>
+      <GoogleReCaptchaProvider reCaptchaKey={siteKey}>
+        <ErrorBoundary>
+          <App />
+        </ErrorBoundary>
+      </GoogleReCaptchaProvider>
+    </React.StrictMode>
+  );
+}

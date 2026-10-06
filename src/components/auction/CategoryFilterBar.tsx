@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Category } from '../../types';
 import { getAttributeDefinitionsForCategory } from '../../lib/categoryAttributes';
 import { Filter, X, Truck, MapPin, Check, ChevronDown, Sparkles, Search } from 'lucide-react';
+import { Portal } from '../ui/Portal';
 
 export interface FilterState {
   delivery_option?: string;
@@ -322,57 +323,59 @@ export const CategoryFilterBar: React.FC<CategoryFilterBarProps> = ({
 
       {/* Mobile Drawer (Left drawer / bottom sheet) */}
       {isMobileOpen && (
-        <div className="fixed inset-0 z-50 lg:hidden animate-in fade-in duration-200">
-          {/* Backdrop */}
-          <div
-            className="fixed inset-0 bg-[#0A1128]/60 backdrop-blur-sm transition-opacity"
-            onClick={onCloseMobile}
-          />
-          {/* Drawer Panel */}
-          <div className="fixed inset-y-0 left-0 w-full max-w-xs sm:max-w-sm bg-white shadow-2xl flex flex-col z-50 animate-in slide-in-from-left duration-200">
-            {/* Header */}
-            <div className="flex items-center justify-between p-4 border-b border-slate-100 bg-slate-50">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-[#0A1128] text-[#FEBA4F] flex items-center justify-center shadow-sm">
-                  <Filter size={15} />
+        <Portal>
+          <div className="fixed inset-0 z-[2000] lg:hidden animate-in fade-in duration-200">
+            {/* Backdrop */}
+            <div
+              className="fixed inset-0 bg-[#0A1128]/60 backdrop-blur-sm transition-opacity"
+              onClick={onCloseMobile}
+            />
+            {/* Drawer Panel */}
+            <div className="fixed inset-y-0 left-0 w-full max-w-xs sm:max-w-sm bg-white shadow-2xl flex flex-col z-[2000] animate-in slide-in-from-left duration-200">
+              {/* Header */}
+              <div className="flex items-center justify-between p-4 border-b border-slate-100 bg-slate-50">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-[#0A1128] text-[#FEBA4F] flex items-center justify-center shadow-sm">
+                    <Filter size={15} />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-black uppercase tracking-wider text-[#0A1128]">
+                      Filtri
+                    </h3>
+                    {category && (
+                      <span className="text-[11px] font-bold text-[#FEBA4F] block">
+                        {category}
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <div>
-                  <h3 className="text-sm font-black uppercase tracking-wider text-[#0A1128]">
-                    Filtri
-                  </h3>
-                  {category && (
-                    <span className="text-[11px] font-bold text-[#FEBA4F] block">
-                      {category}
-                    </span>
-                  )}
-                </div>
+                <button
+                  type="button"
+                  onClick={onCloseMobile}
+                  className="p-2 text-slate-400 hover:text-[#0A1128] rounded-xl hover:bg-slate-200 transition-colors"
+                >
+                  <X size={20} />
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={onCloseMobile}
-                className="p-2 text-slate-400 hover:text-[#0A1128] rounded-xl hover:bg-slate-200 transition-colors"
-              >
-                <X size={20} />
-              </button>
-            </div>
 
-            {/* Content */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {renderFilterSections()}
-            </div>
+              {/* Content */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {renderFilterSections()}
+              </div>
 
-            {/* Footer with Apply Button */}
-            <div className="p-4 border-t border-slate-100 bg-white shadow-lg">
-              <button
-                type="button"
-                onClick={onCloseMobile}
-                className="w-full py-3.5 px-4 rounded-xl bg-[#0A1128] text-[#FEBA4F] font-black text-xs uppercase tracking-wider shadow-lg hover:bg-[#142247] transition-all flex items-center justify-center gap-2"
-              >
-                <span>Prikaži rezultate ({totalResultsCount})</span>
-              </button>
+              {/* Footer with Apply Button */}
+              <div className="p-4 border-t border-slate-100 bg-white shadow-lg">
+                <button
+                  type="button"
+                  onClick={onCloseMobile}
+                  className="w-full py-3.5 px-4 rounded-xl bg-[#0A1128] text-[#FEBA4F] font-black text-xs uppercase tracking-wider shadow-lg hover:bg-[#142247] transition-all flex items-center justify-center gap-2"
+                >
+                  <span>Prikaži rezultate ({totalResultsCount})</span>
+                </button>
+              </div>
             </div>
           </div>
-        </div>
+        </Portal>
       )}
     </>
   );

@@ -14,7 +14,6 @@ import { CreatePackageForm } from "@/src/components/auction/CreatePackageForm";
 import { PackageCard } from "@/src/components/auction/PackageCard";
 import { PackageView } from "@/src/components/auction/PackageView";
 import { AuthView } from "@/src/components/auth/AuthView";
-import { EmailConfirmationView } from "@/src/components/auth/EmailConfirmationView";
 import { LegalModal } from "@/src/components/modals/LegalModal";
 import { VerificationBanner } from "@/src/components/layout/VerificationBanner";
 import { StaticTimer } from "@/src/components/ui/StaticTimer";
@@ -28,6 +27,7 @@ import { ConfirmBidModal } from "@/src/components/modals/ConfirmBidModal";
 import { MessagesView } from "@/src/components/profile/MessagesView";
 import { MissingInvoiceDataModal } from "@/src/components/modals/MissingInvoiceDataModal";
 import { CategoryFilterBar, FilterState } from "@/src/components/auction/CategoryFilterBar";
+import { Portal } from "@/src/components/ui/Portal";
 import { checkUserInvoiceData } from "./lib/invoiceDataCheck";
 import { getAuthHeaders } from "./lib/authFetch";
 import { friendlyError } from "./lib/friendlyError";
@@ -611,16 +611,6 @@ const MainApp: React.FC = () => {
   const [selectedSeller, setSelectedSeller] = useState<Seller | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [verificationData, setVerificationData] = useState<{ token: string; email?: string } | null>(() => {
-    if (typeof window === "undefined") return null;
-    const params = new URLSearchParams(window.location.search);
-    const vToken = params.get('verify_token') || params.get('token');
-    const vEmail = params.get('email');
-    if (vToken) {
-      return { token: vToken, email: vEmail || undefined };
-    }
-    return null;
-  });
   const [isVerified, setIsVerified] = useState(false);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [showBannerDelayPassed, setShowBannerDelayPassed] = useState(false);
@@ -4888,52 +4878,54 @@ const MainApp: React.FC = () => {
           />
         )}
         {showTermsModal && (
-          <div className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-6 animate-in">
-            <div className="bg-white w-full max-w-xl rounded-[3rem] p-10 lg:p-14 shadow-2xl relative">
-              <button
-                onClick={handleCancelTerms}
-                className="absolute top-8 right-8 text-slate-400 hover:text-[#0A1128] transition-colors"
-              >
-                <X size={24} />
-              </button>
-              <div className="bg-[#FEBA4F] w-20 h-20 rounded-3xl flex items-center justify-center mb-8 shadow-lg shadow-[#FEBA4F]/20">
-                <ShieldCheck size={40} className="text-[#0A1128]" />
-              </div>
-              <h2 className="text-3xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">
-                Splošni pogoji poslovanja
-              </h2>
-              <p className="text-slate-500 font-bold leading-relaxed mb-6">
-                Z oddajo ponudbe potrjujete, da se strinjate s splošnimi pogoji
-                poslovanja platforme dražbenik.si. Vaša ponudba je pravno
-                zavezujoča. V primeru, da zmagate na dražbi, ste dolžni predmet
-                prevzeti in plačati v skladu s pogoji prodajalca.
-              </p>
-              <label className="flex items-center gap-3 mb-10 cursor-pointer group">
-                <div
-                  className={`w-6 h-6 rounded-md border-2 flex items-center justify-center transition-all ${dontShowTermsAgain ? "bg-[#FEBA4F] border-[#FEBA4F]" : "border-slate-300 group-hover:border-[#FEBA4F]"}`}
+          <Portal>
+            <div className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-6 animate-in">
+              <div className="bg-white w-full max-w-xl rounded-[3rem] p-10 lg:p-14 shadow-2xl relative">
+                <button
+                  onClick={handleCancelTerms}
+                  className="absolute top-8 right-8 text-slate-400 hover:text-[#0A1128] transition-colors"
                 >
-                  {dontShowTermsAgain && (
-                    <CheckCircle2 size={16} className="text-[#0A1128]" />
-                  )}
+                  <X size={24} />
+                </button>
+                <div className="bg-[#FEBA4F] w-20 h-20 rounded-3xl flex items-center justify-center mb-8 shadow-lg shadow-[#FEBA4F]/20">
+                  <ShieldCheck size={40} className="text-[#0A1128]" />
                 </div>
-                <span className="text-sm font-bold text-slate-600 select-none">
-                  Ne prikaži več tega obvestila
-                </span>
-                <input
-                  type="checkbox"
-                  className="hidden"
-                  checked={dontShowTermsAgain}
-                  onChange={(e) => setDontShowTermsAgain(e.target.checked)}
-                />
-              </label>
-              <button
-                onClick={handleAcceptTerms}
-                className="w-full bg-[#0A1128] text-white py-6 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl"
-              >
-                Strinjam se in potrjujem ponudbo
-              </button>
+                <h2 className="text-3xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">
+                  Splošni pogoji poslovanja
+                </h2>
+                <p className="text-slate-500 font-bold leading-relaxed mb-6">
+                  Z oddajo ponudbe potrjujete, da se strinjate s splošnimi pogoji
+                  poslovanja platforme dražbenik.si. Vaša ponudba je pravno
+                  zavezujoča. V primeru, da zmagate na dražbi, ste dolžni predmet
+                  prevzeti in plačati v skladu s pogoji prodajalca.
+                </p>
+                <label className="flex items-center gap-3 mb-10 cursor-pointer group">
+                  <div
+                    className={`w-6 h-6 rounded-md border-2 flex items-center justify-center transition-all ${dontShowTermsAgain ? "bg-[#FEBA4F] border-[#FEBA4F]" : "border-slate-300 group-hover:border-[#FEBA4F]"}`}
+                  >
+                    {dontShowTermsAgain && (
+                      <CheckCircle2 size={16} className="text-[#0A1128]" />
+                    )}
+                  </div>
+                  <span className="text-sm font-bold text-slate-600 select-none">
+                    Ne prikaži več tega obvestila
+                  </span>
+                  <input
+                    type="checkbox"
+                    className="hidden"
+                    checked={dontShowTermsAgain}
+                    onChange={(e) => setDontShowTermsAgain(e.target.checked)}
+                  />
+                </label>
+                <button
+                  onClick={handleAcceptTerms}
+                  className="w-full bg-[#0A1128] text-white py-6 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl"
+                >
+                  Strinjam se in potrjujem ponudbo
+                </button>
+              </div>
             </div>
-          </div>
+          </Portal>
         )}
         {pendingBid && (
           <ConfirmBidModal
@@ -4957,172 +4949,148 @@ const MainApp: React.FC = () => {
 
         {/* Modal for Unsold Auction Permanent Deletion */}
         {deleteUnsoldModal && deleteUnsoldModal.isOpen && (
-          <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
-            <div 
-              className="absolute inset-0 bg-[#0A1128]/80 backdrop-blur-sm animate-in fade-in"
-              onClick={() => setDeleteUnsoldModal(null)}
-            />
-            <div className="relative bg-white rounded-[2.5rem] p-8 sm:p-10 max-w-md w-full shadow-2xl border border-slate-100 animate-in zoom-in-95 z-10">
-              <div className="w-16 h-16 rounded-3xl bg-red-50 text-red-500 border border-red-100 flex items-center justify-center mb-6 mx-auto shadow-inner">
-                <Trash2 size={32} />
-              </div>
-              <h3 className="text-2xl font-black uppercase tracking-tight text-[#0A1128] text-center mb-2">
-                Dokončen izbris dražbe
-              </h3>
-              <p className="text-sm font-bold text-slate-500 text-center mb-8 leading-relaxed">
-                Ali ste prepričani, da želite dokončno izbrisati <span className="text-[#0A1128] font-black">"{deleteUnsoldModal.title}"</span>? Te akcije ni mogoče razveljaviti in dražba bo trajno odstranjena.
-              </p>
-              <div className="grid grid-cols-2 gap-4">
-                <button
-                  onClick={() => setDeleteUnsoldModal(null)}
-                  className="bg-slate-100 hover:bg-slate-200 text-[#0A1128] px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-xs transition-all"
-                >
-                  Prekliči
-                </button>
-                <button
-                  onClick={async () => {
-                    try {
-                      const idsToDelete = deleteUnsoldModal.items
-                        ? deleteUnsoldModal.items.map((it: any) => it.id)
-                        : deleteUnsoldModal.item
-                        ? [deleteUnsoldModal.item.id]
-                        : [];
-                      if (idsToDelete.length === 0) return;
+          <Portal>
+            <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4">
+              <div 
+                className="absolute inset-0 bg-[#0A1128]/80 backdrop-blur-sm animate-in fade-in"
+                onClick={() => setDeleteUnsoldModal(null)}
+              />
+              <div className="relative bg-white rounded-[2.5rem] p-8 sm:p-10 max-w-md w-full shadow-2xl border border-slate-100 animate-in zoom-in-95 z-10">
+                <div className="w-16 h-16 rounded-3xl bg-red-50 text-red-500 border border-red-100 flex items-center justify-center mb-6 mx-auto shadow-inner">
+                  <Trash2 size={32} />
+                </div>
+                <h3 className="text-2xl font-black uppercase tracking-tight text-[#0A1128] text-center mb-2">
+                  Dokončen izbris dražbe
+                </h3>
+                <p className="text-sm font-bold text-slate-500 text-center mb-8 leading-relaxed">
+                  Ali ste prepričani, da želite dokončno izbrisati <span className="text-[#0A1128] font-black">"{deleteUnsoldModal.title}"</span>? Te akcije ni mogoče razveljaviti in dražba bo trajno odstranjena.
+                </p>
+                <div className="grid grid-cols-2 gap-4">
+                  <button
+                    onClick={() => setDeleteUnsoldModal(null)}
+                    className="bg-slate-100 hover:bg-slate-200 text-[#0A1128] px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-xs transition-all"
+                  >
+                    Prekliči
+                  </button>
+                  <button
+                    onClick={async () => {
+                      try {
+                        const idsToDelete = deleteUnsoldModal.items
+                          ? deleteUnsoldModal.items.map((it: any) => it.id)
+                          : deleteUnsoldModal.item
+                          ? [deleteUnsoldModal.item.id]
+                          : [];
+                        if (idsToDelete.length === 0) return;
 
-                      const res = await fetch('/api/auctions/delete-unsold', {
-                        method: 'POST',
-                        headers: await getAuthHeaders({ 'Content-Type': 'application/json' }),
-                        body: JSON.stringify({ auction_ids: idsToDelete }),
-                      });
-                      const data = await res.json();
-                      if (!res.ok) {
-                        throw new Error(data.error || "Napaka pri izbrisu dražb.");
+                        const res = await fetch('/api/auctions/delete-unsold', {
+                          method: 'POST',
+                          headers: await getAuthHeaders({ 'Content-Type': 'application/json' }),
+                          body: JSON.stringify({ auction_ids: idsToDelete }),
+                        });
+                        const data = await res.json();
+                        if (!res.ok) {
+                          throw new Error(data.error || "Napaka pri izbrisu dražb.");
+                        }
+                        toast.success(data.message || "Dražbe so bile uspešno izbrisane.");
+                        setDeleteUnsoldModal(null);
+                        fetchAuctions();
+                      } catch (err: any) {
+                        toast.error(friendlyError(err, "Napaka pri brisanju."));
                       }
-                      toast.success(data.message || "Dražbe so bile uspešno izbrisane.");
-                      setDeleteUnsoldModal(null);
-                      fetchAuctions();
-                    } catch (err: any) {
-                      toast.error(friendlyError(err, "Napaka pri brisanju."));
-                    }
-                  }}
-                  className="bg-red-600 hover:bg-red-700 text-white px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-xs transition-all shadow-lg shadow-red-600/30 flex items-center justify-center gap-2"
-                >
-                  <Trash2 size={16} /> Izbriši
-                </button>
+                    }}
+                    className="bg-red-600 hover:bg-red-700 text-white px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-xs transition-all shadow-lg shadow-red-600/30 flex items-center justify-center gap-2"
+                  >
+                    <Trash2 size={16} /> Izbriši
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
+          </Portal>
         )}
 
         {/* Modals for delivery and rating */}
         {deliveryMethodModal.isOpen && (
-          <div className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-6 animate-in">
-            <div className="bg-white w-full max-w-lg rounded-[3rem] p-10 shadow-2xl relative">
-              <button
-                onClick={() =>
-                  setDeliveryMethodModal({
-                    isOpen: false,
-                    auctionId: "",
-                    deliveryMethod: null,
-                  })
-                }
-                className="absolute top-8 right-8 text-slate-400 hover:text-[#0A1128] transition-colors"
-              >
-                <X size={24} />
-              </button>
-              <h2 className="text-2xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">
-                Način predaje
-              </h2>
-              <p className="text-slate-500 font-bold mb-8">
-                Izberite, na kakšen način boste predmet predali kupcu.
-              </p>
-              <div className="grid grid-cols-2 gap-4 mb-8">
+          <Portal>
+            <div className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-6 animate-in">
+              <div className="bg-white w-full max-w-lg rounded-[3rem] p-10 shadow-2xl relative">
                 <button
                   onClick={() =>
-                    setDeliveryMethodModal((prev) => ({
-                      ...prev,
-                      deliveryMethod: "pickup",
-                    }))
+                    setDeliveryMethodModal({
+                      isOpen: false,
+                      auctionId: "",
+                      deliveryMethod: null,
+                    })
                   }
-                  className={`p-6 rounded-2xl border-4 transition-all flex flex-col items-center gap-3 ${deliveryMethodModal.deliveryMethod === "pickup" ? "border-[#FEBA4F] bg-[#FEBA4F]/10" : "border-slate-100 hover:border-slate-200 bg-white"}`}
+                  className="absolute top-8 right-8 text-slate-400 hover:text-[#0A1128] transition-colors"
                 >
-                  <MapPin
-                    size={32}
-                    className={
-                      deliveryMethodModal.deliveryMethod === "pickup"
-                        ? "text-[#FEBA4F]"
-                        : "text-slate-400"
-                    }
-                  />
-                  <span className="font-bold text-sm text-[#0A1128]">
-                    Osebni prevzem
-                  </span>
+                  <X size={24} />
                 </button>
-                <button
-                  onClick={() =>
-                    setDeliveryMethodModal((prev) => ({
-                      ...prev,
-                      deliveryMethod: "post",
-                    }))
-                  }
-                  className={`p-6 rounded-2xl border-4 transition-all flex flex-col items-center gap-3 ${deliveryMethodModal.deliveryMethod === "post" ? "border-[#FEBA4F] bg-[#FEBA4F]/10" : "border-slate-100 hover:border-slate-200 bg-white"}`}
-                >
-                  <Truck
-                    size={32}
-                    className={
-                      deliveryMethodModal.deliveryMethod === "post"
-                        ? "text-[#FEBA4F]"
-                        : "text-slate-400"
+                <h2 className="text-2xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">
+                  Način predaje
+                </h2>
+                <p className="text-slate-500 font-bold mb-8">
+                  Izberite, na kakšen način boste predmet predali kupcu.
+                </p>
+                <div className="grid grid-cols-2 gap-4 mb-8">
+                  <button
+                    onClick={() =>
+                      setDeliveryMethodModal((prev) => ({
+                        ...prev,
+                        deliveryMethod: "pickup",
+                      }))
                     }
-                  />
-                  <span className="font-bold text-sm text-[#0A1128]">
-                    Pošiljanje po pošti
-                  </span>
+                    className={`p-6 rounded-2xl border-4 transition-all flex flex-col items-center gap-3 ${deliveryMethodModal.deliveryMethod === "pickup" ? "border-[#FEBA4F] bg-[#FEBA4F]/10" : "border-slate-100 hover:border-slate-200 bg-white"}`}
+                  >
+                    <MapPin
+                      size={32}
+                      className={
+                        deliveryMethodModal.deliveryMethod === "pickup"
+                          ? "text-[#FEBA4F]"
+                          : "text-slate-400"
+                      }
+                    />
+                    <span className="font-bold text-sm text-[#0A1128]">
+                      Osebni prevzem
+                    </span>
+                  </button>
+                  <button
+                    onClick={() =>
+                      setDeliveryMethodModal((prev) => ({
+                        ...prev,
+                        deliveryMethod: "post",
+                      }))
+                    }
+                    className={`p-6 rounded-2xl border-4 transition-all flex flex-col items-center gap-3 ${deliveryMethodModal.deliveryMethod === "post" ? "border-[#FEBA4F] bg-[#FEBA4F]/10" : "border-slate-100 hover:border-slate-200 bg-white"}`}
+                  >
+                    <Truck
+                      size={32}
+                      className={
+                        deliveryMethodModal.deliveryMethod === "post"
+                          ? "text-[#FEBA4F]"
+                          : "text-slate-400"
+                      }
+                    />
+                    <span className="font-bold text-sm text-[#0A1128]">
+                      Pošiljanje po pošti
+                    </span>
+                  </button>
+                </div>
+                <button
+                  onClick={handleDeliveryMethodSubmit}
+                  disabled={!deliveryMethodModal.deliveryMethod}
+                  className="w-full bg-[#0A1128] text-white py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Potrdi izbiro
                 </button>
               </div>
-              <button
-                onClick={handleDeliveryMethodSubmit}
-                disabled={!deliveryMethodModal.deliveryMethod}
-                className="w-full bg-[#0A1128] text-white py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Potrdi izbiro
-              </button>
             </div>
-          </div>
+          </Portal>
         )}
 
         {receiptConfirmModal.isOpen && (
-          <div className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-6 animate-in">
-            <div className="bg-white w-full max-w-md rounded-[3rem] p-10 shadow-2xl relative text-center">
-              <button
-                onClick={() =>
-                  setReceiptConfirmModal({
-                    isOpen: false,
-                    auctionId: "",
-                    sellerId: "",
-                  })
-                }
-                className="absolute top-8 right-8 text-slate-400 hover:text-[#0A1128] transition-colors"
-              >
-                <X size={24} />
-              </button>
-              <div className="bg-green-100 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6">
-                <CheckCircle2 size={40} className="text-green-600" />
-              </div>
-              <h2 className="text-2xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">
-                Potrditev prejema
-              </h2>
-              <p className="text-slate-500 font-bold mb-8">
-                S potrditvijo izjavljate, da ste predmet uspešno prevzeli.
-                Dejanja ni mogoče razveljaviti.
-              </p>
-              <div className="flex flex-col gap-3">
-                <button
-                  onClick={handleReceiptConfirmSubmit}
-                  className="w-full bg-[#0A1128] text-white py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all"
-                >
-                  Dokončno potrdi prejem
-                </button>
+          <Portal>
+            <div className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-6 animate-in">
+              <div className="bg-white w-full max-w-md rounded-[3rem] p-10 shadow-2xl relative text-center">
                 <button
                   onClick={() =>
                     setReceiptConfirmModal({
@@ -5131,13 +5099,43 @@ const MainApp: React.FC = () => {
                       sellerId: "",
                     })
                   }
-                  className="w-full bg-slate-100 text-slate-600 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-slate-200 transition-all"
+                  className="absolute top-8 right-8 text-slate-400 hover:text-[#0A1128] transition-colors"
                 >
-                  Prekliči
+                  <X size={24} />
                 </button>
+                <div className="bg-green-100 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <CheckCircle2 size={40} className="text-green-600" />
+                </div>
+                <h2 className="text-2xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">
+                  Potrditev prejema
+                </h2>
+                <p className="text-slate-500 font-bold mb-8">
+                  S potrditvijo izjavljate, da ste predmet uspešno prevzeli.
+                  Dejanja ni mogoče razveljaviti.
+                </p>
+                <div className="flex flex-col gap-3">
+                  <button
+                    onClick={handleReceiptConfirmSubmit}
+                    className="w-full bg-[#0A1128] text-white py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all"
+                  >
+                    Dokončno potrdi prejem
+                  </button>
+                  <button
+                    onClick={() =>
+                      setReceiptConfirmModal({
+                        isOpen: false,
+                        auctionId: "",
+                        sellerId: "",
+                      })
+                    }
+                    className="w-full bg-slate-100 text-slate-600 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-slate-200 transition-all"
+                  >
+                    Prekliči
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
+          </Portal>
         )}
 
         <ReviewModal
@@ -5183,25 +5181,6 @@ const MainApp: React.FC = () => {
           seller={invoiceModalData.seller}
           buyer={invoiceModalData.buyer}
         />
-
-        {verificationData && (
-          <EmailConfirmationView
-            token={verificationData.token}
-            email={verificationData.email}
-            onGoToLogin={(confirmedEmail) => {
-              setVerificationData(null);
-              const cleanUrl = window.location.pathname;
-              window.history.replaceState({}, document.title, cleanUrl);
-              setActiveView('login');
-              window.scrollTo({ top: 0, behavior: "instant" });
-            }}
-            onClose={() => {
-              setVerificationData(null);
-              const cleanUrl = window.location.pathname;
-              window.history.replaceState({}, document.title, cleanUrl);
-            }}
-          />
-        )}
 
         {showBackToTop && (
           <button
