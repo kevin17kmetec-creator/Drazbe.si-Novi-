@@ -2,9 +2,8 @@ import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { User, Camera, CheckCircle2, AlertCircle, Shield, CreditCard, Building, MapPin, Key, Bell, X, Eye, EyeOff, ShieldAlert, AlertTriangle, ArrowLeft, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import imageCompression from 'browser-image-compression';
-import { StripeConnectOnboarding } from "@/src/components/profile/StripeConnectOnboarding";
 import { PhoneInput } from "@/src/components/ui/PhoneInput";
-import { requestPayoutAction, checkStripeAccountStatusAction, deleteAccountAction } from '@/src/actions/index';
+import { checkStripeAccountStatusAction, deleteAccountAction } from '@/src/actions/index';
 import { auth } from "../../lib/firebase";
 import { signOut, GoogleAuthProvider, linkWithPopup, unlink } from "firebase/auth";
 import { friendlyError } from '../../lib/friendlyError';
@@ -43,6 +42,100 @@ const COUNTRIES = [
   { code: 'US', name: 'Združene države / USA' },
 ].sort((a, b) => a.name.localeCompare(b.name));
 
+const PayoutsList: React.FC = () => {
+  const [payouts, setPayouts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    const fetchPayouts = async () => {
+      try {
+        const token = await auth.currentUser?.getIdToken();
+        const res = await fetch('/api/seller/payouts', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (active && data.success && data.payouts) {
+            setPayouts(data.payouts);
+          }
+        }
+      } catch (err) {
+        console.error("Error loading payouts list:", err);
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+    fetchPayouts();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const getStatusLabel = (status: string) => {
+    switch (status) {
+      case 'held': return "Zadržano do potrditve prejema";
+      case 'frozen': return "Zadržano zaradi spora";
+      case 'release_waiting_funds': return "Čaka na razpoložljiva sredstva";
+      case 'paid_out': return "Izplačano";
+      case 'refunded': return "Vrnjeno kupcu";
+      case 'release_failed': return "Napaka pri izplačilu (obvestite podporo)";
+      default: return status;
+    }
+  };
+
+  const getStatusColorClass = (status: string) => {
+    switch (status) {
+      case 'paid_out': return "text-emerald-600 bg-emerald-50 border-emerald-100";
+      case 'held': return "text-blue-600 bg-blue-50 border-blue-100";
+      case 'frozen': return "text-amber-600 bg-amber-50 border-amber-100";
+      case 'release_waiting_funds': return "text-indigo-600 bg-indigo-50 border-indigo-100";
+      case 'refunded': return "text-rose-600 bg-rose-50 border-rose-100";
+      case 'release_failed': return "text-red-600 bg-red-50 border-red-100";
+      default: return "text-slate-600 bg-slate-50 border-slate-100";
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center py-8">
+        <div className="w-6 h-6 border-2 border-[#0A1128] border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (payouts.length === 0) {
+    return (
+      <div className="bg-slate-50 rounded-2xl p-6 text-center text-slate-400 font-bold text-sm border border-slate-100">
+        Še nimate izvedenih izplačil.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {payouts.map((p) => (
+        <div key={p.id} className="bg-white border-2 border-slate-100 rounded-3xl p-5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 transition-all hover:border-[#FEBA4F]/50">
+          <div>
+            <h4 className="font-black text-[#0A1128] text-base uppercase tracking-tight">{p.title}</h4>
+            <p className="text-xs text-slate-400 font-bold mt-1">
+              Prejeto: {p.held_since ? new Date(p.held_since).toLocaleDateString('sl-SI') : '/'}
+            </p>
+          </div>
+          <div className="flex sm:flex-col items-start sm:items-end gap-2 sm:gap-1 w-full sm:w-auto justify-between border-t sm:border-t-0 pt-3 sm:pt-0 border-slate-100">
+            <span className="font-black text-[#0A1128] text-lg">€{(p.seller_net_cents / 100).toLocaleString('sl-SI', { minimumFractionDigits: 2 })}</span>
+            <span className={`px-3 py-1 rounded-xl text-xs font-black uppercase tracking-wider border-2 ${getStatusColorClass(p.payout_status)}`}>
+              {getStatusLabel(p.payout_status)}
+            </span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 export const SettingsView: React.FC<{ 
   t: any; 
   language: string; 
@@ -51,6 +144,7 @@ export const SettingsView: React.FC<{
   onSave: (data: any) => Promise<{ emailChangeSent: boolean } | void>; 
   onVerify: () => void; 
   onStripeVerified: () => void;
+  onNavigateToPayoutSetup?: () => void;
   onRefreshUser?: () => Promise<void>;
   activeTab?: 'profile' | 'personal' | 'stripe' | 'notifications';
   setActiveTab?: (tab: 'profile' | 'personal' | 'stripe' | 'notifications') => void;
@@ -63,6 +157,7 @@ export const SettingsView: React.FC<{
   onSave, 
   onVerify, 
   onStripeVerified,
+  onNavigateToPayoutSetup,
   onRefreshUser,
   activeTab: propActiveTab,
   setActiveTab: propSetActiveTab,
@@ -212,6 +307,8 @@ export const SettingsView: React.FC<{
     companyPostalCode: user?.company_postal_code || user?.companyPostalCode || '',
     representative: user?.representative || '',
     countryCode: user?.country_code || user?.countryCode || 'SI',
+    vatStatus: user?.vat_status || user?.vatStatus || 'exempt_small',
+    vatId: user?.vat_id || user?.vatId || '',
     autoInvoiceGeneration: user?.auto_invoice_generation !== false, // default true
     emailNotifications: user?.email_notifications || user?.emailNotifications || {
       marketing: true, outbid: true, endingSoon: true, won: true, paymentReminder: true,
@@ -248,6 +345,8 @@ export const SettingsView: React.FC<{
             companyPostalCode: user.company_postal_code || user.companyPostalCode || '',
             representative: user.representative || '',
             countryCode: user.country_code || user.countryCode || 'SI',
+            vatStatus: user.vat_status || user.vatStatus || 'exempt_small',
+            vatId: user.vat_id || user.vatId || '',
             autoInvoiceGeneration: user.auto_invoice_generation ?? user.autoInvoiceGeneration ?? true,
             emailNotifications: user.email_notifications || user.emailNotifications || { marketing: true, outbid: true, endingSoon: true, won: true, paymentReminder: true, bids: true, messages: true, invoices: true }
           };
@@ -271,6 +370,8 @@ export const SettingsView: React.FC<{
             companyPostalCode: prev.companyPostalCode || user.company_postal_code || user.companyPostalCode || '',
             representative: prev.representative || user.representative || '',
             countryCode: prev.countryCode || user.country_code || user.countryCode || 'SI',
+            vatStatus: prev.vatStatus || user.vat_status || user.vatStatus || 'exempt_small',
+            vatId: prev.vatId || user.vat_id || user.vatId || '',
             autoInvoiceGeneration: prev.autoInvoiceGeneration ?? user.auto_invoice_generation ?? user.autoInvoiceGeneration ?? true,
           };
         }
@@ -320,6 +421,24 @@ export const SettingsView: React.FC<{
     if (formData.newPassword && !formData.oldPassword) {
       toast.error(t('oldPasswordRequired'));
       return;
+    }
+
+    if (userType === 'business') {
+      if (!formData.vatStatus) {
+        toast.error("Prosimo, izberite, ali ste zavezanec za DDV.");
+        return;
+      }
+      if (formData.vatStatus === 'payer') {
+        if (!formData.vatId) {
+          toast.error("Prosimo, vnesite svojo ID za DDV (z oznako države, npr. SI12345678).");
+          return;
+        }
+        const vatRegex = /^[A-Za-z]{2}\d+$/;
+        if (!vatRegex.test(formData.vatId)) {
+          toast.error("ID za DDV mora vsebovati oznako države in številke (npr. SI12345678).");
+          return;
+        }
+      }
     }
 
     setIsSaving(true);
@@ -826,6 +945,36 @@ export const SettingsView: React.FC<{
                                     <div><label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{t('taxNumber')}</label><input type="text" value={formData.taxNumber} onChange={e => setFormData({...formData, taxNumber: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 font-bold outline-none focus:border-[#FEBA4F]" /></div>
                                     <div><label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Matična številka</label><input type="text" value={formData.regNumber} onChange={e => setFormData({...formData, regNumber: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 font-bold outline-none focus:border-[#FEBA4F]" /></div>
                                     <div>
+                                        <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Ali ste zavezanec za DDV?</label>
+                                        <select
+                                            value={formData.vatStatus}
+                                            onChange={e => {
+                                                const val = e.target.value;
+                                                setFormData(prev => ({
+                                                    ...prev,
+                                                    vatStatus: val,
+                                                    vatId: val === 'exempt_small' ? '' : prev.vatId
+                                                }));
+                                            }}
+                                            className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 font-bold outline-none focus:border-[#FEBA4F] cursor-pointer"
+                                        >
+                                            <option value="exempt_small">Ne (nisem zavezanec po 94. členu ZDDV-1)</option>
+                                            <option value="payer">Da</option>
+                                        </select>
+                                    </div>
+                                    {formData.vatStatus === 'payer' && (
+                                        <div className="md:col-span-2">
+                                            <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">ID za DDV (z oznako države, npr. SI12345678)</label>
+                                            <input
+                                                type="text"
+                                                placeholder="npr. SI12345678"
+                                                value={formData.vatId}
+                                                onChange={e => setFormData({ ...formData, vatId: e.target.value.toUpperCase().replace(/\s/g, '') })}
+                                                className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 font-bold outline-none focus:border-[#FEBA4F]"
+                                            />
+                                        </div>
+                                    )}
+                                    <div>
                                         <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{t('country')}</label>
                                         <select value={formData.countryCode} onChange={e => setFormData({...formData, countryCode: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 font-bold outline-none focus:border-[#FEBA4F] cursor-pointer">
                                             {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.name}</option>)}
@@ -860,153 +1009,52 @@ export const SettingsView: React.FC<{
 
             {activeTab === 'stripe' && (
               <div className="animate-in fade-in slide-in-from-right-4">
-                {withdrawModalOpen && (
-                  <Portal>
-                    <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4 bg-[#0A1128]/60 backdrop-blur-sm">
-                      <div className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl animate-in fade-in zoom-in-95 duration-200">
-                        <div className="flex justify-between items-center mb-6">
-                          <h3 className="text-xl font-black uppercase tracking-tighter text-[#0A1128]">Zahtevaj izplačilo</h3>
-                          <button onClick={() => setWithdrawModalOpen(false)} className="text-slate-400 hover:text-[#0A1128] transition-colors">
-                            <X size={24} />
-                          </button>
-                        </div>
-                        <p className="text-sm font-bold text-slate-500 mb-6">
-                          Vnesite znesek za izplačilo. Na voljo imate €{((user?.available_cents !== undefined ? user.available_cents / 100 : Number(user?.wallet_balance)) || 0).toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.
-                        </p>
-                        
-                        <div className="mb-6 relative">
-                          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">€</span>
-                          <input 
-                            type="number" 
-                            value={withdrawAmount}
-                            onChange={(e) => setWithdrawAmount(e.target.value === '' ? '' : Number(e.target.value))}
-                            max={(user?.available_cents !== undefined ? user.available_cents / 100 : Number(user?.wallet_balance || 0))}
-                            min={1}
-                            className="w-full bg-slate-50 border border-slate-200 rounded-2xl pl-10 pr-4 py-4 font-black text-lg outline-none focus:border-[#FEBA4F]" 
-                          />
-                        </div>
-
-                        <div className="flex gap-4 mb-8">
-                          <button 
-                            type="button"
-                            onClick={() => setWithdrawAmount(Number(((user?.available_cents !== undefined ? user.available_cents / 100 : Number(user?.wallet_balance || 0)) * 0.5).toFixed(2)))} 
-                            className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-[#0A1128] rounded-xl font-black uppercase tracking-widest text-xs transition-colors"
-                          >
-                            50% zneska
-                          </button>
-                          <button 
-                            type="button"
-                            onClick={() => setWithdrawAmount(Number((user?.available_cents !== undefined ? user.available_cents / 100 : Number(user?.wallet_balance || 0)).toFixed(2)))} 
-                            className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-[#0A1128] rounded-xl font-black uppercase tracking-widest text-xs transition-colors"
-                          >
-                            100% zneska
-                          </button>
-                        </div>
-
-                        <button 
-                          disabled={isWithdrawing || withdrawAmount === '' || Number(withdrawAmount) <= 0 || Number(withdrawAmount) > (user?.available_cents !== undefined ? user.available_cents / 100 : Number(user?.wallet_balance || 0))}
-                          onClick={async () => {
-                            setIsWithdrawing(true);
-                            try {
-                              const token = await auth.currentUser?.getIdToken();
-                              const res = await requestPayoutAction({
-                                user_id: user?.id,
-                                amount: Number(withdrawAmount),
-                              }, token);
-                              if (!res.success) {
-                                throw new Error(res.error || "Napaka pri izplačilu");
-                              }
-                              toast.success(t('payoutRequestSuccess') || "Zahtevek za izplačilo je bil uspešno izveden.");
-                              setWithdrawModalOpen(false);
-                              if (onRefreshUser) {
-                                await onRefreshUser();
-                              } else if (onStripeVerified) {
-                                onStripeVerified();
-                              }
-                            } catch (err: any) {
-                              console.error("Payout error:", err);
-                              toast.error(friendlyError(err, "Napaka pri izplačilu."));
-                            } finally {
-                              setIsWithdrawing(false);
-                            }
-                          }}
-                          className="w-full bg-[#FEBA4F] text-[#0A1128] py-4 rounded-2xl font-black uppercase tracking-widest text-sm transition-all hover:bg-[#0A1128] hover:text-white disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2"
-                        >
-                          {isWithdrawing ? (
-                            <>
-                              <div className="w-4 h-4 border-2 border-[#0A1128]/30 border-t-current rounded-full animate-spin" />
-                              <span>{t('loading') || 'Nalaganje...'}</span>
-                            </>
-                          ) : 'Potrdi izplačilo'}
-                        </button>
-                      </div>
-                    </div>
-                  </Portal>
-                )}
-                <div className="mb-6">
-                    <h3 className="text-xl font-black uppercase tracking-tighter text-[#0A1128] mb-2 flex items-center gap-2">
-                        <CreditCard size={20} className="text-[#FEBA4F]"/> {t('walletFunds')}
-                    </h3>
-                    <p className="text-slate-400 font-bold text-sm mb-6">{t('walletDesc')}</p>
-                    
-                    <div className="bg-[#0A1128] text-white p-8 rounded-3xl shadow-xl flex items-center justify-between mb-8 border-4 border-[#FEBA4F]/20 relative overflow-hidden">
-                      <div className="absolute top-0 right-0 p-8 opacity-10">
-                        <CreditCard size={100} />
-                      </div>
-                      <div className="relative z-10">
-                        <p className="text-[10px] font-black uppercase tracking-widest text-[#FEBA4F] mb-1">{t('currentBalance')}</p>
-                        <p className="text-5xl font-black">€{((user?.available_cents !== undefined ? user.available_cents / 100 : Number(user?.wallet_balance)) || 0).toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-                        {Boolean(user?.held_cents) && (
-                          <p className="text-xs font-semibold text-slate-300 mt-1">
-                            (Zadržano: €{((user.held_cents || 0) / 100).toLocaleString('sl-SI', { minimumFractionDigits: 2 })})
-                          </p>
-                        )}
-                      </div>
-                      <div className="relative z-10">
-                        <button 
-                          type="button"
-                          disabled={isWithdrawing}
-                          onClick={() => {
-                            const balance = user?.available_cents !== undefined ? user.available_cents / 100 : Number(user?.wallet_balance || 0);
-                            if (balance <= 0) {
-                              toast.error(t('insufficientFunds') || "Ni zadostnih sredstev za izplačilo.");
-                              return;
-                            }
-                            if (!user?.stripe_onboarding_complete) {
-                              toast.error(t('connectStripeForPayout') || "Najprej povežite Stripe račun za prejem izplačil.");
-                              return;
-                            }
-                            setWithdrawAmount(balance);
-                            setWithdrawModalOpen(true);
-                          }}
-                          className={`bg-[#FEBA4F] text-[#0A1128] px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm transition-all shadow-xl flex items-center gap-2 ${isWithdrawing ? 'opacity-70 cursor-not-allowed' : 'hover:bg-white'}`}
-                        >
-                          {isWithdrawing ? (
-                            <>
-                              <div className="w-4 h-4 border-2 border-[#0A1128]/30 border-t-[#0A1128] rounded-full animate-spin" />
-                              <span>{t('loading') || 'Nalaganje...'}</span>
-                            </>
-                          ) : (
-                            t('requestPayout')
-                          )}
-                        </button>
-                      </div>
-                    </div>
+                <div className="mb-8">
+                  <h3 className="text-xl font-black uppercase tracking-tighter text-[#0A1128] mb-2 flex items-center gap-2">
+                    <CreditCard size={20} className="text-[#FEBA4F]"/> Moja izplačila
+                  </h3>
+                  <p className="text-slate-500 font-bold text-sm mb-6 leading-relaxed">
+                    Denar od kupca je že na vašem računu pri Stripe in ga mi ne hranimo. Na bančni račun se izplača po potrditvi prejema.
+                  </p>
+                  
+                  <PayoutsList />
                 </div>
                 
                 <div className="mb-6">
                     <h3 className="text-xl font-black uppercase tracking-tighter text-[#0A1128] mb-2 flex items-center gap-2">
                         <CreditCard size={20} className="text-[#FEBA4F]"/> {t('stripeBankConnection')}
                     </h3>
-                    <p className="text-slate-400 font-bold text-sm mb-8">{t('stripeBankConnectionDesc')}</p>
+                    <p className="text-slate-400 font-bold text-sm mb-6">{t('stripeBankConnectionDesc')}</p>
                 </div>
-                <StripeConnectOnboarding 
-                  userId={user?.id || ''} 
-                  isComplete={!!user?.stripe_onboarding_complete} 
-                  onComplete={onStripeVerified} 
-                  t={t}
-                  language={language}
-                />
+
+                <div className="bg-slate-50 border-2 border-slate-200 rounded-3xl p-6 mb-6">
+                  {user?.stripe_onboarding_complete ? (
+                    <div className="flex items-center gap-3 text-emerald-800 font-bold mb-4">
+                      <CheckCircle2 size={24} className="text-emerald-600 shrink-0" />
+                      <div>
+                        <div className="font-black text-base uppercase tracking-tight">Izplačila so urejena</div>
+                        <div className="text-xs text-slate-500 font-bold mt-0.5">Vaš račun je pripravljen za prejemanje izplačil.</div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-3 text-amber-800 font-bold mb-4">
+                      <AlertCircle size={24} className="text-amber-600 shrink-0" />
+                      <div>
+                        <div className="font-black text-base uppercase tracking-tight">Izplačila še niso urejena</div>
+                        <div className="text-xs text-slate-500 font-bold mt-0.5">Za prodajo na platformi morate urediti račun za izplačila.</div>
+                      </div>
+                    </div>
+                  )}
+
+                  <button
+                    onClick={() => {
+                      if (onNavigateToPayoutSetup) onNavigateToPayoutSetup();
+                    }}
+                    className="bg-[#0A1128] text-white px-6 py-3.5 rounded-2xl font-black uppercase tracking-wider text-xs hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-md flex items-center gap-2"
+                  >
+                    <CreditCard size={18} /> Uredi izplačila
+                  </button>
+                </div>
               </div>
             )}
 

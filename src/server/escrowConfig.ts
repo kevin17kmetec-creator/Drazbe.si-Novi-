@@ -1,0 +1,6 @@
+export const AUTO_RELEASE_AFTER_SHIPPED_DAYS = 14;
+export const AUTO_COMPLETE_AFTER_DELIVERED_DAYS = 3;
+export const PICKUP_AUTO_RELEASE_DAYS = 14;
+export const NOT_SHIPPED_ALERT_DAYS = 14;
+export const HOLD_HARD_LIMIT_DAYS = 75;
+export const HOLD_ALERT_DAYS = 60;

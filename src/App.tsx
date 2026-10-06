@@ -2842,6 +2842,8 @@ const MainApp: React.FC = () => {
           tax_id: data.taxNumber ?? '',
           registration_number: data.regNumber ?? '',
           representative: data.representative ?? '',
+          vat_status: data.vatStatus ?? 'private',
+          vat_id: data.vatId ?? '',
           auto_invoice_generation: data.autoInvoiceGeneration !== false,
           email_notifications: data.emailNotifications,
           profile_picture_url: profilePictureUrl || null
