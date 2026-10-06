@@ -90,6 +90,18 @@ export function getCommissionVat(countryCode: string, isBusiness: boolean, hasVa
   return { vatRate: 22, isReverseCharge: false };
 }
 
+export const STRIPE_CARD_BPS = 190;
+export const STRIPE_CARD_FIXED_CENTS = 25;
+export const CONNECT_PAYOUT_BPS = 25;
+export const CONNECT_PAYOUT_FIXED_CENTS = 10;
+export const COST_SAFETY_MARGIN_CENTS = 20;
+
+export function calculateMinimumFeeCents(itemPriceCents: number, vatRate: number): number {
+  const costs = itemPriceCents * (STRIPE_CARD_BPS + CONNECT_PAYOUT_BPS) / 10000 + STRIPE_CARD_FIXED_CENTS + CONNECT_PAYOUT_FIXED_CENTS + COST_SAFETY_MARGIN_CENTS;
+  const denominator = 1 - (STRIPE_CARD_BPS / 10000) * (1 + vatRate / 100);
+  return Math.ceil(costs / denominator);
+}
+
 export function calculateTotals(params: {
   itemPriceCents: number;
   tier: Tier;
@@ -98,11 +110,16 @@ export function calculateTotals(params: {
   hasValidVatId: boolean;
 }) {
   const { itemPriceCents, tier, countryCode, isBusiness, hasValidVatId } = params;
-  const feeCents = calculatePlatformFeeCents(itemPriceCents, tier);
+  const bracketFee = calculatePlatformFeeCents(itemPriceCents, tier);
   const { vatRate, isReverseCharge } = getCommissionVat(countryCode, isBusiness, hasValidVatId);
+  
+  const minFee = calculateMinimumFeeCents(itemPriceCents, vatRate);
+  const feeCents = Math.max(bracketFee, minFee);
+  
   const vatCents = Math.round((feeCents * vatRate) / 100);
   const totalCents = itemPriceCents + feeCents + vatCents;
   const feePercent = itemPriceCents > 0 ? Math.round((feeCents / itemPriceCents) * 10000) / 100 : 0;
+  const feeIsMinimum = minFee > bracketFee;
 
   return {
     itemPriceCents,
@@ -111,6 +128,7 @@ export function calculateTotals(params: {
     vatCents,
     isReverseCharge,
     totalCents,
-    feePercent
+    feePercent,
+    feeIsMinimum
   };
 }

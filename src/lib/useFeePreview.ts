@@ -10,6 +10,7 @@ export interface FeePreviewData {
   isReverseCharge: boolean;
   totalCents: number;
   tier: 'FREE' | 'BASIC' | 'PRO';
+  feeIsMinimum: boolean;
 }
 
 export function useFeePreview(params: { amount?: number; auctionId?: string; enabled?: boolean }) {

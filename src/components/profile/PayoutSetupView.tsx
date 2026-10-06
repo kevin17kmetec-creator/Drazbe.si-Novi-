@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { loadConnectAndInitialize } from '@stripe/connect-js';
 import { ConnectComponentsProvider, ConnectAccountOnboarding } from '@stripe/react-connect-js';
 import { CheckCircle2, AlertCircle, AlertTriangle, ShieldCheck, Building2, Info } from 'lucide-react';
+import { TERMS_VERSION } from '../../lib/termsVersion';
 import { getAuthHeaders } from '../../lib/authFetch';
 import { toast } from 'sonner';
 
@@ -89,7 +90,7 @@ export const PayoutSetupView: React.FC<PayoutSetupViewProps> = ({
           ...headers
         },
         body: JSON.stringify({
-          terms_version: '1.0',
+          terms_version: TERMS_VERSION,
           invoice_authorization: true,
           self_certification: true
         })

@@ -166,6 +166,11 @@ export const SubscriptionsView: React.FC<{
           </div>
         ))}
       </div>
+      <div className="text-center mt-6">
+        <p className="text-xs font-bold text-slate-500">
+          Minimalna provizija: od 0,59 € na plačilo (pokriva stroške plačilnega sistema). Velja za vse pakete.
+        </p>
+      </div>
 
       {currentPlan !== SubscriptionTier.FREE && !isCanceled && (
           <div className="mt-12 text-center">

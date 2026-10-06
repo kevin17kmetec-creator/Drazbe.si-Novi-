@@ -133,6 +133,11 @@ export const ConfirmBidModal: React.FC<{
               <p className="text-[11px] text-slate-500 mt-1">
                 Provizija se obračuna po vašem paketu: <strong className="text-[#0A1128]">{tierSlo}</strong>.
               </p>
+              {previewData?.feeIsMinimum && (
+                <p className="text-[10px] text-[#FEBA4F] font-bold mt-1">
+                  Uporabljena je minimalna provizija, ki pokriva stroške plačilnega sistema.
+                </p>
+              )}
             </div>
 
             <div className="border-t border-slate-300 pt-2 mb-6">

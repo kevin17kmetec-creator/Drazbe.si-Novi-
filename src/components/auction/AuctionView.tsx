@@ -247,6 +247,7 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
   const grossFeeCents = activeFeeCents + activeVatCents;
   const grossFeeEur = grossFeeCents / 100;
   const vatRateUsed = currentUserId ? (previewData?.vatRate ?? 22) : 22;
+  const activeFeeIsMinimum = currentUserId ? (previewData?.feeIsMinimum ?? guestTotals.feeIsMinimum) : guestTotals.feeIsMinimum;
 
   return (
     <div className="max-w-[1600px] mx-auto px-4 py-4 bg-slate-50/50 min-h-screen">
@@ -631,6 +632,11 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                       <span>Provizija platforme ({activeFeePercent} %):</span>
                       <span className="font-extrabold text-[#0A1128]">€{grossFeeEur.toFixed(2)}</span>
                     </div>
+                    {activeFeeIsMinimum && (
+                      <p className="text-[10px] text-[#FEBA4F] font-bold mt-1">
+                        Uporabljena je minimalna provizija, ki pokriva stroške plačilnega sistema.
+                      </p>
+                    )}
                     <p className="text-[10px] text-slate-400 mt-0.5">
                       Vključuje {vatRateUsed} % DDV in zaščito kupca (escrow hramba sredstev).
                       {!currentUserId && <span className="block text-[#FEBA4F] font-bold mt-0.5">Za vas se izračuna ob prijavi.</span>}

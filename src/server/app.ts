@@ -6909,6 +6909,34 @@ app.post("/api/profile/update", async (req, res) => {
   }
 });
 
+app.post("/api/accept-terms", async (req, res) => {
+  let uid: string;
+  try { uid = await authenticateFirebaseUser(req); }
+  catch (authErr: any) { return res.status(401).json({ error: authErr.message || 'Unauthorized' }); }
+  const { terms_version } = req.body;
+  if (terms_version !== TERMS_VERSION) return res.status(400).json({ error: "Invalid terms version" });
+  await adminDb.collection('users').doc(uid).set({
+    terms_version,
+    terms_accepted_at: new Date().toISOString()
+  }, { merge: true });
+  return res.json({ success: true });
+});
+
+app.post("/api/seller/accept-terms", async (req, res) => {
+  let uid: string;
+  try { uid = await authenticateFirebaseUser(req); }
+  catch (authErr: any) { return res.status(401).json({ error: authErr.message || 'Unauthorized' }); }
+  const { terms_version, invoice_authorization, self_certification } = req.body;
+  if (terms_version !== TERMS_VERSION) return res.status(400).json({ error: "Invalid terms version" });
+  await adminDb.collection('users').doc(uid).set({
+    terms_version,
+    terms_accepted_at: new Date().toISOString(),
+    seller_invoice_authorization: invoice_authorization,
+    seller_self_certified: self_certification
+  }, { merge: true });
+  return res.json({ success: true });
+});
+
 // 3. POST /api/subscription/downgrade-free
 app.post("/api/subscription/downgrade-free", async (req, res) => {
   try {
