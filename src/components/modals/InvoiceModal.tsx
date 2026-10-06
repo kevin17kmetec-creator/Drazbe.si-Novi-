@@ -2,6 +2,7 @@ import React, { useRef, useState } from 'react';
 import { X, FileText, Download } from 'lucide-react';
 import { AuctionItem } from "../../types";
 import { getAuthHeaders } from "../../lib/authFetch";
+import { calculatePlatformFeeCents } from "../../lib/feeCalculator";
 import { Portal } from '../ui/Portal';
 
 interface InvoiceModalProps {
@@ -112,9 +113,10 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
   const vatAmount = isVatApplicable ? itemPrice - vatBase : 0;
 
   // Platform Fee calculation
-  const feeBase = (itemPrice * 0.10) / (1 + vatRate);
-  const feeVat = feeBase * vatRate;
-  const feeTotal = itemPrice * 0.10;
+  const feeCents = calculatePlatformFeeCents(Math.round(itemPrice * 100), ((buyer as any)?.subscription_tier || 'FREE').toUpperCase() as any);
+  const feeBase = feeCents / 100;
+  const feeVat = (Math.round(feeCents * 0.22)) / 100;
+  const feeTotal = feeBase + feeVat;
 
   const formatEuro = (val: number) => {
     return val.toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 });

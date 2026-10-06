@@ -16,9 +16,15 @@ import { useGoogleReCaptcha } from 'react-google-recaptcha-v3';
 import { verifyCaptchaAction } from '../../actions/captcha';
 import { friendlyError } from '../../lib/friendlyError';
 
-export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerified: (v: boolean) => void; setAppLoggedIn: (val: boolean) => void }> = ({ t, onLoginSuccess, setIsVerified, setAppLoggedIn }) => {
+export const AuthView: React.FC<{ 
+  t: any; 
+  onLoginSuccess: () => void; 
+  setIsVerified: (v: boolean) => void; 
+  setAppLoggedIn: (val: boolean) => void;
+  initialMode?: 'login' | 'register';
+}> = ({ t, onLoginSuccess, setIsVerified, setAppLoggedIn, initialMode = 'login' }) => {
   const { executeRecaptcha } = useGoogleReCaptcha();
-  const [isLogin, setIsLogin] = useState(true);
+  const [isLogin, setIsLogin] = useState(initialMode !== 'register');
   const [isForgotPassword, setIsForgotPassword] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -400,6 +406,7 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
                 />
                 <button
                   type="button"
+                  tabIndex={-1}
                   onClick={() => setShowPassword(prev => !prev)}
                   className="absolute right-4 top-1/2 -translate-y-1/2 p-2 text-slate-400 hover:text-[#0A1128] transition-colors focus:outline-none"
                   aria-label={showPassword ? "Skrij geslo" : "Pokaži geslo"}
@@ -450,6 +457,7 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
                     />
                     <button
                       type="button"
+                      tabIndex={-1}
                       onClick={() => setShowConfirmPassword(prev => !prev)}
                       className="absolute right-4 top-1/2 -translate-y-1/2 p-2 text-slate-400 hover:text-[#0A1128] transition-colors focus:outline-none"
                       aria-label={showConfirmPassword ? "Skrij geslo" : "Pokaži geslo"}

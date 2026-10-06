@@ -13,6 +13,7 @@ export const Header: React.FC<{
   onCategorySelect: (cat: Category | null) => void;
   onLastChance: () => void;
   onLogin: () => void;
+  onRegister?: () => void;
   onLogout: () => void;
   onSettings: (tab?: 'profile' | 'personal' | 'stripe') => void;
   onSubscriptions: () => void;
@@ -38,7 +39,7 @@ export const Header: React.FC<{
   userProfilePicture?: string;
   userWalletBalance?: number;
   userData?: any;
-}> = ({ onHome, onSearch, onRegionSelect, onCategorySelect, onLastChance, onLogin, onLogout, onSettings, onSubscriptions, onCreateAuction, onMyWinnings, onMyBids, onMySold, onMyUnsold, onWatchlist, onMessages, activeView, selectedRegion, selectedCategory, isLoggedIn, isAuthLoading, isVerified, language, onLanguageChange, t, auctions, newWinningsCount, userEmail, userProfilePicture, userWalletBalance, userData }) => {
+}> = ({ onHome, onSearch, onRegionSelect, onCategorySelect, onLastChance, onLogin, onRegister, onLogout, onSettings, onSubscriptions, onCreateAuction, onMyWinnings, onMyBids, onMySold, onMyUnsold, onWatchlist, onMessages, activeView, selectedRegion, selectedCategory, isLoggedIn, isAuthLoading, isVerified, language, onLanguageChange, t, auctions, newWinningsCount, userEmail, userProfilePicture, userWalletBalance, userData }) => {
   const { unreadMessageCount } = useChat();
 
   const [isRegOpen, setIsRegOpen] = useState(false);
@@ -286,7 +287,15 @@ export const Header: React.FC<{
                   </div>
                 </div>
               ) : (
-                <button onClick={onLogin} className="bg-[#FEBA4F] text-[#0A1128] px-8 py-2.5 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-white transition-all shadow-xl">{t('login')}</button>
+                <div className="flex flex-col items-center gap-1">
+                  <button 
+                    onClick={onRegister || onLogin} 
+                    className="text-[#FEBA4F] underline underline-offset-2 text-[11px] font-black uppercase tracking-widest hover:text-white transition-colors"
+                  >
+                    Registracija
+                  </button>
+                  <button onClick={onLogin} className="bg-[#FEBA4F] text-[#0A1128] px-8 py-2.5 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-white transition-all shadow-xl">{t('login')}</button>
+                </div>
               )}
             </div>
       </div>

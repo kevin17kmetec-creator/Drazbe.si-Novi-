@@ -13,7 +13,8 @@ import {
   creditWalletDepositFromStripe,
   getUserWallet
 } from './walletService';
-import { parseAmountToCents, calculateCheckoutTotals, calculateMarginalPlatformFee } from './moneyUtils';
+import { parseAmountToCents } from './moneyUtils';
+import { getEffectiveTier, calculateTotals, calculatePlatformFeeCents } from '../lib/feeCalculator';
 import { authenticateFirebaseUser } from './authHelper';
 import {
   formatStripeError,
@@ -86,6 +87,137 @@ async function safeGetDoc(docRef: any) {
       ref: docRef
     };
   }
+}
+
+async function assertVerifiedUser(userId: string, userData: any): Promise<void> {
+  let isEmailVerified = userData?.email_verified === true || userData?.is_verified === true;
+  if (!isEmailVerified && userId) {
+    try {
+      const authUser = await adminAuth.getUser(userId);
+      if (authUser?.emailVerified === true) {
+        isEmailVerified = true;
+      }
+    } catch (e) {
+      // Ignore lookup failure
+    }
+  }
+
+  if (!isEmailVerified) {
+    const err: any = new Error("Za to dejanje morate najprej potrditi svoj e-poštni naslov.");
+    err.statusCode = 403;
+    err.code = 'EMAIL_NOT_VERIFIED';
+    throw err;
+  }
+
+  if (userData?.profile_completed !== true) {
+    const err: any = new Error("Za to dejanje morate najprej dopolniti svoj profil (Nastavitve, Osebni podatki).");
+    err.statusCode = 403;
+    err.code = 'PROFILE_INCOMPLETE';
+    throw err;
+  }
+}
+
+const EU_COUNTRIES_SET = new Set([
+  'AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR',
+  'DE', 'GR', 'HU', 'IE', 'IT', 'LV', 'LT', 'LU', 'MT', 'NL',
+  'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE'
+]);
+
+async function isViesValid(countryCode: string, vatId: string): Promise<boolean> {
+  if (!countryCode || !vatId) return false;
+  const cc = countryCode.trim().toUpperCase();
+  let num = vatId.trim().replace(/[\s\.-]/g, '');
+  if (num.startsWith(cc)) {
+    num = num.substring(cc.length);
+  }
+  if (!num) return false;
+
+  const url = `https://ec.europa.eu/taxation_customs/vies/rest-api/ms/${cc}/vat/${num}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 4000);
+
+  try {
+    const resp = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeout);
+    if (!resp.ok) return false;
+    const data = await resp.json();
+    return data.isValid === true;
+  } catch (e) {
+    clearTimeout(timeout);
+    return false;
+  }
+}
+
+async function getBuyerTaxContext(userId: string, userData: any): Promise<{ countryCode: string; isBusiness: boolean; hasValidVatId: boolean }> {
+  const countryCode = (userData?.country_code || 'SI').trim().toUpperCase();
+  const isBusiness = Boolean(
+    userData?.company_status === 'company' ||
+    userData?.user_type === 'company' ||
+    userData?.company_name
+  );
+  const rawVatId = userData?.tax_id || userData?.vat_id || '';
+  const hasVatIdInput = Boolean(rawVatId.trim());
+
+  if (!isBusiness || !hasVatIdInput || countryCode === 'SI' || !EU_COUNTRIES_SET.has(countryCode)) {
+    return {
+      countryCode,
+      isBusiness,
+      hasValidVatId: false
+    };
+  }
+
+  const checkKey = `${countryCode}${rawVatId.trim()}`;
+  const cachedFor = userData?.vies_checked_for;
+  const cachedValid = userData?.vies_valid;
+  const cachedAt = userData?.vies_checked_at;
+
+  const now = Date.now();
+  const twentyFourHours = 24 * 60 * 60 * 1000;
+
+  if (cachedFor === checkKey && typeof cachedValid === 'boolean' && cachedAt) {
+    const checkedTime = new Date(cachedAt).getTime();
+    if (!isNaN(checkedTime) && (now - checkedTime < twentyFourHours)) {
+      return {
+        countryCode,
+        isBusiness,
+        hasValidVatId: cachedValid
+      };
+    }
+  }
+
+  const valid = await isViesValid(countryCode, rawVatId);
+
+  try {
+    await adminDb.collection('users').doc(userId).set({
+      vies_checked_for: checkKey,
+      vies_valid: valid,
+      vies_checked_at: new Date().toISOString()
+    }, { merge: true });
+  } catch (e) {
+    console.warn('[getBuyerTaxContext] Failed to cache VIES result:', e);
+  }
+
+  return {
+    countryCode,
+    isBusiness,
+    hasValidVatId: valid
+  };
+}
+
+async function computeBuyerTotals(buyerId: string, buyerData: any, itemPriceCents: number) {
+  const tier = getEffectiveTier(buyerData);
+  const taxCtx = await getBuyerTaxContext(buyerId, buyerData);
+  const totals = calculateTotals({
+    itemPriceCents,
+    tier,
+    countryCode: taxCtx.countryCode,
+    isBusiness: taxCtx.isBusiness,
+    hasValidVatId: taxCtx.hasValidVatId
+  });
+  return {
+    ...totals,
+    tier
+  };
 }
 
 async function generateInvoiceNumber(type: 'SALES' | 'COMMISSION' | 'SUBSCRIPTION'): Promise<string> {
@@ -754,6 +886,264 @@ app.use((req, _res, next) => {
   next();
 });
 
+async function finalizeAuctionPayment(params: {
+  auctionId: string;
+  buyerId: string;
+  sellerId: string;
+  paymentRef: string;
+  amountTotalCents: number;
+  stripeSessionId?: string;
+}): Promise<{ alreadyProcessed: boolean }> {
+  const { auctionId, buyerId, sellerId, paymentRef, amountTotalCents, stripeSessionId } = params;
+  const txDocRef = adminDb.collection('transactions').doc(`tx_${paymentRef}`);
+
+  const nowMs = Date.now();
+  const leaseUntil = nowMs + 120000;
+
+  const txResult = await adminDb.runTransaction(async (t) => {
+    const txDoc = await t.get(txDocRef);
+    if (txDoc.exists) {
+      const data = txDoc.data() || {};
+      if (data.finalized === true) {
+        return { alreadyProcessed: true };
+      }
+      if (data.finalized !== true && typeof data.lease_until === 'number' && data.lease_until > nowMs) {
+        return { alreadyProcessed: true };
+      }
+      t.set(txDocRef, {
+        lease_until: leaseUntil,
+        status: 'processing',
+        finalized: false,
+        stripe_payment_intent_id: paymentRef,
+        ...(stripeSessionId ? { stripe_session_id: stripeSessionId } : {}),
+        auction_id: auctionId,
+        buyer_id: buyerId,
+        seller_id: sellerId
+      }, { merge: true });
+    } else {
+      t.set(txDocRef, {
+        auction_id: auctionId,
+        buyer_id: buyerId,
+        seller_id: sellerId,
+        stripe_payment_intent_id: paymentRef,
+        ...(stripeSessionId ? { stripe_session_id: stripeSessionId } : {}),
+        status: 'processing',
+        finalized: false,
+        lease_until: leaseUntil,
+        created_at: new Date().toISOString()
+      });
+    }
+    return { alreadyProcessed: false };
+  });
+
+  if (txResult.alreadyProcessed) {
+    return { alreadyProcessed: true };
+  }
+
+  try {
+    const buyerDoc = await safeGetDoc(adminDb.collection('users').doc(buyerId));
+    const buyer = buyerDoc.data() || {};
+    const sellerDoc = await safeGetDoc(adminDb.collection('users').doc(sellerId));
+    const seller = sellerDoc.data();
+
+    if (!buyer || !seller) throw new Error('Buyer or seller not found');
+
+    let itemCents = 0;
+    let feeCents = 0;
+    let vatCents = 0;
+    let vatRate = 22;
+    let isReverseCharge = false;
+    let meta: any = {};
+
+    try {
+      const stripe = getStripe();
+      if (stripeSessionId) {
+        const sess = await stripe.checkout.sessions.retrieve(stripeSessionId, { expand: ['payment_intent'] });
+        meta = sess.metadata || {};
+        if (!meta.item_cents && sess.payment_intent && typeof sess.payment_intent === 'object') {
+          meta = { ...meta, ...(sess.payment_intent.metadata || {}) };
+        }
+      } else if (paymentRef && paymentRef.startsWith('pi_')) {
+        const pi = await stripe.paymentIntents.retrieve(paymentRef);
+        meta = pi.metadata || {};
+      }
+    } catch (e) {}
+
+    itemCents = Number(meta.item_cents);
+    feeCents = Number(meta.fee_cents);
+    vatCents = Number(meta.vat_cents);
+    vatRate = meta.vat_rate !== undefined ? Number(meta.vat_rate) : 22;
+    isReverseCharge = meta.reverse_charge === '1' || meta.reverse_charge === true;
+
+    const auctionDoc = await safeGetDoc(adminDb.collection('auctions').doc(auctionId));
+    const auction = auctionDoc.data() || {};
+    let currentPrice = amountTotalCents / 100;
+    if (auction.current_price || auction.currentBid || auction.starting_price) {
+      currentPrice = Number(auction.current_price || auction.currentBid || auction.starting_price);
+    }
+    const authoritativePriceInCents = Math.round(currentPrice * 100);
+
+    if (isNaN(itemCents) || itemCents <= 0) {
+      const computed = await computeBuyerTotals(buyerId, buyer, authoritativePriceInCents);
+      itemCents = computed.itemPriceCents;
+      feeCents = computed.feeCents;
+      vatCents = computed.vatCents;
+      vatRate = computed.vatRate;
+      isReverseCharge = computed.isReverseCharge;
+    }
+
+    const expectedTotalCents = itemCents + feeCents + vatCents;
+    let amountMismatch = false;
+    if (expectedTotalCents !== amountTotalCents) {
+      amountMismatch = true;
+      console.error(`[finalizeAuctionPayment] Amount mismatch! expectedTotalCents=${expectedTotalCents}, amountTotalCents=${amountTotalCents}`, { auctionId, buyerId });
+    }
+
+    const itemPrice = itemCents / 100;
+    const platformFee = feeCents / 100;
+    const vatAmount = vatCents / 100;
+    const amountTotal = amountTotalCents / 100;
+
+    const currentTxSnap = await safeGetDoc(txDocRef);
+    const existingTxData = currentTxSnap.data() || {};
+    let salesInvoiceNo = existingTxData.sales_invoice_no;
+    let commissionInvoiceNo = existingTxData.commission_invoice_no;
+
+    await txDocRef.set({
+      amount_total: amountTotal,
+      platform_fee: platformFee,
+      vat_amount: vatAmount,
+      vat_rate: vatRate,
+      is_reverse_charge: isReverseCharge,
+      item_price: itemPrice,
+      ...(amountMismatch ? { amount_mismatch: true } : {})
+    }, { merge: true });
+
+    await adminDb.collection('auctions').doc(auctionId).update({
+      status: 'completed',
+      payment_status: 'paid',
+      post_auction_status: 'paid',
+      paid_at: new Date().toISOString()
+    });
+
+    await addHeldFunds(sellerId, itemCents, 'stripe_' + paymentRef, { stripe_payment_intent_id: paymentRef, auction_id: auctionId });
+    await recordSaleCompletion(auctionId, sellerId);
+
+    try {
+      await recordAmlSpend({
+        buyerId: buyerId,
+        amountEur: amountTotal,
+        uniqueKey: 'pi_' + paymentRef
+      });
+    } catch (spentErr: any) {
+      console.error('Error updating buyer spending records:', spentErr.message);
+    }
+
+    try {
+      const reservationDocRef = adminDb.collection('aml_reservations').doc(`${buyerId}_${auctionId}`);
+      const reservationDoc = await safeGetDoc(reservationDocRef);
+      if (reservationDoc.exists()) {
+        await reservationDocRef.set({
+          status: 'consumed',
+          consumed_at: new Date().toISOString(),
+          stripe_payment_intent_id: paymentRef
+        }, { merge: true });
+      }
+    } catch (resErr: any) {
+      console.error('[finalizeAuctionPayment] Error consuming AML reservation:', resErr.message);
+    }
+
+    if (!salesInvoiceNo || !commissionInvoiceNo) {
+      try {
+        salesInvoiceNo = await generateInvoiceNumber('SALES');
+        commissionInvoiceNo = await generateInvoiceNumber('COMMISSION');
+        await txDocRef.update({
+          sales_invoice_no: salesInvoiceNo,
+          commission_invoice_no: commissionInvoiceNo
+        });
+      } catch (e: any) {
+        console.error('Error generating invoice numbers:', e.message);
+      }
+    }
+
+    const txSnapFinal = await safeGetDoc(txDocRef);
+    const transactionRecord = { id: txDocRef.id, ...txSnapFinal.data() };
+
+    try {
+      const documentsToInsert: any[] = [];
+      const attachments: any[] = [];
+      let auctionDataPdf: any = null;
+
+      const auctionDocPdf = await safeGetDoc(adminDb.collection('auctions').doc(auctionId));
+      auctionDataPdf = auctionDocPdf.data();
+      const invoicePdfBuffer = await generateInvoicePDF(transactionRecord, buyer, seller, auctionDataPdf, salesInvoiceNo, commissionInvoiceNo);
+      const invoiceFileName = `racun_${salesInvoiceNo}.pdf`;
+
+      const invoicePath = await uploadBufferToStorage(invoicePdfBuffer, `${buyerId}/${invoiceFileName}`);
+      documentsToInsert.push({
+        transaction_id: txDocRef.id,
+        user_id: buyerId,
+        auction_id: auctionId,
+        type: 'invoice',
+        invoice_path: invoicePath,
+        created_at: new Date().toISOString()
+      });
+
+      attachments.push({
+        filename: invoiceFileName,
+        content: invoicePdfBuffer
+      });
+
+      if (documentsToInsert.length > 0) {
+        const batch = adminDb.batch();
+        documentsToInsert.forEach(d => {
+          const ref = adminDb.collection('documents').doc();
+          batch.set(ref, d);
+        });
+        await batch.commit();
+      }
+
+      if (buyer.email && process.env.RESEND_API_KEY) {
+        const auctionTitleText = auctionDataPdf?.title?.SLO || auctionDataPdf?.title?.EN || 'Predmet dražbe';
+        const baseAppUrl = (process.env.APP_URL && !process.env.APP_URL.includes('drazbenik.si')) ? process.env.APP_URL : 'https://drazbe.eu';
+        const auctionUrl = `${baseAppUrl}/?drazba=${auctionId}`;
+        
+        const htmlContent = await render(React.createElement(AuctionEmailTemplate, {
+          type: 'payment_success',
+          recipientName: buyer.first_name || buyer.name || 'uporabnik',
+          auctionTitle: auctionTitleText,
+          auctionImageUrl: auctionDataPdf?.images?.[0]?.url,
+          currentPrice: transactionRecord.amount_total,
+          auctionUrl,
+          settingsUrl: `${baseAppUrl}/?tab=settings`,
+        }));
+
+        const resendClient = new Resend(process.env.RESEND_API_KEY);
+        await resendClient.emails.send({
+          from: process.env.EMAIL_FROM || 'dražbenik.si <obvestila@drazbenik.si>',
+          to: buyer.email,
+          subject: `Potrdilo o plačilu in dokumenti: ${auctionTitleText} - dražbe.eu`,
+          html: htmlContent,
+          attachments
+        });
+      }
+    } catch (docEmailErr: any) {
+      console.error('[finalizeAuctionPayment] Error generating docs or sending email:', docEmailErr.message);
+    }
+
+    await txDocRef.update({
+      status: 'completed',
+      finalized: true,
+      lease_until: 0
+    });
+
+    return { alreadyProcessed: false };
+  } catch (err: any) {
+    console.error("[finalizeAuctionPayment] Core error processing payment:", err);
+    throw err;
+  }
+}
+
 // Webhook must be mounted BEFORE express.json() to preserve raw Buffer for Stripe signature validation
 app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
   const stripe = getStripe();
@@ -777,7 +1167,9 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
     const paymentIntent = !isSession ? (event.data.object as Stripe.PaymentIntent) : null;
 
     const rawMetadata = isSession ? (sessionObj?.metadata || {}) : (paymentIntent?.metadata || {});
-    const paymentId = isSession ? sessionObj!.id : paymentIntent!.id;
+    const paymentId = isSession 
+      ? (typeof sessionObj?.payment_intent === 'string' ? sessionObj.payment_intent : sessionObj?.payment_intent?.id || sessionObj!.id)
+      : paymentIntent!.id;
     console.log('Payment event succeeded:', event.type, paymentId);
 
     try {
@@ -907,226 +1299,24 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
         return;
       }
 
-      // 2. Fetch buyer and seller details
-      const buyerDoc = await safeGetDoc(adminDb.collection('users').doc(buyer_id));
-      const buyer = buyerDoc.data();
-      const sellerDoc = await safeGetDoc(adminDb.collection('users').doc(seller_id));
-      const seller = sellerDoc.data();
-
-      if (!buyer || !seller) throw new Error('Buyer or seller not found');
-
-      // 3. Calculate Fee and VAT dynamically based on active subscription tier and closing price
-      const amountTotalInCents = isSession ? (sessionObj?.amount_total || 0) : paymentIntent!.amount;
-      const amountTotal = amountTotalInCents / 100;
-
-      // Fetch auction to get exact price instead of estimating it
-      const auctionDoc = await safeGetDoc(adminDb.collection('auctions').doc(auction_id));
-      const auction = auctionDoc.data();
-      let currentPrice = amountTotal;
-      if (auction && (auction.current_price || auction.currentBid)) {
-        currentPrice = Number(auction.current_price || auction.currentBid);
-      } else {
-        const feePct = Number(fee_percentage) || 0;
-        if (feePct > 0) {
-          currentPrice = amountTotal / (1 + (feePct / 100));
-        }
-      }
-
-      const platformFee = calculateMarginalPlatformFee(currentPrice, seller.subscription_tier);
-
-      let vatRate = 0;
-      let isReverseCharge = false;
-
-      const euCountries = ['AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR', 'HU', 'IE', 'IT', 'LV', 'LT', 'LU', 'MT', 'NL', 'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE'];
-      const buyerCountry = buyer.country_code || 'SI';
-      if (buyerCountry === 'SI') {
-        vatRate = 22;
-      } else if (euCountries.includes(buyerCountry)) {
-        if (buyer.company_status === 'company' && buyer.tax_id) {
-          isReverseCharge = true;
-          vatRate = 0;
-        } else {
-          vatRate = 22;
-        }
-      } else {
-        vatRate = 0;
-      }
-
-      const vatAmount = platformFee * (vatRate / 100);
-
-      // 4. Create Transaction Record (idempotent)
-      let transaction: any = null;
+      const amountTotalCents = isSession ? (sessionObj?.amount_total || 0) : paymentIntent!.amount;
       try {
-        const existingTxSnap = await safeGetDocs(
-          adminDb.collection('transactions').where('stripe_payment_intent_id', '==', paymentId).limit(1)
-        );
-        if (!existingTxSnap.empty) {
-          const docSnap = existingTxSnap.docs[0];
-          transaction = { id: docSnap.id, ...docSnap.data() };
-        } else {
-          const txRef = await adminDb.collection('transactions').add({
-            auction_id,
-            buyer_id,
-            seller_id,
-            stripe_payment_intent_id: paymentId,
-            amount_total: amountTotal,
-            platform_fee: platformFee,
-            vat_amount: vatAmount,
-            vat_rate: vatRate,
-            is_reverse_charge: isReverseCharge,
-            status: 'completed',
-            created_at: new Date().toISOString()
-          });
-          const snap = await safeGetDoc(txRef);
-          transaction = { id: txRef.id, ...snap.data() };
-        }
-      } catch (e: any) {
-        console.error('Error creating transaction record:', e.message);
-        throw e;
-      }
-
-      // 5. Update Auction Status to mark as paid
-      try {
-        await adminDb.collection('auctions').doc(auction_id).update({
-          status: 'completed',
-          payment_status: 'paid',
-          post_auction_status: 'paid',
-          paid_at: new Date().toISOString()
-        });
-
-        // Credit seller's held wallet
-        const currentPriceCents = Math.round(currentPrice * 100);
-        await addHeldFunds(seller_id, currentPriceCents, 'stripe_' + paymentId, { stripe_payment_intent_id: paymentId, auction_id });
-        await recordSaleCompletion(auction_id, seller_id);
-      } catch (e: any) {
-        console.error('Error updating auction status or wallet:', e.message);
-      }
-
-      // Track buyer spending for EU AML (10k annual limit) & purchase history via idempotent recordAmlSpend
-      const stripePiId = isSession
-        ? (typeof sessionObj?.payment_intent === 'string' ? sessionObj.payment_intent : sessionObj?.payment_intent?.id || sessionObj?.id)
-        : paymentIntent?.id;
-
-      try {
-        await recordAmlSpend({
+        await finalizeAuctionPayment({
+          auctionId: auction_id,
           buyerId: buyer_id,
-          amountEur: amountTotal,
-          uniqueKey: 'pi_' + stripePiId
+          sellerId: seller_id,
+          paymentRef: paymentId,
+          amountTotalCents: amountTotalCents,
+          stripeSessionId: isSession ? sessionObj?.id : undefined
         });
-      } catch (spentErr: any) {
-        console.error('Error updating buyer spending records in server webhook:', spentErr.message);
+        res.json({ received: true });
+      } catch (err: any) {
+        console.error("Error processing successful payment:", err);
+        res.status(500).json({ error: 'processing_failed' });
       }
-
-      // Mark AML reservation as consumed
-      try {
-        const reservationDocRef = adminDb.collection('aml_reservations').doc(`${buyer_id}_${auction_id}`);
-        const reservationDoc = await safeGetDoc(reservationDocRef);
-        if (reservationDoc.exists()) {
-          const resData = reservationDoc.data();
-          if (resData?.status !== 'active') {
-            console.warn(`[webhook] Consuming AML reservation for ${buyer_id}_${auction_id} which was in status '${resData?.status}'`);
-          }
-          await reservationDocRef.set({
-            status: 'consumed',
-            consumed_at: new Date().toISOString(),
-            stripe_payment_intent_id: paymentId
-          }, { merge: true });
-        } else {
-          console.warn(`[webhook] No active AML reservation found for ${buyer_id}_${auction_id} when consuming payment.`);
-        }
-      } catch (resErr: any) {
-        console.error('[webhook] Error consuming AML reservation:', resErr.message);
-      }
-
-      // 6. Generate Invoice Numbers
-      let salesInvoiceNo = `ITEM-${transaction.id.substring(0, 8)}`;
-      let commissionInvoiceNo = `FEE-${transaction.id.substring(0, 8)}`;
-      try {
-        salesInvoiceNo = await generateInvoiceNumber('SALES');
-        commissionInvoiceNo = await generateInvoiceNumber('COMMISSION');
-        await adminDb.collection('transactions').doc(transaction.id).update({
-          sales_invoice_no: salesInvoiceNo,
-          commission_invoice_no: commissionInvoiceNo
-        });
-      } catch (e: any) {
-        console.error('Error generating invoice numbers:', e.message);
-      }
-
-      // 7. Generate Documents
-      const documentsToInsert: any[] = [];
-      const attachments: any[] = [];
-      let auctionDataPdf: any = null;
-
-      try {
-        const auctionDocPdf = await safeGetDoc(adminDb.collection('auctions').doc(auction_id));
-        auctionDataPdf = auctionDocPdf.data();
-        const invoicePdfBuffer = await generateInvoicePDF(transaction, buyer, seller, auctionDataPdf, salesInvoiceNo, commissionInvoiceNo);
-        const invoiceFileName = `racun_${salesInvoiceNo}.pdf`;
-
-        // Upload to Storage via Admin SDK
-        const invoicePath = await uploadBufferToStorage(invoicePdfBuffer, `${buyer_id}/${invoiceFileName}`);
-        documentsToInsert.push({
-          transaction_id: transaction.id,
-          user_id: buyer_id,
-          auction_id: auction_id,
-          type: 'invoice',
-          invoice_path: invoicePath,
-          created_at: new Date().toISOString()
-        });
-
-        attachments.push({
-          filename: invoiceFileName,
-          content: invoicePdfBuffer
-        });
-      } catch (pdfErr: any) {
-        console.error('Error generating/uploading invoice PDF:', pdfErr.message);
-      }
-
-      if (documentsToInsert.length > 0) {
-        try {
-          const batch = adminDb.batch();
-          documentsToInsert.forEach(d => {
-            const ref = adminDb.collection('documents').doc();
-            batch.set(ref, d);
-          });
-          await batch.commit();
-        } catch (docErr: any) {
-          console.error('Error saving document records:', docErr.message);
-        }
-      }
-
-      if (buyer.email && process.env.RESEND_API_KEY) {
-        try {
-          const auctionTitleText = auctionDataPdf?.title?.SLO || auctionDataPdf?.title?.EN || 'Predmet dražbe';
-          const baseAppUrl = (process.env.APP_URL && !process.env.APP_URL.includes('drazbenik.si')) ? process.env.APP_URL : 'https://drazbe.eu';
-          const auctionUrl = `${baseAppUrl}/?drazba=${auction_id}`;
-          
-          const htmlContent = await render(React.createElement(AuctionEmailTemplate, {
-            type: 'payment_success',
-            recipientName: buyer.first_name || buyer.name || 'uporabnik',
-            auctionTitle: auctionTitleText,
-            auctionImageUrl: auctionDataPdf?.images?.[0]?.url,
-            currentPrice: transaction.amount_total,
-            auctionUrl,
-            settingsUrl: `${baseAppUrl}/?tab=settings`,
-          }));
-
-          const resendClient = new Resend(process.env.RESEND_API_KEY);
-          await resendClient.emails.send({
-            from: process.env.EMAIL_FROM || 'dražbenik.si <obvestila@drazbenik.si>',
-            to: buyer.email,
-            subject: `Potrdilo o plačilu in dokumenti: ${auctionTitleText} - dražbenik.si`,
-            html: htmlContent,
-            attachments
-          });
-          console.log(`Email sent successfully to ${buyer.email}`);
-        } catch (emailErr: any) {
-          console.error('Error sending success email:', emailErr.message);
-        }
-      }
-
     } catch (err: any) {
-      console.error("Error processing successful payment:", err.message);
+      console.error("Webhook event handling error:", err);
+      res.status(500).json({ error: err.message });
     }
   }
 
@@ -1348,6 +1538,11 @@ app.post("/api/place-bid", async (req, res) => {
     const userData = userSnap.data();
     if (userData.isBlocked) {
       return res.status(403).json({ error: "Vaš račun je začasno blokiran." });
+    }
+    try {
+      await assertVerifiedUser(userId, userData);
+    } catch (verErr: any) {
+      return res.status(403).json({ error: verErr.message, code: verErr.code });
     }
 
     let outbidUserToNotify: { userId: string; newPrice: number; auctionTitle: string; auctionImageUrl?: string } | null = null;
@@ -1603,6 +1798,52 @@ app.post("/api/notify-outbid", async (req, res) => {
   }
 });
 
+app.post('/api/fees/preview', async (req, res) => {
+  let userId: string;
+  try {
+    userId = await authenticateFirebaseUser(req);
+  } catch (authErr: any) {
+    return res.status(401).json({ error: authErr.message || 'Unauthorized' });
+  }
+
+  if (placeBidRateLimiter) {
+    try {
+      const { success } = await placeBidRateLimiter.limit(userId);
+      if (!success) {
+        return res.status(429).json({ error: 'Preveč zahtev. Poskusite znova kasneje.' });
+      }
+    } catch (e) {}
+  }
+
+  const { amount, auction_id } = req.body || {};
+  let itemPriceCents = 0;
+
+  if (auction_id) {
+    const aDoc = await safeGetDoc(adminDb.collection('auctions').doc(auction_id));
+    if (!aDoc.exists) {
+      return res.status(404).json({ error: 'Dražba ni najdena' });
+    }
+    const aData = aDoc.data() || {};
+    const winnerId = aData.winner_id || aData.winnerId;
+    const secondWinnerId = aData.second_winner_id || aData.secondWinnerId;
+    if (winnerId !== userId && secondWinnerId !== userId) {
+      return res.status(403).json({ error: 'Nimate pravic za pregled te dražbe.' });
+    }
+    itemPriceCents = parseAmountToCents(aData.current_price || aData.currentBid || aData.starting_price || 0);
+  } else {
+    itemPriceCents = parseAmountToCents(amount);
+    if (itemPriceCents <= 0 || itemPriceCents > 100000000) {
+      return res.status(400).json({ error: 'Neveljaven znesek.' });
+    }
+  }
+
+  const userDoc = await safeGetDoc(adminDb.collection('users').doc(userId));
+  const userData = userDoc.exists ? (userDoc.data() || {}) : {};
+
+  const result = await computeBuyerTotals(userId, userData, itemPriceCents);
+  return res.json(result);
+});
+
 app.get("/api/health", (_req, res) => {
   res.json({ status: "ok" });
 });
@@ -1660,6 +1901,15 @@ app.post("/api/create-checkout-session", async (req, res) => {
     }
 
     if (type === "auction") {
+      if (buyer?.isBlocked) {
+        return res.status(403).json({ error: "Vaš račun je začasno blokiran." });
+      }
+      try {
+        await assertVerifiedUser(effectiveBuyerId, buyer);
+      } catch (verErr: any) {
+        return res.status(403).json({ error: verErr.message, code: verErr.code });
+      }
+
       if (!effectiveAuctionId) {
         return res.status(400).json({ error: "Missing required auction fields for payment" });
       }
@@ -1708,13 +1958,8 @@ app.post("/api/create-checkout-session", async (req, res) => {
       }
 
       const effectiveSellerId = auction.seller_id || auction.sellerId || '';
-      let sellerTier = 'BASIC';
-      if (effectiveSellerId) {
-        const sellerDoc = await safeGetDoc(adminDb.collection('users').doc(effectiveSellerId));
-        if (sellerDoc.exists()) sellerTier = sellerDoc.data()?.subscription_tier || 'BASIC';
-      }
-      const totals = calculateCheckoutTotals(authoritativePriceInCents, sellerTier);
-      finalAmountCents = totals.buyerTotalInCents;
+      const buyerTotals = await computeBuyerTotals(userId, buyer, authoritativePriceInCents);
+      finalAmountCents = buyerTotals.totalCents;
 
       reservationId = `${userId}_${effectiveAuctionId}`;
       reservationCreated = false;
@@ -1734,8 +1979,49 @@ app.post("/api/create-checkout-session", async (req, res) => {
         type: 'auction',
         auction_id: effectiveAuctionId,
         buyer_id: userId,
-        seller_id: effectiveSellerId
+        seller_id: effectiveSellerId,
+        item_cents: String(buyerTotals.itemPriceCents),
+        fee_cents: String(buyerTotals.feeCents),
+        vat_cents: String(buyerTotals.vatCents),
+        vat_rate: String(buyerTotals.vatRate),
+        reverse_charge: buyerTotals.isReverseCharge ? '1' : '0',
+        tier: buyerTotals.tier
       };
+
+      const lineItems: any[] = [];
+      if (buyerTotals.itemPriceCents > 0) {
+        lineItems.push({
+          price_data: {
+            currency: currency.toLowerCase(),
+            product_data: { name: auctionTitle },
+            unit_amount: buyerTotals.itemPriceCents,
+          },
+          quantity: 1,
+        });
+      }
+      if (buyerTotals.feeCents > 0) {
+        const feePercentStr = String(buyerTotals.feePercent).replace('.', ',');
+        lineItems.push({
+          price_data: {
+            currency: currency.toLowerCase(),
+            product_data: { name: `Provizija platforme (${feePercentStr} %)` },
+            unit_amount: buyerTotals.feeCents,
+          },
+          quantity: 1,
+        });
+      }
+      if (buyerTotals.vatCents > 0) {
+        lineItems.push({
+          price_data: {
+            currency: currency.toLowerCase(),
+            product_data: { name: `DDV ${buyerTotals.vatRate} % na provizijo` },
+            unit_amount: buyerTotals.vatCents,
+          },
+          quantity: 1,
+        });
+      }
+
+      (req as any)._auctionLineItems = lineItems;
     } else if (type === "subscription") {
       const rawPlan = package_id || planId || tier;
       if (!rawPlan || typeof rawPlan !== 'string') {
@@ -1795,16 +2081,18 @@ app.post("/api/create-checkout-session", async (req, res) => {
 
     const sessionParams: Stripe.Checkout.SessionCreateParams = {
       payment_method_types: ['card'],
-      line_items: [{
-        price_data: {
-          currency,
-          product_data: {
-            name: auctionTitle,
-          },
-          unit_amount: finalAmountCents,
-        },
-        quantity: 1,
-      }],
+      line_items: (type === 'auction' && (req as any)._auctionLineItems && (req as any)._auctionLineItems.length > 0)
+        ? (req as any)._auctionLineItems
+        : [{
+            price_data: {
+              currency,
+              product_data: {
+                name: auctionTitle,
+              },
+              unit_amount: finalAmountCents,
+            },
+            quantity: 1,
+          }],
       metadata: sessionMetadata,
       payment_intent_data: {
         metadata: sessionMetadata,
@@ -1914,7 +2202,7 @@ app.post("/api/confirm-checkout-session", async (req, res) => {
       const type = metadata.type || 'auction';
       const effectiveAuctionId = metadata.auction_id || auctionId;
       const effectiveBuyerId = userId;
-      const effectiveSellerId = metadata.seller_id;
+      let effectiveSellerId = metadata.seller_id;
 
       const isSub = type === 'subscription' || session.amount_total === 2000 || session.amount_total === 5000 || (metadata.planId || '').length > 0;
       if (isSub) {
@@ -1982,93 +2270,44 @@ app.post("/api/confirm-checkout-session", async (req, res) => {
       }
 
       if (effectiveAuctionId) {
-        await adminDb.collection('auctions').doc(effectiveAuctionId).update({
-          status: 'completed',
-          payment_status: 'paid',
-          post_auction_status: 'paid',
-          paid_at: new Date().toISOString()
-        });
-        await recordSaleCompletion(effectiveAuctionId, effectiveSellerId);
-
-        if (effectiveBuyerId && effectiveSellerId) {
-          const buyerDoc = await safeGetDoc(adminDb.collection('users').doc(effectiveBuyerId));
-          const buyer = buyerDoc.data() || {};
-          const sellerDoc = await safeGetDoc(adminDb.collection('users').doc(effectiveSellerId));
-          const seller = sellerDoc.data() || {};
-
-          const amountTotal = (session.amount_total || (paymentIntent ? paymentIntent.amount : 0)) / 100;
-          const platformFee = calculateMarginalPlatformFee(amountTotal, seller.subscription_tier);
-
-          let vatRate = 0;
-          let isReverseCharge = false;
-          const euCountries = ['AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR', 'HU', 'IE', 'IT', 'LV', 'LT', 'LU', 'MT', 'NL', 'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE'];
-          const buyerCountry = buyer.country_code || 'SI';
-          if (buyerCountry === 'SI') {
-            vatRate = 22;
-          } else if (euCountries.includes(buyerCountry)) {
-            if (buyer.company_status === 'company' && buyer.tax_id) {
-              isReverseCharge = true;
-              vatRate = 0;
-            } else {
-              vatRate = 22;
-            }
-          }
-
-          const vatAmount = platformFee * (vatRate / 100);
-
+        if (!effectiveSellerId) {
           try {
-            const existingTx = await safeGetDocs(
-              adminDb.collection('transactions').where('stripe_payment_intent_id', '==', (paymentIntent?.id || session.id))
-            );
-
-            if (existingTx.empty) {
-              await adminDb.collection('transactions').add({
-                auction_id: effectiveAuctionId,
-                buyer_id: effectiveBuyerId,
-                seller_id: effectiveSellerId,
-                stripe_payment_intent_id: paymentIntent?.id || session.id,
-                stripe_session_id: session.id,
-                amount_total: amountTotal,
-                platform_fee: platformFee,
-                vat_amount: vatAmount,
-                vat_rate: vatRate,
-                is_reverse_charge: isReverseCharge,
-                status: 'completed',
-                created_at: new Date().toISOString()
-              });
+            const aDoc = await safeGetDoc(adminDb.collection('auctions').doc(effectiveAuctionId));
+            if (aDoc.exists()) {
+              const aData = aDoc.data() || {};
+              effectiveSellerId = aData.seller_id || aData.sellerId;
             }
-          } catch (txErr) {
-            console.error('Error recording transaction:', txErr);
-          }
+          } catch (e) {}
+        }
 
-          const stripePiId = typeof session.payment_intent === 'string'
-            ? session.payment_intent
-            : (session.payment_intent?.id || paymentIntent?.id || session.id);
+        if (!effectiveSellerId) {
+          return res.status(400).json({ error: 'Missing seller ID for auction payment' });
+        }
 
-          try {
-            await recordAmlSpend({
-              buyerId: effectiveBuyerId,
-              amountEur: amountTotal,
-              uniqueKey: 'pi_' + stripePiId
-            });
-          } catch (amlErr: any) {
-            console.error('Error updating AML stats in confirm-checkout-session:', amlErr.message);
-          }
+        const paymentRef = typeof session.payment_intent === 'string'
+          ? session.payment_intent
+          : (session.payment_intent?.id || paymentIntent?.id || session.id);
+        const amountTotalCents = session.amount_total || (paymentIntent ? paymentIntent.amount : 0);
+
+        try {
+          await finalizeAuctionPayment({
+            auctionId: effectiveAuctionId,
+            buyerId: effectiveBuyerId,
+            sellerId: effectiveSellerId,
+            paymentRef: paymentRef,
+            amountTotalCents: amountTotalCents,
+            stripeSessionId: session.id
+          });
+        } catch (err: any) {
+          console.error('[confirm-checkout-session] finalizeAuctionPayment error:', err);
+          return res.status(500).json({ error: 'processing_failed' });
         }
 
         return res.json({ success: true, paid: true, auction_id: effectiveAuctionId });
       }
-    } else if (auctionId) {
-      await adminDb.collection('auctions').doc(auctionId).update({
-        status: 'completed',
-        payment_status: 'paid',
-        post_auction_status: 'paid',
-        paid_at: new Date().toISOString()
-      });
-      return res.json({ success: true, paid: true, auction_id: auctionId });
-    }
-
-    return res.status(400).json({ error: 'Could not confirm payment' });
+      } else {
+        return res.status(400).json({ error: 'Manjka identifikator seje plačila.' });
+      }
   } catch (err: any) {
     console.error('Error in confirm-checkout-session:', err);
     res.status(500).json({ error: err.message });
@@ -2114,6 +2353,14 @@ app.post("/api/create-payment-intent", async (req, res) => {
       buyer = buyerDoc.data();
       stripeCustomerId = await getOrCreateStripeCustomer(stripe, userId, buyer);
     }
+    if (buyer?.isBlocked) {
+      return res.status(403).json({ error: "Vaš račun je začasno blokiran." });
+    }
+    try {
+      await assertVerifiedUser(userId, buyer);
+    } catch (verErr: any) {
+      return res.status(403).json({ error: verErr.message, code: verErr.code });
+    }
 
     const auctionDoc = await safeGetDoc(adminDb.collection('auctions').doc(effectiveAuctionId));
     if (!auctionDoc.exists()) {
@@ -2147,13 +2394,8 @@ app.post("/api/create-payment-intent", async (req, res) => {
     }
 
     const effectiveSellerId = auction.seller_id || auction.sellerId || '';
-    let sellerTier = 'BASIC';
-    if (effectiveSellerId) {
-      const sellerDoc = await safeGetDoc(adminDb.collection('users').doc(effectiveSellerId));
-      if (sellerDoc.exists()) sellerTier = sellerDoc.data()?.subscription_tier || 'BASIC';
-    }
-    const totals = calculateCheckoutTotals(authoritativePriceInCents, sellerTier);
-    const finalAmountCents = totals.buyerTotalInCents;
+    const buyerTotals = await computeBuyerTotals(userId, buyer, authoritativePriceInCents);
+    const finalAmountCents = buyerTotals.totalCents;
 
     const reservationId = `${userId}_${effectiveAuctionId}`;
     let reservationCreated = false;
@@ -2184,6 +2426,12 @@ app.post("/api/create-payment-intent", async (req, res) => {
         auction_id: effectiveAuctionId,
         buyer_id: userId,
         seller_id: effectiveSellerId,
+        item_cents: String(buyerTotals.itemPriceCents),
+        fee_cents: String(buyerTotals.feeCents),
+        vat_cents: String(buyerTotals.vatCents),
+        vat_rate: String(buyerTotals.vatRate),
+        reverse_charge: buyerTotals.isReverseCharge ? '1' : '0',
+        tier: buyerTotals.tier
       }
     };
 
@@ -2445,6 +2693,18 @@ app.post("/api/payments/wallet-pay-auction", async (req, res) => {
     if (!auction_id) {
       return res.status(400).json({ error: "Manjkajoči podatki" });
     }
+
+    const userDoc = await safeGetDoc(adminDb.collection('users').doc(userId));
+    const userData = userDoc.data() || {};
+    if (userData.isBlocked) {
+      return res.status(403).json({ error: "Vaš račun je začasno blokiran." });
+    }
+    try {
+      await assertVerifiedUser(userId, userData);
+    } catch (verErr: any) {
+      return res.status(403).json({ error: verErr.message, code: verErr.code });
+    }
+
     if (auction_id) {
       await finalizeAuction(auction_id);
     }
@@ -2490,21 +2750,35 @@ app.post("/api/payments/wallet-pay-auction", async (req, res) => {
         throw new Error("Invalid auction price");
       }
 
-      const sellerRef = adminDb.collection('users').doc(seller_id);
-      const sellerDoc2 = await t.get(sellerRef);
-      let sellerTier = 'BASIC';
-      let sellerData: any = {};
-      if (sellerDoc2.exists) {
-         sellerData = sellerDoc2.data() || {};
-         sellerTier = sellerData.subscription_tier || 'BASIC';
-      }
-      const totals = calculateCheckoutTotals(authoritativePriceInCents, sellerTier);
-      const finalAmountCents = totals.buyerTotalInCents;
-
       const buyerRef = adminDb.collection('users').doc(buyer_id);
       const buyerDoc = await t.get(buyerRef);
       const buyerData = buyerDoc.data() || {};
-      
+
+      const sellerRef = adminDb.collection('users').doc(seller_id);
+      const sellerDoc2 = await t.get(sellerRef);
+      let sellerData: any = {};
+      if (sellerDoc2.exists) {
+         sellerData = sellerDoc2.data() || {};
+      }
+
+      const buyerTier = getEffectiveTier(buyerData);
+      const isBusiness = Boolean(
+        buyerData?.company_status === 'company' ||
+        buyerData?.user_type === 'company' ||
+        buyerData?.company_name
+      );
+      const buyerCountry = (buyerData?.country_code || 'SI').trim().toUpperCase();
+      const hasValidVat = Boolean(buyerData?.vies_valid === true && buyerData?.vies_checked_for);
+
+      const totals = calculateTotals({
+        itemPriceCents: authoritativePriceInCents,
+        tier: buyerTier,
+        countryCode: buyerCountry,
+        isBusiness,
+        hasValidVatId: hasValidVat
+      });
+      const finalAmountCents = totals.totalCents;
+
       assertAmlLimit(buyerData, finalAmountCents / 100);
 
       const txId = 'WTX_' + Date.now();
@@ -2530,7 +2804,7 @@ app.post("/api/payments/wallet-pay-auction", async (req, res) => {
       // Ensure seller wallet migration and credit held funds
       ensureWalletMigrated(t, sellerRef, sellerData);
       t.update(sellerRef, {
-        held_cents: FieldValue.increment(authoritativePriceInCents) // Seller gets the item price (before platform fee is applied if we assume buyer pays fee? Wait, calculateCheckoutTotals adds platform fee to itemPrice. Actually, seller proceeds is authoritativePriceInCents - totals.platformFeeInCents - totals.vatInCents? Wait, check the original code: it credited `authoritativePriceInCents / 100`. Let's use authoritativePriceInCents)
+        held_cents: FieldValue.increment(totals.itemPriceCents)
       });
       
       // Update auction
@@ -2545,12 +2819,13 @@ app.post("/api/payments/wallet-pay-auction", async (req, res) => {
         auction_id,
         buyer_id,
         seller_id,
-        amount_total: finalAmountCents / 100, // legacy UI compatibility
-        amount_cents: finalAmountCents,
-        platform_fee: totals.platformFeeInCents / 100,
-        vat_amount: totals.vatInCents / 100,
-        vat_rate: 0,
-        is_reverse_charge: false,
+        amount_total: totals.totalCents / 100,
+        amount_cents: totals.totalCents,
+        item_price: totals.itemPriceCents / 100,
+        platform_fee: totals.feeCents / 100,
+        vat_amount: totals.vatCents / 100,
+        vat_rate: totals.vatRate,
+        is_reverse_charge: totals.isReverseCharge,
         currency: 'eur',
         status: 'completed',
         created_at: FieldValue.serverTimestamp()
@@ -3137,7 +3412,7 @@ app.post("/api/test/send-email", async (req, res) => {
         auctionImageUrl,
       });
     } else if (type === 'receipt_invoice') {
-      const fee = calculateMarginalPlatformFee(currentPrice, 'PRO');
+      const fee = calculatePlatformFeeCents(Math.round(currentPrice * 100), 'PRO') / 100;
       const mockTransaction = {
         id: `TX-${Date.now().toString().substring(6)}`,
         amount_total: currentPrice,
@@ -3992,7 +4267,15 @@ app.post("/api/auctions/create", async (req, res) => {
     const userDoc = await safeGetDoc(adminDb.collection('users').doc(userId));
     if (!userDoc.exists()) return res.status(404).json({ error: "Uporabnik ne obstaja" });
 
-    const userData = userDoc.data();
+    const userData = userDoc.data() || {};
+    if (userData.isBlocked) {
+      return res.status(403).json({ error: "Vaš račun je začasno blokiran." });
+    }
+    try {
+      await assertVerifiedUser(userId, userData);
+    } catch (verErr: any) {
+      return res.status(403).json({ error: verErr.message, code: verErr.code });
+    }
     
     const subTier = userData.subscription_tier || userData.subscription || 'FREE';
     let limit = 5;
@@ -5583,6 +5866,18 @@ app.post("/api/auctions/offer-second-chance", async (req, res) => {
     if (!auction_id) {
       return res.status(400).json({ error: "Manjka ID dražbe." });
     }
+
+    const userDoc = await safeGetDoc(adminDb.collection('users').doc(userId));
+    const userData = userDoc.data() || {};
+    if (userData.isBlocked) {
+      return res.status(403).json({ error: "Vaš račun je začasno blokiran." });
+    }
+    try {
+      await assertVerifiedUser(userId, userData);
+    } catch (verErr: any) {
+      return res.status(403).json({ error: verErr.message, code: verErr.code });
+    }
+
     if (auction_id) {
       await finalizeAuction(auction_id);
     }
@@ -5689,6 +5984,18 @@ app.post("/api/auctions/republish", async (req, res) => {
     if (!auction_id) {
       return res.status(400).json({ error: "Manjka ID dražbe." });
     }
+
+    const userDoc = await safeGetDoc(adminDb.collection('users').doc(userId));
+    const userData = userDoc.data() || {};
+    if (userData.isBlocked) {
+      return res.status(403).json({ error: "Vaš račun je začasno blokiran." });
+    }
+    try {
+      await assertVerifiedUser(userId, userData);
+    } catch (verErr: any) {
+      return res.status(403).json({ error: verErr.message, code: verErr.code });
+    }
+
     if (auction_id) {
       await finalizeAuction(auction_id);
     }
@@ -6327,6 +6634,17 @@ app.post("/api/packages/publish", async (req, res) => {
       return res.status(401).json({ error: authErr.message || 'Unauthorized' });
     }
 
+    const userDoc = await safeGetDoc(adminDb.collection('users').doc(uid));
+    const userData = userDoc.data() || {};
+    if (userData.isBlocked) {
+      return res.status(403).json({ error: "Vaš račun je začasno blokiran." });
+    }
+    try {
+      await assertVerifiedUser(uid, userData);
+    } catch (verErr: any) {
+      return res.status(403).json({ error: verErr.message, code: verErr.code });
+    }
+
     const { package_id, title, auction_ids } = req.body || {};
 
     if (!package_id || !title || !Array.isArray(auction_ids) || auction_ids.length === 0) {
@@ -6497,6 +6815,17 @@ app.post("/api/messages/send", async (req, res) => {
       uid = await authenticateFirebaseUser(req);
     } catch (authErr: any) {
       return res.status(401).json({ error: authErr.message || 'Unauthorized' });
+    }
+
+    const userDoc = await safeGetDoc(adminDb.collection('users').doc(uid));
+    const userData = userDoc.data() || {};
+    if (userData.isBlocked) {
+      return res.status(403).json({ error: "Vaš račun je začasno blokiran." });
+    }
+    try {
+      await assertVerifiedUser(uid, userData);
+    } catch (verErr: any) {
+      return res.status(403).json({ error: verErr.message, code: verErr.code });
     }
 
     const { auction_id, content: rawContent, image_url } = req.body;

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { MapPin, ChevronLeft, ChevronRight, Clock, Eye, Building2, Minus, Plus, Lock, Trophy, ShieldCheck, Truck, Sparkles, Tag } from 'lucide-react';
 import { AuctionItem, Seller } from "../../types";
 import { getIncrement, formatSeconds, checkAndFinalizeAuctionClient } from "../../lib/utils";
+import { toast } from 'sonner';
 
 export const AuctionCard: React.FC<{
   item: AuctionItem;
@@ -78,7 +79,12 @@ export const AuctionCard: React.FC<{
 
   const handleBidClick = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!onBidSubmit || isSeller) return;
+    if (isSeller) return;
+    if (!onBidSubmit) {
+      toast.error("Za oddajo ponudbe se morate prijaviti ali registrirati.");
+      window.location.hash = '#login';
+      return;
+    }
     setIsBidding(true);
     await onBidSubmit(item, bidValue);
     setIsBidding(false);
@@ -267,7 +273,7 @@ export const AuctionCard: React.FC<{
             </div>
           ) : (
             <div className="flex items-center gap-4 w-full relative">
-               <div className="flex items-center bg-white/5 rounded-2xl border border-white/10 p-1 flex-[3]">
+               <div className="flex items-center bg-white/5 rounded-2xl border border-white/10 p-1 flex-[5]">
                   <button onClick={(e) => { e.stopPropagation(); handleAdjustBid('down'); }} className="w-8 h-10 flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 rounded-xl transition-all flex-shrink-0"><Minus size={14}/></button>
                   <div className="flex-1 flex items-center justify-center px-1">
                       <span className="text-[#FEBA4F] font-black text-lg mr-1">€</span>
@@ -277,18 +283,41 @@ export const AuctionCard: React.FC<{
                </div>
                <button 
                   onClick={handleBidClick} 
-                  disabled={isBidding || !onBidSubmit} 
-                  className={`h-12 flex-1 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-lg flex items-center justify-center gap-2 whitespace-nowrap ${isVerified && onBidSubmit ? 'bg-[#FEBA4F] text-[#0A1128] hover:bg-white' : 'bg-slate-800 text-slate-500'} ${isBidding ? 'opacity-75 cursor-not-allowed' : ''}`}
+                  disabled={isBidding} 
+                  className={`h-12 flex-[4] px-2 py-1.5 leading-tight text-center rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-lg flex items-center justify-center gap-2 ${isVerified && onBidSubmit ? 'bg-[#FEBA4F] text-[#0A1128] hover:bg-white' : 'bg-slate-800 text-slate-500'} ${isBidding ? 'opacity-75 cursor-not-allowed' : ''}`}
                >
                   {isBidding ? (
                       <div className="w-4 h-4 border-2 border-[#0A1128]/30 border-t-[#0A1128] rounded-full animate-spin" />
-                  ) : !onBidSubmit ? (
-                      <Lock size={14} />
-                  ) : !isVerified ? (
-                      <Lock size={14} />
-                  ) : (
-                      isWinner ? (t('increaseBid') || 'Zvišaj') : t('placeBid')
-                  )}
+                  ) : !onBidSubmit || !isVerified ? (
+                      <div className="flex items-center justify-center gap-1.5">
+                        <Lock size={14} className="flex-shrink-0" />
+                        {(() => {
+                            const rawText = isWinner ? (t('increaseBid') || 'Zvišaj ponudbo') : (t('placeBid') || 'Oddaj ponudbo');
+                            const words = rawText.trim().split(/\s+/);
+                            if (words.length === 2) {
+                              return (
+                                <span className="flex flex-col items-center leading-tight">
+                                  <span>{words[0]}</span>
+                                  <span>{words[1]}</span>
+                                </span>
+                              );
+                            }
+                            return <span>{rawText}</span>;
+                        })()}
+                      </div>
+                  ) : (() => {
+                      const rawText = isWinner ? (t('increaseBid') || 'Zvišaj ponudbo') : (t('placeBid') || 'Oddaj ponudbo');
+                      const words = rawText.trim().split(/\s+/);
+                      if (words.length === 2) {
+                        return (
+                          <span className="flex flex-col items-center leading-tight">
+                            <span>{words[0]}</span>
+                            <span>{words[1]}</span>
+                          </span>
+                        );
+                      }
+                      return <span>{rawText}</span>;
+                  })()}
                </button>
             </div>
           )}

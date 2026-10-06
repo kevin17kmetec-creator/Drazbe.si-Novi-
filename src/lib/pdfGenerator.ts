@@ -398,9 +398,11 @@ export async function generateInvoicePDF(
     doc.addPage({ margin: 40, size: 'A4' });
 
     const feeDocNo = commissionInvoiceNo || `PROV-${(transaction.id || auction.id || '000000').substring(0, 8).toUpperCase()}`;
-    const feeBase = Number(transaction.platform_fee || (itemPrice * 0.10) / 1.22);
-    const feeVat = Number(transaction.vat_amount || feeBase * 0.22);
-    const feeTotal = Number(transaction.fee_total || feeBase + feeVat);
+    const feeBase = Number(transaction.platform_fee ?? (itemPrice * 0.10) / 1.22);
+    const feeVatRate = transaction.vat_rate !== undefined ? Number(transaction.vat_rate) : 22;
+    const feeVat = Number(transaction.vat_amount ?? feeBase * (feeVatRate / 100));
+    const isReverseCharge = Boolean(transaction.is_reverse_charge);
+    const feeTotal = feeBase + feeVat;
 
     // Centered Title
     setBold();
@@ -498,9 +500,15 @@ export async function generateInvoicePDF(
 
     p2Y += 15;
     setRegular();
-    doc.fontSize(8.5).fillColor(colorMuted).text('DDV / VAT (22%):', totalsLeft, p2Y);
+    doc.fontSize(8.5).fillColor(colorMuted).text(`DDV / VAT (${feeVatRate}%):`, totalsLeft, p2Y);
     setBold();
     doc.fontSize(8.5).fillColor(colorDark).text(`${formatEuro(feeVat)} €`, totalsLeft + 120, p2Y, { width: 110, align: 'right' });
+
+    if (isReverseCharge) {
+      p2Y += 15;
+      setBold();
+      doc.fontSize(8).fillColor('#D97706').text('Obrnjena davčna obveznost / Reverse charge', totalsLeft, p2Y, { width: 230 });
+    }
 
     p2Y += 15;
     doc.strokeColor(colorDark).lineWidth(1.5).moveTo(totalsLeft, p2Y).lineTo(totalsValueRight, p2Y).stroke();

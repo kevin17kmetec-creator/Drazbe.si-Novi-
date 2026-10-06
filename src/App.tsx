@@ -130,9 +130,9 @@ import { translations, getCategoryTranslation } from "./lib/translations";
 import {
   getIncrement,
   formatSeconds,
-  calculateMarginalPlatformFee,
   normalizeRegionName,
 } from "./lib/utils";
+import { useFeePreview } from "./lib/useFeePreview";
 
 const matchesSelectedRegion = (itemRegion: string | undefined | null, selected: string | null): boolean => {
   if (!selected) return true;
@@ -329,8 +329,356 @@ function slugToSettingsTab(slug: string): 'profile' | 'personal' | 'stripe' {
       }
     }
   }
-  return "profile";
 }
+
+const WonAuctionItem: React.FC<{
+  wonItem: any;
+  language: string;
+  t: any;
+  userData: any;
+  navigateTo: (view: string, data?: any) => void;
+  setCheckoutData: (data: any) => void;
+  setIsCheckoutOpen: (open: boolean) => void;
+  fetchAuctions: () => void;
+  refreshUserData: (uid: string) => void;
+  transactionPartners: Map<string, any>;
+  setTransactionPartners: React.Dispatch<React.SetStateAction<Map<string, any>>>;
+  setInvoiceModalData: (data: any) => void;
+  setActiveConversationId: (id: string) => void;
+  setActiveView: any;
+  setReceiptConfirmModal: (data: any) => void;
+  openReviewModal: (item: any) => void;
+  user: any;
+}> = ({
+  wonItem,
+  language,
+  t,
+  userData,
+  navigateTo,
+  setCheckoutData,
+  setIsCheckoutOpen,
+  fetchAuctions,
+  refreshUserData,
+  transactionPartners,
+  setTransactionPartners,
+  setInvoiceModalData,
+  setActiveConversationId,
+  setActiveView,
+  setReceiptConfirmModal,
+  openReviewModal,
+  user
+}) => {
+  const isPaid = wonItem.payment_status === "paid";
+  const { data: preview } = useFeePreview({
+    auctionId: wonItem.id,
+    enabled: !isPaid
+  });
+
+  const rawItemPrice = Number(wonItem.currentBid || wonItem.current_price || wonItem.starting_price || 0);
+  const itemPriceCents = preview?.itemPriceCents ?? Math.round(rawItemPrice * 100);
+  const feeCents = preview?.feeCents ?? Math.round(rawItemPrice * 0.08 * 100);
+  const feePercent = preview?.feePercent ?? 8;
+  const vatRate = preview?.vatRate ?? 22;
+  const vatCents = preview?.vatCents ?? Math.round(feeCents * vatRate / 100);
+  const isReverseCharge = preview?.isReverseCharge ?? false;
+  const totalCents = preview?.totalCents ?? (itemPriceCents + feeCents + vatCents);
+  const totalAmountToPay = totalCents / 100;
+
+  const paymentDeadlineMs = new Date((wonItem as any).payment_deadline || wonItem.endTime || (wonItem as any).end_time).getTime() + ((wonItem as any).payment_deadline ? 0 : 48 * 60 * 60 * 1000);
+  const isOverdue = !isPaid && (
+    wonItem.post_auction_status === "failed_1st" || 
+    wonItem.post_auction_status === "unpaid" || 
+    wonItem.post_auction_status === "unsold" ||
+    Date.now() > paymentDeadlineMs
+  );
+
+  const userStrikesCount = Math.max(1, Number((userData as any)?.unpaidStrikes ?? (userData as any)?.unpaid_strikes ?? 1));
+  const strikeOrdinal = userStrikesCount === 1 ? "1. opomin (Strike 1/3)" : userStrikesCount === 2 ? "2. opomin (Strike 2/3)" : `${userStrikesCount}. zadnji opomin (Strike 3/3)`;
+
+  return (
+    <div
+      key={wonItem.id}
+      className={`flex flex-col md:flex-row items-center gap-8 p-6 rounded-[2.5rem] border-2 transition-colors group ${
+        isOverdue 
+          ? "border-red-500 bg-red-50/20 shadow-sm" 
+          : "border-slate-100 hover:border-[#FEBA4F]"
+      }`}
+    >
+      <div
+        className={`w-32 h-32 shrink-0 bg-slate-100 rounded-3xl overflow-hidden shadow-md transition-transform ${
+          isOverdue ? "cursor-not-allowed opacity-80" : "cursor-pointer group-hover:scale-105"
+        }`}
+        onClick={() => {
+          if (isOverdue) return;
+          navigateTo("detail", { selectedItem: wonItem });
+        }}
+      >
+        {wonItem.images &&
+          wonItem.images.length > 0 &&
+          typeof wonItem.images[0] === "string" && (
+            <SignedImg
+              src={
+                wonItem.images[0]
+              }
+              alt="Item"
+              className="w-full h-full object-cover"
+            />
+          )}
+      </div>
+      <div className="flex-1 text-center md:text-left">
+        <h3
+          className={`text-2xl font-black uppercase tracking-tighter mb-2 transition-colors ${
+            isOverdue 
+              ? "text-slate-700 cursor-not-allowed" 
+              : "text-[#0A1128] cursor-pointer hover:text-[#FEBA4F]"
+          }`}
+          onClick={() => {
+            if (isOverdue) return;
+            navigateTo("detail", { selectedItem: wonItem });
+          }}
+        >
+          {wonItem.title[
+            language as keyof typeof wonItem.title
+          ] || wonItem.title.SLO}
+        </h3>
+        
+        {isPaid ? (
+          <div className="flex items-center justify-center md:justify-start gap-4 text-sm font-bold text-slate-400 mt-2">
+            <span className="flex items-center gap-1.5 bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200">
+              <Gavel size={16} /> Plačani znesek:{" "}
+              <span className="text-[#0A1128] font-black">
+                €{(Number(wonItem.amount_total || wonItem.currentBid || 0)).toLocaleString("sl-SI", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+            </span>
+          </div>
+        ) : (
+          <div className="mt-3 p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-1 text-xs text-slate-600 font-bold">
+            <div className="flex justify-between">
+              <span>Cena predmeta:</span>
+              <span className="text-[#0A1128]">€{(itemPriceCents / 100).toLocaleString("sl-SI", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Provizija platforme ({feePercent} %):</span>
+              <span className="text-[#0A1128]">€{(feeCents / 100).toLocaleString("sl-SI", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>DDV {vatRate} %:</span>
+              <span className="text-[#0A1128]">{isReverseCharge ? "Obrnjena davčna obveznost (0 %)" : `€${(vatCents / 100).toLocaleString("sl-SI", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}</span>
+            </div>
+            <div className="flex justify-between text-sm font-black text-[#0A1128] pt-2 border-t border-slate-200">
+              <span>Skupaj za plačilo:</span>
+              <span>€{totalAmountToPay.toLocaleString("sl-SI", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+            </div>
+          </div>
+        )}
+
+        {!isPaid && (
+          <div className="mt-2 flex items-center justify-center md:justify-start">
+            <PaymentTimer endTime={wonItem.endTime} />
+          </div>
+        )}
+
+        {/* Overdue alert notice for winner */}
+        {isOverdue && (
+          <div className="mt-3 p-3.5 bg-red-100/70 border border-red-200 rounded-2xl text-xs font-bold text-red-700 flex items-start sm:items-center gap-2.5">
+            <AlertTriangle size={18} className="text-red-600 shrink-0 mt-0.5 sm:mt-0" />
+            <span>
+              Zaradi neplačila v roku 48 ur ste prejeli <strong className="font-black text-red-800">{strikeOrdinal}</strong>. {(userData as any)?.isBlocked || ((userData as any)?.unpaidStrikes || 0) >= 3 ? "Vaš račun je trajno blokiran za ponujanje na dražbah." : "Pri 3 opominih se račun avtomatsko blokira."}
+            </span>
+          </div>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-3 w-full lg:w-auto shrink-0 mt-4 md:mt-0">
+        {isPaid ? (
+          <div className="flex flex-col items-center md:items-end gap-3 w-full">
+            <div className="flex flex-col items-center md:items-end gap-1 w-full">
+              <div className="bg-green-50 text-green-600 px-6 py-2 rounded-2xl font-black uppercase tracking-widest text-sm flex items-center gap-2 border-2 border-green-100 w-full justify-center md:w-auto md:justify-end">
+                <CheckCircle2 size={16} /> Plačano
+              </div>
+              {wonItem.paid_at && (
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
+                  Plačano dne:{" "}
+                  {new Date(wonItem.paid_at).toLocaleDateString(
+                    "sl-SI",
+                  )}
+                </span>
+              )}
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3 w-full shrink-0">
+              <div className="flex flex-col gap-3 flex-1 min-w-[140px]">
+                <button
+                  onClick={() => {
+                    navigateTo("detail", { selectedItem: wonItem });
+                  }}
+                  className="bg-slate-100 text-[#0A1128] px-4 py-3 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-[#FEBA4F] transition-all shadow-sm flex items-center justify-center gap-2 h-[42px]"
+                >
+                  Odpri dražbo
+                </button>
+                
+                <button
+                  onClick={async () => {
+                    let seller = transactionPartners.get(wonItem.id);
+                    if (!seller) {
+                      try {
+                        const token = await user?.getIdToken();
+                        const res = await fetch(`/api/transactions/partner-info?auction_id=${wonItem.id}`, {
+                          headers: { 'Authorization': `Bearer ${token}` }
+                        });
+                        if (res.ok) {
+                          const data = await res.json();
+                          if (data?.success && data?.partner) {
+                            seller = data.partner;
+                            setTransactionPartners(prev => {
+                              const next = new Map(prev);
+                              next.set(wonItem.id, data.partner);
+                              return next;
+                            });
+                          }
+                        }
+                      } catch (e) {
+                        console.warn("Error fetching seller details:", e);
+                      }
+                    }
+                    setInvoiceModalData({
+                      isOpen: true,
+                      auction: wonItem,
+                      seller: seller || null,
+                      buyer: userData
+                    });
+                  }}
+                  className="bg-slate-100 text-[#0A1128] border-2 border-slate-200 px-4 py-3 rounded-2xl font-black uppercase tracking-widest text-xs hover:border-slate-400 hover:bg-slate-200 transition-all flex items-center justify-center gap-1.5 h-[42px] mt-auto"
+                >
+                  <FileText size={14} /> Račun
+                </button>
+              </div>
+
+              <div className="flex flex-col gap-3 flex-1 min-w-[140px]">
+                {wonItem.delivery_method !== "post" ? (
+                  <button
+                    onClick={() => {
+                      setActiveConversationId(wonItem.id);
+                      setActiveView("messages");
+                      window.scrollTo({
+                        top: 0,
+                        behavior: "instant",
+                      });
+                    }}
+                    className="bg-[#FEBA4F] text-[#0A1128] px-4 py-3 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-[#0A1128] hover:text-[#FEBA4F] transition-all flex items-center justify-center gap-2 h-[42px]"
+                  >
+                    <MessageSquare size={14} /> Sporočila
+                  </button>
+                ) : (
+                  <div className="h-[42px] hidden sm:block"></div>
+                )}
+
+                <div className="flex flex-col items-center justify-center gap-2 mt-auto h-[42px] w-full">
+                  {wonItem.buyer_received ? (
+                    <div className="text-green-500 font-bold text-[10px] uppercase flex items-center gap-1 w-full justify-center bg-green-50 py-2 rounded-xl border border-green-100 h-[42px]">
+                      <CheckCircle2 size={12} /> Predmet prejet
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() =>
+                        setReceiptConfirmModal({
+                          isOpen: true,
+                          auctionId: wonItem.id,
+                          sellerId: wonItem.sellerId,
+                        })
+                      }
+                      className="bg-white border-2 border-slate-200 text-[#0A1128] px-4 py-2 rounded-xl font-bold text-[10px] uppercase tracking-widest hover:border-[#FEBA4F] transition-all w-full h-[42px] flex items-center justify-center"
+                    >
+                      Potrdi prejem
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-3 flex-1 min-w-[140px]">
+                {(wonItem as any).review_submitted ? (
+                  <button
+                    onClick={() => openReviewModal(wonItem)}
+                    className="bg-green-50 text-green-700 border-2 border-green-200 px-4 py-3 rounded-2xl font-black uppercase tracking-widest text-[11px] hover:bg-green-100 transition-all flex items-center justify-center gap-1.5 h-[42px] shadow-sm"
+                    title="Vaša oddana ocena za prodajalca"
+                  >
+                    <Star size={14} className="text-[#FEBA4F] fill-[#FEBA4F]" />
+                    <span>Ocenjeno ({(wonItem as any).review_rating || 5}★)</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => openReviewModal(wonItem)}
+                    className="bg-[#0A1128] text-[#FEBA4F] hover:bg-[#FEBA4F] hover:text-[#0A1128] border-2 border-[#FEBA4F]/40 px-4 py-3 rounded-2xl font-black uppercase tracking-widest text-[11px] transition-all shadow-md flex items-center justify-center gap-1.5 h-[42px]"
+                    title="Oddajte oceno za prodajalca"
+                  >
+                    <Star size={14} className="fill-current" />
+                    <span>Oceni prodajalca</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : isOverdue ? (
+          <div className="flex flex-col gap-2 w-full lg:w-auto min-w-[220px]">
+            <button
+              disabled
+              className="bg-red-100 text-red-600 border border-red-200 px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-xs cursor-not-allowed flex items-center justify-center gap-2 opacity-80 shadow-none w-full"
+            >
+              <Lock size={16} /> Plačilo zaklenjeno
+            </button>
+            <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest text-center py-1">
+              Sporočila onemogočena
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2 w-full">
+            {wonItem.post_auction_status !== 'offered_2nd' && wonItem.post_auction_status !== 'rejected_2nd' && (
+              <button
+                onClick={async () => {
+                  setCheckoutData({
+                    amount: totalAmountToPay,
+                    title: `${t("paymentFor")}: ${wonItem.title[language as keyof typeof wonItem.title] || wonItem.title.SLO}`,
+                    onSuccess: async () => {
+                      setIsCheckoutOpen(false);
+                      toast.success(t("paymentSuccessEmail") || "Plačilo sprejeto. Potrditev lahko traja nekaj sekund.");
+                      fetchAuctions();
+                      if (userData?.id) refreshUserData(userData.id);
+                    },
+                    metadata: {
+                      auction_id: wonItem.id,
+                      buyer_id: userData.id,
+                      seller_id: wonItem.sellerId,
+                      buyer_data: userData,
+                    },
+                  });
+                  setIsCheckoutOpen(true);
+                }}
+                className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl flex items-center justify-center gap-2"
+              >
+                <CardIcon size={18} /> Plačaj zdaj
+              </button>
+            )}
+            {wonItem.delivery_method !== "post" && (
+              <button
+                onClick={() => {
+                  setActiveConversationId(wonItem.id);
+                  setActiveView("messages");
+                  window.scrollTo({
+                    top: 0,
+                    behavior: "instant",
+                  });
+                }}
+                className="bg-[#FEBA4F] text-[#0A1128] px-8 py-3 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#0A1128] hover:text-[#FEBA4F] transition-all flex items-center justify-center gap-2"
+              >
+                <MessageSquare size={18} /> Sporočila
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
 
 const MainApp: React.FC = () => {
   const [language, setLanguage] = useState(() => {
@@ -538,6 +886,7 @@ const MainApp: React.FC = () => {
     return null;
   });
   const [republishData, setRepublishData] = useState<any>(null);
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [quickRepublishItem, setQuickRepublishItem] = useState<any>(null);
   const [quickRepublishDuration, setQuickRepublishDuration] = useState<number>(3); // days
   const [selectedPackageId, setSelectedPackageId] = useState<string | null>(null);
@@ -1819,6 +2168,13 @@ const MainApp: React.FC = () => {
               await refreshUserData(userData.id);
             }
           } else {
+            if (sessionId) {
+              try {
+                await confirmCheckoutSessionAction({ sessionId, userId: userData?.id || auth.currentUser?.uid, user_id: userData?.id || auth.currentUser?.uid });
+              } catch (e) {
+                console.warn("confirmCheckoutSessionAction fallback error:", e);
+              }
+            }
             await fetchAuctions();
             if (userData?.id) {
               await refreshUserData(userData.id);
@@ -2651,6 +3007,7 @@ const MainApp: React.FC = () => {
           }}
           setIsVerified={setIsVerified}
           setAppLoggedIn={(val) => setIsLoggedIn(val)}
+          initialMode={authMode}
         />
       );
       break;
@@ -3152,297 +3509,28 @@ const MainApp: React.FC = () => {
                   </p>
                 </div>
               ) : (
-                currentUserWinnings.map((wonItem) => {
-                  const feePercentage =
-                    currentPlan === SubscriptionTier.PRO
-                      ? 5
-                      : currentPlan === SubscriptionTier.BASIC
-                        ? 10
-                        : 12;
-                  const commissionNet = calculateMarginalPlatformFee(
-                    wonItem.currentBid,
-                    currentPlan,
-                  );
-                  const totalAmountToPay =
-                    wonItem.currentBid + commissionNet * 1.22;
-
-                  const paymentDeadlineMs = new Date((wonItem as any).payment_deadline || wonItem.endTime || (wonItem as any).end_time).getTime() + ((wonItem as any).payment_deadline ? 0 : 48 * 60 * 60 * 1000);
-                  const isOverdue = wonItem.payment_status !== "paid" && (
-                    wonItem.post_auction_status === "failed_1st" || 
-                    wonItem.post_auction_status === "unpaid" || 
-                    wonItem.post_auction_status === "unsold" ||
-                    Date.now() > paymentDeadlineMs
-                  );
-
-                  const userStrikesCount = Math.max(1, Number((userData as any)?.unpaidStrikes ?? (userData as any)?.unpaid_strikes ?? 1));
-                  const strikeOrdinal = userStrikesCount === 1 ? "1. opomin (Strike 1/3)" : userStrikesCount === 2 ? "2. opomin (Strike 2/3)" : `${userStrikesCount}. zadnji opomin (Strike 3/3)`;
-
-                  return (
-                    <div
-                      key={wonItem.id}
-                      className={`flex flex-col md:flex-row items-center gap-8 p-6 rounded-[2.5rem] border-2 transition-colors group ${
-                        isOverdue 
-                          ? "border-red-500 bg-red-50/20 shadow-sm" 
-                          : "border-slate-100 hover:border-[#FEBA4F]"
-                      }`}
-                    >
-                      <div
-                        className={`w-32 h-32 shrink-0 bg-slate-100 rounded-3xl overflow-hidden shadow-md transition-transform ${
-                          isOverdue ? "cursor-not-allowed opacity-80" : "cursor-pointer group-hover:scale-105"
-                        }`}
-                        onClick={() => {
-                          if (isOverdue) return;
-                          navigateTo("detail", { selectedItem: wonItem });
-                        }}
-                      >
-                        {wonItem.images &&
-                          wonItem.images.length > 0 &&
-                          typeof wonItem.images[0] === "string" && (
-                            <SignedImg
-                              src={
-                                wonItem.images[0]
-                              }
-                              alt="Item"
-                              className="w-full h-full object-cover"
-                            />
-                          )}
-                      </div>
-                      <div className="flex-1 text-center md:text-left">
-                        <h3
-                          className={`text-2xl font-black uppercase tracking-tighter mb-2 transition-colors ${
-                            isOverdue 
-                              ? "text-slate-700 cursor-not-allowed" 
-                              : "text-[#0A1128] cursor-pointer hover:text-[#FEBA4F]"
-                          }`}
-                          onClick={() => {
-                            if (isOverdue) return;
-                            navigateTo("detail", { selectedItem: wonItem });
-                          }}
-                        >
-                          {wonItem.title[
-                            language as keyof typeof wonItem.title
-                          ] || wonItem.title.SLO}
-                        </h3>
-                        <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 text-sm font-bold text-slate-400 mt-2">
-                          <span className="flex items-center gap-1.5 bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200">
-                            <Gavel size={16} /> Končni znesek (vklj. s provizijo
-                            in DDV):{" "}
-                            <span className="text-[#0A1128] font-black">
-                              €
-                              {totalAmountToPay.toLocaleString("sl-SI", {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                              })}
-                            </span>
-                          </span>
-                          {wonItem.payment_status !== "paid" && (
-                            <PaymentTimer endTime={wonItem.endTime} />
-                          )}
-                        </div>
-
-                        {/* Overdue alert notice for winner */}
-                        {isOverdue && (
-                          <div className="mt-3 p-3.5 bg-red-100/70 border border-red-200 rounded-2xl text-xs font-bold text-red-700 flex items-start sm:items-center gap-2.5">
-                            <AlertTriangle size={18} className="text-red-600 shrink-0 mt-0.5 sm:mt-0" />
-                            <span>
-                              Zaradi neplačila v roku 48 ur ste prejeli <strong className="font-black text-red-800">{strikeOrdinal}</strong>. {(userData as any)?.isBlocked || ((userData as any)?.unpaidStrikes || 0) >= 3 ? "Vaš račun je trajno blokiran za ponujanje na dražbah." : "Pri 3 opominih se račun avtomatsko blokira."}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex flex-col gap-3 w-full lg:w-auto shrink-0 mt-4 md:mt-0">
-                        {wonItem.payment_status === "paid" ? (
-                          <div className="flex flex-col items-center md:items-end gap-3 w-full">
-                            <div className="flex flex-col items-center md:items-end gap-1 w-full">
-                              <div className="bg-green-50 text-green-600 px-6 py-2 rounded-2xl font-black uppercase tracking-widest text-sm flex items-center gap-2 border-2 border-green-100 w-full justify-center md:w-auto md:justify-end">
-                                <CheckCircle2 size={16} /> Plačano
-                              </div>
-                              {wonItem.paid_at && (
-                                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
-                                  Plačano dne:{" "}
-                                  {new Date(wonItem.paid_at).toLocaleDateString(
-                                    "sl-SI",
-                                  )}
-                                </span>
-                              )}
-                            </div>
-
-                            <div className="flex flex-col sm:flex-row gap-3 w-full shrink-0">
-                              <div className="flex flex-col gap-3 flex-1 min-w-[140px]">
-                                <button
-                                  onClick={() => {
-                                    navigateTo("detail", { selectedItem: wonItem });
-                                  }}
-                                  className="bg-slate-100 text-[#0A1128] px-4 py-3 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-[#FEBA4F] transition-all shadow-sm flex items-center justify-center gap-2 h-[42px]"
-                                >
-                                  Odpri dražbo
-                                </button>
-                                
-                                <button
-                                  onClick={async () => {
-                                    let seller = transactionPartners.get(wonItem.id);
-                                    if (!seller) {
-                                      try {
-                                        const token = await user?.getIdToken();
-                                        const res = await fetch(`/api/transactions/partner-info?auction_id=${wonItem.id}`, {
-                                          headers: { 'Authorization': `Bearer ${token}` }
-                                        });
-                                        if (res.ok) {
-                                          const data = await res.json();
-                                          if (data?.success && data?.partner) {
-                                            seller = data.partner;
-                                            setTransactionPartners(prev => {
-                                              const next = new Map(prev);
-                                              next.set(wonItem.id, data.partner);
-                                              return next;
-                                            });
-                                          }
-                                        }
-                                      } catch (e) {
-                                        console.warn("Error fetching seller details:", e);
-                                      }
-                                    }
-                                    setInvoiceModalData({
-                                      isOpen: true,
-                                      auction: wonItem,
-                                      seller: seller || null,
-                                      buyer: userData
-                                    });
-                                  }}
-                                  className="bg-slate-100 text-[#0A1128] border-2 border-slate-200 px-4 py-3 rounded-2xl font-black uppercase tracking-widest text-xs hover:border-slate-400 hover:bg-slate-200 transition-all flex items-center justify-center gap-1.5 h-[42px] mt-auto"
-                                >
-                                  <FileText size={14} /> Račun
-                                </button>
-                              </div>
-
-                              <div className="flex flex-col gap-3 flex-1 min-w-[140px]">
-                                {wonItem.delivery_method !== "post" ? (
-                                  <button
-                                    onClick={() => {
-                                      setActiveConversationId(wonItem.id);
-                                      setActiveView("messages");
-                                      window.scrollTo({
-                                        top: 0,
-                                        behavior: "instant",
-                                      });
-                                    }}
-                                    className="bg-[#FEBA4F] text-[#0A1128] px-4 py-3 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-[#0A1128] hover:text-[#FEBA4F] transition-all flex items-center justify-center gap-2 h-[42px]"
-                                  >
-                                    <MessageSquare size={14} /> Sporočila
-                                  </button>
-                                ) : (
-                                  <div className="h-[42px] hidden sm:block"></div>
-                                )}
-
-                                <div className="flex flex-col items-center justify-center gap-2 mt-auto h-[42px] w-full">
-                                  {wonItem.buyer_received ? (
-                                    <div className="text-green-500 font-bold text-[10px] uppercase flex items-center gap-1 w-full justify-center bg-green-50 py-2 rounded-xl border border-green-100 h-[42px]">
-                                      <CheckCircle2 size={12} /> Predmet prejet
-                                    </div>
-                                  ) : (
-                                    <button
-                                      onClick={() =>
-                                        setReceiptConfirmModal({
-                                          isOpen: true,
-                                          auctionId: wonItem.id,
-                                          sellerId: wonItem.sellerId,
-                                        })
-                                      }
-                                      className="bg-white border-2 border-slate-200 text-[#0A1128] px-4 py-2 rounded-xl font-bold text-[10px] uppercase tracking-widest hover:border-[#FEBA4F] transition-all w-full h-[42px] flex items-center justify-center"
-                                    >
-                                      Potrdi prejem
-                                    </button>
-                                  )}
-                                </div>
-                              </div>
-
-                              <div className="flex flex-col gap-3 flex-1 min-w-[140px]">
-                                {(wonItem as any).review_submitted ? (
-                                  <button
-                                    onClick={() => openReviewModal(wonItem)}
-                                    className="bg-green-50 text-green-700 border-2 border-green-200 px-4 py-3 rounded-2xl font-black uppercase tracking-widest text-[11px] hover:bg-green-100 transition-all flex items-center justify-center gap-1.5 h-[42px] shadow-sm"
-                                    title="Vaša oddana ocena za prodajalca"
-                                  >
-                                    <Star size={14} className="text-[#FEBA4F] fill-[#FEBA4F]" />
-                                    <span>Ocenjeno ({(wonItem as any).review_rating || 5}★)</span>
-                                  </button>
-                                ) : (
-                                  <button
-                                    onClick={() => openReviewModal(wonItem)}
-                                    className="bg-[#0A1128] text-[#FEBA4F] hover:bg-[#FEBA4F] hover:text-[#0A1128] border-2 border-[#FEBA4F]/40 px-4 py-3 rounded-2xl font-black uppercase tracking-widest text-[11px] transition-all shadow-md flex items-center justify-center gap-1.5 h-[42px]"
-                                    title="Oddajte oceno za prodajalca"
-                                  >
-                                    <Star size={14} className="fill-current" />
-                                    <span>Oceni prodajalca</span>
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        ) : isOverdue ? (
-                          <div className="flex flex-col gap-2 w-full lg:w-auto min-w-[220px]">
-                            <button
-                              disabled
-                              className="bg-red-100 text-red-600 border border-red-200 px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-xs cursor-not-allowed flex items-center justify-center gap-2 opacity-80 shadow-none w-full"
-                            >
-                              <Lock size={16} /> Plačilo zaklenjeno
-                            </button>
-                            <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest text-center py-1">
-                              Sporočila onemogočena
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="flex flex-col gap-2 w-full">
-                            {wonItem.post_auction_status !== 'offered_2nd' && wonItem.post_auction_status !== 'rejected_2nd' && (
-                              <button
-                                onClick={async () => {
-                                  setCheckoutData({
-                                    amount: parseFloat(
-                                      totalAmountToPay.toFixed(2),
-                                    ),
-                                    title: `${t("paymentFor")}: ${wonItem.title[language as keyof typeof wonItem.title] || wonItem.title.SLO}`,
-                                    onSuccess: async () => {
-                                      setIsCheckoutOpen(false);
-                                      toast.success(t("paymentSuccessEmail") || "Plačilo sprejeto. Potrditev lahko traja nekaj sekund.");
-                                      fetchAuctions();
-                                      if (userData?.id) refreshUserData(userData.id);
-                                    },
-                                    metadata: {
-                                      auction_id: wonItem.id,
-                                      buyer_id: userData.id,
-                                      seller_id: wonItem.sellerId,
-                                      fee_percentage: feePercentage,
-                                      buyer_data: userData,
-                                    },
-                                  });
-                                  setIsCheckoutOpen(true);
-                                }}
-                                className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl flex items-center justify-center gap-2"
-                              >
-                                <CardIcon size={18} /> Plačaj zdaj
-                              </button>
-                            )}
-                            {wonItem.delivery_method !== "post" && (
-                              <button
-                                onClick={() => {
-                                  setActiveConversationId(wonItem.id);
-                                  setActiveView("messages");
-                                  window.scrollTo({
-                                    top: 0,
-                                    behavior: "instant",
-                                  });
-                                }}
-                                className="bg-[#FEBA4F] text-[#0A1128] px-8 py-3 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#0A1128] hover:text-[#FEBA4F] transition-all flex items-center justify-center gap-2"
-                              >
-                                <MessageSquare size={18} /> Sporočila
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })
+                currentUserWinnings.map((wonItem) => (
+                  <WonAuctionItem
+                    key={wonItem.id}
+                    wonItem={wonItem}
+                    language={language}
+                    t={t}
+                    userData={userData}
+                    navigateTo={navigateTo}
+                    setCheckoutData={setCheckoutData}
+                    setIsCheckoutOpen={setIsCheckoutOpen}
+                    fetchAuctions={fetchAuctions}
+                    refreshUserData={refreshUserData}
+                    transactionPartners={transactionPartners}
+                    setTransactionPartners={setTransactionPartners}
+                    setInvoiceModalData={setInvoiceModalData}
+                    setActiveConversationId={setActiveConversationId}
+                    setActiveView={setActiveView}
+                    setReceiptConfirmModal={setReceiptConfirmModal}
+                    openReviewModal={openReviewModal}
+                    user={user}
+                  />
+                ))
               )}
             </div>
           </div>
@@ -4426,17 +4514,30 @@ const MainApp: React.FC = () => {
 
   // Sync isVerified state with userData as a fallback
   useEffect(() => {
-    const userDataVerified = !!userData.profile_completed;
+    const userDataVerified = Boolean(userData.profile_completed && (userData.email_verified || auth.currentUser?.emailVerified));
     if (isLoggedIn && isVerified !== userDataVerified) {
       setIsVerified(userDataVerified);
     }
-  }, [userData.profile_completed, isLoggedIn, isVerified]);
+  }, [userData.profile_completed, userData.email_verified, isLoggedIn, isVerified]);
 
   const [dontShowTermsAgain, setDontShowTermsAgain] = useState(false);
 
   async function handleBidSubmit(item: any, amount: number): Promise<"ok" | "outbid" | "error" | "login_required" | "cancelled"> {
     if (!isLoggedIn) {
-      toast.error(t("login")); setActiveView("login"); return "login_required";
+      toast.error("Za oddajo ponudbe se morate prijaviti ali registrirati.");
+      setAuthMode('login');
+      setActiveView("login");
+      return "login_required";
+    }
+    if (!(auth.currentUser?.emailVerified || userData?.email_verified)) {
+      toast.error("Za oddajo ponudbe morate najprej potrditi svoj e-poštni naslov.");
+      return "error";
+    }
+    if (!userData?.profile_completed) {
+      toast.error("Za oddajo ponudbe morate najprej dopolniti svoj profil.");
+      setSettingsTab('personal');
+      setActiveView('settings');
+      return "error";
     }
     const itemSellerId = item.sellerId || (item as any).seller_id || ((item as any).seller && (((item as any).seller as any).id || (item as any).seller.id));
     if (itemSellerId && (itemSellerId === userData?.id || itemSellerId === auth.currentUser?.uid)) {
@@ -4509,8 +4610,12 @@ const MainApp: React.FC = () => {
       const data = await response.json();
 
       if (!response.ok || !data.success) {
-        const errorMsg = friendlyError(data.error, "Napaka pri oddaji ponudbe.");
-        toast.error(errorMsg);
+        if (response.status === 403 && (data.code === 'EMAIL_NOT_VERIFIED' || data.code === 'PROFILE_INCOMPLETE')) {
+          toast.error(data.error);
+        } else {
+          const errorMsg = friendlyError(data.error, "Napaka pri oddaji ponudbe.");
+          toast.error(errorMsg);
+        }
         if (bidResolverRef.current) bidResolverRef.current("error");
         setPendingBid(null);
         return;
@@ -4819,6 +4924,11 @@ const MainApp: React.FC = () => {
             navigateTo("lastChance", { selectedRegion: null, selectedCategory: null });
           }}
           onLogin={() => {
+            setAuthMode('login');
+            navigateTo("login");
+          }}
+          onRegister={() => {
+            setAuthMode('register');
             navigateTo("login");
           }}
           onLogout={handleLogout}
