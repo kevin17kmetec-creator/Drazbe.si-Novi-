@@ -9,6 +9,7 @@ import { doc, collection, query, orderBy, limit, onSnapshot } from 'firebase/fir
 import { db, registerSnapshotListener } from "../../lib/firebase";
 import { getIncrement, checkAndFinalizeAuctionClient } from "../../lib/utils";
 import { calculateTotals } from "../../lib/feeCalculator";
+import { PaymentTimeline } from "../orders/PaymentTimeline";
 import { useFeePreview } from "../../lib/useFeePreview";
 import { formatAttributeLabel } from "../../lib/categoryAttributes";
 import { toast } from 'sonner';
@@ -697,6 +698,11 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
           </div>
 
           <div className="lg:col-span-8 order-3 space-y-6">
+            {isPaid && (isSeller || isWinner) && (
+              <div className="animate-in fade-in slide-in-from-top-4 duration-700">
+                <PaymentTimeline auctionId={currentAuction.id} />
+              </div>
+            )}
             <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
               <div className="p-4 border-b border-slate-100 bg-slate-50">
                 <h3 className="text-[#0A1128] font-black uppercase tracking-widest text-xs">{t('description')}</h3>

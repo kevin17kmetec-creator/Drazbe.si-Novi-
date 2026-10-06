@@ -11,6 +11,7 @@ import {
 } from 'firebase/auth';
 import { toast } from 'sonner';
 import { getAuthHeaders } from '../../lib/authFetch';
+import { TERMS_VERSION } from '../../lib/termsVersion';
 import { sendEmailVerificationAction, sendPasswordResetAction } from "../../actions/auth-emails";
 import { useGoogleReCaptcha } from 'react-google-recaptcha-v3';
 import { verifyCaptchaAction } from '../../actions/captcha';
@@ -22,7 +23,9 @@ export const AuthView: React.FC<{
   setIsVerified: (v: boolean) => void; 
   setAppLoggedIn: (val: boolean) => void;
   initialMode?: 'login' | 'register';
-}> = ({ t, onLoginSuccess, setIsVerified, setAppLoggedIn, initialMode = 'login' }) => {
+  onLegal?: (type: 'terms' | 'privacy' | 'how') => void;
+  onAcceptTerms?: () => void;
+}> = ({ t, onLoginSuccess, setIsVerified, setAppLoggedIn, initialMode = 'login', onLegal, onAcceptTerms }) => {
   const { executeRecaptcha } = useGoogleReCaptcha();
   const [isLogin, setIsLogin] = useState(initialMode !== 'register');
   const [isForgotPassword, setIsForgotPassword] = useState(false);
@@ -40,6 +43,7 @@ export const AuthView: React.FC<{
   // Unverified email / resend state
   const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null);
   const [resendingVerification, setResendingVerification] = useState(false);
+  const [acceptTerms, setAcceptTerms] = useState(false);
 
   // Password validation state
   const [hasUppercase, setHasUppercase] = useState(false);
@@ -208,7 +212,11 @@ export const AuthView: React.FC<{
             try {
               await fetch('/api/profile/init', {
                 method: 'POST',
-                headers: await getAuthHeaders()
+                headers: await getAuthHeaders(),
+                body: JSON.stringify({
+                  accepted_terms: true,
+                  terms_version: TERMS_VERSION
+                })
               });
             } catch (dbErr) {
               console.warn("Napaka pri inicializaciji uporabnika:", dbErr);
@@ -282,12 +290,26 @@ export const AuthView: React.FC<{
     setLoading(true);
     try {
       const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth, provider);
+      const cred = await signInWithPopup(auth, provider);
       
-      await fetch('/api/profile/init', {
+      const res = await fetch('/api/profile/init', {
         method: 'POST',
-        headers: await getAuthHeaders()
-      }).catch(err => console.warn("Profile init error:", err));
+        headers: await getAuthHeaders(),
+        body: JSON.stringify({
+          // We don't send accepted_terms: true here because we want to force the redirect if it's a new user
+          // Actually, if it's a new user, they MUST see the terms screen.
+        })
+      });
+      
+      if (!res.ok) {
+        const errData = await res.json();
+        if (res.status === 400 && onAcceptTerms) {
+          // New user or missing terms
+          onAcceptTerms();
+          return;
+        }
+        console.warn("Profile init error:", errData.error);
+      }
       
       onLoginSuccess();
     } catch (error: any) {
@@ -486,7 +508,23 @@ export const AuthView: React.FC<{
               </div>
           )}
 
-          <button type="submit" disabled={loading} className="w-full bg-[#0A1128] text-white py-6 rounded-[2rem] font-black uppercase tracking-widest hover:bg-[#FEBA4F] transition-all shadow-xl flex items-center justify-center gap-3">
+          {!isLogin && (
+            <div className="flex items-start gap-2 px-2 mt-2">
+              <input 
+                type="checkbox" 
+                id="acceptTerms" 
+                required
+                className="w-4 h-4 mt-1 text-[#FEBA4F] bg-slate-50 border-slate-200 rounded focus:ring-[#FEBA4F] cursor-pointer"
+                checked={acceptTerms}
+                onChange={(e) => setAcceptTerms(e.target.checked)}
+              />
+              <label htmlFor="acceptTerms" className="text-xs font-bold text-slate-500 cursor-pointer">
+                Sprejemam <button type="button" onClick={() => onLegal?.('terms')} className="text-[#0A1128] underline hover:text-[#FEBA4F]">Pogoje uporabe</button> in <button type="button" onClick={() => onLegal?.('privacy')} className="text-[#0A1128] underline hover:text-[#FEBA4F]">Politiko zasebnosti</button>.
+              </label>
+            </div>
+          )}
+
+          <button type="submit" disabled={loading || (!isLogin && !acceptTerms)} className="w-full bg-[#0A1128] text-white py-6 rounded-[2rem] font-black uppercase tracking-widest hover:bg-[#FEBA4F] transition-all shadow-xl flex items-center justify-center gap-3">
             {loading ? (
               <>
                 <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>

@@ -157,4 +157,4 @@ export enum Region {
   ObalnoKraska = 'Obalno-kraška'
 }
 
-export type ViewState = 'grid' | 'detail' | 'login' | 'sellerProfile' | 'createAuction' | 'settings' | 'verification' | 'winnings' | 'lastChance' | 'subscriptions' | 'watchlist' | 'myBids' | 'mySold' | 'messages' | 'myUnsold' | 'myArchive' | 'testSandbox' | 'package' | 'payoutSetup';
+export type ViewState = 'grid' | 'detail' | 'login' | 'sellerProfile' | 'createAuction' | 'settings' | 'verification' | 'winnings' | 'lastChance' | 'subscriptions' | 'watchlist' | 'myBids' | 'mySold' | 'messages' | 'myUnsold' | 'myArchive' | 'testSandbox' | 'package' | 'payoutSetup' | 'acceptTerms';

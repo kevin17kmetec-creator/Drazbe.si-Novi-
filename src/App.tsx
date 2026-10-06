@@ -28,6 +28,10 @@ import { MessagesView } from "@/src/components/profile/MessagesView";
 import { MissingInvoiceDataModal } from "@/src/components/modals/MissingInvoiceDataModal";
 import { CategoryFilterBar, FilterState } from "@/src/components/auction/CategoryFilterBar";
 import { Portal } from "@/src/components/ui/Portal";
+import { TermsUpdateView } from "@/src/components/auth/TermsUpdateView";
+import { MarkShippedModal } from "@/src/components/modals/MarkShippedModal";
+import { PaymentTimeline } from "@/src/components/orders/PaymentTimeline";
+import { TERMS_VERSION } from "./lib/termsVersion";
 import { checkUserInvoiceData } from "./lib/invoiceDataCheck";
 import { getAuthHeaders } from "./lib/authFetch";
 import { friendlyError } from "./lib/friendlyError";
@@ -348,6 +352,7 @@ const WonAuctionItem: React.FC<{
   setActiveView: any;
   setReceiptConfirmModal: (data: any) => void;
   openReviewModal: (item: any) => void;
+  setTimelineModalAuctionId: (id: string | null) => void;
   user: any;
 }> = ({
   wonItem,
@@ -366,6 +371,7 @@ const WonAuctionItem: React.FC<{
   setActiveView,
   setReceiptConfirmModal,
   openReviewModal,
+  setTimelineModalAuctionId,
   user
 }) => {
   const isPaid = wonItem.payment_status === "paid";
@@ -556,6 +562,13 @@ const WonAuctionItem: React.FC<{
                   className="bg-slate-100 text-[#0A1128] border-2 border-slate-200 px-4 py-3 rounded-2xl font-black uppercase tracking-widest text-xs hover:border-slate-400 hover:bg-slate-200 transition-all flex items-center justify-center gap-1.5 h-[42px] mt-auto"
                 >
                   <FileText size={14} /> Račun
+                </button>
+                
+                <button
+                  onClick={() => setTimelineModalAuctionId(wonItem.id)}
+                  className="bg-slate-100 text-[#0A1128] border-2 border-slate-200 px-4 py-3 rounded-2xl font-black uppercase tracking-widest text-xs hover:border-[#FEBA4F] transition-all flex items-center justify-center gap-1.5 h-[42px] mt-2"
+                >
+                  <Clock size={14} /> Status plačila
                 </button>
               </div>
 
@@ -1530,6 +1543,12 @@ const MainApp: React.FC = () => {
     auctionId: string;
     sellerId: string;
   }>({ isOpen: false, auctionId: "", sellerId: "" });
+  const [timelineModalAuctionId, setTimelineModalAuctionId] = useState<string | null>(null);
+  const [markShippedModal, setMarkShippedModal] = useState<{
+    isOpen: boolean;
+    auctionId: string;
+    itemPrice: number;
+  }>({ isOpen: false, auctionId: "", itemPrice: 0 });
   const [reviewModalData, setReviewModalData] = useState<{
     isOpen: boolean;
     auction: AuctionItem | null;
@@ -3030,6 +3049,19 @@ const MainApp: React.FC = () => {
       );
       break;
     }
+    case "acceptTerms":
+      content = (
+        <TermsUpdateView
+          t={t}
+          userData={userData}
+          onSuccess={(updated) => {
+            setUserData(updated);
+            navigateTo("grid");
+          }}
+          onBack={() => goBack("grid")}
+        />
+      );
+      break;
     case "login":
       content = (
         <AuthView
@@ -3044,6 +3076,8 @@ const MainApp: React.FC = () => {
           setIsVerified={setIsVerified}
           setAppLoggedIn={(val) => setIsLoggedIn(val)}
           initialMode={authMode}
+          onLegal={(type) => setActiveLegal(type)}
+          onAcceptTerms={() => navigateTo("acceptTerms")}
         />
       );
       break;
@@ -3055,6 +3089,8 @@ const MainApp: React.FC = () => {
             t={t}
             setIsVerified={setIsVerified}
             setAppLoggedIn={(val) => setIsLoggedIn(val)}
+            onLegal={(type) => setActiveLegal(type)}
+            onAcceptTerms={() => navigateTo("acceptTerms")}
           />
         );
       } else if (!userData.stripe_onboarding_complete) {
@@ -3564,6 +3600,7 @@ const MainApp: React.FC = () => {
                     setActiveView={setActiveView}
                     setReceiptConfirmModal={setReceiptConfirmModal}
                     openReviewModal={openReviewModal}
+                    setTimelineModalAuctionId={setTimelineModalAuctionId}
                     user={user}
                   />
                 ))
@@ -3770,8 +3807,9 @@ const MainApp: React.FC = () => {
                         )}
 
                         {soldItem.payment_status === "paid" && (
-                          <button
-                            onClick={async () => {
+                          <>
+                            <button
+                              onClick={async () => {
                               let b = transactionPartners.get(soldItem.id);
                               if (!b) {
                                 try {
@@ -3805,6 +3843,23 @@ const MainApp: React.FC = () => {
                           >
                             <FileText size={16} /> Račun
                           </button>
+                          
+                          <button
+                            onClick={() => setTimelineModalAuctionId(soldItem.id)}
+                            className="bg-slate-100 text-[#0A1128] border-2 border-slate-200 px-4 py-3.5 rounded-2xl font-black uppercase tracking-widest text-sm hover:border-[#FEBA4F] transition-all flex items-center justify-center gap-2 mt-2"
+                          >
+                            <Clock size={16} /> Status plačila
+                          </button>
+
+                          {soldItem.payment_status === "paid" && ((soldItem as any).delivery_method === "post" || (soldItem as any).selected_delivery === "post") && !(soldItem as any).shipped_at && (
+                            <button
+                              onClick={() => setMarkShippedModal({ isOpen: true, auctionId: soldItem.id, itemPrice: soldItem.currentBid })}
+                              className="bg-[#0A1128] text-white px-4 py-3.5 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all flex items-center justify-center gap-2 mt-2 shadow-lg"
+                            >
+                              <Truck size={16} /> Označi kot poslano
+                            </button>
+                          )}
+                        </>
                         )}
                         </div>
                         <div className="flex flex-col gap-3 flex-1 min-w-[180px]">
@@ -4995,6 +5050,7 @@ const MainApp: React.FC = () => {
           onMessages={() => {
             navigateTo("messages");
           }}
+          onAcceptTerms={() => navigateTo("acceptTerms")}
           activeView={activeView}
           selectedRegion={selectedRegion}
           selectedCategory={selectedCategory}
@@ -5284,6 +5340,26 @@ const MainApp: React.FC = () => {
           </Portal>
         )}
 
+        {timelineModalAuctionId && (
+          <Portal>
+            <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4">
+              <div className="absolute inset-0 bg-[#0A1128]/95 backdrop-blur-md" onClick={() => setTimelineModalAuctionId(null)}></div>
+              <div className="relative bg-white w-full max-w-4xl rounded-[3rem] p-1 shadow-2xl animate-in border-4 border-[#FEBA4F] max-h-[90vh] overflow-hidden flex flex-col">
+                 <div className="p-8 pb-4 flex justify-between items-center border-b border-slate-100">
+                    <h3 className="text-2xl font-black text-[#0A1128] uppercase tracking-tighter">Status plačila in dostave</h3>
+                    <button onClick={() => setTimelineModalAuctionId(null)} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400"><X size={24} /></button>
+                 </div>
+                 <div className="p-8 overflow-y-auto custom-scrollbar flex-1">
+                    <PaymentTimeline auctionId={timelineModalAuctionId} />
+                 </div>
+                 <div className="p-8 pt-4 border-t border-slate-100 flex justify-end">
+                    <button onClick={() => setTimelineModalAuctionId(null)} className="bg-[#0A1128] text-white px-8 py-3 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-lg">Zapri</button>
+                 </div>
+              </div>
+            </div>
+          </Portal>
+        )}
+
         <ReviewModal
           isOpen={reviewModalData.isOpen}
           onClose={() => setReviewModalData({ isOpen: false, auction: null, sellerName: "" })}
@@ -5326,6 +5402,14 @@ const MainApp: React.FC = () => {
           auction={invoiceModalData.auction}
           seller={invoiceModalData.seller}
           buyer={invoiceModalData.buyer}
+        />
+
+        <MarkShippedModal
+          isOpen={markShippedModal.isOpen}
+          onClose={() => setMarkShippedModal(prev => ({ ...prev, isOpen: false }))}
+          auctionId={markShippedModal.auctionId}
+          itemPrice={markShippedModal.itemPrice}
+          onSuccess={fetchAuctions}
         />
 
         {showBackToTop && (
