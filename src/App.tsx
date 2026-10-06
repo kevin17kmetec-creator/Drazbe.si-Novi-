@@ -369,7 +369,7 @@ const WonAuctionItem: React.FC<{
   user
 }) => {
   const isPaid = wonItem.payment_status === "paid";
-  const { data: preview } = useFeePreview({
+  const { data: preview, loading: previewLoading } = useFeePreview({
     auctionId: wonItem.id,
     enabled: !isPaid
   });
@@ -634,6 +634,7 @@ const WonAuctionItem: React.FC<{
           <div className="flex flex-col gap-2 w-full">
             {wonItem.post_auction_status !== 'offered_2nd' && wonItem.post_auction_status !== 'rejected_2nd' && (
               <button
+                disabled={previewLoading || !preview}
                 onClick={async () => {
                   setCheckoutData({
                     amount: totalAmountToPay,
@@ -653,9 +654,22 @@ const WonAuctionItem: React.FC<{
                   });
                   setIsCheckoutOpen(true);
                 }}
-                className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl flex items-center justify-center gap-2"
+                className={`px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm transition-all shadow-xl flex items-center justify-center gap-2 ${
+                  previewLoading || !preview
+                    ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
+                    : 'bg-[#0A1128] text-white hover:bg-[#FEBA4F] hover:text-[#0A1128]'
+                }`}
               >
-                <CardIcon size={18} /> Plačaj zdaj
+                {previewLoading ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
+                    <span>Nalaganje izračuna...</span>
+                  </>
+                ) : (
+                  <>
+                    <CardIcon size={18} /> Plačaj zdaj
+                  </>
+                )}
               </button>
             )}
             {wonItem.delivery_method !== "post" && (
@@ -968,12 +982,15 @@ const MainApp: React.FC = () => {
   );
   const [watchedIds, setWatchedIds] = useState<string[]>([]);
   const [watchlistSnapshot, setWatchlistSnapshot] = useState<string[]>([]);
+  const [watchedLoaded, setWatchedLoaded] = useState(false);
+  const watchedIdsRef = useRef<string[]>([]);
+  watchedIdsRef.current = watchedIds;
 
   useEffect(() => {
-    if (activeView === "watchlist") {
-      setWatchlistSnapshot(watchedIds);
+    if (activeView === "watchlist" && watchedLoaded) {
+      setWatchlistSnapshot(watchedIdsRef.current);
     }
-  }, [activeView, watchedIds.length === 0]);
+  }, [activeView, watchedLoaded]);
   const [isPollingStopped, setIsPollingStopped] = useState(false);
   const [isHydrating, setIsHydrating] = useState(true);
   const [createMode, setCreateMode] = useState<"choice" | "single" | "package">("choice");
@@ -1452,6 +1469,7 @@ const MainApp: React.FC = () => {
     }
 
     const isWatched = watchedIds.includes(id);
+    const previousWatchedIds = watchedIds;
     const newWatchedIds = isWatched
       ? watchedIds.filter((i) => i !== id)
       : [...watchedIds, id];
@@ -1470,6 +1488,8 @@ const MainApp: React.FC = () => {
       }
     } catch (err) {
       console.error("Error updating watched auctions subcollection:", err);
+      setWatchedIds(previousWatchedIds);
+      toast.error("Sprememba ni bila shranjena. Poskusite znova.");
     }
   };
   const [activeLegal, setActiveLegal] = useState<
@@ -1888,12 +1908,14 @@ const MainApp: React.FC = () => {
   useEffect(() => {
     if (!user) {
       setWatchedIds([]);
+      setWatchedLoaded(false);
       return;
     }
     const unsubWatched = registerSnapshotListener(
       onSnapshot(collection(db, 'users', user.uid, 'watched'), (snap) => {
         const ids = snap.docs.map(d => d.id);
         setWatchedIds(ids);
+        setWatchedLoaded(true);
       }, (error) => {
         console.warn("Watched snapshot error:", error);
       })

@@ -1122,7 +1122,7 @@ async function finalizeAuctionPayment(params: {
         await resendClient.emails.send({
           from: process.env.EMAIL_FROM || 'dražbenik.si <obvestila@drazbenik.si>',
           to: buyer.email,
-          subject: `Potrdilo o plačilu in dokumenti: ${auctionTitleText} - dražbe.eu`,
+          subject: `Potrdilo o plačilu in dokumenti: ${auctionTitleText} - dražbenik.si`,
           html: htmlContent,
           attachments
         });
@@ -1310,13 +1310,16 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
           stripeSessionId: isSession ? sessionObj?.id : undefined
         });
         res.json({ received: true });
+        return;
       } catch (err: any) {
         console.error("Error processing successful payment:", err);
         res.status(500).json({ error: 'processing_failed' });
+        return;
       }
     } catch (err: any) {
       console.error("Webhook event handling error:", err);
       res.status(500).json({ error: err.message });
+      return;
     }
   }
 
@@ -1427,7 +1430,9 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
     }
   }
 
-  res.json({ received: true });
+  if (!res.headersSent) {
+    res.json({ received: true });
+  }
 });
 
 // JSON Body Parser for all non-webhook routes
@@ -1806,42 +1811,47 @@ app.post('/api/fees/preview', async (req, res) => {
     return res.status(401).json({ error: authErr.message || 'Unauthorized' });
   }
 
-  if (placeBidRateLimiter) {
-    try {
-      const { success } = await placeBidRateLimiter.limit(userId);
-      if (!success) {
-        return res.status(429).json({ error: 'Preveč zahtev. Poskusite znova kasneje.' });
+  try {
+    if (placeBidRateLimiter) {
+      try {
+        const { success } = await placeBidRateLimiter.limit(userId);
+        if (!success) {
+          return res.status(429).json({ error: 'Preveč zahtev. Poskusite znova kasneje.' });
+        }
+      } catch (e) {}
+    }
+
+    const { amount, auction_id } = req.body || {};
+    let itemPriceCents = 0;
+
+    if (auction_id) {
+      const aDoc = await safeGetDoc(adminDb.collection('auctions').doc(auction_id));
+      if (!aDoc.exists) {
+        return res.status(404).json({ error: 'Dražba ni najdena' });
       }
-    } catch (e) {}
+      const aData = aDoc.data() || {};
+      const winnerId = aData.winner_id || aData.winnerId;
+      const secondWinnerId = aData.second_winner_id || aData.secondWinnerId;
+      if (winnerId !== userId && secondWinnerId !== userId) {
+        return res.status(403).json({ error: 'Nimate pravic za pregled te dražbe.' });
+      }
+      itemPriceCents = parseAmountToCents(aData.current_price || aData.currentBid || aData.starting_price || 0);
+    } else {
+      itemPriceCents = parseAmountToCents(amount);
+      if (itemPriceCents <= 0 || itemPriceCents > 100000000) {
+        return res.status(400).json({ error: 'Neveljaven znesek.' });
+      }
+    }
+
+    const userDoc = await safeGetDoc(adminDb.collection('users').doc(userId));
+    const userData = userDoc.exists ? (userDoc.data() || {}) : {};
+
+    const result = await computeBuyerTotals(userId, userData, itemPriceCents);
+    return res.json(result);
+  } catch (err: any) {
+    console.error('[fees/preview]', err);
+    return res.status(500).json({ error: 'Izračuna provizije ni bilo mogoče pridobiti.' });
   }
-
-  const { amount, auction_id } = req.body || {};
-  let itemPriceCents = 0;
-
-  if (auction_id) {
-    const aDoc = await safeGetDoc(adminDb.collection('auctions').doc(auction_id));
-    if (!aDoc.exists) {
-      return res.status(404).json({ error: 'Dražba ni najdena' });
-    }
-    const aData = aDoc.data() || {};
-    const winnerId = aData.winner_id || aData.winnerId;
-    const secondWinnerId = aData.second_winner_id || aData.secondWinnerId;
-    if (winnerId !== userId && secondWinnerId !== userId) {
-      return res.status(403).json({ error: 'Nimate pravic za pregled te dražbe.' });
-    }
-    itemPriceCents = parseAmountToCents(aData.current_price || aData.currentBid || aData.starting_price || 0);
-  } else {
-    itemPriceCents = parseAmountToCents(amount);
-    if (itemPriceCents <= 0 || itemPriceCents > 100000000) {
-      return res.status(400).json({ error: 'Neveljaven znesek.' });
-    }
-  }
-
-  const userDoc = await safeGetDoc(adminDb.collection('users').doc(userId));
-  const userData = userDoc.exists ? (userDoc.data() || {}) : {};
-
-  const result = await computeBuyerTotals(userId, userData, itemPriceCents);
-  return res.json(result);
 });
 
 app.get("/api/health", (_req, res) => {
