@@ -31,6 +31,22 @@
         { "fieldPath": "subscription_canceled", "order": "ASCENDING" },
         { "fieldPath": "subscription_valid_until", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "transactions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "auto_release_at", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "transactions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "auto_complete_at", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

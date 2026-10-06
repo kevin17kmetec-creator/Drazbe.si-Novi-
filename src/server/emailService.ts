@@ -218,3 +218,45 @@ export async function sendReviewReminderNotification(params: {
   });
 }
 
+/**
+ * Triggered when order is cancelled due to shipping deadline expiry
+ */
+export async function sendShippingCancelledNotifications(params: {
+  buyerEmail: string;
+  sellerEmail: string;
+  buyerName?: string;
+  sellerName?: string;
+  auctionId: string;
+  auctionTitle: string;
+  auctionImageUrl?: string;
+  totalAmount: number;
+}): Promise<{ buyerSuccess: boolean; sellerSuccess: boolean }> {
+  const baseUrl = getBaseAppUrl();
+  const auctionUrl = `${baseUrl}/?drazba=${params.auctionId}`;
+
+  const buyerRes = await sendAuctionEmail(params.buyerEmail, `Naročilo preklicano: ${params.auctionTitle}`, {
+    type: 'shipping_cancelled_buyer',
+    recipientName: params.buyerName || 'Kupec',
+    auctionTitle: params.auctionTitle,
+    auctionImageUrl: params.auctionImageUrl,
+    currentPrice: params.totalAmount,
+    auctionUrl,
+    settingsUrl: `${baseUrl}/?tab=settings`,
+  });
+
+  const sellerRes = await sendAuctionEmail(params.sellerEmail, `Prodaja preklicana: ${params.auctionTitle}`, {
+    type: 'shipping_cancelled_seller',
+    recipientName: params.sellerName || 'Prodajalec',
+    auctionTitle: params.auctionTitle,
+    auctionImageUrl: params.auctionImageUrl,
+    currentPrice: params.totalAmount,
+    auctionUrl,
+    settingsUrl: `${baseUrl}/?tab=settings`,
+  });
+
+  return {
+    buyerSuccess: buyerRes.success,
+    sellerSuccess: sellerRes.success,
+  };
+}
+

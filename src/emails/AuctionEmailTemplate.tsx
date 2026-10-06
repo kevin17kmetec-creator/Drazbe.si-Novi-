@@ -16,7 +16,7 @@ import {
   Preview,
 } from '@react-email/components';
 
-export type EmailType = 'outbid' | 'ending_soon' | 'won' | 'payment_reminder' | 'payment_success' | 'review_reminder' | 'payment_received_seller' | 'item_shipped_buyer' | 'item_delivered_buyer' | 'item_delivered_seller';
+export type EmailType = 'outbid' | 'ending_soon' | 'won' | 'payment_reminder' | 'payment_success' | 'review_reminder' | 'payment_received_seller' | 'item_shipped_buyer' | 'item_delivered_buyer' | 'item_delivered_seller' | 'shipping_cancelled_buyer' | 'shipping_cancelled_seller';
 
 export interface AuctionEmailProps {
   type: EmailType;
@@ -196,6 +196,30 @@ export const AuctionEmailTemplate: React.FC<AuctionEmailProps> = ({
       ctaUrl = paymentUrl || `${auctionUrl}?tab=winnings`;
       priceLabel = 'Kupljen artikel:';
       highlightNote = 'Oddaja ocene vzame manj kot minuto (1–5 zvezdic ter po želji kratek komentar).';
+      break;
+
+    case 'shipping_cancelled_buyer':
+      previewText = `Naročilo za "${auctionTitle}" je bilo preklicano.`;
+      badgeText = 'NAROČILO PREKLICANO';
+      badgeBg = '#EF4444';
+      badgeColor = '#FFFFFF';
+      headline = 'Naročilo preklicano';
+      subheadline = `Naročilo je bilo preklicano, ker prodajalec predmeta ni poslal v roku. Znesek vam vrnemo v celoti, vključno s provizijo.`;
+      ctaText = 'Ogled drazbe';
+      priceLabel = 'Vrnjeni znesek:';
+      highlightNote = 'Sredstva bodo vrnjena na vaš plačilni račun.';
+      break;
+
+    case 'shipping_cancelled_seller':
+      previewText = `Vaša prodaja za "${auctionTitle}" je bila preklicana.`;
+      badgeText = 'PRODAJA PREKLICANA';
+      badgeBg = '#EF4444';
+      badgeColor = '#FFFFFF';
+      headline = 'Prodaja preklicana';
+      subheadline = `Naročilo za "${auctionTitle}" je bilo preklicano, ker predmeta niste odposlali v predvidenem roku. Zaradi kršitve pogojev uporabe vam je bil dodeljen opomin (strike).`;
+      ctaText = 'Pravila poslovanja';
+      priceLabel = 'Artikel:';
+      highlightNote = 'Prosimo, da v prihodnje predmete odpošljete pravočasno.';
       break;
   }
 

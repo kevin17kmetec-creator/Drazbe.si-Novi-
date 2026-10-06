@@ -46,7 +46,8 @@ import {
   sendEndingSoonNotification,
   sendAuctionWonNotification,
   sendPaymentReminderNotification,
-  sendOutbidNotification
+  sendOutbidNotification,
+  sendShippingCancelledNotifications
 } from './emailService';
 import { syncPublicProfile } from './publicProfile';
 import { TERMS_VERSION } from '../lib/termsVersion';
@@ -1093,7 +1094,7 @@ app.use((req, _res, next) => {
 
 function isPostalDelivery(method: any): boolean {
   if (typeof method !== 'string') return false;
-  return ['post', 'POSTAL_DELIVERY', 'delivery', 'shipping', 'both'].includes(method);
+  return ['post', 'shipping'].includes(method);
 }
 
 async function refundTransactionToBuyer(txId: string, reason: string): Promise<{ ok: boolean; status: string }> {
@@ -4627,7 +4628,8 @@ const handleProcessShippingDeadlines = async (req: express.Request, res: express
 
     for (const docSnap of snapshot.docs) {
       const tx = docSnap.data();
-      if (tx.delivery_method === 'pickup') continue;
+      // Transaktionen ohne Versandart (Käufer hat noch nicht gewählt) oder mit Abholung überspringen
+      if (!tx.delivery_method || !isPostalDelivery(tx.delivery_method)) continue;
 
       let deadline = tx.shipping_deadline;
       if (!deadline && tx.paid_at) {
@@ -4635,49 +4637,82 @@ const handleProcessShippingDeadlines = async (req: express.Request, res: express
       }
 
       if (deadline && now >= deadline) {
-        // Real Stripe refund
-        let refundSuccess = false;
-        if (tx.stripe_payment_intent_id) {
-          try {
-            const stripe = getStripe();
-            await stripe.refunds.create({
-              payment_intent: tx.stripe_payment_intent_id,
-              reason: 'requested_by_customer',
-              metadata: { order_id: docSnap.id, reason: 'SELLER_NO_SHIPMENT' }
+        // Durchführung der Rückerstattung über die zentrale Hilfsfunktion
+        const refundRes = await refundTransactionToBuyer(docSnap.id, 'seller_no_shipment');
+
+        if (refundRes.ok) {
+          // Dem Verkäufer einen Strike hinzufügen
+          await adminDb.collection('seller_strikes').add({
+            user_id: tx.seller_id,
+            order_id: docSnap.id,
+            reason: 'NO_SHIPMENT_IN_DEADLINE',
+            created_at: now
+          });
+
+          const sellerRef = adminDb.collection('users').doc(tx.seller_id);
+          const sellerDoc = await safeGetDoc(sellerRef);
+          if (sellerDoc.exists()) {
+            const notes = sellerDoc.data().system_notes || [];
+            await sellerRef.update({
+              system_notes: [...notes, `Naročilo preklicano – predmet ni bil poslan v roku (Naročilo: ${docSnap.id})`]
             });
-            refundSuccess = true;
-          } catch (refundErr: any) {
-            console.error(`[cron] Stripe refund failed for order ${docSnap.id}:`, refundErr.message);
+          }
+
+          await checkAndApplySellerPenalties(tx.seller_id);
+
+          // E-Mail-Benachrichtigungen an beide Parteien senden, falls noch nicht geschehen
+          try {
+            const freshTxSnap = await docSnap.ref.get();
+            const freshTx = freshTxSnap.data() || {};
+            if (!freshTx.email_flags?.shipping_cancelled) {
+              const buyerDoc = await safeGetDoc(adminDb.collection('users').doc(tx.buyer_id));
+              const buyer = buyerDoc.data() || {};
+              const sellerDoc2 = await safeGetDoc(adminDb.collection('users').doc(tx.seller_id));
+              const seller = sellerDoc2.data() || {};
+              const auctionDoc = await safeGetDoc(adminDb.collection('auctions').doc(tx.auction_id));
+              const auction = auctionDoc.data() || {};
+
+              if (buyer.email && seller.email) {
+                await sendShippingCancelledNotifications({
+                  buyerEmail: buyer.email,
+                  sellerEmail: seller.email,
+                  buyerName: buyer.first_name || buyer.name,
+                  sellerName: seller.first_name || seller.name,
+                  auctionId: tx.auction_id,
+                  auctionTitle: auction?.title?.SLO || 'Predmet dražbe',
+                  auctionImageUrl: auction?.images?.[0]?.url || auction?.images?.[0],
+                  totalAmount: Number(tx.amount_total || tx.amount || 0)
+                });
+                
+                await docSnap.ref.update({
+                  'email_flags.shipping_cancelled': true
+                });
+              }
+            }
+          } catch (emErr: any) {
+            console.error('[cron] Error sending cancellation emails:', emErr.message);
+          }
+
+          processed++;
+        } else {
+          // Fehler dokumentieren und Admin-Alarm auslösen
+          await docSnap.ref.update({
+            refund_error: refundRes.status,
+            refund_failed_at: now
+          });
+
+          try {
+            await adminDb.collection('admin_alerts').add({
+              type: 'REFUND_FAILED',
+              transaction_id: docSnap.id,
+              status: refundRes.status,
+              reason: 'SELLER_NO_SHIPMENT',
+              created_at: now
+            });
+          } catch (alertErr: any) {
+            console.error('Failed to create admin alert for refund failure:', alertErr.message);
           }
         }
-
-        // Always update status even if refund failed (admin needs to see it)
-        await docSnap.ref.update({
-          status: 'CANCELLED',
-          payout_status: 'refunded',
-          cancelled_reason: 'SELLER_NO_SHIPMENT',
-          updated_at: now
-        });
-
-        // Add seller strike
-        await adminDb.collection('seller_strikes').add({
-          user_id: tx.seller_id,
-          order_id: docSnap.id,
-          reason: 'NO_SHIPMENT_IN_DEADLINE',
-          created_at: now
-        });
-
-        const sellerRef = adminDb.collection('users').doc(tx.seller_id);
-        const sellerDoc = await safeGetDoc(sellerRef);
-        if (sellerDoc.exists()) {
-          const notes = sellerDoc.data().system_notes || [];
-          await sellerRef.update({
-            system_notes: [...notes, `Naročilo preklicano – predmet ni bil poslan v roku (Naročilo: ${docSnap.id})`]
-          });
-        }
-
-        await checkAndApplySellerPenalties(tx.seller_id);
-        processed++;
       }
     }
 
@@ -4948,7 +4983,9 @@ const handleProcessEscrowCompletions = async (req: express.Request, res: express
 
     for (const docSnap of holdAlertSnap.docs) {
       const tx = docSnap.data();
-      const statusCheck = ['held', 'frozen', 'release_waiting_funds'].includes(tx.payout_status);
+      // Bereits ausgezahlte oder erstattete Transaktionen überspringen
+      if (tx.payout_status === 'paid_out' || tx.payout_status === 'refunded') continue;
+      const statusCheck = ['held', 'frozen', 'release_waiting_funds', 'release_failed'].includes(tx.payout_status);
       if (!statusCheck) continue;
 
       const isHardLimit = tx.held_since <= holdHardThreshold;
@@ -7748,18 +7785,13 @@ app.post("/api/admin/orders/:id/resolve-dispute", async (req, res) => {
         return res.status(400).json({ error: "Naročilo nima povezanega plačilnega ID (payment_intent_id)." });
       }
 
-      await stripe.refunds.create({
-        payment_intent: tx.stripe_payment_intent_id,
-        reverse_transfer: true,
-        refund_application_fee: true
-      }, {
-        idempotencyKey: 'refund_' + id
-      });
+      // Rückerstattung über die Hilfsfunktion einleiten
+      const refundRes = await refundTransactionToBuyer(id, 'admin_dispute_refund');
+      if (!refundRes.ok) {
+        return res.status(500).json({ error: "Fehler bei der Rückerstattung: " + refundRes.status });
+      }
 
       await txRef.update({
-        payout_status: 'refunded',
-        status: 'REFUNDED',
-        refunded_at: new Date().toISOString(),
         admin_dispute_decision: 'refund_buyer',
         admin_dispute_note: note || ''
       });
@@ -7769,34 +7801,6 @@ app.post("/api/admin/orders/:id/resolve-dispute", async (req, res) => {
         post_auction_status: 'refunded',
         status: 'canceled'
       });
-
-      // Decrement AML spend for buyer (existing helper: recordAmlSpend, decrementing via local transaction)
-      try {
-        const { currentYear } = getLjubljanaYear();
-        const buyerId = tx.buyer_id;
-        const amountEur = Number(tx.amount_total || tx.amount || 0);
-        if (buyerId && amountEur > 0) {
-          await adminDb.runTransaction(async (t) => {
-            const buyerRef = adminDb.collection('users').doc(buyerId);
-            const buyerDoc = await t.get(buyerRef);
-            if (buyerDoc.exists) {
-              const buyerData = buyerDoc.data() || {};
-              const isCurrentYear = buyerData.yearly_spent_year === currentYear;
-              const previousYearlySpent = isCurrentYear ? (Number(buyerData.yearly_spent) || 0) : 0;
-              const newYearlySpent = Math.max(0, previousYearlySpent - amountEur);
-              
-              t.set(buyerRef, {
-                yearly_spent: newYearlySpent,
-                [`yearly_spent_by_year.${currentYear}`]: FieldValue.increment(-amountEur),
-                total_spent: FieldValue.increment(-amountEur),
-                purchases_count: FieldValue.increment(-1)
-              }, { merge: true });
-            }
-          });
-        }
-      } catch (amlErr: any) {
-        console.error('[resolve-dispute] Error reducing buyer AML spend:', amlErr.message);
-      }
     }
 
     try {

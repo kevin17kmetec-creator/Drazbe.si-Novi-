@@ -4701,8 +4701,13 @@ const MainApp: React.FC = () => {
       const data = await response.json();
 
       if (!response.ok || !data.success) {
-        if (response.status === 403 && (data.code === 'EMAIL_NOT_VERIFIED' || data.code === 'PROFILE_INCOMPLETE')) {
-          toast.error(data.error);
+        if (response.status === 403 && (data.code === 'EMAIL_NOT_VERIFIED' || data.code === 'PROFILE_INCOMPLETE' || data.code === 'TERMS_REQUIRED')) {
+          if (data.code === 'TERMS_REQUIRED') {
+            toast.error("Za to dejanje morate sprejeti posodobljene pogoje uporabe.");
+            setActiveView("acceptTerms");
+          } else {
+            toast.error(data.error);
+          }
         } else {
           const errorMsg = friendlyError(data.error, "Napaka pri oddaji ponudbe.");
           toast.error(errorMsg);
