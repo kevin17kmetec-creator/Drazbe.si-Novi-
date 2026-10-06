@@ -369,20 +369,13 @@ const WonAuctionItem: React.FC<{
   user
 }) => {
   const isPaid = wonItem.payment_status === "paid";
-  const { data: preview, loading: previewLoading } = useFeePreview({
+  const { data: preview, loading: previewLoading, error: previewError } = useFeePreview({
     auctionId: wonItem.id,
     enabled: !isPaid
   });
 
   const rawItemPrice = Number(wonItem.currentBid || wonItem.current_price || wonItem.starting_price || 0);
-  const itemPriceCents = preview?.itemPriceCents ?? Math.round(rawItemPrice * 100);
-  const feeCents = preview?.feeCents ?? Math.round(rawItemPrice * 0.08 * 100);
-  const feePercent = preview?.feePercent ?? 8;
-  const vatRate = preview?.vatRate ?? 22;
-  const vatCents = preview?.vatCents ?? Math.round(feeCents * vatRate / 100);
-  const isReverseCharge = preview?.isReverseCharge ?? false;
-  const totalCents = preview?.totalCents ?? (itemPriceCents + feeCents + vatCents);
-  const totalAmountToPay = totalCents / 100;
+  const totalAmountToPay = preview?.totalCents ? preview.totalCents / 100 : 0;
 
   const paymentDeadlineMs = new Date((wonItem as any).payment_deadline || wonItem.endTime || (wonItem as any).end_time).getTime() + ((wonItem as any).payment_deadline ? 0 : 48 * 60 * 60 * 1000);
   const isOverdue = !isPaid && (
@@ -455,19 +448,31 @@ const WonAuctionItem: React.FC<{
           <div className="mt-3 p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-1 text-xs text-slate-600 font-bold">
             <div className="flex justify-between">
               <span>Cena predmeta:</span>
-              <span className="text-[#0A1128]">€{(itemPriceCents / 100).toLocaleString("sl-SI", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              <span className="text-[#0A1128]">
+                €{(preview ? preview.itemPriceCents / 100 : rawItemPrice).toLocaleString("sl-SI", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
             </div>
             <div className="flex justify-between">
-              <span>Provizija platforme ({feePercent} %):</span>
-              <span className="text-[#0A1128]">€{(feeCents / 100).toLocaleString("sl-SI", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              <span>Provizija platforme ({preview ? `${preview.feePercent} %` : "..."}):</span>
+              <span className="text-[#0A1128]">
+                {preview ? `€${(preview.feeCents / 100).toLocaleString("sl-SI", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "..."}
+              </span>
             </div>
             <div className="flex justify-between">
-              <span>DDV {vatRate} %:</span>
-              <span className="text-[#0A1128]">{isReverseCharge ? "Obrnjena davčna obveznost (0 %)" : `€${(vatCents / 100).toLocaleString("sl-SI", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}</span>
+              <span>DDV {preview ? `${preview.vatRate} %` : "..."}:</span>
+              <span className="text-[#0A1128]">
+                {preview
+                  ? preview.isReverseCharge
+                    ? "Obrnjena davčna obveznost (0 %)"
+                    : `€${(preview.vatCents / 100).toLocaleString("sl-SI", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                  : "..."}
+              </span>
             </div>
             <div className="flex justify-between text-sm font-black text-[#0A1128] pt-2 border-t border-slate-200">
               <span>Skupaj za plačilo:</span>
-              <span>€{totalAmountToPay.toLocaleString("sl-SI", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              <span>
+                {preview ? `€${(preview.totalCents / 100).toLocaleString("sl-SI", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "..."}
+              </span>
             </div>
           </div>
         )}
@@ -633,44 +638,51 @@ const WonAuctionItem: React.FC<{
         ) : (
           <div className="flex flex-col gap-2 w-full">
             {wonItem.post_auction_status !== 'offered_2nd' && wonItem.post_auction_status !== 'rejected_2nd' && (
-              <button
-                disabled={previewLoading || !preview}
-                onClick={async () => {
-                  setCheckoutData({
-                    amount: totalAmountToPay,
-                    title: `${t("paymentFor")}: ${wonItem.title[language as keyof typeof wonItem.title] || wonItem.title.SLO}`,
-                    onSuccess: async () => {
-                      setIsCheckoutOpen(false);
-                      toast.success(t("paymentSuccessEmail") || "Plačilo sprejeto. Potrditev lahko traja nekaj sekund.");
-                      fetchAuctions();
-                      if (userData?.id) refreshUserData(userData.id);
-                    },
-                    metadata: {
-                      auction_id: wonItem.id,
-                      buyer_id: userData.id,
-                      seller_id: wonItem.sellerId,
-                      buyer_data: userData,
-                    },
-                  });
-                  setIsCheckoutOpen(true);
-                }}
-                className={`px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm transition-all shadow-xl flex items-center justify-center gap-2 ${
-                  previewLoading || !preview
-                    ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
-                    : 'bg-[#0A1128] text-white hover:bg-[#FEBA4F] hover:text-[#0A1128]'
-                }`}
-              >
-                {previewLoading ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
-                    <span>Nalaganje izračuna...</span>
-                  </>
-                ) : (
-                  <>
-                    <CardIcon size={18} /> Plačaj zdaj
-                  </>
+              <div className="flex flex-col gap-1.5 w-full">
+                <button
+                  disabled={previewLoading || !preview}
+                  onClick={async () => {
+                    setCheckoutData({
+                      amount: totalAmountToPay,
+                      title: `${t("paymentFor")}: ${wonItem.title[language as keyof typeof wonItem.title] || wonItem.title.SLO}`,
+                      onSuccess: async () => {
+                        setIsCheckoutOpen(false);
+                        toast.success(t("paymentSuccessEmail") || "Plačilo sprejeto. Potrditev lahko traja nekaj sekund.");
+                        fetchAuctions();
+                        if (userData?.id) refreshUserData(userData.id);
+                      },
+                      metadata: {
+                        auction_id: wonItem.id,
+                        buyer_id: userData.id,
+                        seller_id: wonItem.sellerId,
+                        buyer_data: userData,
+                      },
+                    });
+                    setIsCheckoutOpen(true);
+                  }}
+                  className={`px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm transition-all shadow-xl flex items-center justify-center gap-2 ${
+                    previewLoading || !preview
+                      ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
+                      : 'bg-[#0A1128] text-white hover:bg-[#FEBA4F] hover:text-[#0A1128]'
+                  }`}
+                >
+                  {previewLoading ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
+                      <span>Nalaganje izračuna...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CardIcon size={18} /> Plačaj zdaj
+                    </>
+                  )}
+                </button>
+                {!isPaid && !previewLoading && !preview && previewError && (
+                  <p className="text-red-500 text-xs font-bold text-center mt-1">
+                    Izračuna zneska ni bilo mogoče pridobiti. Osvežite stran.
+                  </p>
                 )}
-              </button>
+              </div>
             )}
             {wonItem.delivery_method !== "post" && (
               <button

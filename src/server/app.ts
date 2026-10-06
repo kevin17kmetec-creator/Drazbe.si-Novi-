@@ -2315,9 +2315,11 @@ app.post("/api/confirm-checkout-session", async (req, res) => {
 
         return res.json({ success: true, paid: true, auction_id: effectiveAuctionId });
       }
-      } else {
-        return res.status(400).json({ error: 'Manjka identifikator seje plačila.' });
-      }
+
+      return res.status(400).json({ error: 'Seja plačila nima podatkov o dražbi.' });
+    } else {
+      return res.status(400).json({ error: 'Manjka identifikator seje plačila.' });
+    }
   } catch (err: any) {
     console.error('Error in confirm-checkout-session:', err);
     res.status(500).json({ error: err.message });
