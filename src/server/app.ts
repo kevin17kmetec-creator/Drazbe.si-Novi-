@@ -1,5 +1,5 @@
 import express from "express";
-import crypto from "crypto";
+import crypto, { randomInt, timingSafeEqual } from "crypto";
 import { Redis } from "@upstash/redis";
 import { Ratelimit } from "@upstash/ratelimit";
 import {
@@ -1298,6 +1298,47 @@ async function releaseSellerPayout(txId: string, reason: string) {
   }
 }
 
+// Abschluss nach Bestaetigung: Status COMPLETED und Auszahlung sofort anstossen
+async function completeTransactionAndPayout(txRef: any, txId: string, reason: string) {
+  const nowIso = new Date().toISOString();
+  await txRef.update({
+    status: 'COMPLETED',
+    delivered_at: nowIso,
+    completed_at: nowIso,
+    auto_complete_at: null
+  });
+  // Fehler der Auszahlung duerfen die Bestaetigung nicht scheitern lassen; der Cron wiederholt (release_failed / release_waiting_funds)
+  try {
+    await releaseSellerPayout(txId, reason);
+  } catch (payErr: any) {
+    console.error('[completeTransactionAndPayout] payout failed:', payErr?.message);
+  }
+}
+
+// Zufaellige 6-stellige PIN (kryptografisch sicher, nicht fortlaufend)
+function generatePickupPin(): string {
+  return String(randomInt(0, 1000000)).padStart(6, '0');
+}
+
+// PIN je Transaktion einmalig anlegen (idempotent), nur serverseitig lesbar
+async function getOrCreatePickupPin(txId: string): Promise<string> {
+  const secretRef = adminDb.collection('transaction_secrets').doc(txId);
+  return adminDb.runTransaction(async (t) => {
+    const snap = await t.get(secretRef);
+    const existing = snap.exists ? (snap.data() || {}) : null;
+    if (existing && existing.pickup_pin) return String(existing.pickup_pin);
+    const pin = generatePickupPin();
+    t.set(secretRef, {
+      pickup_pin: pin,
+      failed_attempts: 0,
+      lock_count: 0,
+      locked_until: 0,
+      created_at: new Date().toISOString()
+    }, { merge: true });
+    return pin;
+  });
+}
+
 async function finalizeAuctionPayment(params: {
   auctionId: string;
   buyerId: string;
@@ -1477,6 +1518,14 @@ async function finalizeAuctionPayment(params: {
       seller_snapshot: sellerSnapshot,
       ...(amountMismatch ? { amount_mismatch: true } : {})
     }, { merge: true });
+
+    if (deliveryMethod === 'pickup') {
+      try {
+        await getOrCreatePickupPin(`tx_${paymentRef}`);
+      } catch (pinErr: any) {
+        console.error('[finalizeAuctionPayment] Error creating pickup PIN:', pinErr?.message);
+      }
+    }
 
     await adminDb.collection('auctions').doc(auctionId).update({
       status: 'completed',
@@ -4769,6 +4818,64 @@ const handleProcessShippingDeadlines = async (req: express.Request, res: express
 app.get("/api/cron/process-shipping-deadlines", handleProcessShippingDeadlines);
 app.post("/api/cron/process-shipping-deadlines", handleProcessShippingDeadlines);
 
+app.get("/api/orders/:id/pickup-pin", async (req, res) => {
+  // Nutzer-ID ausschliesslich aus dem verifizierten Token
+  let userId: string;
+  try {
+    userId = await authenticateFirebaseUser(req);
+  } catch (authErr: any) {
+    return res.status(401).json({ error: authErr.message || 'Unauthorized' });
+  }
+
+  try {
+    const { id } = req.params;
+    let txRef = adminDb.collection('transactions').doc(id);
+    let txDoc = await safeGetDoc(txRef);
+    if (!txDoc.exists()) {
+      const qSnap = await safeGetDocs(adminDb.collection('transactions').where('auction_id', '==', id).limit(1));
+      if (!qSnap.empty) {
+        txDoc = qSnap.docs[0];
+        txRef = txDoc.ref;
+      }
+    }
+    if (!txDoc.exists()) {
+      return res.status(404).json({ error: "Naročilo ne obstaja." });
+    }
+
+    const tx = txDoc.data();
+    if (tx.buyer_id !== userId) {
+      return res.status(403).json({ error: "Nimate pravic za to naročilo." });
+    }
+
+    let deliveryMethod = tx.delivery_method;
+    if (!deliveryMethod && tx.auction_id) {
+      try {
+        const auctionDoc = await safeGetDoc(adminDb.collection('auctions').doc(tx.auction_id));
+        if (auctionDoc.exists()) {
+          deliveryMethod = auctionDoc.data()?.delivery_method;
+        }
+      } catch (err: any) {
+        console.error('[GET pickup-pin] Error fetching auction delivery method:', err?.message);
+      }
+    }
+
+    if (deliveryMethod !== 'pickup') {
+      return res.status(400).json({ error: "Za to naročilo prevzemna koda ni na voljo." });
+    }
+
+    if (tx.status !== 'HELD_IN_ESCROW') {
+      return res.status(400).json({ error: "Prevzemna koda ni več veljavna." });
+    }
+
+    const pin = await getOrCreatePickupPin(txDoc.id);
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json({ pin });
+  } catch (e: any) {
+    console.error('[GET pickup-pin]', e);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
 app.post("/api/orders/:id/verify-pickup-pin", async (req, res) => {
   // Nutzer-ID ausschliesslich aus dem verifizierten Token
   let userId: string;
@@ -4780,24 +4887,71 @@ app.post("/api/orders/:id/verify-pickup-pin", async (req, res) => {
 
   try {
     const { id } = req.params;
-    const { pin } = req.body || {};
-    if (!pin) return res.status(400).json({ error: "Manjka PIN." });
-
-    const txRef = adminDb.collection('transactions').doc(id);
-    const txDoc = await safeGetDoc(txRef);
+    let txRef = adminDb.collection('transactions').doc(id);
+    let txDoc = await safeGetDoc(txRef);
+    if (!txDoc.exists()) {
+      const qSnap = await safeGetDocs(adminDb.collection('transactions').where('auction_id', '==', id).limit(1));
+      if (!qSnap.empty) {
+        txDoc = qSnap.docs[0];
+        txRef = txDoc.ref;
+      }
+    }
     if (!txDoc.exists()) return res.status(404).json({ error: "Naročilo ne obstaja." });
 
     const tx = txDoc.data();
     // Nur der Verkaeufer der Bestellung darf den Abhol-PIN verifizieren
     if (tx.seller_id !== userId) return res.status(403).json({ error: "Nimate pravic za to naročilo." });
+    if (tx.status === 'COMPLETED') return res.json({ success: true, message: "Prevzem je že potrjen." });
+    if (tx.payout_status === 'frozen' || tx.payout_status === 'refunded' || tx.status === 'DISPUTED') {
+      return res.status(400).json({ error: "Naročila v trenutnem stanju ni mogoče potrditi." });
+    }
     if (tx.status !== 'HELD_IN_ESCROW') return res.status(400).json({ error: "Naročilo ni v stanju HELD_IN_ESCROW." });
-    if (tx.pickup_pin !== pin) return res.status(400).json({ error: "Napačen PIN." });
 
-    await txRef.update({
-      status: 'DELIVERED',
-      delivered_at: new Date().toISOString(),
-      auto_complete_at: new Date(Date.now() + AUTO_COMPLETE_AFTER_DELIVERED_DAYS * 24 * 60 * 60 * 1000).toISOString()
-    });
+    let deliveryMethod = tx.delivery_method;
+    if (!deliveryMethod && tx.auction_id) {
+      try {
+        const auctionDoc = await safeGetDoc(adminDb.collection('auctions').doc(tx.auction_id));
+        if (auctionDoc.exists()) {
+          deliveryMethod = auctionDoc.data()?.delivery_method;
+        }
+      } catch (err: any) {}
+    }
+    if (deliveryMethod !== 'pickup') {
+      return res.status(400).json({ error: "Prevzemna koda je na voljo le za osebni prevzem." });
+    }
+
+    // PIN muss genau 6 Ziffern haben
+    const pin = String(req.body?.pin || '').trim();
+    if (!/^\d{6}$/.test(pin)) return res.status(400).json({ error: "Vnesite 6-mestno kodo." });
+    const secretRef = adminDb.collection('transaction_secrets').doc(txDoc.id);
+    const secretDoc = await safeGetDoc(secretRef);
+    const secret = secretDoc.exists() ? (secretDoc.data() || {}) : null;
+    if (!secret || !secret.pickup_pin) return res.status(400).json({ error: "Koda še ni bila ustvarjena. Kupec jo mora najprej odpreti v razdelku Moje zmage." });
+    const nowMs = Date.now();
+    if (secret.locked_until && secret.locked_until > nowMs) {
+      return res.status(429).json({ error: "Preveč napačnih poskusov. Poskusite znova čez nekaj minut." });
+    }
+    if ((secret.lock_count || 0) >= 3) {
+      return res.status(423).json({ error: "Vnos kode je zaklenjen. Prevzem naj potrdi kupec v aplikaciji." });
+    }
+    // Konstanter Zeitvergleich
+    const a = Buffer.from(pin);
+    const b = Buffer.from(String(secret.pickup_pin));
+    const ok = a.length === b.length && timingSafeEqual(a, b);
+    if (!ok) {
+      const failed = (secret.failed_attempts || 0) + 1;
+      const update: any = { failed_attempts: failed };
+      if (failed >= 5) {
+        update.failed_attempts = 0;
+        update.lock_count = (secret.lock_count || 0) + 1;
+        update.locked_until = nowMs + 15 * 60 * 1000;
+      }
+      await secretRef.set(update, { merge: true });
+      return res.status(400).json({ error: "Napačna koda." });
+    }
+    await secretRef.set({ failed_attempts: 0, verified_at: new Date().toISOString() }, { merge: true });
+
+    await completeTransactionAndPayout(txRef, txDoc.id, 'pickup_pin_confirmed');
 
     // Uebergabe bestaetigt: Auktion als empfangen markieren und Bewertung freischalten
     await adminDb.collection('auctions').doc(tx.auction_id).update({
@@ -4841,7 +4995,7 @@ app.post("/api/orders/:id/verify-pickup-pin", async (req, res) => {
       console.error('[verify-pickup-pin] Error sending email:', emErr.message);
     }
 
-    res.json({ success: true, message: "Prevzem potrjen. Izplačilo bo prodajalcu sproženo samodejno po izteku roka za pritožbe." });
+    res.json({ success: true, message: "Prevzem potrjen. Izplačilo je sproženo." });
   } catch (e: any) {
     console.error(e);
     res.status(500).json({ error: e.message });
@@ -4952,18 +5106,15 @@ app.post("/api/orders/:id/mark-as-delivered", async (req, res) => {
     const tx = txDoc.data();
     // Nur der Kaeufer der Bestellung darf die Lieferung bestaetigen
     if (tx.buyer_id !== userId) return res.status(403).json({ error: "Nimate pravic." });
+    if (tx.status === 'COMPLETED') return res.json({ success: true });
+    if (tx.payout_status === 'frozen' || tx.payout_status === 'refunded' || tx.status === 'DISPUTED') {
+      return res.status(400).json({ error: "Naročila v trenutnem stanju ni mogoče potrditi." });
+    }
     if (tx.status !== 'SHIPPED') return res.status(400).json({ error: "Naročilo mora biti poslano." });
 
-    const now = new Date();
-    const autoCompleteDate = new Date(now.getTime() + AUTO_COMPLETE_AFTER_DELIVERED_DAYS * 24 * 60 * 60 * 1000);
+    await completeTransactionAndPayout(txRef, id, 'buyer_confirmed_receipt');
 
-    await txRef.update({
-      status: 'DELIVERED',
-      delivered_at: now.toISOString(),
-      auto_complete_at: autoCompleteDate.toISOString()
-    });
-
-    res.json({ success: true, message: "Označeno kot dostavljeno. Samodejna potrditev nastavljena na " + autoCompleteDate.toLocaleString() });
+    res.json({ success: true, message: "Prejem potrjen. Izplačilo je sproženo." });
   } catch (e: any) {
     console.error(e);
     res.status(500).json({ error: e.message });
@@ -5921,15 +6072,19 @@ app.post("/api/auctions/confirm-receipt", async (req, res) => {
       return res.status(403).json({ error: 'Nimate pravic za to dejanje.' });
     }
 
+    if (tx.status === 'COMPLETED') {
+      return res.json({ success: true, message: 'Naročilo je že zaključeno.' });
+    }
+
+    if (tx.payout_status === 'frozen' || tx.payout_status === 'refunded' || tx.status === 'DISPUTED') {
+      return res.status(400).json({ error: 'Naročila v trenutnem stanju ni mogoče potrditi.' });
+    }
+
     if (tx.status !== 'SHIPPED' && tx.status !== 'HELD_IN_ESCROW' && tx.status !== 'DELIVERED') {
       return res.status(400).json({ error: 'Naročila v trenutnem stanju ni mogoče potrditi.' });
     }
 
-    await txDoc.ref.update({
-      status: 'DELIVERED',
-      delivered_at: new Date().toISOString(),
-      auto_complete_at: new Date(Date.now() + AUTO_COMPLETE_AFTER_DELIVERED_DAYS * 24 * 60 * 60 * 1000).toISOString()
-    });
+    await completeTransactionAndPayout(txDoc.ref, txDoc.id, 'buyer_confirmed_receipt');
     
     await adminDb.collection('auctions').doc(auction_id).update({
       buyer_received: true,
