@@ -616,7 +616,8 @@ const WonAuctionItem: React.FC<{
                     </div>
                   ) : (
                     <>
-                      {wonItem.delivery_method !== "post" && isPaid && (
+                      {/* Nur bei Abholung */}
+                      {wonItem.delivery_method === "pickup" && isPaid && (
                         <button
                           onClick={async () => {
                             if (pickupPin) {

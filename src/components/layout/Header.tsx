@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Search, Globe, ChevronDown, User, PlusCircle, Trophy, Eye, CreditCard, Settings, LogOut, ChevronRight, Gavel, MessageSquare, Wallet } from 'lucide-react';
+import { Search, Globe, ChevronDown, User, PlusCircle, Trophy, Eye, CreditCard, Settings, LogOut, ChevronRight, Gavel, MessageSquare } from 'lucide-react';
 import { ViewState, Region, Category, AuctionItem } from "../../types";
 import { useChat } from "../../context/ChatContext";
 import { SloveniaMap } from "@/src/components/ui/SloveniaMap";
@@ -199,17 +199,6 @@ export const Header: React.FC<{
                 <div className="w-32 h-10 bg-white/10 rounded-2xl animate-pulse flex items-center justify-center text-white/50 text-xs font-bold">Nalaganje...</div>
               ) : isLoggedIn ? (
                 <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => {
-                      onSettings('stripe');
-                      setIsUserMenuOpen(false);
-                    }}
-                    className="group flex items-center gap-2 bg-[#0A1128] text-white px-5 py-2.5 rounded-2xl font-black text-sm shadow-xl hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all border border-slate-700/50"
-                  >
-                    <Wallet size={16} className="text-[#FEBA4F] group-hover:text-[#0A1128] transition-colors"/>
-                    <span className="group-hover:text-[#0A1128] transition-colors">€{(userData?.wallet_balance || 0).toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                  </button>
-
                   <div className="relative" ref={userMenuRef}>
                     <button 
                       onClick={() => setIsUserMenuOpen(!isUserMenuOpen)} 

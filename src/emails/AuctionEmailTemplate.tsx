@@ -178,7 +178,8 @@ export const AuctionEmailTemplate: React.FC<AuctionEmailProps> = ({
       badgeBg = '#10B981';
       badgeColor = '#FFFFFF';
       headline = 'Kupec je potrdil prejem!';
-      subheadline = `Kupec je potrdil prejem predmeta "${auctionTitle}". Izplačilo na vaš Stripe račun bo sproženo samodejno čez 2 dni, če ne bo vloženih pritožb.`;
+      // Auszahlung auf Stripe-Konto ausgelöst
+      subheadline = `Kupec je potrdil prejem predmeta "${auctionTitle}". Izplačilo na vaš Stripe račun je bilo sproženo.`;
       ctaText = 'Status naročila';
       ctaUrl = auctionUrl || 'https://drazbe.eu';
       priceLabel = 'Znesek izplačila:';

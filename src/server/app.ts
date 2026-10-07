@@ -6129,7 +6129,8 @@ app.post("/api/auctions/confirm-receipt", async (req, res) => {
       console.error('[confirm-receipt] Error sending email:', emErr.message);
     }
 
-    res.json({ success: true, message: "Prejem potrjen. Izplačilo bo sproženo samodejno čez 2 dni." });
+    // Auszahlung sofort ausgelöst
+    res.json({ success: true, message: "Prejem potrjen. Izplačilo je sproženo." });
   } catch (err: any) {
     console.error('Error in confirm-receipt:', err);
     res.status(500).json({ error: err.message });
