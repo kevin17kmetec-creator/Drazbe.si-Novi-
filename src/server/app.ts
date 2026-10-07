@@ -3371,6 +3371,124 @@ app.get("/api/seller/payouts", async (req, res) => {
   }
 });
 
+// Verkaeuferguthaben und Stripe-Saldo abrufen
+app.get("/api/seller/balance", async (req, res) => {
+  let uid: string;
+  try {
+    uid = await authenticateFirebaseUser(req);
+  } catch (authErr: any) {
+    return res.status(401).json({ error: authErr.message || 'Unauthorized' });
+  }
+
+  try {
+    const userSnap = await safeGetDoc(adminDb.collection('users').doc(uid));
+    const user = userSnap.data() || {};
+    const accountId = user.stripe_account_id || user.stripeAccountId;
+
+    if (!accountId) {
+      res.setHeader('Cache-Control', 'no-store');
+      return res.json({ 
+        success: true, 
+        hasAccount: false, 
+        onboardingComplete: Boolean(user.stripe_onboarding_complete) 
+      });
+    }
+
+    let availableCents = 0;
+    let pendingCents = 0;
+    let stripeError = false;
+
+    try {
+      const stripe = getStripe();
+      const balance = await stripe.balance.retrieve({}, { stripeAccount: accountId });
+      if (balance && balance.available) {
+        const eurAvail = balance.available.find((b) => b.currency?.toLowerCase() === 'eur');
+        if (eurAvail) availableCents = eurAvail.amount || 0;
+      }
+      if (balance && balance.pending) {
+        const eurPend = balance.pending.find((b) => b.currency?.toLowerCase() === 'eur');
+        if (eurPend) pendingCents = eurPend.amount || 0;
+      }
+    } catch (stripeErr) {
+      console.error("Stripe balance retrieve error:", stripeErr);
+      stripeError = true;
+    }
+
+    let escrowCents = 0;
+    let paidOutCents = 0;
+    let paidOutCount = 0;
+
+    try {
+      const txSnap = await adminDb.collection('transactions')
+        .where('seller_id', '==', uid)
+        .limit(500)
+        .get();
+
+      for (const doc of txSnap.docs) {
+        const data = doc.data() || {};
+        const status = (data.status || '').toUpperCase();
+        if (status === 'REFUNDED' || status === 'CANCELLED') continue;
+
+        const netCents = data.seller_net_cents || (data.item_price ? Math.round(data.item_price * 100) : 0);
+        const payoutStatus = data.payout_status || 'held';
+
+        if (payoutStatus === 'paid_out') {
+          paidOutCents += netCents;
+          paidOutCount++;
+        } else if (['held', 'frozen', 'release_waiting_funds', 'release_failed'].includes(payoutStatus)) {
+          escrowCents += netCents;
+        }
+      }
+    } catch (txErr) {
+      console.error("Transactions balance query error:", txErr);
+    }
+
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json({
+      success: true,
+      hasAccount: true,
+      availableCents,
+      pendingCents,
+      escrowCents,
+      paidOutCents,
+      paidOutCount,
+      currency: 'eur',
+      onboardingComplete: Boolean(user.stripe_onboarding_complete),
+      stripeError
+    });
+  } catch (err: any) {
+    console.error("Error fetching seller balance:", err);
+    return res.status(500).json({ error: err.message || 'Server error' });
+  }
+});
+
+// Link zum Stripe-Nadzorna-Plosca fuer fertige Verkaeufer
+app.post("/api/stripe-dashboard-link", async (req, res) => {
+  let uid: string;
+  try {
+    uid = await authenticateFirebaseUser(req);
+  } catch (authErr: any) {
+    return res.status(401).json({ error: authErr.message || 'Unauthorized' });
+  }
+
+  try {
+    const userSnap = await safeGetDoc(adminDb.collection('users').doc(uid));
+    const user = userSnap.data() || {};
+    const accountId = user.stripe_account_id || user.stripeAccountId;
+
+    if (!accountId || !user.stripe_onboarding_complete) {
+      return res.status(400).json({ error: "Izplačila še niso urejena." });
+    }
+
+    const stripe = getStripe();
+    const link = await stripe.accounts.createLoginLink(accountId);
+    return res.json({ success: true, url: link.url });
+  } catch (error: any) {
+    console.error("Stripe Dashboard Link Error:", error);
+    return res.status(500).json({ error: error.message || 'Napaka pri ustvarjanju povezave do nadzorne plošče.' });
+  }
+});
+
 app.post("/api/create-subscription-checkout", async (req, res) => {
   // Nutzer-ID ausschliesslich aus dem verifizierten Token
   let userId: string;

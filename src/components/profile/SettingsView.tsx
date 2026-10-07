@@ -1,3 +1,4 @@
+import { PayoutSetupView } from './PayoutSetupView';
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { User, Camera, CheckCircle2, AlertCircle, Shield, CreditCard, Building, MapPin, Key, Bell, X, Eye, EyeOff, ShieldAlert, AlertTriangle, ArrowLeft, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -136,6 +137,176 @@ const PayoutsList: React.FC = () => {
   );
 };
 
+
+// Verkaeuferguthaben Komponente mit Stripe Saldo und Transaktionsguthaben
+const SellerBalance: React.FC = () => {
+  const [balance, setBalance] = useState<{
+    hasAccount: boolean;
+    availableCents?: number;
+    pendingCents?: number;
+    escrowCents?: number;
+    paidOutCents?: number;
+    paidOutCount?: number;
+    stripeError?: boolean;
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const fetchBalance = async () => {
+    setLoading(true);
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      const res = await fetch('/api/seller/balance', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          setBalance(data);
+        }
+      }
+    } catch (err) {
+      console.error("Error fetching seller balance:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchBalance();
+  }, []);
+
+  const formatEur = (cents: number = 0) => {
+    return new Intl.NumberFormat('sl-SI', { style: 'currency', currency: 'EUR' }).format(cents / 100);
+  };
+
+  if (loading) {
+    return (
+      <div className="mb-8 bg-slate-50 border-2 border-slate-100 rounded-3xl p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className="h-6 bg-slate-200 rounded w-36 animate-pulse" />
+          <div className="h-8 bg-slate-200 rounded-xl w-20 animate-pulse" />
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="bg-white p-5 rounded-2xl border border-slate-200/60 animate-pulse space-y-2">
+              <div className="h-3 bg-slate-200 rounded w-24" />
+              <div className="h-7 bg-slate-200 rounded w-20" />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (!balance || !balance.hasAccount) {
+    return (
+      <div className="mb-8 bg-slate-50 border-2 border-slate-100 rounded-3xl p-6">
+        <div className="flex items-center justify-between mb-3">
+          <h4 className="text-sm font-black uppercase tracking-wider text-[#0A1128] flex items-center gap-2">
+            <CreditCard size={18} className="text-[#FEBA4F]" /> Stanje sredstev
+          </h4>
+          <button
+            type="button"
+            onClick={fetchBalance}
+            className="text-xs font-bold text-slate-500 hover:text-[#0A1128] bg-white px-3 py-1.5 rounded-xl border border-slate-200 transition-colors"
+          >
+            Osveži
+          </button>
+        </div>
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 text-slate-500 font-bold text-sm text-center">
+          Za prejemanje sredstev najprej uredite izplačila.
+        </div>
+      </div>
+    );
+  }
+
+  if (balance.stripeError) {
+    return (
+      <div className="mb-8 bg-slate-50 border-2 border-slate-100 rounded-3xl p-6">
+        <div className="flex items-center justify-between mb-3">
+          <h4 className="text-sm font-black uppercase tracking-wider text-[#0A1128] flex items-center gap-2">
+            <CreditCard size={18} className="text-[#FEBA4F]" /> Stanje sredstev
+          </h4>
+          <button
+            type="button"
+            onClick={fetchBalance}
+            className="text-xs font-bold text-slate-500 hover:text-[#0A1128] bg-white px-3 py-1.5 rounded-xl border border-slate-200 transition-colors"
+          >
+            Osveži
+          </button>
+        </div>
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 text-amber-700 font-bold text-sm text-center">
+          Stanja trenutno ni mogoče naložiti.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-8 bg-slate-50 border-2 border-slate-100 rounded-3xl p-6">
+      <div className="flex items-center justify-between mb-4">
+        <h4 className="text-sm font-black uppercase tracking-wider text-[#0A1128] flex items-center gap-2">
+          <CreditCard size={18} className="text-[#FEBA4F]" /> Stanje sredstev
+        </h4>
+        <button
+          type="button"
+          onClick={fetchBalance}
+          className="text-xs font-bold text-slate-500 hover:text-[#0A1128] bg-white px-3 py-1.5 rounded-xl border border-slate-200 transition-colors"
+        >
+          Osveži
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-3">
+        <div className="bg-white p-5 rounded-2xl border border-emerald-100 bg-emerald-50/30">
+          <span className="block text-[11px] font-black uppercase tracking-wider text-slate-400 mb-1">
+            Na voljo za izplačilo
+          </span>
+          <span className="block text-xl font-black text-emerald-600">
+            {formatEur(balance.availableCents)}
+          </span>
+        </div>
+
+        <div className="bg-white p-5 rounded-2xl border border-slate-200">
+          <span className="block text-[11px] font-black uppercase tracking-wider text-slate-400 mb-1">
+            V obdelavi pri Stripe
+          </span>
+          <span className="block text-xl font-black text-[#0A1128]">
+            {formatEur(balance.pendingCents)}
+          </span>
+        </div>
+
+        <div className="bg-white p-5 rounded-2xl border border-amber-100 bg-amber-50/30">
+          <span className="block text-[11px] font-black uppercase tracking-wider text-slate-400 mb-1">
+            Čaka na potrditev prejema
+          </span>
+          <span className="block text-xl font-black text-amber-600">
+            {formatEur(balance.escrowCents)}
+          </span>
+        </div>
+
+        <div className="bg-white p-5 rounded-2xl border border-slate-200">
+          <span className="block text-[11px] font-black uppercase tracking-wider text-slate-400 mb-1">
+            Skupaj izplačano
+          </span>
+          <span className="block text-xl font-black text-[#0A1128]">
+            {formatEur(balance.paidOutCents)}
+          </span>
+          <span className="block text-[10px] font-bold text-slate-400 mt-1">
+            ({balance.paidOutCount || 0} izplačil)
+          </span>
+        </div>
+      </div>
+
+      <p className="text-xs font-bold text-slate-400 italic">
+        Sredstva se na vaš bančni račun izplačajo po potrditvi prejema kupca.
+      </p>
+    </div>
+  );
+};
+
 export const SettingsView: React.FC<{ 
   t: any; 
   language: string; 
@@ -175,6 +346,34 @@ export const SettingsView: React.FC<{
   const [authProvidersRefresh, setAuthProvidersRefresh] = useState(0);
   const [isLinkingGoogle, setIsLinkingGoogle] = useState(false);
   const [isUnlinkingGoogle, setIsUnlinkingGoogle] = useState(false);
+  const [isOpeningDashboard, setIsOpeningDashboard] = useState(false);
+  const [showPayoutSetup, setShowPayoutSetup] = useState(false);
+
+  const handleOpenStripeDashboard = async () => {
+    setIsOpeningDashboard(true);
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      const res = await fetch('/api/stripe-dashboard-link', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      const data = await res.json();
+      if (res.ok && data.url) {
+        const win = window.open(data.url, '_blank', 'noopener');
+        if (!win || win.closed) {
+          window.location.href = data.url;
+        }
+      } else {
+        toast.error(friendlyError(data.error, 'Napaka pri dostopu do Stripe nadzorne plošče.'));
+      }
+    } catch (err) {
+      toast.error(friendlyError(err, 'Napaka pri povezovanju s Stripe.'));
+    } finally {
+      setIsOpeningDashboard(false);
+    }
+  };
 
   const providerData = auth.currentUser?.providerData || [];
   const hasPasswordProvider = providerData.some(p => p.providerId === 'password');
@@ -1009,6 +1208,9 @@ export const SettingsView: React.FC<{
 
             {activeTab === 'stripe' && (
               <div className="animate-in fade-in slide-in-from-right-4">
+                {/* Stanje sredstev Verkaeufer-Block */}
+                <SellerBalance />
+
                 <div className="mb-8">
                   <h3 className="text-xl font-black uppercase tracking-tighter text-[#0A1128] mb-2 flex items-center gap-2">
                     <CreditCard size={20} className="text-[#FEBA4F]"/> Moja izplačila
@@ -1029,31 +1231,89 @@ export const SettingsView: React.FC<{
 
                 <div className="bg-slate-50 border-2 border-slate-200 rounded-3xl p-6 mb-6">
                   {user?.stripe_onboarding_complete ? (
-                    <div className="flex items-center gap-3 text-emerald-800 font-bold mb-4">
-                      <CheckCircle2 size={24} className="text-emerald-600 shrink-0" />
-                      <div>
-                        <div className="font-black text-base uppercase tracking-tight">Izplačila so urejena</div>
-                        <div className="text-xs text-slate-500 font-bold mt-0.5">Vaš račun je pripravljen za prejemanje izplačil.</div>
+                    <>
+                      <div className="flex items-center gap-3 text-emerald-800 font-bold mb-4">
+                        <CheckCircle2 size={24} className="text-emerald-600 shrink-0" />
+                        <div>
+                          <div className="font-black text-base uppercase tracking-tight">Izplačila so urejena</div>
+                          <div className="text-xs text-slate-500 font-bold mt-0.5">Vaš račun je pripravljen za prejemanje izplačil.</div>
+                        </div>
                       </div>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-3 text-amber-800 font-bold mb-4">
-                      <AlertCircle size={24} className="text-amber-600 shrink-0" />
-                      <div>
-                        <div className="font-black text-base uppercase tracking-tight">Izplačila še niso urejena</div>
-                        <div className="text-xs text-slate-500 font-bold mt-0.5">Za prodajo na platformi morate urediti račun za izplačila.</div>
-                      </div>
-                    </div>
-                  )}
 
-                  <button
-                    onClick={() => {
-                      if (onNavigateToPayoutSetup) onNavigateToPayoutSetup();
-                    }}
-                    className="bg-[#0A1128] text-white px-6 py-3.5 rounded-2xl font-black uppercase tracking-wider text-xs hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-md flex items-center gap-2"
-                  >
-                    <CreditCard size={18} /> Uredi izplačila
-                  </button>
+                      <div className="flex flex-wrap gap-3">
+                        <button
+                          type="button"
+                          onClick={handleOpenStripeDashboard}
+                          disabled={isOpeningDashboard}
+                          className="bg-[#0A1128] text-white px-6 py-3.5 rounded-2xl font-black uppercase tracking-wider text-xs hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-md flex items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+                        >
+                          {isOpeningDashboard ? (
+                            <>
+                              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                              <span>Nalaganje...</span>
+                            </>
+                          ) : (
+                            <>
+                              <CreditCard size={18} />
+                              <span>Odpri Stripe nadzorno ploščo</span>
+                            </>
+                          )}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={handleOpenStripeDashboard}
+                          disabled={isOpeningDashboard}
+                          className="bg-slate-200 text-[#0A1128] px-6 py-3.5 rounded-2xl font-black uppercase tracking-wider text-xs hover:bg-slate-300 transition-all shadow-sm flex items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+                        >
+                          {isOpeningDashboard ? (
+                            <>
+                              <div className="w-4 h-4 border-2 border-[#0A1128] border-t-transparent rounded-full animate-spin" />
+                              <span>Nalaganje...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Building size={18} />
+                              <span>Uredi bančni račun</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-3 text-amber-800 font-bold mb-4">
+                        <AlertCircle size={24} className="text-amber-600 shrink-0" />
+                        <div>
+                          <div className="font-black text-base uppercase tracking-tight">Izplačila še niso urejena</div>
+                          <div className="text-xs text-slate-500 font-bold mt-0.5">Za prodajo na platformi morate urediti račun za izplačila.</div>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setShowPayoutSetup(prev => !prev)}
+                        className="bg-[#0A1128] text-white px-6 py-3.5 rounded-2xl font-black uppercase tracking-wider text-xs hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-md flex items-center gap-2"
+                      >
+                        <CreditCard size={18} />
+                        <span>{showPayoutSetup ? "Skrij urejanje izplačil" : "Uredi izplačila"}</span>
+                      </button>
+
+                      {showPayoutSetup && (
+                        <div className="mt-6 border-t-2 border-slate-200 pt-6">
+                          <PayoutSetupView
+                            userData={user}
+                            onRefreshUserData={onRefreshUser}
+                            onNavigateToSettingsProfile={() => setActiveTab('profile')}
+                            onNavigateToCreateAuction={() => {}}
+                            onOpenTermsModal={() => {}}
+                            t={t}
+                            language={language}
+                          />
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
               </div>
             )}

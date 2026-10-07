@@ -644,13 +644,13 @@ const WonAuctionItem: React.FC<{
                         </button>
                       )}
                       <button
-                        onClick={() =>
+                        onClick={() => {
                           setReceiptConfirmModal({
                             isOpen: true,
                             auctionId: wonItem.id,
                             sellerId: wonItem.sellerId,
-                          })
-                        }
+                          });
+                        }}
                         className="bg-white border-2 border-slate-200 text-[#0A1128] px-4 py-2 rounded-xl font-bold text-[10px] uppercase tracking-widest hover:border-[#FEBA4F] transition-all w-full h-[42px] flex items-center justify-center"
                       >
                         Potrdi prejem
@@ -1637,6 +1637,14 @@ const MainApp: React.FC = () => {
     auctionId: string;
     sellerId: string;
   }>({ isOpen: false, auctionId: "", sellerId: "" });
+  // Status fuer Lade- und Erfolgsanimation der Empfangsbestaetigung
+  const [receiptConfirmState, setReceiptConfirmState] = useState<'idle' | 'loading' | 'success'>('idle');
+
+  useEffect(() => {
+    if (receiptConfirmModal.isOpen) {
+      setReceiptConfirmState('idle');
+    }
+  }, [receiptConfirmModal.isOpen]);
   const [timelineModalAuctionId, setTimelineModalAuctionId] = useState<string | null>(null);
   const [markShippedModal, setMarkShippedModal] = useState<{
     isOpen: boolean;
@@ -5114,20 +5122,30 @@ const MainApp: React.FC = () => {
   };
 
   async function handleReceiptConfirmSubmit() {
+    if (receiptConfirmState === 'loading' || receiptConfirmState === 'success') return;
+    setReceiptConfirmState('loading');
     try {
       const token = await auth.currentUser?.getIdToken();
-      if (!token) return;
+      if (!token) {
+        setReceiptConfirmState('idle');
+        toast.error("Niste prijavljeni.");
+        return;
+      }
       const res = await confirmReceiptAction({ auction_id: receiptConfirmModal.auctionId }, token);
       if (res.success) {
-        toast.success("Prejem uspešno potrjen. Sredstva so sproščena prodajalcu.");
+        setReceiptConfirmState('success');
+        setTimeout(() => {
+          setReceiptConfirmModal({ isOpen: false, auctionId: "", sellerId: "" });
+          setReceiptConfirmState('idle');
+          fetchAuctions();
+        }, 1500);
       } else {
+        setReceiptConfirmState('idle');
         toast.error(friendlyError(res.error, "Napaka pri potrditvi prejema."));
       }
     } catch (e) {
+      setReceiptConfirmState('idle');
       toast.error(friendlyError(e, "Napaka pri potrditvi prejema."));
-    } finally {
-      setReceiptConfirmModal(prev => ({ ...prev, isOpen: false }));
-      fetchAuctions();
     }
   };
 
@@ -5286,6 +5304,7 @@ const MainApp: React.FC = () => {
           notifications={notifications}
           onMarkNotificationRead={markNotificationRead}
           onSelectNotification={handleSelectNotification}
+          isTermsBarReady={showBannerDelayPassed && !isAuthLoading}
           activeView={activeView}
           selectedRegion={selectedRegions[0] ?? null}
           selectedCategory={selectedCategories[0] ?? null}
@@ -5525,36 +5544,19 @@ const MainApp: React.FC = () => {
 
         {receiptConfirmModal.isOpen && (
           <Portal>
-            <div className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-6 animate-in">
-              <div className="bg-white w-full max-w-md rounded-[3rem] p-10 shadow-2xl relative text-center">
-                <button
-                  onClick={() =>
-                    setReceiptConfirmModal({
-                      isOpen: false,
-                      auctionId: "",
-                      sellerId: "",
-                    })
-                  }
-                  className="absolute top-8 right-8 text-slate-400 hover:text-[#0A1128] transition-colors"
-                >
-                  <X size={24} />
-                </button>
-                <div className="bg-green-100 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6">
-                  <CheckCircle2 size={40} className="text-green-600" />
-                </div>
-                <h2 className="text-2xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">
-                  Potrditev prejema
-                </h2>
-                <p className="text-slate-500 font-bold mb-8 text-sm">
-                  S potrditvijo prejema potrjujete, da ste predmet pregledali, da je skladen z opisom in vsemi podatki prodajalca ter da ga sprejemate. Posel je s tem zaključen in izplačilo prodajalcu se sprosti takoj. Nadaljujem?
-                </p>
-                <div className="flex flex-col gap-3">
-                  <button
-                    onClick={handleReceiptConfirmSubmit}
-                    className="w-full bg-[#0A1128] text-white py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all"
-                  >
-                    Potrdi prejem
-                  </button>
+            <div 
+              className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-6 animate-in"
+              onClick={() => {
+                if (receiptConfirmState === 'idle') {
+                  setReceiptConfirmModal({ isOpen: false, auctionId: "", sellerId: "" });
+                }
+              }}
+            >
+              <div 
+                className="bg-white w-full max-w-md rounded-[3rem] p-10 shadow-2xl relative text-center"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {receiptConfirmState !== 'loading' && receiptConfirmState !== 'success' && (
                   <button
                     onClick={() =>
                       setReceiptConfirmModal({
@@ -5563,11 +5565,53 @@ const MainApp: React.FC = () => {
                         sellerId: "",
                       })
                     }
-                    className="w-full bg-slate-100 text-slate-600 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-slate-200 transition-all"
+                    className="absolute top-8 right-8 text-slate-400 hover:text-[#0A1128] transition-colors"
                   >
-                    Prekliči
+                    <X size={24} />
                   </button>
+                )}
+                <div className="bg-green-100 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <CheckCircle2 size={40} className={`text-green-600 ${receiptConfirmState === 'success' ? 'animate-in zoom-in duration-300' : ''}`} />
                 </div>
+                <h2 className="text-2xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">
+                  {receiptConfirmState === 'success' ? "Prejem potrjen!" : "Potrditev prejema"}
+                </h2>
+                <p className="text-slate-500 font-bold mb-8 text-sm">
+                  {receiptConfirmState === 'success'
+                    ? "Izplačilo prodajalcu je sproženo."
+                    : "S potrditvijo prejema potrjujete, da ste predmet pregledali, da je skladen z opisom in vsemi podatki prodajalca ter da ga sprejemate. Posel je s tem zaključen in izplačilo prodajalcu se sprosti takoj. Nadaljujem?"}
+                </p>
+                {receiptConfirmState !== 'success' && (
+                  <div className="flex flex-col gap-3">
+                    <button
+                      onClick={handleReceiptConfirmSubmit}
+                      disabled={receiptConfirmState === 'loading'}
+                      className="w-full bg-[#0A1128] text-white py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    >
+                      {receiptConfirmState === 'loading' ? (
+                        <>
+                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          <span>Potrjujem...</span>
+                        </>
+                      ) : (
+                        <span>Potrdi prejem</span>
+                      )}
+                    </button>
+                    <button
+                      onClick={() =>
+                        setReceiptConfirmModal({
+                          isOpen: false,
+                          auctionId: "",
+                          sellerId: "",
+                        })
+                      }
+                      disabled={receiptConfirmState === 'loading'}
+                      className="w-full bg-slate-100 text-slate-600 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-slate-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Prekliči
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </Portal>
