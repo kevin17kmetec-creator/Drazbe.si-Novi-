@@ -9,6 +9,7 @@ import { TERMS_VERSION } from '../../lib/termsVersion';
 import { NotificationBell, NotificationItem } from './NotificationBell';
 
 export const Header: React.FC<{ 
+  isTermsBarReady?: boolean;
   notifications?: NotificationItem[];
   onMarkNotificationRead?: (id?: string, all?: boolean) => void;
   onSelectNotification?: (notification: NotificationItem) => void;
@@ -44,7 +45,7 @@ export const Header: React.FC<{
   userEmail?: string;
   userProfilePicture?: string;
   userData?: any;
-}> = ({ notifications = [], onMarkNotificationRead, onSelectNotification, onHome, onSearch, onRegionSelect, onCategorySelect, onLastChance, onLogin, onRegister, onLogout, onSettings, onSubscriptions, onCreateAuction, onMyWinnings, onMyBids, onMySold, onMyUnsold, onWatchlist, onMessages, onAcceptTerms, activeView, selectedRegion, selectedCategory, isLoggedIn, isAuthLoading, isVerified, language, onLanguageChange, t, auctions, newWinningsCount, userEmail, userProfilePicture, userData }) => {
+}> = ({ isTermsBarReady = false, notifications = [], onMarkNotificationRead, onSelectNotification, onHome, onSearch, onRegionSelect, onCategorySelect, onLastChance, onLogin, onRegister, onLogout, onSettings, onSubscriptions, onCreateAuction, onMyWinnings, onMyBids, onMySold, onMyUnsold, onWatchlist, onMessages, onAcceptTerms, activeView, selectedRegion, selectedCategory, isLoggedIn, isAuthLoading, isVerified, language, onLanguageChange, t, auctions, newWinningsCount, userEmail, userProfilePicture, userData }) => {
   const { unreadMessageCount } = useChat();
 
   const [isRegOpen, setIsRegOpen] = useState(false);
@@ -131,7 +132,8 @@ export const Header: React.FC<{
     return counts;
   }, [auctions]);
 
-  const showTermsUpdateBar = isLoggedIn && userData && userData.terms_version !== TERMS_VERSION;
+  // Leiste für aktualisierte Bedingungen nur anzeigen, wenn Ladevorgang abgeschlossen ist
+  const showTermsUpdateBar = isTermsBarReady && isLoggedIn && userData && userData.terms_version !== TERMS_VERSION;
 
   return (
     <header className="bg-[#0A1128] text-white shadow-2xl border-b border-white/10 sticky top-0 md:relative z-[500]">
