@@ -4,6 +4,9 @@ import ReactDOM from 'react-dom/client';
 import App from './App.tsx';
 import { ConfirmEmailPage } from './components/auth/ConfirmEmailPage';
 import { GoogleReCaptchaProvider } from 'react-google-recaptcha-v3';
+import { installTermsInterceptor } from './lib/termsInterceptor';
+
+installTermsInterceptor();
 
 // =========================================================================
 // GLOBAL ERROR HANDLERS & SENTRY NOISE REDUCTION

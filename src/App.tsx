@@ -464,6 +464,11 @@ const WonAuctionItem: React.FC<{
                 {preview ? `€${(preview.feeCents / 100).toLocaleString("sl-SI", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "..."}
               </span>
             </div>
+            {preview?.feeIsMinimum && (
+              <p className="text-[10px] text-slate-400 font-bold -mt-1">
+                Uporabljena je minimalna provizija, ki pokriva stroške plačilnega sistema.
+              </p>
+            )}
             <div className="flex justify-between">
               <span>DDV {preview ? `${preview.vatRate} %` : "..."}:</span>
               <span className="text-[#0A1128]">
@@ -794,7 +799,8 @@ const MainApp: React.FC = () => {
           created_at: seller.created_at, 
           sold_count: seller.sold_count || 0,
           unpaid_penalties: seller.unpaid_penalties || 0,
-          identity_verified: Boolean(seller.identity_verified)
+          identity_verified: Boolean(seller.identity_verified),
+          user_type: seller.user_type || seller.userType || 'individual'
         }
       } as AuctionItem;
     });
@@ -1144,6 +1150,16 @@ const MainApp: React.FC = () => {
     },
     [captureCurrentNavState]
   );
+
+  // Weiterleitung zur Zustimmung, wenn der Server TERMS_REQUIRED meldet
+  useEffect(() => {
+    const handler = () => {
+      toast.error("Za to dejanje morate sprejeti posodobljene pogoje uporabe.");
+      navigateTo("acceptTerms");
+    };
+    window.addEventListener('terms-required', handler);
+    return () => window.removeEventListener('terms-required', handler);
+  }, [navigateTo]);
 
   const goBack = useCallback(
     (fallbackView: ViewState = "grid") => {
@@ -4701,13 +4717,10 @@ const MainApp: React.FC = () => {
       const data = await response.json();
 
       if (!response.ok || !data.success) {
-        if (response.status === 403 && (data.code === 'EMAIL_NOT_VERIFIED' || data.code === 'PROFILE_INCOMPLETE' || data.code === 'TERMS_REQUIRED')) {
-          if (data.code === 'TERMS_REQUIRED') {
-            toast.error("Za to dejanje morate sprejeti posodobljene pogoje uporabe.");
-            setActiveView("acceptTerms");
-          } else {
-            toast.error(data.error);
-          }
+        if (response.status === 403 && data.code === 'TERMS_REQUIRED') {
+          // wird vom globalen Handler behandelt
+        } else if (response.status === 403 && (data.code === 'EMAIL_NOT_VERIFIED' || data.code === 'PROFILE_INCOMPLETE')) {
+          toast.error(data.error);
         } else {
           const errorMsg = friendlyError(data.error, "Napaka pri oddaji ponudbe.");
           toast.error(errorMsg);

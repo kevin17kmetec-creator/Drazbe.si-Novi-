@@ -51,6 +51,7 @@ import {
 } from './emailService';
 import { syncPublicProfile } from './publicProfile';
 import { TERMS_VERSION } from '../lib/termsVersion';
+import { PLATFORM_COMPANY } from '../lib/platformCompany';
 
 const resendClient = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 const adminEmailAddress = process.env.ADMIN_EMAIL || 'info@drazbenik.si';
@@ -563,7 +564,7 @@ async function createAndSendSubscriptionInvoice(params: {
               Uradni PDF račun za vaš nakup je priložen temu sporočilu (<strong>${fileName}</strong>). Vse ugodnosti vašega paketa so že na voljo v vašem uporabniškem računu.
             </p>
             <div style="margin-top: 32px; padding-top: 20px; border-top: 1px solid #E2E8F0; font-size: 11px; color: #94A3B8; text-align: center;">
-              <p style="margin: 0;">Dizain d.o.o., Karantanska ulica 28, 2000 Maribor | ID za DDV: SI57008060</p>
+              <p style="margin: 0;">${PLATFORM_COMPANY.name}, ${PLATFORM_COMPANY.address} | ID za DDV: ${PLATFORM_COMPANY.vatId}</p>
               <p style="margin: 4px 0 0 0;">Sporočilo je bilo samodejno generirano s strani sistema dražbe.si.</p>
             </div>
           </div>
@@ -1223,7 +1224,8 @@ async function releaseSellerPayout(txId: string, reason: string) {
         metadata: { tx_id: txId, auction_id: tx.auction_id || '' }
       }, {
         stripeAccount: sellerStripeAccountId,
-        idempotencyKey: 'payout_' + txId
+        // Schluessel je Versuchsfolge, sonst wiederholt Stripe einen endgueltigen Fehlschlag
+        idempotencyKey: 'payout_' + txId + '_' + (tx.payout_key_seq || 0)
       });
 
       await txRef.update({
@@ -1269,6 +1271,8 @@ async function releaseSellerPayout(txId: string, reason: string) {
         payout_status: 'release_failed',
         payout_error: safeErr.userMessage,
         payout_attempts: attempts,
+        // Bei Verbindungsfehlern denselben Schluessel behalten, die Auszahlung koennte angekommen sein
+        payout_key_seq: (payoutErr?.type === 'StripeConnectionError' || payoutErr?.type === 'StripeAPIError') ? (tx.payout_key_seq || 0) : (tx.payout_key_seq || 0) + 1,
         next_payout_attempt_at: nextAttempt,
         payout_lease_until: 0
       });
@@ -1454,6 +1458,7 @@ async function finalizeAuctionPayment(params: {
       seller_net_cents: itemCents,
       seller_stripe_account_id: sellerStripeAccountId,
       held_since: nowIso,
+      delivery_method: deliveryMethod,
       ...(deliveryMethod !== 'pickup' ? { shipping_deadline: new Date(Date.now() + SHIP_DEADLINE_DAYS * 24 * 60 * 60 * 1000).toISOString() } : {}),
       auto_release_at: autoReleaseAtIso,
       hold_deadline_at: holdDeadlineIso,
@@ -4629,12 +4634,19 @@ const handleProcessShippingDeadlines = async (req: express.Request, res: express
 
     for (const docSnap of snapshot.docs) {
       const tx = docSnap.data();
-      // Transaktionen ohne Versandart (Käufer hat noch nicht gewählt) oder mit Abholung überspringen
-      if (!tx.delivery_method || !isPostalDelivery(tx.delivery_method)) continue;
+      // Lieferart aus der Transaktion, bei Altdaten aus der Auktion
+      let txDeliveryMethod = tx.delivery_method;
+      if (!txDeliveryMethod && tx.auction_id) {
+        const auctionSnap = await safeGetDoc(adminDb.collection('auctions').doc(tx.auction_id));
+        txDeliveryMethod = auctionSnap.exists() ? auctionSnap.data().delivery_method : null;
+      }
+      // Abholung oder noch nicht gewaehlte Lieferart: keine Versandfrist
+      if (!isPostalDelivery(txDeliveryMethod)) continue;
 
+      const paidReference = tx.paid_at || tx.held_since;
       let deadline = tx.shipping_deadline;
-      if (!deadline && tx.paid_at) {
-        deadline = new Date(new Date(tx.paid_at).getTime() + SHIP_DEADLINE_DAYS * 24 * 60 * 60 * 1000).toISOString();
+      if (!deadline && paidReference) {
+        deadline = new Date(new Date(paidReference).getTime() + SHIP_DEADLINE_DAYS * 24 * 60 * 60 * 1000).toISOString();
       }
 
       if (deadline && now >= deadline) {
@@ -4979,6 +4991,35 @@ const handleProcessEscrowCompletions = async (req: express.Request, res: express
     );
     for (const docSnap of waitingSnap.docs) {
       await releaseSellerPayout(docSnap.id, 'retry_waiting_funds');
+      processed++;
+    }
+
+    // (c2) fehlgeschlagene Auszahlungen erneut versuchen (max. PAYOUT_MAX_ATTEMPTS)
+    const failedSnap = await safeGetDocs(
+      adminDb.collection('transactions').where('payout_status', '==', 'release_failed')
+    );
+    for (const docSnap of failedSnap.docs) {
+      const tx = docSnap.data();
+      if ((tx.payout_attempts || 0) >= PAYOUT_MAX_ATTEMPTS) {
+        // Endgueltig fehlgeschlagen: Admin einmalig informieren
+        if (!tx.payout_failed_alert_sent && process.env.RESEND_API_KEY) {
+          try {
+            const resendFail = new Resend(process.env.RESEND_API_KEY);
+            await resendFail.emails.send({
+              from: process.env.EMAIL_FROM || 'dražbenik.si <obvestila@drazbenik.si>',
+              to: adminEmailAddress,
+              subject: "Izplačilo prodajalcu ni uspelo",
+              html: `<p>Izplačilo za naročilo <strong>${docSnap.id}</strong> ni uspelo ${tx.payout_attempts}-krat. Napaka: ${tx.payout_error || 'neznana'}. Preverite prodajalčev Stripe račun.</p>`
+            });
+            await docSnap.ref.update({ payout_failed_alert_sent: true });
+          } catch (failMailErr: any) {
+            console.error('[cron] Admin alert for failed payout not sent:', failMailErr.message);
+          }
+        }
+        continue;
+      }
+      if (tx.next_payout_attempt_at && tx.next_payout_attempt_at > now) continue;
+      await releaseSellerPayout(docSnap.id, 'retry_failed');
       processed++;
     }
 
