@@ -3396,6 +3396,7 @@ app.get("/api/seller/balance", async (req, res) => {
 
     let availableCents = 0;
     let pendingCents = 0;
+    let inTransitCents = 0;
     let stripeError = false;
 
     try {
@@ -3408,6 +3409,20 @@ app.get("/api/seller/balance", async (req, res) => {
       if (balance && balance.pending) {
         const eurPend = balance.pending.find((b) => b.currency?.toLowerCase() === 'eur');
         if (eurPend) pendingCents = eurPend.amount || 0;
+      }
+
+      // Summe aller noch ausstehenden oder im Transit befindlichen Auszahlungen
+      try {
+        const payoutsList = await stripe.payouts.list({ limit: 20 }, { stripeAccount: accountId });
+        if (payoutsList && payoutsList.data) {
+          for (const p of payoutsList.data) {
+            if (p.currency?.toLowerCase() === 'eur' && (p.status === 'pending' || p.status === 'in_transit')) {
+              inTransitCents += p.amount || 0;
+            }
+          }
+        }
+      } catch (payoutsErr) {
+        console.warn("Stripe payouts list error:", payoutsErr);
       }
     } catch (stripeErr) {
       console.error("Stripe balance retrieve error:", stripeErr);
@@ -3449,6 +3464,7 @@ app.get("/api/seller/balance", async (req, res) => {
       hasAccount: true,
       availableCents,
       pendingCents,
+      inTransitCents,
       escrowCents,
       paidOutCents,
       paidOutCount,

@@ -144,6 +144,7 @@ const SellerBalance: React.FC = () => {
     hasAccount: boolean;
     availableCents?: number;
     pendingCents?: number;
+    inTransitCents?: number;
     escrowCents?: number;
     paidOutCents?: number;
     paidOutCount?: number;
@@ -188,8 +189,8 @@ const SellerBalance: React.FC = () => {
           <div className="h-6 bg-slate-200 rounded w-36 animate-pulse" />
           <div className="h-8 bg-slate-200 rounded-xl w-20 animate-pulse" />
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[1, 2, 3, 4].map((i) => (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+          {[1, 2, 3, 4, 5].map((i) => (
             <div key={i} className="bg-white p-5 rounded-2xl border border-slate-200/60 animate-pulse space-y-2">
               <div className="h-3 bg-slate-200 rounded w-24" />
               <div className="h-7 bg-slate-200 rounded w-20" />
@@ -259,42 +260,51 @@ const SellerBalance: React.FC = () => {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-3">
-        <div className="bg-white p-5 rounded-2xl border border-emerald-100 bg-emerald-50/30">
-          <span className="block text-[11px] font-black uppercase tracking-wider text-slate-400 mb-1">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-3">
+        <div className="bg-white p-4 rounded-2xl border border-emerald-100 bg-emerald-50/30">
+          <span className="block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">
             Na voljo za izplačilo
           </span>
-          <span className="block text-xl font-black text-emerald-600">
-            {formatEur(balance.availableCents)}
+          <span className="block text-lg font-black text-emerald-600">
+            {formatEur(Math.max(0, (balance.availableCents || 0) - (balance.escrowCents || 0)))}
           </span>
         </div>
 
-        <div className="bg-white p-5 rounded-2xl border border-slate-200">
-          <span className="block text-[11px] font-black uppercase tracking-wider text-slate-400 mb-1">
+        <div className="bg-white p-4 rounded-2xl border border-slate-200">
+          <span className="block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">
             V obdelavi pri Stripe
           </span>
-          <span className="block text-xl font-black text-[#0A1128]">
+          <span className="block text-lg font-black text-[#0A1128]">
             {formatEur(balance.pendingCents)}
           </span>
         </div>
 
-        <div className="bg-white p-5 rounded-2xl border border-amber-100 bg-amber-50/30">
-          <span className="block text-[11px] font-black uppercase tracking-wider text-slate-400 mb-1">
+        <div className="bg-white p-4 rounded-2xl border border-blue-100 bg-blue-50/30">
+          <span className="block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">
+            Na poti do banke
+          </span>
+          <span className="block text-lg font-black text-blue-600">
+            {formatEur(balance.inTransitCents)}
+          </span>
+        </div>
+
+        <div className="bg-white p-4 rounded-2xl border border-amber-100 bg-amber-50/30">
+          <span className="block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">
             Čaka na potrditev prejema
           </span>
-          <span className="block text-xl font-black text-amber-600">
+          <span className="block text-lg font-black text-amber-600">
             {formatEur(balance.escrowCents)}
           </span>
         </div>
 
-        <div className="bg-white p-5 rounded-2xl border border-slate-200">
-          <span className="block text-[11px] font-black uppercase tracking-wider text-slate-400 mb-1">
+        <div className="bg-white p-4 rounded-2xl border border-slate-200">
+          <span className="block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">
             Skupaj izplačano
           </span>
-          <span className="block text-xl font-black text-[#0A1128]">
+          <span className="block text-lg font-black text-[#0A1128]">
             {formatEur(balance.paidOutCents)}
           </span>
-          <span className="block text-[10px] font-bold text-slate-400 mt-1">
+          <span className="block text-[10px] font-bold text-slate-400 mt-0.5">
             ({balance.paidOutCount || 0} izplačil)
           </span>
         </div>
@@ -351,8 +361,10 @@ export const SettingsView: React.FC<{
   const [isOpeningDashboard, setIsOpeningDashboard] = useState(false);
   const [showPayoutSetup, setShowPayoutSetup] = useState(false);
 
+  // Stripe-Dashboard in einem neuen Tab oeffnen, ohne die aktuelle Seite zu verlassen
   const handleOpenStripeDashboard = async () => {
     setIsOpeningDashboard(true);
+    const win = window.open('', '_blank');
     try {
       const token = await auth.currentUser?.getIdToken();
       const res = await fetch('/api/stripe-dashboard-link', {
@@ -363,14 +375,18 @@ export const SettingsView: React.FC<{
       });
       const data = await res.json();
       if (res.ok && data.url) {
-        const win = window.open(data.url, '_blank', 'noopener');
-        if (!win || win.closed) {
-          window.location.href = data.url;
+        if (win) {
+          win.opener = null;
+          win.location.href = data.url;
+        } else {
+          toast.info("Brskalnik je blokiral novo okno. Dovolite pojavna okna za to stran.");
         }
       } else {
+        win?.close();
         toast.error(friendlyError(data.error, 'Napaka pri dostopu do Stripe nadzorne plošče.'));
       }
     } catch (err) {
+      win?.close();
       toast.error(friendlyError(err, 'Napaka pri povezovanju s Stripe.'));
     } finally {
       setIsOpeningDashboard(false);
@@ -1242,7 +1258,7 @@ export const SettingsView: React.FC<{
                         </div>
                       </div>
 
-                      <div className="flex flex-wrap gap-3">
+                      <div className="flex flex-col gap-2 items-start">
                         <button
                           type="button"
                           onClick={handleOpenStripeDashboard}
@@ -1261,25 +1277,9 @@ export const SettingsView: React.FC<{
                             </>
                           )}
                         </button>
-
-                        <button
-                          type="button"
-                          onClick={handleOpenStripeDashboard}
-                          disabled={isOpeningDashboard}
-                          className="bg-slate-200 text-[#0A1128] px-6 py-3.5 rounded-2xl font-black uppercase tracking-wider text-xs hover:bg-slate-300 transition-all shadow-sm flex items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
-                        >
-                          {isOpeningDashboard ? (
-                            <>
-                              <div className="w-4 h-4 border-2 border-[#0A1128] border-t-transparent rounded-full animate-spin" />
-                              <span>Nalaganje...</span>
-                            </>
-                          ) : (
-                            <>
-                              <Building size={18} />
-                              <span>Uredi bančni račun</span>
-                            </>
-                          )}
-                        </button>
+                        <p className="text-xs text-slate-400 font-bold">
+                          V Stripe urejate bančni račun, podatke o nakazilih in izpise.
+                        </p>
                       </div>
                     </>
                   ) : (
