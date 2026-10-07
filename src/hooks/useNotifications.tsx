@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { NotificationItem, getNotificationText } from '../components/layout/NotificationBell';
 import { toast } from '../lib/toast';
 
@@ -39,16 +39,40 @@ export function useNotifications(user: any, onSelectNotification?: (item: Notifi
           seenIdsRef.current.add(n.id);
           const shortText = getNotificationText(n.type, n.price);
 
-          toast.info(shortText, {
-            description: n.auction_title || 'Dražba',
-            duration: 8000,
-            action: {
-              label: 'Odpri',
-              onClick: () => {
-                if (onSelectNotification) onSelectNotification(n);
-              }
-            }
-          });
+          // Toast im Plattform-Benachrichtigungsstil mit Auktionsbild und Aktionsschaltfläche
+          toast(
+            <div className="flex items-center gap-3 w-full bg-[#0A1128] text-white p-3 rounded-2xl shadow-xl border border-white/10">
+              {n.image_url ? (
+                <img
+                  src={n.image_url}
+                  alt={n.auction_title || 'Dražba'}
+                  className="w-12 h-12 rounded-xl object-cover border border-white/10 flex-shrink-0"
+                />
+              ) : (
+                <div className="w-12 h-12 rounded-xl bg-white/10 border border-white/10 flex items-center justify-center flex-shrink-0 text-slate-300 font-bold text-xs">
+                  Dražba
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <h4 className="font-black text-xs text-[#FEBA4F] truncate">
+                  {n.auction_title || 'Dražba'}
+                </h4>
+                <p className="text-[11px] text-slate-200 font-medium line-clamp-2 leading-snug">
+                  {shortText}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (onSelectNotification) onSelectNotification(n);
+                }}
+                className="bg-[#FEBA4F] text-[#0A1128] px-3 py-1.5 rounded-xl font-black text-xs hover:bg-white transition-colors flex-shrink-0"
+              >
+                Odpri
+              </button>
+            </div>,
+            { duration: 8000 }
+          );
         });
 
         // Alle restlichen neuen IDs ebenfalls markieren
