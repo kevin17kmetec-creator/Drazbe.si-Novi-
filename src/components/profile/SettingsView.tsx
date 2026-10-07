@@ -315,7 +315,8 @@ export const SettingsView: React.FC<{
   onSave: (data: any) => Promise<{ emailChangeSent: boolean } | void>; 
   onVerify: () => void; 
   onStripeVerified: () => void;
-  onNavigateToPayoutSetup?: () => void;
+  onOpenLegal?: (type: 'terms' | 'privacy' | 'how') => void;
+  onNavigateToCreateAuction?: () => void;
   onRefreshUser?: () => Promise<void>;
   activeTab?: 'profile' | 'personal' | 'stripe' | 'notifications';
   setActiveTab?: (tab: 'profile' | 'personal' | 'stripe' | 'notifications') => void;
@@ -328,7 +329,8 @@ export const SettingsView: React.FC<{
   onSave, 
   onVerify, 
   onStripeVerified,
-  onNavigateToPayoutSetup,
+  onOpenLegal,
+  onNavigateToCreateAuction,
   onRefreshUser,
   activeTab: propActiveTab,
   setActiveTab: propSetActiveTab,
@@ -1301,12 +1303,13 @@ export const SettingsView: React.FC<{
 
                       {showPayoutSetup && (
                         <div className="mt-6 border-t-2 border-slate-200 pt-6">
+                          /* Callbacks fuer Rechtliches und Auktionserstellung im Profil verknuepfen */
                           <PayoutSetupView
                             userData={user}
                             onRefreshUserData={onRefreshUser}
                             onNavigateToSettingsProfile={() => setActiveTab('profile')}
-                            onNavigateToCreateAuction={() => {}}
-                            onOpenTermsModal={() => {}}
+                            onNavigateToCreateAuction={() => onNavigateToCreateAuction?.()}
+                            onOpenTermsModal={() => onOpenLegal?.('terms')}
                             t={t}
                             language={language}
                           />

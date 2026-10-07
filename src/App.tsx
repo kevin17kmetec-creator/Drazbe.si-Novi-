@@ -3558,6 +3558,8 @@ const MainApp: React.FC = () => {
           onVerify={() => navigateTo("verification")}
           onStripeVerified={handleStripeVerified}
           onRefreshUser={() => refreshUserData(userData.id)}
+          onOpenLegal={(type) => setActiveLegal(type)}
+          onNavigateToCreateAuction={() => navigateTo("createAuction")}
           activeTab={settingsTab}
           setActiveTab={setSettingsTab}
           onBack={() => goBack("grid")}
