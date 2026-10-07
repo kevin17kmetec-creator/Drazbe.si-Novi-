@@ -1454,6 +1454,7 @@ async function finalizeAuctionPayment(params: {
       seller_net_cents: itemCents,
       seller_stripe_account_id: sellerStripeAccountId,
       held_since: nowIso,
+      ...(deliveryMethod !== 'pickup' ? { shipping_deadline: new Date(Date.now() + SHIP_DEADLINE_DAYS * 24 * 60 * 60 * 1000).toISOString() } : {}),
       auto_release_at: autoReleaseAtIso,
       hold_deadline_at: holdDeadlineIso,
       buyer_snapshot: buyerSnapshot,
@@ -4709,6 +4710,15 @@ const handleProcessShippingDeadlines = async (req: express.Request, res: express
               reason: 'SELLER_NO_SHIPMENT',
               created_at: now
             });
+            // Administrator per E-Mail über den Fehler benachrichtigen
+            if (process.env.RESEND_API_KEY && resendClient) {
+              await resendClient.emails.send({
+                from: process.env.EMAIL_FROM || 'dražbenik.si <obvestila@drazbenik.si>',
+                to: adminEmailAddress,
+                subject: `Opozorilo: Neuspešno vračilo kupnine za naročilo ${docSnap.id}`,
+                html: `<p>Vračilo kupnine za naročilo <strong>${docSnap.id}</strong> ni uspelo.</p><p>Status: ${refundRes.status}</p>`
+              });
+            }
           } catch (alertErr: any) {
             console.error('Failed to create admin alert for refund failure:', alertErr.message);
           }
@@ -4818,7 +4828,7 @@ app.post("/api/orders/:id/mark-as-shipped", async (req, res) => {
     if (tx.seller_id !== userId) return res.status(403).json({ error: "Nimate pravic." });
     if (tx.status !== 'HELD_IN_ESCROW') return res.status(400).json({ error: "Napačno stanje naročila." });
 
-    const amount = Number(tx.amount_total || tx.amount);
+    const amount = Number(tx.item_price ?? (tx.seller_net_cents ? tx.seller_net_cents / 100 : tx.amount_total));
     if (amount > 15 && !tracking_number) {
       return res.status(400).json({ error: "Za zneske nad 15 € je obvezen vnos sledilne številke." });
     }
@@ -7778,7 +7788,7 @@ app.post("/api/admin/orders/:id/resolve-dispute", async (req, res) => {
       });
       const resPay = await releaseSellerPayout(id, 'admin_release');
       if (!resPay.ok && resPay.status === 'release_waiting_funds') {
-        // Not a hard failure, just awaiting funds
+        // Kein schwerwiegender Fehler, wartet nur auf Guthaben
       }
     } else if (decision === 'refund_buyer') {
       if (!tx.stripe_payment_intent_id) {

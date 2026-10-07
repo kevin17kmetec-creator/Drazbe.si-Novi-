@@ -114,6 +114,7 @@ export async function createCheckoutSessionAction(planOrParams?: any): Promise<{
   sessionId?: string;
   success?: boolean;
   error?: string;
+  code?: string;
 }> {
   'use server';
   try {
