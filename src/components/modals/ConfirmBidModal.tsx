@@ -112,8 +112,14 @@ export const ConfirmBidModal: React.FC<{
                   </div>
                   <div className="flex justify-between items-center text-slate-500 text-sm">
                     <span>Provizija platforme ({previewData?.feePercent ?? 0} %):</span>
-                    <span>€ {((previewData?.feeCents ?? 0) / 100).toLocaleString('sl-SI', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                    <span>€ {(((previewData?.bracketFeeCents ?? previewData?.feeCents) ?? 0) / 100).toLocaleString('sl-SI', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
                   </div>
+                  {(previewData?.minSurchargeCents ?? 0) > 0 && (
+                    <div className="flex justify-between items-center text-slate-500 text-sm">
+                      <span>Doplačilo za stroške plačilnega sistema:</span>
+                      <span>+ € {((previewData!.minSurchargeCents) / 100).toLocaleString('sl-SI', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between items-center text-slate-500 text-sm">
                     <span className="flex items-center gap-1">
                       DDV {previewData?.vatRate ?? 22} %:

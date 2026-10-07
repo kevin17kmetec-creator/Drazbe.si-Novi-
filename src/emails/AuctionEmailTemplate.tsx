@@ -295,7 +295,7 @@ export const AuctionEmailTemplate: React.FC<AuctionEmailProps> = ({
                   )}
                   {paymentDeadline && (
                     <Column align="right">
-                      <Text style={priceLabelStyle}>Rok za plačilo:</Text>
+                      <Text style={priceLabelStyle}>{type === 'payment_received_seller' ? 'Rok za predajo:' : 'Rok za plačilo:'}</Text>
                       <Text style={deadlineValueStyle}>{paymentDeadline}</Text>
                     </Column>
                   )}

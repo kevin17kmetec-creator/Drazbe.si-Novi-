@@ -24,6 +24,7 @@ import { AuctionItem } from '../../types';
 import { useChat } from "../../context/ChatContext";
 import { auth } from "../../lib/firebase";
 import { toast } from 'sonner';
+import { canLeaveReview } from "../../lib/reviewEligibility";
 
 const AvatarImage: React.FC<{ src?: string; className: string; fallbackSize?: number }> = ({ src, className, fallbackSize = 20 }) => {
   const [error, setError] = useState(false);
@@ -80,8 +81,16 @@ export const MessagesView: React.FC<{
   const [pendingImages, setPendingImages] = useState<File[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const lastActiveChatRef = useRef<string | null>(null);
+  const initialMessagesLoadedRef = useRef(false);
+
+  // Seite immer oben starten
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, []);
 
   // Set active chat if initialAuctionId passed
   useEffect(() => {
@@ -113,16 +122,40 @@ export const MessagesView: React.FC<{
        (currentChatConv.auction as any).seller_id === effectiveUserId)
     : false;
 
-  const scrollToBottom = useCallback(() => {
-    setTimeout(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, 100);
+  // Nur den Nachrichtenbereich scrollen, nie die ganze Seite
+  const scrollToBottom = useCallback((smooth = false) => {
+    requestAnimationFrame(() => {
+      const el = messagesContainerRef.current;
+      if (!el) return;
+      el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
+    });
   }, []);
 
-  // Scroll on new messages
+  // Scrollregeln bei neuen Nachrichten oder Chat-Wechsel
   useEffect(() => {
-    scrollToBottom();
-  }, [messages, scrollToBottom]);
+    const isNewConversation = lastActiveChatRef.current !== activeChat;
+    if (isNewConversation) {
+      lastActiveChatRef.current = activeChat;
+      initialMessagesLoadedRef.current = false;
+    }
+
+    if (messages.length === 0) return;
+
+    if (!initialMessagesLoadedRef.current || isNewConversation) {
+      initialMessagesLoadedRef.current = true;
+      scrollToBottom(false);
+      return;
+    }
+
+    const el = messagesContainerRef.current;
+    const lastMsg = messages[messages.length - 1];
+    const isLastMe = lastMsg && (lastMsg.sender_id === effectiveUserId || (auth.currentUser && lastMsg.sender_id === auth.currentUser.uid));
+    const isNearBottom = el ? (el.scrollHeight - el.scrollTop - el.clientHeight < 120) : true;
+
+    if (isLastMe || isNearBottom) {
+      scrollToBottom(true);
+    }
+  }, [messages, activeChat, effectiveUserId, scrollToBottom]);
 
   const handleTyping = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     if (!isAuctionPaid) return;
@@ -149,7 +182,7 @@ export const MessagesView: React.FC<{
         await sendMessage(msg);
         setNewMessage('');
     }
-    scrollToBottom();
+    textareaRef.current?.focus({ preventScroll: true });
   };
 
   const handleUploadImage = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -166,7 +199,7 @@ export const MessagesView: React.FC<{
   const sendQuickReply = (text: string) => {
     if (!isAuctionPaid) return;
     sendMessage(text).then(() => {
-      scrollToBottom();
+      textareaRef.current?.focus({ preventScroll: true });
     });
   };
 
@@ -206,7 +239,7 @@ export const MessagesView: React.FC<{
         <ArrowLeft size={16} /> Nazaj na dražbe
       </button>
 
-      <div className="bg-white rounded-[2.5rem] flex flex-col md:flex-row shadow-2xl border border-slate-100 min-h-[750px] max-h-[85vh] h-[800px] overflow-hidden relative">
+      <div className="bg-white rounded-[2.5rem] flex flex-col md:flex-row shadow-2xl border border-slate-100 h-[calc(100dvh-220px)] min-h-[480px] max-h-[85vh] overflow-hidden relative">
         {/* LEFT SIDEBAR (CONVERSATIONS) */}
         <div className="w-full md:w-1/3 min-w-[300px] max-w-[400px] border-r border-slate-100 flex flex-col bg-slate-50/50">
           <div className="p-6 border-b border-slate-100">
@@ -397,14 +430,25 @@ export const MessagesView: React.FC<{
                         <Star size={13} className="text-[#FEBA4F] fill-[#FEBA4F]" /> Ocenjeno ({(currentChatConv.auction as any).review_rating || 5}★)
                       </button>
                     ) : onLeaveReview ? (
-                      <button
-                        onClick={() => onLeaveReview(currentChatConv.auction)}
-                        className="flex items-center gap-1.5 bg-[#FEBA4F] text-[#0A1128] hover:bg-[#0A1128] hover:text-[#FEBA4F] border-2 border-[#FEBA4F] px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-md font-sans"
-                        title="Oddajte oceno za prodajalca"
-                      >
-                        <Star size={14} className="fill-current" />
-                        <span>Oceni prodajalca</span>
-                      </button>
+                      canLeaveReview(currentChatConv.auction) ? (
+                        <button
+                          onClick={() => onLeaveReview(currentChatConv.auction)}
+                          className="flex items-center gap-1.5 bg-[#FEBA4F] text-[#0A1128] hover:bg-[#0A1128] hover:text-[#FEBA4F] border-2 border-[#FEBA4F] px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-md font-sans"
+                          title="Oddajte oceno za prodajalca"
+                        >
+                          <Star size={14} className="fill-current" />
+                          <span>Oceni prodajalca</span>
+                        </button>
+                      ) : (
+                        <button
+                          disabled
+                          className="flex items-center gap-1.5 bg-slate-100 text-slate-400 border border-slate-200 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider cursor-not-allowed opacity-60 font-sans"
+                          title="Oceno lahko oddate po potrditvi prejema."
+                        >
+                          <Star size={14} className="text-slate-400" />
+                          <span>Oceni prodajalca</span>
+                        </button>
+                      )
                     ) : null
                   )}
 
@@ -462,7 +506,7 @@ export const MessagesView: React.FC<{
               )}
 
               {/* MESSAGES SCROLL AREA */}
-              <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-50/40">
+              <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-50/40">
                 {loadingMessages ? (
                   <div className="flex flex-col items-center justify-center py-20 text-slate-400">
                     <Loader2 className="animate-spin text-[#FEBA4F] mb-3" size={32} />
@@ -559,7 +603,6 @@ export const MessagesView: React.FC<{
                     );
                   })
                 )}
-                <div ref={messagesEndRef} />
               </div>
 
               {/* INPUT BAR (LOCKED VS UNLOCKED) */}
@@ -622,6 +665,7 @@ export const MessagesView: React.FC<{
                       </button>
 
                       <textarea
+                        ref={textareaRef}
                         value={newMessage}
                         onChange={handleTyping}
                         onKeyDown={(e) => {

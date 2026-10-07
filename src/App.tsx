@@ -35,6 +35,8 @@ import { TERMS_VERSION } from "./lib/termsVersion";
 import { checkUserInvoiceData } from "./lib/invoiceDataCheck";
 import { getAuthHeaders } from "./lib/authFetch";
 import { friendlyError } from "./lib/friendlyError";
+import { sendEmailVerificationAction } from "@/src/actions/auth-emails";
+import { canLeaveReview } from "./lib/reviewEligibility";
 import { 
   createAuctionAction, 
   confirmCheckoutSessionAction, 
@@ -461,9 +463,17 @@ const WonAuctionItem: React.FC<{
             <div className="flex justify-between">
               <span>Provizija platforme ({preview ? `${preview.feePercent} %` : "..."}):</span>
               <span className="text-[#0A1128]">
-                {preview ? `€${(preview.feeCents / 100).toLocaleString("sl-SI", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "..."}
+                {preview ? `€${(((preview.bracketFeeCents ?? preview.feeCents)) / 100).toLocaleString("sl-SI", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "..."}
               </span>
             </div>
+            {preview && (preview.minSurchargeCents ?? 0) > 0 && (
+              <div className="flex justify-between">
+                <span>Doplačilo za stroške plačilnega sistema:</span>
+                <span className="text-[#0A1128]">
+                  + €{(preview.minSurchargeCents / 100).toLocaleString("sl-SI", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+            )}
             {preview?.feeIsMinimum && (
               <p className="text-[10px] text-slate-400 font-bold -mt-1">
                 Uporabljena je minimalna provizija, ki pokriva stroške plačilnega sistema.
@@ -628,13 +638,22 @@ const WonAuctionItem: React.FC<{
                     <Star size={14} className="text-[#FEBA4F] fill-[#FEBA4F]" />
                     <span>Ocenjeno ({(wonItem as any).review_rating || 5}★)</span>
                   </button>
-                ) : (
+                ) : canLeaveReview(wonItem) ? (
                   <button
                     onClick={() => openReviewModal(wonItem)}
                     className="bg-[#0A1128] text-[#FEBA4F] hover:bg-[#FEBA4F] hover:text-[#0A1128] border-2 border-[#FEBA4F]/40 px-4 py-3 rounded-2xl font-black uppercase tracking-widest text-[11px] transition-all shadow-md flex items-center justify-center gap-1.5 h-[42px]"
                     title="Oddajte oceno za prodajalca"
                   >
                     <Star size={14} className="fill-current" />
+                    <span>Oceni prodajalca</span>
+                  </button>
+                ) : (
+                  <button
+                    disabled
+                    className="bg-slate-100 text-slate-400 border border-slate-200 px-4 py-3 rounded-2xl font-black uppercase tracking-widest text-[11px] flex items-center justify-center gap-1.5 h-[42px] cursor-not-allowed opacity-60"
+                    title="Oceno lahko oddate po potrditvi prejema."
+                  >
+                    <Star size={14} className="text-slate-400" />
                     <span>Oceni prodajalca</span>
                   </button>
                 )}
@@ -1572,6 +1591,10 @@ const MainApp: React.FC = () => {
   }>({ isOpen: false, auction: null, sellerName: "" });
 
   const openReviewModal = (auction: AuctionItem) => {
+    if (!(auction as any).review_submitted && !canLeaveReview(auction)) {
+      toast.error("Oceno lahko oddate šele, ko je predmet predan in prejem potrjen.");
+      return;
+    }
     const sId = auction.sellerId || (auction as any).seller_id;
     const seller = profilesMap.get(sId);
     let sName = auction.sellerName;
@@ -4629,21 +4652,69 @@ const MainApp: React.FC = () => {
 
   const [dontShowTermsAgain, setDontShowTermsAgain] = useState(false);
 
+  // Hinweis mit Aktionsknopf statt automatischer Weiterleitung
+  function showActionNotice(
+    message: string,
+    actionLabel: string,
+    onAction: () => void,
+    secondary?: { label: string; onClick: () => void }
+  ) {
+    toast.warning(message, {
+      duration: 12000,
+      action: { label: actionLabel, onClick: onAction },
+      ...(secondary ? { cancel: { label: secondary.label, onClick: secondary.onClick } } : {})
+    });
+  }
+
   async function handleBidSubmit(item: any, amount: number): Promise<"ok" | "outbid" | "error" | "login_required" | "cancelled"> {
     if (!isLoggedIn) {
-      toast.error("Za oddajo ponudbe se morate prijaviti ali registrirati.");
-      setAuthMode('login');
-      setActiveView("login");
+      showActionNotice(
+        "Za oddajo ponudbe se morate prijaviti.",
+        "Prijava",
+        () => {
+          setAuthMode('login');
+          navigateTo("login");
+        },
+        {
+          label: "Registracija",
+          onClick: () => {
+            setAuthMode('register');
+            navigateTo("login");
+          }
+        }
+      );
       return "login_required";
     }
     if (!(auth.currentUser?.emailVerified || userData?.email_verified)) {
-      toast.error("Za oddajo ponudbe morate najprej potrditi svoj e-poštni naslov.");
+      showActionNotice(
+        "Za oddajo ponudbe morate potrditi svoj e-poštni naslov.",
+        "Pošlji potrditveno e-pošto",
+        async () => {
+          try {
+            const email = userData?.email || auth.currentUser?.email || "";
+            const displayName = (userData?.first_name || "").toString() || undefined;
+            const res = await sendEmailVerificationAction(email, displayName, auth.currentUser?.uid);
+            if (res.success) {
+              toast.success("Potrditveno e-pošto smo poslali.");
+            } else {
+              toast.error(friendlyError(res.error, "Napaka pri pošiljanju potrditvene e-pošte."));
+            }
+          } catch (err: any) {
+            toast.error(friendlyError(err, "Napaka pri pošiljanju potrditvene e-pošte."));
+          }
+        }
+      );
       return "error";
     }
     if (!userData?.profile_completed) {
-      toast.error("Za oddajo ponudbe morate najprej dopolniti svoj profil.");
-      setSettingsTab('personal');
-      setActiveView('settings');
+      showActionNotice(
+        "Za oddajo ponudbe morate dopolniti svoj profil.",
+        "Dopolni profil",
+        () => {
+          setSettingsTab('personal');
+          navigateTo("settings", { settingsTab: 'personal' });
+        }
+      );
       return "error";
     }
     const itemSellerId = item.sellerId || (item as any).seller_id || ((item as any).seller && (((item as any).seller as any).id || (item as any).seller.id));
@@ -4719,8 +4790,34 @@ const MainApp: React.FC = () => {
       if (!response.ok || !data.success) {
         if (response.status === 403 && data.code === 'TERMS_REQUIRED') {
           // wird vom globalen Handler behandelt
-        } else if (response.status === 403 && (data.code === 'EMAIL_NOT_VERIFIED' || data.code === 'PROFILE_INCOMPLETE')) {
-          toast.error(data.error);
+        } else if (response.status === 403 && data.code === 'EMAIL_NOT_VERIFIED') {
+          showActionNotice(
+            "Za oddajo ponudbe morate potrditi svoj e-poštni naslov.",
+            "Pošlji potrditveno e-pošto",
+            async () => {
+              try {
+                const email = userData?.email || auth.currentUser?.email || "";
+                const displayName = (userData?.first_name || "").toString() || undefined;
+                const res = await sendEmailVerificationAction(email, displayName, auth.currentUser?.uid);
+                if (res.success) {
+                  toast.success("Potrditveno e-pošto smo poslali.");
+                } else {
+                  toast.error(friendlyError(res.error, "Napaka pri pošiljanju potrditvene e-pošte."));
+                }
+              } catch (err: any) {
+                toast.error(friendlyError(err, "Napaka pri pošiljanju potrditvene e-pošte."));
+              }
+            }
+          );
+        } else if (response.status === 403 && data.code === 'PROFILE_INCOMPLETE') {
+          showActionNotice(
+            "Za oddajo ponudbe morate dopolniti svoj profil.",
+            "Dopolni profil",
+            () => {
+              setSettingsTab('personal');
+              navigateTo("settings", { settingsTab: 'personal' });
+            }
+          );
         } else {
           const errorMsg = friendlyError(data.error, "Napaka pri oddaji ponudbe.");
           toast.error(errorMsg);

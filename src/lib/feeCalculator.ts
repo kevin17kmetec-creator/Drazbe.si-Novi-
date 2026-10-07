@@ -116,13 +116,17 @@ export function calculateTotals(params: {
   const minFee = calculateMinimumFeeCents(itemPriceCents, vatRate);
   const feeCents = Math.max(bracketFee, minFee);
   
+  const minSurchargeCents = Math.max(0, minFee - bracketFee);
   const vatCents = Math.round((feeCents * vatRate) / 100);
   const totalCents = itemPriceCents + feeCents + vatCents;
-  const feePercent = itemPriceCents > 0 ? Math.round((feeCents / itemPriceCents) * 10000) / 100 : 0;
+  // Paket-Prozentsatz ohne Mindestzuschlag
+  const feePercent = itemPriceCents > 0 ? Math.round((bracketFee / itemPriceCents) * 10000) / 100 : 0;
   const feeIsMinimum = minFee > bracketFee;
 
   return {
     itemPriceCents,
+    bracketFeeCents: bracketFee,
+    minSurchargeCents,
     feeCents,
     vatRate,
     vatCents,

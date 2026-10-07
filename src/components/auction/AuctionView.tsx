@@ -186,7 +186,6 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
     if (!bidAmount || isNaN(Number(bidAmount)) || isSeller) return;
     if (!onBidSubmit) {
       toast.error("Za oddajo ponudbe se morate prijaviti ali registrirati.");
-      window.location.hash = '#login';
       return;
     }
     
@@ -242,6 +241,8 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
     hasValidVatId: false
   });
 
+  const activeBracketFeeCents = currentUserId ? (previewData?.bracketFeeCents ?? guestTotals.bracketFeeCents) : guestTotals.bracketFeeCents;
+  const activeMinSurchargeCents = currentUserId ? (previewData?.minSurchargeCents ?? guestTotals.minSurchargeCents) : guestTotals.minSurchargeCents;
   const activeFeeCents = currentUserId ? (previewData?.feeCents ?? guestTotals.feeCents) : guestTotals.feeCents;
   const activeFeePercent = currentUserId ? (previewData?.feePercent ?? guestTotals.feePercent) : guestTotals.feePercent;
   const activeVatCents = currentUserId ? (previewData?.vatCents ?? guestTotals.vatCents) : guestTotals.vatCents;
@@ -639,8 +640,14 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                   <div className="col-span-2 pt-2 border-t border-slate-100">
                     <div className="flex items-center justify-between text-xs font-bold text-slate-600">
                       <span>Provizija platforme ({activeFeePercent} %):</span>
-                      <span className="font-extrabold text-[#0A1128]">€{grossFeeEur.toFixed(2)}</span>
+                      <span className="font-extrabold text-[#0A1128]">€{(activeBracketFeeCents / 100).toFixed(2)}</span>
                     </div>
+                    {activeMinSurchargeCents > 0 && (
+                      <div className="flex items-center justify-between text-xs font-bold text-slate-600 mt-1">
+                        <span>Doplačilo za stroške plačilnega sistema:</span>
+                        <span className="font-extrabold text-slate-500">+ €{(activeMinSurchargeCents / 100).toFixed(2)}</span>
+                      </div>
+                    )}
                     {activeFeeIsMinimum && (
                       <p className="text-[10px] text-[#FEBA4F] font-bold mt-1">
                         Uporabljena je minimalna provizija, ki pokriva stroške plačilnega sistema.

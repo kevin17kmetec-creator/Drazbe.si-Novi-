@@ -981,7 +981,7 @@ export const CreateAuctionForm: React.FC<{
                                 <div className="flex justify-between items-center group">
                                     <div className="flex flex-col">
                                         <span className="text-sm font-bold text-slate-500 flex items-center gap-1.5">
-                                            Provizija platforme ({totals.feePercent}%):
+                                            Provizija platforme ({totals.feePercent} %) – plača kupec:
                                             {totals.feeIsMinimum && (
                                                 <div className="group/min relative">
                                                     <AlertCircle size={14} className="text-[#FEBA4F] cursor-help" />
@@ -992,12 +992,18 @@ export const CreateAuctionForm: React.FC<{
                                             )}
                                         </span>
                                     </div>
-                                    <span className="text-sm font-black text-red-600">-{(totals.feeCents / 100).toFixed(2)} €</span>
+                                    <span className="text-sm font-black text-[#0A1128]">{(totals.bracketFeeCents / 100).toFixed(2)} €</span>
                                 </div>
+                                {totals.minSurchargeCents > 0 && (
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-sm font-bold text-slate-500">Doplačilo za stroške plačilnega sistema:</span>
+                                        <span className="text-sm font-black text-[#0A1128]">+{ (totals.minSurchargeCents / 100).toFixed(2) } €</span>
+                                    </div>
+                                )}
                                 {totals.vatCents > 0 && (
                                     <div className="flex justify-between items-center">
                                         <span className="text-sm font-bold text-slate-500">DDV na provizijo ({totals.vatRate}%):</span>
-                                        <span className="text-sm font-black text-red-600">-{(totals.vatCents / 100).toFixed(2)} €</span>
+                                        <span className="text-sm font-black text-[#0A1128]">{(totals.vatCents / 100).toFixed(2)} €</span>
                                     </div>
                                 )}
                                 <div className="pt-4 border-t border-slate-200 mt-4 flex justify-between items-center">

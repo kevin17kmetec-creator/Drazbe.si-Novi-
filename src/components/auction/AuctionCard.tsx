@@ -82,7 +82,6 @@ export const AuctionCard: React.FC<{
     if (isSeller) return;
     if (!onBidSubmit) {
       toast.error("Za oddajo ponudbe se morate prijaviti ali registrirati.");
-      window.location.hash = '#login';
       return;
     }
     setIsBidding(true);

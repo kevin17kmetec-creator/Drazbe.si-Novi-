@@ -1237,6 +1237,17 @@ async function releaseSellerPayout(txId: string, reason: string) {
         payout_lease_until: 0
       });
 
+      // Bewertung fuer automatisch abgeschlossene Auktionen freischalten
+      if (tx.auction_id) {
+        try {
+          await adminDb.collection('auctions').doc(tx.auction_id).update({
+            review_enabled: true
+          });
+        } catch (revErr: any) {
+          console.warn('[releaseSellerPayout] Could not enable review on auction:', revErr.message);
+        }
+      }
+
       // Send email to seller
       try {
         const sellerDoc = await safeGetDoc(adminDb.collection('users').doc(tx.seller_id));
@@ -1613,7 +1624,7 @@ async function finalizeAuctionPayment(params: {
             currentPrice: transactionRecord.item_price,
             auctionUrl,
             settingsUrl: `${baseAppUrl}/?tab=settings`,
-            paymentDeadline: '7 dni'
+            paymentDeadline: `${SHIP_DEADLINE_DAYS} dni`
           }));
 
           const resendClient = new Resend(process.env.RESEND_API_KEY);
@@ -2615,13 +2626,23 @@ app.post("/api/create-checkout-session", async (req, res) => {
           quantity: 1,
         });
       }
-      if (buyerTotals.feeCents > 0) {
+      if (buyerTotals.bracketFeeCents > 0) {
         const feePercentStr = String(buyerTotals.feePercent).replace('.', ',');
         lineItems.push({
           price_data: {
             currency: currency.toLowerCase(),
             product_data: { name: `Provizija platforme (${feePercentStr} %)` },
-            unit_amount: buyerTotals.feeCents,
+            unit_amount: buyerTotals.bracketFeeCents,
+          },
+          quantity: 1,
+        });
+      }
+      if (buyerTotals.minSurchargeCents > 0) {
+        lineItems.push({
+          price_data: {
+            currency: currency.toLowerCase(),
+            product_data: { name: `Stroški plačilnega sistema` },
+            unit_amount: buyerTotals.minSurchargeCents,
           },
           quantity: 1,
         });
@@ -4778,6 +4799,15 @@ app.post("/api/orders/:id/verify-pickup-pin", async (req, res) => {
       auto_complete_at: new Date(Date.now() + AUTO_COMPLETE_AFTER_DELIVERED_DAYS * 24 * 60 * 60 * 1000).toISOString()
     });
 
+    // Uebergabe bestaetigt: Auktion als empfangen markieren und Bewertung freischalten
+    await adminDb.collection('auctions').doc(tx.auction_id).update({
+      buyer_received: true,
+      received_at: new Date().toISOString(),
+      receipt_confirmed_at: new Date().toISOString(),
+      post_auction_status: 'delivered',
+      review_enabled: true
+    });
+
     try {
       const sellerDoc = await safeGetDoc(adminDb.collection('users').doc(tx.seller_id));
       const seller = sellerDoc.data();
@@ -5905,7 +5935,8 @@ app.post("/api/auctions/confirm-receipt", async (req, res) => {
       buyer_received: true,
       received_at: new Date().toISOString(),
       receipt_confirmed_at: new Date().toISOString(),
-      post_auction_status: 'delivered'
+      post_auction_status: 'delivered',
+      review_enabled: true
     });
 
     await recordSaleCompletion(auction_id, tx.seller_id);
@@ -6033,6 +6064,10 @@ app.post("/api/reviews/submit", async (req, res) => {
       }
     } catch (e) {}
 
+    // Transaktion der Auktion laden, um den Lieferstatus zu pruefen
+    const txSnap = await safeGetDocs(adminDb.collection('transactions').where('auction_id', '==', auction_id).limit(1));
+    const tx = !txSnap.empty ? txSnap.docs[0].data() : null;
+
     let actualSellerId = '';
     let reviewId = '';
 
@@ -6060,6 +6095,14 @@ app.post("/api/reviews/submit", async (req, res) => {
       const isPaid = auctionData.payment_status === 'paid' || auctionData.post_auction_status === 'paid';
       if (!isPaid) {
         throw { status: 400, message: "Oceno lahko oddate le za plačane dražbe." };
+      }
+
+      // Bewertung nur moeglich, wenn der Handel abgeschlossen ist
+      const isFinished = auctionData.buyer_received === true || 
+                         auctionData.review_enabled === true || 
+                         ['DELIVERED', 'COMPLETED'].includes(tx?.status);
+      if (!isFinished) {
+        throw { status: 400, message: "Oceno lahko oddate šele, ko je predmet predan in prejem potrjen." };
       }
 
       if (auctionData.review_submitted) {
@@ -7635,7 +7678,10 @@ app.post("/api/messages/send", async (req, res) => {
       last_message: lastMsgText,
       last_message_at: nowIso,
       updated_at: nowIso,
-      [`unread_counts.${recipientId}`]: FieldValue.increment(1)
+      // Verschachteltes Objekt fuer batch.set mit merge, da Punkt-Notation sonst als flacher Schluesselname gespeichert wird
+      unread_counts: {
+        [recipientId]: FieldValue.increment(1)
+      }
     };
 
     batch.set(convRef, convData, { merge: true });
