@@ -27,6 +27,7 @@ import { ConfirmBidModal } from "@/src/components/modals/ConfirmBidModal";
 import { MessagesView } from "@/src/components/profile/MessagesView";
 import { MissingInvoiceDataModal } from "@/src/components/modals/MissingInvoiceDataModal";
 import { CategoryFilterBar, FilterState } from "@/src/components/auction/CategoryFilterBar";
+import { useNotifications } from "@/src/hooks/useNotifications";
 import { Portal } from "@/src/components/ui/Portal";
 import { TermsUpdateView } from "@/src/components/auth/TermsUpdateView";
 import { MarkShippedModal } from "@/src/components/modals/MarkShippedModal";
@@ -464,22 +465,14 @@ const WonAuctionItem: React.FC<{
               </span>
             </div>
             <div className="flex justify-between">
-              <span>Provizija platforme ({preview ? `${preview.feePercent} %` : "..."}):</span>
+              <span>{preview?.feeIsMinimum ? "Provizija platforme (minimalna)" : `Provizija platforme (${preview ? `${preview.feePercent} %` : "..."}):`}</span>
               <span className="text-[#0A1128]">
-                {preview ? `€${(((preview.bracketFeeCents ?? preview.feeCents)) / 100).toLocaleString("sl-SI", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "..."}
+                {preview ? `€${(preview.feeCents / 100).toLocaleString("sl-SI", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "..."}
               </span>
             </div>
-            {preview && (preview.minSurchargeCents ?? 0) > 0 && (
-              <div className="flex justify-between">
-                <span>Doplačilo za stroške plačilnega sistema:</span>
-                <span className="text-[#0A1128]">
-                  + €{(preview.minSurchargeCents / 100).toLocaleString("sl-SI", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-              </div>
-            )}
             {preview?.feeIsMinimum && (
-              <p className="text-[10px] text-slate-400 font-bold -mt-1">
-                Uporabljena je minimalna provizija, ki pokriva stroške plačilnega sistema.
+              <p className="text-[10px] text-slate-400 -mt-1">
+                Uporabljena je minimalna provizija 0,70 €.
               </p>
             )}
             <div className="flex justify-between">
@@ -591,7 +584,8 @@ const WonAuctionItem: React.FC<{
               </div>
 
               <div className="flex flex-col gap-3 flex-1 min-w-[140px]">
-                {wonItem.delivery_method !== "post" ? (
+              {/* Nur bei Abholung */}
+              {wonItem.delivery_method === "pickup" ? (
                   <button
                     onClick={() => {
                       setActiveConversationId(wonItem.id);
@@ -1048,13 +1042,12 @@ const MainApp: React.FC = () => {
     item: AuctionItem;
     amount: number;
   } | null>(null);
-  const [selectedRegion, setSelectedRegion] = useState<Region | null>(null);
-  const [selectedCategory, setSelectedCategory] = useState<Category | null>(
-    null,
-  );
+  // Regionen- und Kategoriefilter als Arrays für Mehrfachauswahl
+  const [selectedRegions, setSelectedRegions] = useState<Region[]>([]);
+  const [selectedCategories, setSelectedCategories] = useState<Category[]>([]);
   const [categoryFilters, setCategoryFilters] = useState<FilterState>({
-    delivery_option: undefined,
-    condition: undefined,
+    delivery_options: [],
+    conditions: [],
     specifications: {}
   });
   const [showFilters, setShowFilters] = useState<boolean>(() => {
@@ -1069,13 +1062,16 @@ const MainApp: React.FC = () => {
   });
   const [isMobileFiltersOpen, setIsMobileFiltersOpen] = useState(false);
 
+  // Zählung der aktiven Filter für Badges
   const activeCategoryFilterCount = useMemo(() => {
     return (
-      (categoryFilters.delivery_option ? 1 : 0) +
-      (categoryFilters.condition ? 1 : 0) +
-      Object.keys(categoryFilters.specifications).filter(k => !!categoryFilters.specifications[k]).length
+      selectedCategories.length +
+      selectedRegions.length +
+      (categoryFilters.delivery_options?.length || 0) +
+      (categoryFilters.conditions?.length || 0) +
+      Object.values(categoryFilters.specifications || {}).reduce((acc, vals) => acc + (vals?.length || 0), 0)
     );
-  }, [categoryFilters]);
+  }, [selectedCategories, selectedRegions, categoryFilters]);
   const [selectedItem, setSelectedItem] = useState<AuctionItem | null>(null);
   const [selectedSeller, setSelectedSeller] = useState<Seller | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -1144,13 +1140,14 @@ const MainApp: React.FC = () => {
   }, [activeView, userData?.id, republishData]);
 
   // Robust Universal Navigation History Stack
+  // Robuster Navigationsverlauf mit Mehrfachauswahl-Filtern
   interface NavigationEntry {
     view: ViewState;
     selectedItem: AuctionItem | null;
     selectedSeller: Seller | null;
     selectedPackageId: string | null;
-    selectedCategory: Category | null;
-    selectedRegion: Region | null;
+    selectedCategories: Category[];
+    selectedRegions: Region[];
     searchQuery: string;
     settingsTab: 'profile' | 'personal' | 'stripe' | 'notifications';
     activeConversationId: string | null;
@@ -1165,8 +1162,8 @@ const MainApp: React.FC = () => {
     selectedItem,
     selectedSeller,
     selectedPackageId,
-    selectedCategory,
-    selectedRegion,
+    selectedCategories,
+    selectedRegions,
     searchQuery,
     settingsTab,
     activeConversationId,
@@ -1177,8 +1174,8 @@ const MainApp: React.FC = () => {
     selectedItem,
     selectedSeller,
     selectedPackageId,
-    selectedCategory,
-    selectedRegion,
+    selectedCategories,
+    selectedRegions,
     searchQuery,
     settingsTab,
     activeConversationId,
@@ -1209,8 +1206,8 @@ const MainApp: React.FC = () => {
         if (overrides.selectedItem !== undefined) setSelectedItem(overrides.selectedItem);
         if (overrides.selectedSeller !== undefined) setSelectedSeller(overrides.selectedSeller);
         if (overrides.selectedPackageId !== undefined) setSelectedPackageId(overrides.selectedPackageId);
-        if (overrides.selectedCategory !== undefined) setSelectedCategory(overrides.selectedCategory);
-        if (overrides.selectedRegion !== undefined) setSelectedRegion(overrides.selectedRegion);
+        if (overrides.selectedCategories !== undefined) setSelectedCategories(overrides.selectedCategories);
+        if (overrides.selectedRegions !== undefined) setSelectedRegions(overrides.selectedRegions);
         if (overrides.searchQuery !== undefined) setSearchQuery(overrides.searchQuery);
         if (overrides.settingsTab !== undefined) setSettingsTab(overrides.settingsTab);
         if (overrides.activeConversationId !== undefined) setActiveConversationId(overrides.activeConversationId);
@@ -1244,8 +1241,8 @@ const MainApp: React.FC = () => {
         setSelectedItem(previous.selectedItem ?? null);
         setSelectedSeller(previous.selectedSeller ?? null);
         setSelectedPackageId(previous.selectedPackageId ?? null);
-        setSelectedCategory(previous.selectedCategory ?? null);
-        setSelectedRegion(previous.selectedRegion ?? null);
+        setSelectedCategories(previous.selectedCategories ?? []);
+        setSelectedRegions(previous.selectedRegions ?? []);
         setSearchQuery(previous.searchQuery ?? "");
         setSettingsTab(previous.settingsTab ?? "profile");
         setActiveConversationId(previous.activeConversationId ?? null);
@@ -1324,18 +1321,18 @@ const MainApp: React.FC = () => {
     } else if (activeView === "sellerProfile" && selectedSeller?.id) {
       params.set("id", selectedSeller.id);
     } else if (activeView === "grid") {
-      if (selectedCategory) {
+      if (selectedCategories.length > 0) {
         const catKey = QUERY_PARAM_MAP.category[language as 'SLO' | 'EN' | 'DE'] || QUERY_PARAM_MAP.category.SLO;
-        const catValue = CATEGORY_URL_MAP[selectedCategory]?.[language as 'SLO' | 'EN' | 'DE'] || CATEGORY_URL_MAP[selectedCategory]?.SLO;
-        if (catValue) {
-          params.set(catKey, catValue);
+        const catValues = selectedCategories.map(c => CATEGORY_URL_MAP[c]?.[language as 'SLO' | 'EN' | 'DE'] || CATEGORY_URL_MAP[c]?.SLO).filter(Boolean);
+        if (catValues.length > 0) {
+          params.set(catKey, catValues.join(','));
         }
       }
-      if (selectedRegion) {
+      if (selectedRegions.length > 0) {
         const regKey = QUERY_PARAM_MAP.region[language as 'SLO' | 'EN' | 'DE'] || QUERY_PARAM_MAP.region.SLO;
-        const regValue = REGION_URL_MAP[selectedRegion]?.[language as 'SLO' | 'EN' | 'DE'] || REGION_URL_MAP[selectedRegion]?.SLO;
-        if (regValue) {
-          params.set(regKey, regValue);
+        const regValues = selectedRegions.map(r => REGION_URL_MAP[r]?.[language as 'SLO' | 'EN' | 'DE'] || REGION_URL_MAP[r]?.SLO).filter(Boolean);
+        if (regValues.length > 0) {
+          params.set(regKey, regValues.join(','));
         }
       }
     } else if (activeView === "settings") {
@@ -1364,7 +1361,7 @@ const MainApp: React.FC = () => {
 
     // Always persist to local storage for the watchdog
     localStorage.setItem("last_active_route", newUrl);
-  }, [activeView, activeConversationId, selectedItem?.id, selectedSeller?.id, language, selectedCategory, selectedRegion, settingsTab]);
+  }, [activeView, activeConversationId, selectedItem?.id, selectedSeller?.id, language, selectedCategories, selectedRegions, settingsTab]);
 
   // Initial Hydration from URL or LocalStorage
   useEffect(() => {
@@ -1372,8 +1369,8 @@ const MainApp: React.FC = () => {
     if (!isSessionActive) {
       sessionStorage.setItem("session_tab_active", "true");
       setActiveView("grid");
-      setSelectedCategory(null);
-      setSelectedRegion(null);
+      setSelectedCategories([]);
+      setSelectedRegions([]);
       setSearchQuery("");
       setSelectedItem(null);
       setSelectedSeller(null);
@@ -1422,27 +1419,33 @@ const MainApp: React.FC = () => {
 
     const hydrateState = async () => {
       // Decode and map category, region, settings tab first so state is fully prepared
-      let categoryToSet: Category | null = null;
-      let regionToSet: Region | null = null;
+      let categoriesToSet: Category[] = [];
+      let regionsToSet: Region[] = [];
       let tabToSet: 'profile' | 'personal' | 'stripe' = 'profile';
 
       for (const [key, value] of searchParams.entries()) {
         const lowerKey = key.toLowerCase();
         if (lowerKey === "kategorija" || lowerKey === "category" || lowerKey === "kategorie") {
-          const decodedCat = slugToCategory(value);
-          if (decodedCat) categoryToSet = decodedCat;
+          const parts = value.split(',');
+          for (const p of parts) {
+            const decodedCat = slugToCategory(p.trim());
+            if (decodedCat && !categoriesToSet.includes(decodedCat)) categoriesToSet.push(decodedCat);
+          }
         }
         if (lowerKey === "regija" || lowerKey === "region") {
-          const decodedReg = slugToRegion(value);
-          if (decodedReg) regionToSet = decodedReg;
+          const parts = value.split(',');
+          for (const p of parts) {
+            const decodedReg = slugToRegion(p.trim());
+            if (decodedReg && !regionsToSet.includes(decodedReg)) regionsToSet.push(decodedReg);
+          }
         }
         if (lowerKey === "zavihek" || lowerKey === "tab") {
           tabToSet = slugToSettingsTab(value);
         }
       }
 
-      if (categoryToSet) setSelectedCategory(categoryToSet);
-      if (regionToSet) setSelectedRegion(regionToSet);
+      if (categoriesToSet.length > 0) setSelectedCategories(categoriesToSet);
+      if (regionsToSet.length > 0) setSelectedRegions(regionsToSet);
       setSettingsTab(tabToSet);
 
       if (path.startsWith("/sporocila") || path.startsWith("/messages") || path.startsWith("/nachrichten")) {
@@ -1687,6 +1690,24 @@ const MainApp: React.FC = () => {
   const isCheckingSessionRef = useRef(false);
   const [user, setUser] = useState<any>(auth.currentUser);
 
+  // Behandlung von Klicks auf Benachrichtigungen
+  const handleSelectNotification = useCallback((notification: any) => {
+    if (!notification) return;
+    if (notification.type === 'won') {
+      navigateTo("winnings");
+    } else if (notification.auction_id) {
+      const target = auctions.find((a) => a.id === notification.auction_id);
+      if (target) {
+        navigateTo("detail", { selectedItem: target });
+      } else {
+        navigateTo("grid");
+      }
+    }
+  }, [auctions, navigateTo]);
+
+  // Hook für Echtzeit-Polling von Benachrichtigungen
+  const { notifications, markRead: markNotificationRead } = useNotifications(user, handleSelectNotification);
+
   useEffect(() => {
     let unsubscribeSnap: (() => void) | null = null;
     const unsubscribe = onAuthStateChanged(auth, async (authUser) => {
@@ -1893,7 +1914,7 @@ const MainApp: React.FC = () => {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [selectedRegion, selectedCategory, searchQuery, activeView]);
+  }, [selectedRegions, selectedCategories, searchQuery, activeView]);
 
   const [showBackToTop, setShowBackToTop] = useState(false);
 
@@ -3013,27 +3034,36 @@ const MainApp: React.FC = () => {
       filtered = filtered.filter((item) => {
         if (item.status === "completed" || new Date(item.endTime) <= now)
           return false;
-        if (selectedRegion && !matchesSelectedRegion(item.region, selectedRegion)) return false;
-        if (selectedCategory && item.category !== selectedCategory)
+        // Mehrfachauswahl Regionen (OR innerhalb, AND zwischen Gruppen)
+        if (selectedRegions.length > 0 && !selectedRegions.some((reg) => matchesSelectedRegion(item.region, reg))) return false;
+        // Mehrfachauswahl Kategorien
+        if (selectedCategories.length > 0 && !selectedCategories.includes(item.category as Category))
           return false;
-        if (categoryFilters.delivery_option) {
+        // Mehrfachauswahl Lieferoptionen
+        if (categoryFilters.delivery_options && categoryFilters.delivery_options.length > 0) {
           const itemDel = (item as any).delivery_option || item.delivery_method || 'both';
-          if (categoryFilters.delivery_option === 'pickup' && itemDel === 'shipping_only') return false;
-          if (categoryFilters.delivery_option === 'shipping' && itemDel === 'pickup_only') return false;
+          const matchesDel = categoryFilters.delivery_options.some((opt) => {
+            if (opt === 'pickup') return itemDel !== 'shipping_only';
+            if (opt === 'shipping') return itemDel !== 'pickup_only';
+            return true;
+          });
+          if (!matchesDel) return false;
         }
-        if (categoryFilters.condition) {
+        // Mehrfachauswahl Zustand
+        if (categoryFilters.conditions && categoryFilters.conditions.length > 0) {
           const condText = typeof item.condition === 'string'
             ? item.condition
             : (item.condition?.[language] || item.condition?.['SLO'] || '');
-          if (!condText.toLowerCase().includes(categoryFilters.condition.toLowerCase())) return false;
+          const matchesCond = categoryFilters.conditions.some((c) => condText.toLowerCase().includes(c.toLowerCase()));
+          if (!matchesCond) return false;
         }
+        // Mehrfachauswahl Spezifikationen
         if (categoryFilters.specifications) {
-          for (const [key, val] of Object.entries(categoryFilters.specifications)) {
-            if (val) {
+          for (const [key, vals] of Object.entries(categoryFilters.specifications)) {
+            if (vals && vals.length > 0) {
               const itemVal = item.specifications?.[key];
-              if (!itemVal || !String(itemVal).toLowerCase().includes(String(val).toLowerCase())) {
-                return false;
-              }
+              const matchesSpec = vals.some((v) => itemVal && String(itemVal).toLowerCase().includes(String(v).toLowerCase()));
+              if (!matchesSpec) return false;
             }
           }
         }
@@ -3056,8 +3086,8 @@ const MainApp: React.FC = () => {
   }, [
     auctions,
     activeView,
-    selectedRegion,
-    selectedCategory,
+    selectedRegions,
+    selectedCategories,
     categoryFilters,
     searchQuery,
     language,
@@ -3074,7 +3104,7 @@ const MainApp: React.FC = () => {
   const handlePageChange = (page: number) => {
     setCurrentPage(page);
     const isHomePage =
-      activeView === "grid" && !selectedCategory && !searchQuery;
+      activeView === "grid" && selectedCategories.length === 0 && selectedRegions.length === 0 && !searchQuery;
 
     if (isHomePage && auctionsSectionRef.current) {
       auctionsSectionRef.current.scrollIntoView({
@@ -3169,8 +3199,8 @@ const MainApp: React.FC = () => {
           t={t}
           onLoginSuccess={() => {
             setIsLoggedIn(true);
-            setSelectedRegion(null);
-            setSelectedCategory(null);
+            setSelectedRegions([]);
+            setSelectedCategories([]);
             setSearchQuery("");
             goBack("grid");
           }}
@@ -4428,9 +4458,9 @@ const MainApp: React.FC = () => {
       content = (
         <div className="animate-in">
           {activeView === "grid" &&
-            !selectedCategory &&
+            selectedCategories.length === 0 &&
             !searchQuery &&
-            !selectedRegion && (
+            selectedRegions.length === 0 && (
               <HeroCarousel
                 items={auctions}
                 onSelectItem={(item) => {
@@ -4450,32 +4480,32 @@ const MainApp: React.FC = () => {
                 <h2 className="text-3xl font-black text-[#0A1128] uppercase tracking-tighter italic">
                   {activeView === "lastChance"
                     ? t("lastChanceTitle")
-                    : selectedRegion
-                      ? `${t("regions")}: ${selectedRegion}`
-                      : selectedCategory
-                        ? `${t("category")}: ${getCategoryTranslation(selectedCategory, t)}`
+                    : selectedRegions.length > 0
+                      ? (selectedRegions.length === 1 ? `${t("regions")}: ${selectedRegions[0]}` : `${t("regions")}: ${selectedRegions.length} izbranih`)
+                      : selectedCategories.length > 0
+                        ? (selectedCategories.length === 1 ? `${t("category")}: ${getCategoryTranslation(selectedCategories[0], t)}` : `${t("category")}: ${selectedCategories.length} izbranih`)
                         : searchQuery
                           ? `${t("searchResults") || 'Rezultati'}: "${searchQuery}"`
                           : t("activeAuctions")}
                 </h2>
-                {selectedRegion && (
+                {selectedRegions.length > 0 && (
                   <button
-                    onClick={() => setSelectedRegion(null)}
+                    onClick={() => setSelectedRegions([])}
                     className="flex items-center gap-1.5 bg-[#0A1128] text-[#FEBA4F] hover:bg-[#FEBA4F] hover:text-[#0A1128] text-xs font-black uppercase px-3 py-1.5 rounded-full transition-all border border-[#FEBA4F]/30"
                   >
-                    <span>{t("clearFilter") || "Počisti regijo"}</span>
+                    <span>{t("clearFilter") || "Počisti regije"}</span>
                     <X size={14} />
                   </button>
                 )}
-                {selectedCategory && (
+                {selectedCategories.length > 0 && (
                   <button
                     onClick={() => {
-                      setSelectedCategory(null);
-                      setCategoryFilters({ delivery_option: undefined, condition: undefined, specifications: {} });
+                      setSelectedCategories([]);
+                      setCategoryFilters({ delivery_options: [], conditions: [], specifications: {} });
                     }}
                     className="flex items-center gap-1.5 bg-[#0A1128] text-[#FEBA4F] hover:bg-[#FEBA4F] hover:text-[#0A1128] text-xs font-black uppercase px-3 py-1.5 rounded-full transition-all border border-[#FEBA4F]/30"
                   >
-                    <span>{t("clearFilter") || "Počisti kategorijo"}</span>
+                    <span>{t("clearFilter") || "Počisti kategorije"}</span>
                     <X size={14} />
                   </button>
                 )}
@@ -4534,20 +4564,33 @@ const MainApp: React.FC = () => {
             {/* Dynamic Category & Specification Filter Bar & Auction Grid */}
             <div className={showFilters ? "lg:grid lg:grid-cols-[280px_1fr] lg:gap-6 items-start" : "w-full"}>
               <CategoryFilterBar
-                category={selectedCategory}
+                category={selectedCategories.length === 1 ? selectedCategories[0] : null}
+                selectedCategories={selectedCategories}
+                selectedRegions={selectedRegions}
+                onCategoriesChange={(cats) => {
+                  setSelectedCategories(cats);
+                  setCurrentPage(1);
+                }}
+                onRegionsChange={(regs) => {
+                  setSelectedRegions(regs);
+                  setCurrentPage(1);
+                }}
                 filters={categoryFilters}
                 onFilterChange={(newFilters) => {
                   setCategoryFilters(newFilters);
                   setCurrentPage(1);
                 }}
                 onResetFilters={() => {
-                  setCategoryFilters({ delivery_option: undefined, condition: undefined, specifications: {} });
+                  setSelectedCategories([]);
+                  setSelectedRegions([]);
+                  setCategoryFilters({ delivery_options: [], conditions: [], specifications: {} });
                   setCurrentPage(1);
                 }}
                 totalResultsCount={getFilteredAuctions.length}
                 showDesktopPanel={showFilters}
                 isMobileOpen={isMobileFiltersOpen}
                 onCloseMobile={() => setIsMobileFiltersOpen(false)}
+                auctions={auctions}
               />
 
               <div className="w-full min-w-0">
@@ -5180,10 +5223,10 @@ const MainApp: React.FC = () => {
         )}
         <Header
           onHome={() => {
-            setCategoryFilters({ delivery_option: undefined, condition: undefined, specifications: {} });
+            setCategoryFilters({ delivery_options: [], conditions: [], specifications: {} });
             navigateTo("grid", {
-              selectedRegion: null,
-              selectedCategory: null,
+              selectedRegions: [],
+              selectedCategories: [],
               searchQuery: ""
             });
           }}
@@ -5194,14 +5237,14 @@ const MainApp: React.FC = () => {
             }
           }}
           onRegionSelect={(reg) => {
-            navigateTo("grid", { selectedRegion: reg });
+            navigateTo("grid", { selectedRegions: reg ? [reg] : [] });
           }}
           onCategorySelect={(cat) => {
-            setCategoryFilters({ delivery_option: undefined, condition: undefined, specifications: {} });
-            navigateTo("grid", { selectedCategory: cat });
+            setCategoryFilters({ delivery_options: [], conditions: [], specifications: {} });
+            navigateTo("grid", { selectedCategories: cat ? [cat] : [] });
           }}
           onLastChance={() => {
-            navigateTo("lastChance", { selectedRegion: null, selectedCategory: null });
+            navigateTo("lastChance", { selectedRegions: [], selectedCategories: [] });
           }}
           onLogin={() => {
             setAuthMode('login');
@@ -5240,9 +5283,12 @@ const MainApp: React.FC = () => {
             navigateTo("messages");
           }}
           onAcceptTerms={() => navigateTo("acceptTerms")}
+          notifications={notifications}
+          onMarkNotificationRead={markNotificationRead}
+          onSelectNotification={handleSelectNotification}
           activeView={activeView}
-          selectedRegion={selectedRegion}
-          selectedCategory={selectedCategory}
+          selectedRegion={selectedRegions[0] ?? null}
+          selectedCategory={selectedCategories[0] ?? null}
           isLoggedIn={isLoggedIn}
           isAuthLoading={isAuthLoading}
           isVerified={isVerified}

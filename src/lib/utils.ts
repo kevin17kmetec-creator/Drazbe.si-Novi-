@@ -182,6 +182,15 @@ export const normalizeRegionName = (reg: any): Region => {
   return Region.Osrednjeslovenska;
 };
 
+// Hilfsfunktion zum Abgleichen von Regionen
+export const matchesSelectedRegion = (itemRegion: string | undefined | null, selected: string | null): boolean => {
+  if (!selected) return true;
+  if (!itemRegion) return false;
+  const normalizedItem = normalizeRegionName(itemRegion).toLowerCase();
+  const normalizedSelected = normalizeRegionName(selected).toLowerCase();
+  return normalizedItem === normalizedSelected || normalizedItem.includes(normalizedSelected) || normalizedSelected.includes(normalizedItem);
+};
+
 const finalizedAuctionIds = new Set<string>();
 
 export async function checkAndFinalizeAuctionClient(auctionId: string, onRefresh?: () => void) {

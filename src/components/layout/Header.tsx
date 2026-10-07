@@ -6,8 +6,12 @@ import { SloveniaMap } from "@/src/components/ui/SloveniaMap";
 import { getCategoryTranslation } from "../../lib/translations";
 import { getUserAuctionCycle, normalizeRegionName } from "../../lib/utils";
 import { TERMS_VERSION } from '../../lib/termsVersion';
+import { NotificationBell, NotificationItem } from './NotificationBell';
 
 export const Header: React.FC<{ 
+  notifications?: NotificationItem[];
+  onMarkNotificationRead?: (id?: string, all?: boolean) => void;
+  onSelectNotification?: (notification: NotificationItem) => void;
   onHome: () => void;
   onSearch: (val: string) => void;
   onRegionSelect: (reg: Region | null) => void;
@@ -40,7 +44,7 @@ export const Header: React.FC<{
   userEmail?: string;
   userProfilePicture?: string;
   userData?: any;
-}> = ({ onHome, onSearch, onRegionSelect, onCategorySelect, onLastChance, onLogin, onRegister, onLogout, onSettings, onSubscriptions, onCreateAuction, onMyWinnings, onMyBids, onMySold, onMyUnsold, onWatchlist, onMessages, onAcceptTerms, activeView, selectedRegion, selectedCategory, isLoggedIn, isAuthLoading, isVerified, language, onLanguageChange, t, auctions, newWinningsCount, userEmail, userProfilePicture, userData }) => {
+}> = ({ notifications = [], onMarkNotificationRead, onSelectNotification, onHome, onSearch, onRegionSelect, onCategorySelect, onLastChance, onLogin, onRegister, onLogout, onSettings, onSubscriptions, onCreateAuction, onMyWinnings, onMyBids, onMySold, onMyUnsold, onWatchlist, onMessages, onAcceptTerms, activeView, selectedRegion, selectedCategory, isLoggedIn, isAuthLoading, isVerified, language, onLanguageChange, t, auctions, newWinningsCount, userEmail, userProfilePicture, userData }) => {
   const { unreadMessageCount } = useChat();
 
   const [isRegOpen, setIsRegOpen] = useState(false);
@@ -156,8 +160,14 @@ export const Header: React.FC<{
               <input type="text" placeholder={t('searchPlaceholder')} className="w-full bg-white/5 border border-white/10 rounded-2xl py-3 pl-5 pr-12 text-sm focus:ring-2 focus:ring-[#FEBA4F] outline-none placeholder-slate-500 font-bold" onChange={(e) => onSearch(e.target.value)} />
               <Search className="absolute right-4 top-3.5 text-slate-500" size={18} />
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
               {isLoggedIn && (
+                <>
+                  <NotificationBell
+                    notifications={notifications}
+                    onMarkRead={onMarkNotificationRead || (() => {})}
+                    onSelectNotification={onSelectNotification || (() => {})}
+                  />
                   <button onClick={onMessages} className={`relative bg-white/5 p-3 rounded-xl border border-white/10 transition-all text-white flex items-center justify-center ${activeView === 'messages' ? 'bg-[#FEBA4F] text-[#0A1128] border-transparent' : 'hover:bg-white/10 hover:text-[#FEBA4F]'}`}>
                     <MessageSquare size={16} />
                     {unreadMessageCount !== undefined && unreadMessageCount > 0 && (
@@ -166,6 +176,7 @@ export const Header: React.FC<{
                         </span>
                     )}
                   </button>
+                </>
               )}
               <div className="relative h-full flex items-center"
                    ref={langMenuRef}

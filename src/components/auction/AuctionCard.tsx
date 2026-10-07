@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MapPin, ChevronLeft, ChevronRight, Clock, Eye, Building2, Minus, Plus, Lock, Trophy, ShieldCheck, Truck, Sparkles, Tag } from 'lucide-react';
+import { MapPin, ChevronLeft, ChevronRight, Clock, Eye, Minus, Plus, Lock, Trophy, ShieldCheck } from 'lucide-react';
 import { AuctionItem, Seller } from "../../types";
 import { getIncrement, formatSeconds, checkAndFinalizeAuctionClient } from "../../lib/utils";
 import { toast } from 'sonner';
@@ -52,6 +52,7 @@ export const AuctionCard: React.FC<{
       : item.currentBid;
     setBidValue(baseline + getIncrement(baseline)); 
   }, [item.currentBid, isWinner, myMax]);
+
   useEffect(() => {
     const update = () => {
       const diff = Math.max(0, Math.floor((item.endTime.getTime() - Date.now()) / 1000));
@@ -96,8 +97,8 @@ export const AuctionCard: React.FC<{
   }
 
   return (
-    <div className={`bg-[#0A1128] rounded-[2.5rem] overflow-hidden shadow-2xl hover:shadow-2xl hover:-translate-y-2 transition-all duration-300 group flex flex-col h-[540px] border relative ${borderClass}`}>
-      <div className="relative h-52 overflow-hidden cursor-pointer group/image" onClick={onClick}>
+    <div className={`bg-[#0A1128] rounded-[2.5rem] overflow-hidden shadow-2xl hover:shadow-2xl hover:-translate-y-2 transition-all duration-300 group flex flex-col border relative ${borderClass}`}>
+      <div className="relative aspect-[4/3] w-full overflow-hidden cursor-pointer group/image" onClick={onClick}>
         <img 
           src={signedImages[currentImageIndex] || item.images[currentImageIndex]} 
           alt={item.title[language] || item.title['SLO']} 
@@ -124,24 +125,6 @@ export const AuctionCard: React.FC<{
         <div className="absolute top-4 left-4 bg-[#0A1128]/90 backdrop-blur-sm px-3.5 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest text-white shadow-lg flex items-center gap-1.5 border border-white/10">
           <MapPin size={10} className="text-[#FEBA4F]" /> {item.location[language] || item.location['SLO']}
         </div>
-        
-        {/* Condition Badge on Image */}
-        {(() => {
-          const condText = typeof item.condition === 'string' 
-            ? item.condition 
-            : (item.condition?.[language] || item.condition?.['SLO'] || 'Rabljeno');
-          const isNew = condText.toLowerCase().includes('nov');
-          return (
-            <div className={`absolute bottom-3 left-4 backdrop-blur-sm px-3 py-1 rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg flex items-center gap-1.5 border ${
-              isNew 
-                ? 'bg-emerald-500/90 text-white border-emerald-400/50' 
-                : 'bg-[#0A1128]/90 text-slate-200 border-white/10'
-            }`}>
-              <Sparkles size={10} className={isNew ? 'text-amber-200' : 'text-[#FEBA4F]'} />
-              <span>{condText}</span>
-            </div>
-          );
-        })()}
 
         <div className="absolute top-4 right-4 flex flex-col items-end gap-2">
           <button 
@@ -150,9 +133,6 @@ export const AuctionCard: React.FC<{
           >
             <Eye size={14} />
           </button>
-          <div className="bg-[#FEBA4F] text-[#0A1128] backdrop-blur-sm px-4 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg">
-            {item.region}
-          </div>
           {isWinner && (
             <div className="bg-green-500 text-white backdrop-blur-sm px-4 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg flex items-center gap-1.5 border border-green-400/50 animate-pulse">
               <Trophy size={10} /> {t('leading') || 'Vodilni'}
@@ -161,89 +141,7 @@ export const AuctionCard: React.FC<{
         </div>
       </div>
       <div className="p-6 flex flex-col flex-1">
-        <div className="mb-2 flex justify-between items-center">
-            {(seller || item.sellerName) && (
-              (item as any).is_seller_deleted || item.sellerName === "Uporabnik je bil izbrisan" || (seller && ((seller as any).is_deleted || (seller as any).isDeleted)) ? (
-                <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 flex items-center gap-1.5 opacity-75">
-                  <Building2 size={12} /> Uporabnik je bil izbrisan
-                </span>
-              ) : (
-                <button 
-                  type="button"
-                  onClick={(e) => { 
-                    e.stopPropagation(); 
-                    const targetSeller = seller || {
-                      id: item.sellerId || (item as any).seller_id || item.sellerName,
-                      name: { 
-                        SLO: item.sellerName || 'Prodajalec', 
-                        EN: item.sellerName || 'Seller', 
-                        DE: item.sellerName || 'Verkäufer' 
-                      },
-                      company_name: item.sellerName,
-                      sellerName: item.sellerName
-                    };
-                    onSellerClick?.(targetSeller); 
-                  }} 
-                  className="text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-[#FEBA4F] transition-colors flex items-center gap-1.5 cursor-pointer"
-                >
-                    <Building2 size={12} /> {seller ? (seller.name[language] || seller.name['SLO'] || t('unknownSeller')) : (item.sellerName && item.sellerName !== "Neznan prodajalec" ? item.sellerName : t('unknownSeller'))}
-                </button>
-              )
-            )}
-        </div>
-        <h3 className="text-lg font-black leading-tight text-white hover:text-[#FEBA4F] transition-colors line-clamp-2 cursor-pointer mb-2.5" onClick={onClick}>{item.title[language] || item.title['SLO']}</h3>
-
-        {/* Delivery / Shipping Method Badge */}
-        {(() => {
-          const delOpt = (item as any).delivery_option || item.delivery_method || 'both';
-          const feeType = (item as any).shipping_fee_type;
-          const cost = (item as any).shipping_cost;
-          let delLabel = 'Osebni prevzem in pošiljanje';
-          if (delOpt === 'pickup_only' || delOpt === 'pickup') {
-            delLabel = 'Samo osebni prevzem';
-          } else if (delOpt === 'shipping_only' || delOpt === 'shipping' || delOpt === 'post') {
-            delLabel = cost !== null && cost !== undefined && Number(cost) > 0 
-              ? `Pošta (€${Number(cost).toFixed(2)})` 
-              : feeType === 'calculated' ? 'Pošiljanje (pošta)' : 'Samo pošiljanje';
-          } else if (cost !== null && cost !== undefined && Number(cost) > 0) {
-            delLabel = `Osebno / Pošta (€${Number(cost).toFixed(2)})`;
-          }
-
-          return (
-            <div className="flex items-center gap-1.5 mb-3 text-[10px] font-bold text-slate-300 bg-white/5 px-3 py-1.5 rounded-xl border border-white/5 w-fit">
-              <Truck size={12} className="text-[#FEBA4F] shrink-0" />
-              <span className="truncate max-w-[240px]">{delLabel}</span>
-            </div>
-          );
-        })()}
-
-        {/* Key Specifications Badges (Size, Brand, Model, RAM, etc.) */}
-        {(() => {
-          const specs = (item.specifications || {}) as Record<string, any>;
-          const flatSpecs: { key: string; val: string }[] = [];
-          for (const [k, v] of Object.entries(specs)) {
-            if (typeof v === 'string' && v.trim() !== '') {
-              flatSpecs.push({ key: k, val: v });
-            } else if (v && typeof v === 'object') {
-              for (const [subK, subV] of Object.entries(v)) {
-                if (typeof subV === 'string' && subV.trim() !== '') {
-                  flatSpecs.push({ key: subK, val: subV });
-                }
-              }
-            }
-          }
-          if (flatSpecs.length === 0) return null;
-
-          return (
-            <div className="flex flex-wrap items-center gap-1.5 mb-3">
-              {flatSpecs.slice(0, 3).map(({ key, val }) => (
-                <span key={key} className="text-[9px] font-black uppercase tracking-wider bg-white/10 text-amber-200 px-2 py-0.5 rounded-md border border-white/10">
-                  {val}
-                </span>
-              ))}
-            </div>
-          );
-        })()}
+        <h3 className="text-lg font-black leading-tight text-white hover:text-[#FEBA4F] transition-colors line-clamp-2 cursor-pointer mb-4" onClick={onClick}>{item.title[language] || item.title['SLO']}</h3>
 
         <div className="flex items-center gap-3 mb-4">
           <div className="bg-white/5 p-2 rounded-lg text-[#FEBA4F] border border-white/10"><Clock size={14} /></div>

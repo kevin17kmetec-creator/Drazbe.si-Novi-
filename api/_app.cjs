@@ -513,31 +513,19 @@ function getCommissionVat(countryCode, isBusiness, hasValidVatId) {
   }
   return { vatRate: 22, isReverseCharge: false };
 }
-var STRIPE_CARD_BPS = 190;
-var STRIPE_CARD_FIXED_CENTS = 25;
-var CONNECT_PAYOUT_BPS = 25;
-var CONNECT_PAYOUT_FIXED_CENTS = 10;
-var COST_SAFETY_MARGIN_CENTS = 20;
-function calculateMinimumFeeCents(itemPriceCents, vatRate) {
-  const costs = itemPriceCents * (STRIPE_CARD_BPS + CONNECT_PAYOUT_BPS) / 1e4 + STRIPE_CARD_FIXED_CENTS + CONNECT_PAYOUT_FIXED_CENTS + COST_SAFETY_MARGIN_CENTS;
-  const denominator = 1 - STRIPE_CARD_BPS / 1e4 * (1 + vatRate / 100);
-  return Math.ceil(costs / denominator);
-}
+var MIN_PLATFORM_FEE_CENTS = 70;
 function calculateTotals(params) {
   const { itemPriceCents, tier, countryCode, isBusiness, hasValidVatId } = params;
   const bracketFee = calculatePlatformFeeCents(itemPriceCents, tier);
   const { vatRate, isReverseCharge } = getCommissionVat(countryCode, isBusiness, hasValidVatId);
-  const minFee = calculateMinimumFeeCents(itemPriceCents, vatRate);
-  const feeCents = Math.max(bracketFee, minFee);
-  const minSurchargeCents = Math.max(0, minFee - bracketFee);
+  const feeCents = Math.max(bracketFee, MIN_PLATFORM_FEE_CENTS);
   const vatCents = Math.round(feeCents * vatRate / 100);
   const totalCents = itemPriceCents + feeCents + vatCents;
   const feePercent = itemPriceCents > 0 ? Math.round(bracketFee / itemPriceCents * 1e4) / 100 : 0;
-  const feeIsMinimum = minFee > bracketFee;
+  const feeIsMinimum = bracketFee < MIN_PLATFORM_FEE_CENTS;
   return {
     itemPriceCents,
     bracketFeeCents: bracketFee,
-    minSurchargeCents,
     feeCents,
     vatRate,
     vatCents,
@@ -852,7 +840,7 @@ var AuctionEmailTemplate = ({
       badgeBg = "#10B981";
       badgeColor = "#FFFFFF";
       headline = "Kupec je potrdil prejem!";
-      subheadline = `Kupec je potrdil prejem predmeta "${auctionTitle}". Izpla\u010Dilo na va\u0161 Stripe ra\u010Dun bo spro\u017Eeno samodejno \u010Dez 2 dni, \u010De ne bo vlo\u017Eenih prito\u017Eb.`;
+      subheadline = `Kupec je potrdil prejem predmeta "${auctionTitle}". Izpla\u010Dilo na va\u0161 Stripe ra\u010Dun je bilo spro\u017Eeno.`;
       ctaText = "Status naro\u010Dila";
       ctaUrl = auctionUrl || "https://drazbe.eu";
       priceLabel = "Znesek izpla\u010Dila:";
@@ -5026,23 +5014,14 @@ app.post("/api/create-checkout-session", async (req, res) => {
           quantity: 1
         });
       }
-      if (buyerTotals.bracketFeeCents > 0) {
+      if (buyerTotals.feeCents > 0) {
         const feePercentStr = String(buyerTotals.feePercent).replace(".", ",");
+        const feeName = buyerTotals.feeIsMinimum ? "Provizija platforme (minimalna)" : `Provizija platforme (${feePercentStr} %)`;
         lineItems.push({
           price_data: {
             currency: currency.toLowerCase(),
-            product_data: { name: `Provizija platforme (${feePercentStr} %)` },
-            unit_amount: buyerTotals.bracketFeeCents
-          },
-          quantity: 1
-        });
-      }
-      if (buyerTotals.minSurchargeCents > 0) {
-        lineItems.push({
-          price_data: {
-            currency: currency.toLowerCase(),
-            product_data: { name: `Stro\u0161ki pla\u010Dilnega sistema` },
-            unit_amount: buyerTotals.minSurchargeCents
+            product_data: { name: feeName },
+            unit_amount: buyerTotals.feeCents
           },
           quantity: 1
         });
@@ -7923,7 +7902,7 @@ app.post("/api/auctions/confirm-receipt", async (req, res) => {
     } catch (emErr) {
       console.error("[confirm-receipt] Error sending email:", emErr.message);
     }
-    res.json({ success: true, message: "Prejem potrjen. Izpla\u010Dilo bo spro\u017Eeno samodejno \u010Dez 2 dni." });
+    res.json({ success: true, message: "Prejem potrjen. Izpla\u010Dilo je spro\u017Eeno." });
   } catch (err) {
     console.error("Error in confirm-receipt:", err);
     res.status(500).json({ error: err.message });

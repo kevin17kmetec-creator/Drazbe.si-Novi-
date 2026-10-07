@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { ArrowLeft, Layers, FileUp, Trash2, Gavel, Wand2, X, Eye, ChevronLeft, ChevronRight, GripHorizontal, AlertCircle, Scale } from 'lucide-react';
+import { ArrowLeft, Layers, FileUp, Trash2, Gavel, Wand2, X, Eye, ChevronLeft, ChevronRight, GripHorizontal, AlertCircle } from 'lucide-react';
 import { Category, Region, AuctionItem } from "../../types";
 import { getCategoryTranslation } from "../../lib/translations";
 import { storage, auth } from "../../lib/firebase";
@@ -14,7 +14,6 @@ import { checkUserInvoiceData, InvoiceDataCheckResult } from "../../lib/invoiceD
 import { MissingInvoiceDataModal } from "@/src/components/modals/MissingInvoiceDataModal";
 import { getUserAuctionCycle } from "../../lib/utils";
 import { friendlyError } from "../../lib/friendlyError";
-import { calculateTotals, getEffectiveTier } from "../../lib/feeCalculator";
 import { Portal } from "../ui/Portal";
 
 const REGION_LOCATIONS: Record<Region, string[]> = {
@@ -155,24 +154,6 @@ export const CreateAuctionForm: React.FC<{
         startingPrice?: boolean;
         shipping_cost?: boolean;
     }>({});
-
-    const totals = useMemo(() => {
-        const price = parseInt(formData.startingPrice) || 0;
-        if (price <= 0) return null;
-        
-        const tier = getEffectiveTier(userData);
-        const countryCode = userData?.country_code || 'SI';
-        const isBusiness = userData?.is_business === true;
-        const hasValidVatId = !!userData?.vat_id;
-        
-        return calculateTotals({
-            itemPriceCents: price * 100,
-            tier,
-            countryCode,
-            isBusiness,
-            hasValidVatId
-        });
-    }, [formData.startingPrice, userData]);
 
     useEffect(() => {
         if (initialData) {
@@ -965,62 +946,6 @@ export const CreateAuctionForm: React.FC<{
                         <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-2xl text-red-600 text-sm font-bold flex items-center gap-3">
                             <AlertCircle size={20} className="shrink-0 text-red-500" />
                             <span>{errorMessage}</span>
-                        </div>
-                    )}
-
-                    {totals && (
-                        <div className="bg-[#0A1128]/5 border-2 border-dashed border-slate-200 rounded-[2rem] p-8 mb-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                            <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-6 flex items-center gap-2">
-                                <Scale size={14} /> Izračun stroškov in izplačila
-                            </h3>
-                            <div className="space-y-4">
-                                <div className="flex justify-between items-center">
-                                    <span className="text-sm font-bold text-slate-500">Cena predmeta:</span>
-                                    <span className="text-lg font-black text-[#0A1128]">{(totals.itemPriceCents / 100).toFixed(2)} €</span>
-                                </div>
-                                <div className="flex justify-between items-center group">
-                                    <div className="flex flex-col">
-                                        <span className="text-sm font-bold text-slate-500 flex items-center gap-1.5">
-                                            Provizija platforme ({totals.feePercent} %) – plača kupec:
-                                            {totals.feeIsMinimum && (
-                                                <div className="group/min relative">
-                                                    <AlertCircle size={14} className="text-[#FEBA4F] cursor-help" />
-                                                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-3 bg-[#0A1128] text-white text-[10px] font-bold rounded-xl opacity-0 group-hover/min:opacity-100 transition-opacity pointer-events-none z-50 shadow-2xl">
-                                                        Uporabljena je minimalna provizija, ki pokriva stroške Stripe plačila.
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </span>
-                                    </div>
-                                    <span className="text-sm font-black text-[#0A1128]">{(totals.bracketFeeCents / 100).toFixed(2)} €</span>
-                                </div>
-                                {totals.minSurchargeCents > 0 && (
-                                    <div className="flex justify-between items-center">
-                                        <span className="text-sm font-bold text-slate-500">Doplačilo za stroške plačilnega sistema:</span>
-                                        <span className="text-sm font-black text-[#0A1128]">+{ (totals.minSurchargeCents / 100).toFixed(2) } €</span>
-                                    </div>
-                                )}
-                                {totals.vatCents > 0 && (
-                                    <div className="flex justify-between items-center">
-                                        <span className="text-sm font-bold text-slate-500">DDV na provizijo ({totals.vatRate}%):</span>
-                                        <span className="text-sm font-black text-[#0A1128]">{(totals.vatCents / 100).toFixed(2)} €</span>
-                                    </div>
-                                )}
-                                <div className="pt-4 border-t border-slate-200 mt-4 flex justify-between items-center">
-                                    <div className="flex flex-col">
-                                        <span className="text-sm font-black uppercase tracking-widest text-[#0A1128]">Predvideno izplačilo:</span>
-                                        <span className="text-[10px] font-bold text-slate-400 italic">Neto znesek po vseh stroških</span>
-                                    </div>
-                                    <div className="bg-[#FEBA4F] px-6 py-2 rounded-xl shadow-lg border border-[#0A1128]/5">
-                                        <span className="text-xl font-black text-[#0A1128]">
-                                            {(totals.itemPriceCents / 100).toFixed(2)} €
-                                        </span>
-                                    </div>
-                                </div>
-                                <p className="text-[10px] text-slate-400 font-medium italic mt-4 text-center leading-relaxed">
-                                    * To je predvideni znesek, ki ga boste prejeli na svoj Stripe račun. Kupec plača celoten znesek (cena + provizija + DDV).
-                                </p>
-                            </div>
                         </div>
                     )}
                     

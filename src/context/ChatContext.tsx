@@ -384,8 +384,8 @@ export const ChatProvider: React.FC<{
         return data.sender_id !== effectiveUserId && !data.is_read;
       });
 
-      // Throttle mark-read API calls to at most once per 3 seconds per conversation
-      if (hasUnread) {
+      // Nur als gelesen markieren, wenn das Dokument sichtbar ist
+      if (hasUnread && document.visibilityState === 'visible') {
         const now = Date.now();
         const lastTime = lastMarkReadTimeRef.current[activeConversationId] || 0;
         if (now - lastTime > 3000) {

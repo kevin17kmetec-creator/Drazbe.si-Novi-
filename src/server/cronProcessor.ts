@@ -1,5 +1,6 @@
 import { adminDb, isDocSnapshotExists, getDocSnapshotData, FieldValue } from '../lib/firebase-admin';
 import { syncPublicProfile } from './publicProfile';
+import { createNotification, isUserOnline } from './notifications';
 import {
   sendEndingSoonNotification,
   sendAuctionWonNotification,
@@ -102,28 +103,81 @@ export async function finalizeAuction(auctionId: string): Promise<FinalizeAuctio
     console.error(`[finalizeAuction] Transaction error for auction ${auctionId}:`, txErr.message);
   }
 
-  // Send emails AFTER transaction and only if state was actually changed by this call
+  // Benachrichtigungen und E-Mails nach Auktionsende versenden
   if (finalizedData && finalizedData.finalized) {
     if (finalizedData.winnerId) {
       try {
-        const winnerSnap = await adminDb.collection('users').doc(finalizedData.winnerId).get();
-        if (isDocSnapshotExists(winnerSnap)) {
-          const winnerData = getDocSnapshotData(winnerSnap) || {};
-          if (winnerData.email) {
-            const pd = finalizedData.paymentDeadline;
-            await sendAuctionWonNotification({
-              toEmail: winnerData.email,
-              recipientName: winnerData.first_name || winnerData.name || 'Zmagovalec',
-              auctionId,
-              auctionTitle: finalizedData.title,
-              auctionImageUrl: finalizedData.imageUrl,
-              winningPrice: finalizedData.finalPrice,
-              paymentDeadlineFormatted: pd ? '48 ur (do ' + new Date(pd).toLocaleDateString('sl-SI', { day: '2-digit', month: '2-digit' }) + ' ob ' + new Date(pd).toLocaleTimeString('sl-SI', { hour: '2-digit', minute: '2-digit' }) + ')' : '48 ur',
-            });
+        // Gewinner-Benachrichtigung im System erstellen
+        await createNotification({
+          userId: finalizedData.winnerId,
+          type: 'won',
+          auctionId,
+          auctionTitle: finalizedData.title,
+          imageUrl: finalizedData.imageUrl,
+          price: finalizedData.finalPrice,
+        });
+
+        // E-Mail an Gewinner nur senden, wenn dieser nicht online ist
+        const winnerOnline = await isUserOnline(finalizedData.winnerId);
+        if (!winnerOnline) {
+          const winnerSnap = await adminDb.collection('users').doc(finalizedData.winnerId).get();
+          if (isDocSnapshotExists(winnerSnap)) {
+            const winnerData = getDocSnapshotData(winnerSnap) || {};
+            if (winnerData.email) {
+              const pd = finalizedData.paymentDeadline;
+              await sendAuctionWonNotification({
+                toEmail: winnerData.email,
+                recipientName: winnerData.first_name || winnerData.name || 'Zmagovalec',
+                auctionId,
+                auctionTitle: finalizedData.title,
+                auctionImageUrl: finalizedData.imageUrl,
+                winningPrice: finalizedData.finalPrice,
+                paymentDeadlineFormatted: pd ? '48 ur (do ' + new Date(pd).toLocaleDateString('sl-SI', { day: '2-digit', month: '2-digit' }) + ' ob ' + new Date(pd).toLocaleTimeString('sl-SI', { hour: '2-digit', minute: '2-digit' }) + ')' : '48 ur',
+              });
+            }
           }
         }
       } catch (winErr: any) {
         console.error(`[finalizeAuction] Error notifying winner ${finalizedData.winnerId}:`, winErr.message);
+      }
+
+      // Benachrichtigungen für alle anderen Bieter (lost)
+      try {
+        const otherBidders = new Set<string>();
+        const privSnap = await adminDb.collection('auctions_private').doc(auctionId).get();
+        if (isDocSnapshotExists(privSnap)) {
+          const privData = getDocSnapshotData(privSnap) || {};
+          const bidderIds: string[] = privData.bidder_ids || [];
+          for (const bId of bidderIds) {
+            if (bId && bId !== finalizedData.winnerId && bId !== finalizedData.sellerId) {
+              otherBidders.add(bId);
+            }
+          }
+          const topBids = privData.top_bids || [];
+          for (const item of topBids) {
+            const bId = item.user_id || item.userId;
+            if (bId && bId !== finalizedData.winnerId && bId !== finalizedData.sellerId) {
+              otherBidders.add(bId);
+            }
+          }
+        }
+
+        for (const loserId of otherBidders) {
+          try {
+            await createNotification({
+              userId: loserId,
+              type: 'lost',
+              auctionId,
+              auctionTitle: finalizedData.title,
+              imageUrl: finalizedData.imageUrl,
+              price: finalizedData.finalPrice,
+            });
+          } catch (lostErr: any) {
+            console.error(`[finalizeAuction] Error notifying loser ${loserId}:`, lostErr.message);
+          }
+        }
+      } catch (loserErr: any) {
+        console.error(`[finalizeAuction] Error processing losers:`, loserErr.message);
       }
     }
   }
@@ -231,21 +285,35 @@ export async function processAuctionCrons(): Promise<CronRunResult> {
         let sentCount = 0;
         for (const userId of userIdsToNotify) {
           try {
-            const userSnap = await adminDb.collection('users').doc(userId).get();
-            if (isDocSnapshotExists(userSnap)) {
-              const udata = getDocSnapshotData(userSnap) || {};
-              if (udata.email) {
-                const minutesLeft = Math.max(1, Math.round(diffMs / 60000));
-                await sendEndingSoonNotification({
-                  toEmail: udata.email,
-                  recipientName: udata.first_name || udata.name || 'Uporabnik',
-                  auctionId,
-                  auctionTitle: title,
-                  auctionImageUrl: imageUrl,
-                  currentPrice,
-                  endTimeFormatted: `${minutesLeft} min`,
-                });
-                sentCount++;
+            // Benachrichtigung im System erstellen
+            await createNotification({
+              userId,
+              type: 'ending_soon',
+              auctionId,
+              auctionTitle: title,
+              imageUrl,
+              price: currentPrice
+            });
+
+            // E-Mail nur senden, wenn der Benutzer NICHT online ist
+            const online = await isUserOnline(userId);
+            if (!online) {
+              const userSnap = await adminDb.collection('users').doc(userId).get();
+              if (isDocSnapshotExists(userSnap)) {
+                const udata = getDocSnapshotData(userSnap) || {};
+                if (udata.email) {
+                  const minutesLeft = Math.max(1, Math.round(diffMs / 60000));
+                  await sendEndingSoonNotification({
+                    toEmail: udata.email,
+                    recipientName: udata.first_name || udata.name || 'Uporabnik',
+                    auctionId,
+                    auctionTitle: title,
+                    auctionImageUrl: imageUrl,
+                    currentPrice,
+                    endTimeFormatted: `${minutesLeft} min`,
+                  });
+                  sentCount++;
+                }
               }
             }
           } catch (userErr: any) {}

@@ -52,6 +52,8 @@ import {
 import { syncPublicProfile } from './publicProfile';
 import { TERMS_VERSION } from '../lib/termsVersion';
 import { PLATFORM_COMPANY } from '../lib/platformCompany';
+// Benachrichtigungs- und Anwesenheitshelfer
+import { createNotification, isUserOnline } from './notifications';
 
 const resendClient = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 const adminEmailAddress = process.env.ADMIN_EMAIL || 'info@drazbenik.si';
@@ -2370,26 +2372,40 @@ app.post("/api/place-bid", async (req, res) => {
       }
     });
 
-    // Send outbid notification email asynchronously
+    // Send outbid notification and email asynchronously
     if (outbidUserToNotify) {
       (async () => {
         try {
-          const prevUserDoc = await safeGetDoc(adminDb.collection('users').doc(outbidUserToNotify!.userId));
-          if (prevUserDoc.exists()) {
-            const prevUserData = prevUserDoc.data();
-            if (prevUserData.email) {
-              await sendOutbidNotification({
-                toEmail: prevUserData.email,
-                recipientName: prevUserData.first_name || prevUserData.name || 'Uporabnik',
-                auctionId: auction_id,
-                auctionTitle: outbidUserToNotify!.auctionTitle,
-                auctionImageUrl: outbidUserToNotify!.auctionImageUrl,
-                newPrice: outbidUserToNotify!.newPrice,
-              });
+          // Systembenachrichtigung erstellen
+          await createNotification({
+            userId: outbidUserToNotify!.userId,
+            type: 'outbid',
+            auctionId: auction_id,
+            auctionTitle: outbidUserToNotify!.auctionTitle,
+            imageUrl: outbidUserToNotify!.auctionImageUrl,
+            price: outbidUserToNotify!.newPrice
+          });
+
+          // E-Mail nur senden, wenn der Benutzer NICHT online ist
+          const online = await isUserOnline(outbidUserToNotify!.userId);
+          if (!online) {
+            const prevUserDoc = await safeGetDoc(adminDb.collection('users').doc(outbidUserToNotify!.userId));
+            if (prevUserDoc.exists()) {
+              const prevUserData = prevUserDoc.data();
+              if (prevUserData.email) {
+                await sendOutbidNotification({
+                  toEmail: prevUserData.email,
+                  recipientName: prevUserData.first_name || prevUserData.name || 'Uporabnik',
+                  auctionId: auction_id,
+                  auctionTitle: outbidUserToNotify!.auctionTitle,
+                  auctionImageUrl: outbidUserToNotify!.auctionImageUrl,
+                  newPrice: outbidUserToNotify!.newPrice,
+                });
+              }
             }
           }
         } catch (emailErr: any) {
-          console.error('[OUTBID EMAIL ERROR]', emailErr.message);
+          console.error('[OUTBID NOTIFICATION ERROR]', emailErr.message);
         }
       })();
     }
@@ -2675,23 +2691,15 @@ app.post("/api/create-checkout-session", async (req, res) => {
           quantity: 1,
         });
       }
-      if (buyerTotals.bracketFeeCents > 0) {
+      // Einzelner Gebührenposten für Stripe Checkout
+      if (buyerTotals.feeCents > 0) {
         const feePercentStr = String(buyerTotals.feePercent).replace('.', ',');
+        const feeName = buyerTotals.feeIsMinimum ? 'Provizija platforme (minimalna)' : `Provizija platforme (${feePercentStr} %)`;
         lineItems.push({
           price_data: {
             currency: currency.toLowerCase(),
-            product_data: { name: `Provizija platforme (${feePercentStr} %)` },
-            unit_amount: buyerTotals.bracketFeeCents,
-          },
-          quantity: 1,
-        });
-      }
-      if (buyerTotals.minSurchargeCents > 0) {
-        lineItems.push({
-          price_data: {
-            currency: currency.toLowerCase(),
-            product_data: { name: `Stroški plačilnega sistema` },
-            unit_amount: buyerTotals.minSurchargeCents,
+            product_data: { name: feeName },
+            unit_amount: buyerTotals.feeCents,
           },
           quantity: 1,
         });
@@ -6182,6 +6190,96 @@ app.get("/api/orders/payment-status", async (req, res) => {
     res.json(response);
   } catch (e: any) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// ==========================================
+// BENACHRICHTIGUNGEN (GET & MARK-READ)
+// ==========================================
+
+app.get("/api/notifications", async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  let uid: string;
+  try {
+    uid = await authenticateFirebaseUser(req);
+  } catch (authErr: any) {
+    return res.status(401).json({ error: authErr.message || 'Unauthorized' });
+  }
+
+  try {
+    // Presence-Aktualisierung (last_seen_at max. alle 45 Sek. schreiben)
+    const userRef = adminDb.collection('users').doc(uid);
+    const userDoc = await userRef.get();
+    const lastSeen = userDoc.exists ? userDoc.data()?.last_seen_at : null;
+    const lastSeenTime = lastSeen ? (typeof lastSeen === 'number' ? lastSeen : new Date(lastSeen).getTime()) : 0;
+    if (!lastSeenTime || (Date.now() - lastSeenTime) > 45000) {
+      await userRef.set({ last_seen_at: new Date().toISOString() }, { merge: true });
+    }
+
+    // Benachrichtigungen der letzten 60 Tage abrufen
+    const sixtyDaysAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
+    const snap = await adminDb.collection('notifications')
+      .where('user_id', '==', uid)
+      .limit(100)
+      .get();
+
+    const notifications = snap.docs
+      .map(doc => ({ id: doc.id, ...doc.data() } as any))
+      .filter(item => item.created_at >= sixtyDaysAgo)
+      .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())
+      .slice(0, 30);
+
+    return res.json({ notifications });
+  } catch (err: any) {
+    console.error('[GET /api/notifications] Error:', err?.message || err);
+    return res.status(500).json({ error: err.message || 'Internal server error' });
+  }
+});
+
+app.post("/api/notifications/mark-read", async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  let uid: string;
+  try {
+    uid = await authenticateFirebaseUser(req);
+  } catch (authErr: any) {
+    return res.status(401).json({ error: authErr.message || 'Unauthorized' });
+  }
+
+  try {
+    const { id, all } = req.body || {};
+
+    if (all === true) {
+      const snap = await adminDb.collection('notifications')
+        .where('user_id', '==', uid)
+        .get();
+
+      const batch = adminDb.batch();
+      let count = 0;
+      snap.docs.forEach(doc => {
+        if (doc.data()?.read !== true) {
+          batch.update(doc.ref, { read: true });
+          count++;
+        }
+      });
+      if (count > 0) {
+        await batch.commit();
+      }
+      return res.json({ success: true, marked: count });
+    }
+
+    if (id && typeof id === 'string') {
+      const docRef = adminDb.collection('notifications').doc(id);
+      const docSnap = await docRef.get();
+      if (docSnap.exists && docSnap.data()?.user_id === uid) {
+        await docRef.update({ read: true });
+      }
+      return res.json({ success: true });
+    }
+
+    return res.status(400).json({ error: 'Missing id or all flag' });
+  } catch (err: any) {
+    console.error('[POST /api/notifications/mark-read] Error:', err?.message || err);
+    return res.status(500).json({ error: err.message || 'Internal server error' });
   }
 });
 

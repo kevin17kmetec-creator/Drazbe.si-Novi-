@@ -111,14 +111,13 @@ export const ConfirmBidModal: React.FC<{
                     <span className="text-[#0A1128] font-black text-lg">€ {numBid.toLocaleString('sl-SI', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
                   </div>
                   <div className="flex justify-between items-center text-slate-500 text-sm">
-                    <span>Provizija platforme ({previewData?.feePercent ?? 0} %):</span>
-                    <span>€ {(((previewData?.bracketFeeCents ?? previewData?.feeCents) ?? 0) / 100).toLocaleString('sl-SI', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                    <span>{previewData?.feeIsMinimum ? 'Provizija platforme (minimalna)' : `Provizija platforme (${previewData?.feePercent ?? 0} %)`}:</span>
+                    <span>€ {((previewData?.feeCents ?? 0) / 100).toLocaleString('sl-SI', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
                   </div>
-                  {(previewData?.minSurchargeCents ?? 0) > 0 && (
-                    <div className="flex justify-between items-center text-slate-500 text-sm">
-                      <span>Doplačilo za stroške plačilnega sistema:</span>
-                      <span>+ € {((previewData!.minSurchargeCents) / 100).toLocaleString('sl-SI', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
-                    </div>
+                  {previewData?.feeIsMinimum && (
+                    <p className="text-[10px] text-slate-400 mt-0.5">
+                      Uporabljena je minimalna provizija 0,70 €.
+                    </p>
                   )}
                   <div className="flex justify-between items-center text-slate-500 text-sm">
                     <span className="flex items-center gap-1">
@@ -139,11 +138,6 @@ export const ConfirmBidModal: React.FC<{
               <p className="text-[11px] text-slate-500 mt-1">
                 Provizija se obračuna po vašem paketu: <strong className="text-[#0A1128]">{tierSlo}</strong>.
               </p>
-              {previewData?.feeIsMinimum && (
-                <p className="text-[10px] text-[#FEBA4F] font-bold mt-1">
-                  Uporabljena je minimalna provizija, ki pokriva stroške plačilnega sistema.
-                </p>
-              )}
             </div>
 
             <div className="border-t border-slate-300 pt-2 mb-6">

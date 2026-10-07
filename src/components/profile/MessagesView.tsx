@@ -99,6 +99,13 @@ export const MessagesView: React.FC<{
     }
   }, [initialAuctionId, setActiveChat]);
 
+  // Chat beim Verlassen der Seite schliessen, sonst werden neue Nachrichten im Hintergrund als gelesen markiert
+  useEffect(() => {
+    return () => {
+      setActiveChat(null);
+    };
+  }, [setActiveChat]);
+
   const effectiveUserId = userId || auth.currentUser?.uid || '';
 
   // Find active conversation
