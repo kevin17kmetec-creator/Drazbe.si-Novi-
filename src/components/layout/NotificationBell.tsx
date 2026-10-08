@@ -151,49 +151,103 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
                 <p className="text-xs font-bold">Nimate obvestil.</p>
               </div>
             ) : (
-              notifications.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => handleItemClick(item)}
-                  className={`w-full text-left p-3.5 hover:bg-slate-50 transition-colors flex items-start gap-3 ${
-                    !item.read ? 'bg-amber-50/40' : ''
-                  }`}
-                >
-                  {/* Bild des Auktionsgegenstands */}
-                  {item.image_url ? (
-                    <img
-                      src={item.image_url}
-                      alt={item.auction_title || 'Aukcija'}
-                      className="w-12 h-12 rounded-xl object-cover border border-slate-200 bg-slate-100 flex-shrink-0"
-                    />
-                  ) : (
-                    <div className="w-12 h-12 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center flex-shrink-0 text-slate-400">
-                      <Bell size={18} />
-                    </div>
-                  )}
+              notifications.map((item) => {
+                const isLost = item.type === 'lost';
 
-                  {/* Text und Zeit */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-1 mb-0.5">
-                      <h4 className="font-bold text-xs text-[#0A1128] truncate">
-                        {item.auction_title || 'Dražba'}
-                      </h4>
-                      <span className="text-[10px] text-slate-400 flex-shrink-0 font-medium">
-                        {getRelativeTime(item.created_at)}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-slate-600 font-medium line-clamp-2 leading-snug">
-                      {getNotificationText(item.type, item.price)}
-                    </p>
-                  </div>
+                if (isLost) {
+                  return (
+                    <div
+                      key={item.id}
+                      onClick={() => {
+                        // Verlorene Auktionen sind rein informativ und nicht anklickbar (DEL E)
+                        if (!item.read) {
+                          onMarkRead(item.id);
+                        }
+                      }}
+                      className={`w-full text-left p-3.5 flex items-start gap-3 cursor-default select-text ${
+                        !item.read ? 'bg-amber-50/40' : ''
+                      }`}
+                    >
+                      {/* Bild des Auktionsgegenstands */}
+                      {item.image_url ? (
+                        <img
+                          src={item.image_url}
+                          alt={item.auction_title || 'Aukcija'}
+                          className="w-12 h-12 rounded-xl object-cover border border-slate-200 bg-slate-100 flex-shrink-0"
+                        />
+                      ) : (
+                        <div className="w-12 h-12 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center flex-shrink-0 text-slate-400">
+                          <Bell size={18} />
+                        </div>
+                      )}
 
-                  {/* Ungelesen-Punkt */}
-                  {!item.read && (
-                    <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0 mt-1.5 shadow-sm" />
-                  )}
-                </button>
-              ))
+                      {/* Text und Zeit */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-1 mb-0.5">
+                          <h4 className="font-bold text-xs text-[#0A1128] truncate">
+                            {item.auction_title || 'Dražba'}
+                          </h4>
+                          <span className="text-[10px] text-slate-400 flex-shrink-0 font-medium">
+                            {getRelativeTime(item.created_at)}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-600 font-medium line-clamp-2 leading-snug">
+                          {getNotificationText(item.type, item.price)}
+                        </p>
+                      </div>
+
+                      {/* Ungelesen-Punkt */}
+                      {!item.read && (
+                        <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0 mt-1.5 shadow-sm" />
+                      )}
+                    </div>
+                  );
+                }
+
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => handleItemClick(item)}
+                    className={`w-full text-left p-3.5 hover:bg-slate-50 cursor-pointer transition-colors flex items-start gap-3 ${
+                      !item.read ? 'bg-amber-50/40' : ''
+                    }`}
+                  >
+                    {/* Bild des Auktionsgegenstands */}
+                    {item.image_url ? (
+                      <img
+                        src={item.image_url}
+                        alt={item.auction_title || 'Aukcija'}
+                        className="w-12 h-12 rounded-xl object-cover border border-slate-200 bg-slate-100 flex-shrink-0"
+                      />
+                    ) : (
+                      <div className="w-12 h-12 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center flex-shrink-0 text-slate-400">
+                        <Bell size={18} />
+                      </div>
+                    )}
+
+                    {/* Text und Zeit */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-1 mb-0.5">
+                        <h4 className="font-bold text-xs text-[#0A1128] truncate">
+                          {item.auction_title || 'Dražba'}
+                        </h4>
+                        <span className="text-[10px] text-slate-400 flex-shrink-0 font-medium">
+                          {getRelativeTime(item.created_at)}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-600 font-medium line-clamp-2 leading-snug">
+                        {getNotificationText(item.type, item.price)}
+                      </p>
+                    </div>
+
+                    {/* Ungelesen-Punkt */}
+                    {!item.read && (
+                      <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0 mt-1.5 shadow-sm" />
+                    )}
+                  </button>
+                );
+              })
             )}
           </div>
         </div>

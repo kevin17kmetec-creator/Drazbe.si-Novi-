@@ -33,6 +33,7 @@
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.8",
+    "jszip": "^3.10.2",
     "lucide-react": "^1.6.0",
     "pdfkit": "^0.18.0",
     "react": "^19.2.4",
@@ -45,6 +46,7 @@
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
+    "@types/jszip": "^3.4.1",
     "@types/node": "^22.14.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",

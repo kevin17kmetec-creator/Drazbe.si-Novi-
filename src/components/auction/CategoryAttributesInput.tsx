@@ -75,8 +75,9 @@ export const CategoryAttributesInput: React.FC<CategoryAttributesInputProps> = (
           return (
             <div key={def.key} className="space-y-2 flex flex-col justify-start">
               <div className="flex items-center justify-between">
+                {/* Kategoriespezifische Merkmale sind alle optional */}
                 <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-1">
-                  {def.label}
+                  {def.label} <span className="normal-case font-bold text-slate-400">(neobvezno)</span>
                 </label>
                 {currentValue && (
                   <button

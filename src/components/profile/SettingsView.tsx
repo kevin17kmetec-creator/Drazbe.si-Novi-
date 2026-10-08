@@ -103,33 +103,33 @@ const PayoutsList: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex justify-center items-center py-8">
-        <div className="w-6 h-6 border-2 border-[#0A1128] border-t-transparent rounded-full animate-spin" />
+      <div className="flex justify-center items-center py-6">
+        <div className="w-5 h-5 border-2 border-[#0A1128] border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
 
   if (payouts.length === 0) {
     return (
-      <div className="bg-slate-50 rounded-2xl p-6 text-center text-slate-400 font-bold text-sm border border-slate-100">
+      <div className="bg-slate-50 rounded-2xl p-4 text-center text-slate-400 font-bold text-xs border border-slate-100">
         Še nimate izvedenih izplačil.
       </div>
     );
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {payouts.map((p) => (
-        <div key={p.id} className="bg-white border-2 border-slate-100 rounded-3xl p-5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 transition-all hover:border-[#FEBA4F]/50">
+        <div key={p.id} className="bg-white border-2 border-slate-100 rounded-2xl p-3.5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 transition-all hover:border-[#FEBA4F]/50">
           <div>
-            <h4 className="font-black text-[#0A1128] text-base uppercase tracking-tight">{p.title}</h4>
-            <p className="text-xs text-slate-400 font-bold mt-1">
+            <h4 className="font-black text-[#0A1128] text-sm uppercase tracking-tight">{p.title}</h4>
+            <p className="text-[11px] text-slate-400 font-bold mt-0.5">
               Prejeto: {p.held_since ? new Date(p.held_since).toLocaleDateString('sl-SI') : '/'}
             </p>
           </div>
-          <div className="flex sm:flex-col items-start sm:items-end gap-2 sm:gap-1 w-full sm:w-auto justify-between border-t sm:border-t-0 pt-3 sm:pt-0 border-slate-100">
-            <span className="font-black text-[#0A1128] text-lg">€{(p.seller_net_cents / 100).toLocaleString('sl-SI', { minimumFractionDigits: 2 })}</span>
-            <span className={`px-3 py-1 rounded-xl text-xs font-black uppercase tracking-wider border-2 ${getStatusColorClass(p.payout_status)}`}>
+          <div className="flex sm:flex-col items-start sm:items-end gap-2 sm:gap-1 w-full sm:w-auto justify-between border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-100">
+            <span className="font-black text-[#0A1128] text-base">€{(p.seller_net_cents / 100).toLocaleString('sl-SI', { minimumFractionDigits: 2 })}</span>
+            <span className={`px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider border ${getStatusColorClass(p.payout_status)}`}>
               {getStatusLabel(p.payout_status)}
             </span>
           </div>
@@ -198,39 +198,42 @@ const SellerDashboard: React.FC = () => {
         </div>
       )}
 
-      <ConnectComponentsProvider connectInstance={stripeConnectInstance}>
-        <div className="bg-white p-6 rounded-3xl border-2 border-slate-100 shadow-sm">
-          <ConnectNotificationBanner 
-            onLoaderStart={() => setStripeLoaded(true)}
-            onLoadError={(err) => {
-              console.error("Banner load error:", err);
-              setStripeError({ message: "Napaka pri nalaganju obvestil.", code: "BANNER_ERROR" });
-            }}
-          />
-        </div>
+        <ConnectComponentsProvider connectInstance={stripeConnectInstance}>
+          <div className="bg-white p-4 rounded-3xl border-2 border-slate-100 shadow-sm w-full">
+            <ConnectNotificationBanner 
+              onLoaderStart={() => setStripeLoaded(true)}
+              onLoadError={(err) => {
+                console.error("Banner load error:", err);
+                setStripeError({ message: "Napaka pri nalaganju obvestil.", code: "BANNER_ERROR" });
+              }}
+            />
+          </div>
 
-        <div className="bg-white p-6 rounded-3xl border-2 border-slate-100 shadow-sm">
-          <h3 className="text-lg font-black text-[#0A1128] uppercase mb-4">Podatki in bančni račun</h3>
-          <ConnectAccountManagement 
-            onLoaderStart={() => setStripeLoaded(true)}
-            onLoadError={(err) => {
-              console.error("Management load error:", err);
-              setStripeError({ message: "Napaka pri nalaganju upravljanja računa.", code: "MANAGE_ERROR" });
-            }}
-          />
-        </div>
+          {/* Zweispaltiges Layout fuer Kontoverwaltung und Auszahlungen auf grossen Bildschirmen */}
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start w-full">
+            <div className="bg-white p-4 rounded-3xl border-2 border-slate-100 shadow-sm">
+              <h3 className="text-base font-black text-[#0A1128] uppercase mb-3">Podatki in bančni račun</h3>
+              <ConnectAccountManagement 
+                onLoaderStart={() => setStripeLoaded(true)}
+                onLoadError={(err) => {
+                  console.error("Management load error:", err);
+                  setStripeError({ message: "Napaka pri nalaganju upravljanja računa.", code: "MANAGE_ERROR" });
+                }}
+              />
+            </div>
 
-        <div className="bg-white p-6 rounded-3xl border-2 border-slate-100 shadow-sm">
-          <h3 className="text-lg font-black text-[#0A1128] uppercase mb-4">Izplačila</h3>
-          <ConnectPayouts 
-             onLoaderStart={() => setStripeLoaded(true)}
-             onLoadError={(err) => {
-              console.error("Payouts load error:", err);
-              setStripeError({ message: "Napaka pri nalaganju izplačil.", code: "PAYOUT_ERROR" });
-            }}
-          />
-        </div>
-      </ConnectComponentsProvider>
+            <div className="bg-white p-4 rounded-3xl border-2 border-slate-100 shadow-sm">
+              <h3 className="text-base font-black text-[#0A1128] uppercase mb-3">Izplačila</h3>
+              <ConnectPayouts 
+                onLoaderStart={() => setStripeLoaded(true)}
+                onLoadError={(err) => {
+                  console.error("Payouts load error:", err);
+                  setStripeError({ message: "Napaka pri nalaganju izplačil.", code: "PAYOUT_ERROR" });
+                }}
+              />
+            </div>
+          </div>
+        </ConnectComponentsProvider>
     </div>
   );
 };
@@ -243,11 +246,14 @@ const SellerBalance: React.FC = () => {
     pendingCents?: number;
     inTransitCents?: number;
     escrowCents?: number;
+    releasableCents?: number;
     paidOutCents?: number;
     paidOutCount?: number;
     stripeError?: boolean;
+    onboardingComplete?: boolean;
   } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [requestingPayout, setRequestingPayout] = useState(false);
 
   const fetchBalance = async () => {
     setLoading(true);
@@ -275,22 +281,57 @@ const SellerBalance: React.FC = () => {
     fetchBalance();
   }, []);
 
+  const handleRequestPayout = async () => {
+    const releasable = balance?.releasableCents || 0;
+    const minCents = 1000;
+    if (releasable < minCents) {
+      toast.error("Najmanjši znesek za izplačilo je 10,00 €.");
+      return;
+    }
+
+    const formattedVal = (releasable / 100).toFixed(2);
+    const confirmed = window.confirm(`Izplačali boste ${formattedVal} € na vaš bančni račun. Izplačilo običajno traja 1–3 delovne dni.`);
+    if (!confirmed) return;
+
+    setRequestingPayout(true);
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      const res = await fetch('/api/seller/request-payout', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Napaka pri zahtevku za izplačilo.');
+      }
+      toast.success(`Uspešno ste zahtevali izplačilo v višini ${(data.totalCents / 100).toFixed(2)} €!`);
+      await fetchBalance();
+    } catch (err: any) {
+      toast.error(err.message || 'Napaka pri zahtevku za izplačilo.');
+    } finally {
+      setRequestingPayout(false);
+    }
+  };
+
   const formatEur = (cents: number = 0) => {
     return new Intl.NumberFormat('sl-SI', { style: 'currency', currency: 'EUR' }).format(cents / 100);
   };
 
   if (loading) {
     return (
-      <div className="mb-8 bg-slate-50 border-2 border-slate-100 rounded-3xl p-6">
-        <div className="flex items-center justify-between mb-4">
-          <div className="h-6 bg-slate-200 rounded w-36 animate-pulse" />
-          <div className="h-8 bg-slate-200 rounded-xl w-20 animate-pulse" />
+      <div className="mb-5 bg-slate-50 border-2 border-slate-100 rounded-2xl p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="h-5 bg-slate-200 rounded w-32 animate-pulse" />
+          <div className="h-7 bg-slate-200 rounded-xl w-16 animate-pulse" />
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
           {[1, 2, 3, 4, 5].map((i) => (
-            <div key={i} className="bg-white p-5 rounded-2xl border border-slate-200/60 animate-pulse space-y-2">
-              <div className="h-3 bg-slate-200 rounded w-24" />
-              <div className="h-7 bg-slate-200 rounded w-20" />
+            <div key={i} className="bg-white p-3.5 rounded-xl border border-slate-200/60 animate-pulse space-y-2">
+              <div className="h-2.5 bg-slate-200 rounded w-20" />
+              <div className="h-6 bg-slate-200 rounded w-16" />
             </div>
           ))}
         </div>
@@ -300,20 +341,20 @@ const SellerBalance: React.FC = () => {
 
   if (!balance || !balance.hasAccount) {
     return (
-      <div className="mb-8 bg-slate-50 border-2 border-slate-100 rounded-3xl p-6">
-        <div className="flex items-center justify-between mb-3">
-          <h4 className="text-sm font-black uppercase tracking-wider text-[#0A1128] flex items-center gap-2">
-            <CreditCard size={18} className="text-[#FEBA4F]" /> Stanje sredstev
+      <div className="mb-5 bg-slate-50 border-2 border-slate-100 rounded-2xl p-4">
+        <div className="flex items-center justify-between mb-2.5">
+          <h4 className="text-xs font-black uppercase tracking-wider text-[#0A1128] flex items-center gap-2">
+            <CreditCard size={16} className="text-[#FEBA4F]" /> Stanje sredstev
           </h4>
           <button
             type="button"
             onClick={fetchBalance}
-            className="text-xs font-bold text-slate-500 hover:text-[#0A1128] bg-white px-3 py-1.5 rounded-xl border border-slate-200 transition-colors"
+            className="text-[11px] font-bold text-slate-500 hover:text-[#0A1128] bg-white px-2.5 py-1 rounded-lg border border-slate-200 transition-colors"
           >
             Osveži
           </button>
         </div>
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 text-slate-500 font-bold text-sm text-center">
+        <div className="bg-white p-4 rounded-xl border border-slate-200 text-slate-500 font-bold text-xs text-center">
           Za prejemanje sredstev najprej uredite izplačila.
         </div>
       </div>
@@ -322,94 +363,125 @@ const SellerBalance: React.FC = () => {
 
   if (balance.stripeError) {
     return (
-      <div className="mb-8 bg-slate-50 border-2 border-slate-100 rounded-3xl p-6">
-        <div className="flex items-center justify-between mb-3">
-          <h4 className="text-sm font-black uppercase tracking-wider text-[#0A1128] flex items-center gap-2">
-            <CreditCard size={18} className="text-[#FEBA4F]" /> Stanje sredstev
+      <div className="mb-5 bg-slate-50 border-2 border-slate-100 rounded-2xl p-4">
+        <div className="flex items-center justify-between mb-2.5">
+          <h4 className="text-xs font-black uppercase tracking-wider text-[#0A1128] flex items-center gap-2">
+            <CreditCard size={16} className="text-[#FEBA4F]" /> Stanje sredstev
           </h4>
           <button
             type="button"
             onClick={fetchBalance}
-            className="text-xs font-bold text-slate-500 hover:text-[#0A1128] bg-white px-3 py-1.5 rounded-xl border border-slate-200 transition-colors"
+            className="text-[11px] font-bold text-slate-500 hover:text-[#0A1128] bg-white px-2.5 py-1 rounded-lg border border-slate-200 transition-colors"
           >
             Osveži
           </button>
         </div>
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 text-amber-700 font-bold text-sm text-center">
+        <div className="bg-white p-4 rounded-xl border border-slate-200 text-amber-700 font-bold text-xs text-center">
           Stanja trenutno ni mogoče naložiti.
         </div>
       </div>
     );
   }
 
+  const releasable = balance.releasableCents || 0;
+  const isBelowMin = releasable < 1000;
+
   return (
-    <div className="mb-8 bg-slate-50 border-2 border-slate-100 rounded-3xl p-6">
-      <div className="flex items-center justify-between mb-4">
-        <h4 className="text-sm font-black uppercase tracking-wider text-[#0A1128] flex items-center gap-2">
-          <CreditCard size={18} className="text-[#FEBA4F]" /> Stanje sredstev
+    <div className="mb-5 bg-slate-50 border-2 border-slate-100 rounded-2xl p-4">
+      <div className="flex items-center justify-between mb-3">
+        <h4 className="text-xs font-black uppercase tracking-wider text-[#0A1128] flex items-center gap-2">
+          <CreditCard size={16} className="text-[#FEBA4F]" /> Stanje sredstev
         </h4>
         <button
           type="button"
           onClick={fetchBalance}
-          className="text-xs font-bold text-slate-500 hover:text-[#0A1128] bg-white px-3 py-1.5 rounded-xl border border-slate-200 transition-colors"
+          className="text-[11px] font-bold text-slate-500 hover:text-[#0A1128] bg-white px-2.5 py-1 rounded-lg border border-slate-200 transition-colors"
         >
           Osveži
         </button>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-3">
-        <div className="bg-white p-4 rounded-2xl border border-emerald-100 bg-emerald-50/30">
-          <span className="block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">
+      {/* Kompakte Karten fuer Guthaben in einer responsiven Zeile */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 mb-4">
+        <div className="bg-white p-3.5 rounded-xl border border-emerald-100 bg-emerald-50/30">
+          <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400 mb-0.5">
             Na voljo za izplačilo
           </span>
-          <span className="block text-lg font-black text-emerald-600">
-            {formatEur(Math.max(0, (balance.availableCents || 0) - (balance.escrowCents || 0)))}
+          <span className="block text-base font-black text-emerald-600">
+            {formatEur(releasable)}
           </span>
         </div>
 
-        <div className="bg-white p-4 rounded-2xl border border-slate-200">
-          <span className="block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">
+        <div className="bg-white p-3.5 rounded-xl border border-slate-200">
+          <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400 mb-0.5">
             V obdelavi pri plačilnem partnerju
           </span>
-          <span className="block text-lg font-black text-[#0A1128]">
+          <span className="block text-base font-black text-[#0A1128]">
             {formatEur(balance.pendingCents)}
           </span>
         </div>
 
         {/* Kontokarte fuer Auszahlungen im Transit zur Bank */}
-        <div className="bg-white p-4 rounded-2xl border border-blue-100 bg-blue-50/30">
-          <span className="block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">
+        <div className="bg-white p-3.5 rounded-xl border border-blue-100 bg-blue-50/30">
+          <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400 mb-0.5">
             Na poti do banke
           </span>
-          <span className="block text-lg font-black text-blue-600">
+          <span className="block text-base font-black text-blue-600">
             {formatEur(balance.inTransitCents)}
           </span>
         </div>
 
-        <div className="bg-white p-4 rounded-2xl border border-amber-100 bg-amber-50/30">
-          <span className="block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">
+        <div className="bg-white p-3.5 rounded-xl border border-amber-100 bg-amber-50/30">
+          <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400 mb-0.5">
             Čaka na potrditev prejema
           </span>
-          <span className="block text-lg font-black text-amber-600">
+          <span className="block text-base font-black text-amber-600">
             {formatEur(balance.escrowCents)}
           </span>
         </div>
 
-        <div className="bg-white p-4 rounded-2xl border border-slate-200">
-          <span className="block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">
+        <div className="bg-white p-3.5 rounded-xl border border-slate-200">
+          <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400 mb-0.5">
             Skupaj izplačano
           </span>
-          <span className="block text-lg font-black text-[#0A1128]">
+          <span className="block text-base font-black text-[#0A1128]">
             {formatEur(balance.paidOutCents)}
           </span>
-          <span className="block text-[10px] font-bold text-slate-400 mt-0.5">
+          <span className="block text-[9px] font-bold text-slate-400 mt-0.5">
             ({balance.paidOutCount || 0} izplačil)
           </span>
         </div>
       </div>
 
-      <p className="text-xs font-bold text-slate-400 italic">
-        Sredstva se na vaš bančni račun izplačajo po potrditvi prejema kupca.
+      {/* Button zum Auszahlen */}
+      <div className="mb-3">
+        <button
+          type="button"
+          disabled={isBelowMin || requestingPayout || !balance.onboardingComplete}
+          onClick={handleRequestPayout}
+          className={`w-full py-4 rounded-2xl font-black uppercase tracking-wider text-xs transition-all shadow-md flex items-center justify-center gap-2 ${
+            isBelowMin || !balance.onboardingComplete
+              ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+              : requestingPayout
+              ? 'bg-[#0A1128]/70 text-white cursor-wait'
+              : 'bg-[#0A1128] text-white hover:bg-[#FEBA4F] hover:text-[#0A1128]'
+          }`}
+        >
+          {requestingPayout ? (
+            <>
+              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              Izplačevanje v teku...
+            </>
+          ) : isBelowMin ? (
+            `Najmanj 10,00 € (Na voljo: ${formatEur(releasable)})`
+          ) : (
+            `Izplačaj na bančni račun (${formatEur(releasable)})`
+          )}
+        </button>
+      </div>
+
+      <p className="text-[11px] font-bold text-slate-500 leading-relaxed">
+        Sredstva se sprostijo, ko kupec potrdi prejem. Izplačate jih lahko kadar koli ali pa se samodejno izplačajo po 30 dneh. Stroške izplačil krijemo mi, prejmete celoten znesek.
       </p>
     </div>
   );
@@ -1330,36 +1402,36 @@ export const SettingsView: React.FC<{
                     {/* Stanje sredstev Verkaeufer-Block */}
                     <SellerBalance />
 
-                    <div className="mb-8">
-                      <h3 className="text-xl font-black uppercase tracking-tighter text-[#0A1128] mb-2 flex items-center gap-2">
-                        <CreditCard size={20} className="text-[#FEBA4F]"/> Moja izplačila
+                    <div className="mb-5">
+                      <h3 className="text-lg font-black uppercase tracking-tighter text-[#0A1128] mb-1.5 flex items-center gap-2">
+                        <CreditCard size={18} className="text-[#FEBA4F]"/> Moja izplačila
                       </h3>
-                      <p className="text-slate-500 font-bold text-sm mb-6 leading-relaxed">
+                      <p className="text-slate-500 font-bold text-xs mb-3 leading-relaxed">
                         Denar od kupca je že na vašem računu pri našem plačilnem partnerju in ga mi ne hranimo. Na bančni račun se izplača po potrditvi prejema.
                       </p>
                       
                       <PayoutsList />
                     </div>
                     
-                    <div className="mb-6">
-                        <h3 className="text-xl font-black uppercase tracking-tighter text-[#0A1128] mb-2 flex items-center gap-2">
-                            <CreditCard size={20} className="text-[#FEBA4F]"/> {t('stripeBankConnection')}
+                    <div className="mb-4">
+                        {/* Kurzer Titel ohne Stripe gemaess Vorgabe DEL B Punkt 5 */}
+                        <h3 className="text-lg font-black uppercase tracking-tighter text-[#0A1128] mb-1 flex items-center gap-2">
+                            <CreditCard size={18} className="text-[#FEBA4F]"/> Račun za izplačila
                         </h3>
-                        <p className="text-slate-400 font-bold text-sm mb-6">{t('stripeBankConnectionDesc')}</p>
                     </div>
 
-                    <div className="bg-slate-50 border-2 border-slate-200 rounded-3xl p-6 mb-6">
+                    <div className="bg-slate-50 border-2 border-slate-200 rounded-3xl p-4 sm:p-5 mb-5 w-full">
                       {user?.stripe_onboarding_complete ? (
                         <>
-                          <div className="flex items-center gap-3 text-emerald-800 font-bold mb-4">
-                            <CheckCircle2 size={24} className="text-emerald-600 shrink-0" />
+                          <div className="flex items-center gap-3 text-emerald-800 font-bold mb-3">
+                            <CheckCircle2 size={22} className="text-emerald-600 shrink-0" />
                             <div>
-                              <div className="font-black text-base uppercase tracking-tight">Izplačila so urejena</div>
-                              <div className="text-xs text-slate-500 font-bold mt-0.5">Vaš račun je pripravljen za prejemanje izplačil.</div>
+                              <div className="font-black text-sm uppercase tracking-tight">Izplačila so urejena</div>
+                              <div className="text-[11px] text-slate-500 font-bold mt-0.5">Vaš račun je pripravljen za prejemanje izplačil.</div>
                             </div>
                           </div>
 
-                          <div className="flex flex-col gap-2 items-start">
+                          <div className="w-full">
                             {user?.stripe_onboarding_complete ? (
                               <SellerDashboard />
                             ) : (

@@ -390,6 +390,7 @@ export const translations: Record<string, any> = {
     proxyBidLeadingTip: "Ste vodilni ponudnik! Vnesite višji znesek, če želite povišati vašo maksimalno ponudbo.",
     proxyBidTip: "Vnesite najvišji znesek, ki ste ga pripravljeni plačati. Vaša maksimalna ponudba ostane skrivnost. Sistem bo samodejno višal ponudbo v vašem imenu.",
     searchResults: "Rezultati",
+    optionalLabel: "(neobvezno)",
   },
   EN: {
     auctionPaid: "Auction Paid",
@@ -782,6 +783,7 @@ export const translations: Record<string, any> = {
     proxyBidLeadingTip: "You are the leading bidder! Enter a higher amount if you wish to increase your maximum bid.",
     proxyBidTip: "Enter the maximum amount you are willing to pay. Your maximum bid remains secret. The system will automatically bid on your behalf.",
     searchResults: "Results",
+    optionalLabel: "(optional)",
   },
   DE: {
     auctionPaid: "Auktion bezahlt",
@@ -1174,6 +1176,7 @@ export const translations: Record<string, any> = {
     proxyBidLeadingTip: "Sie sind der Höchstbietende! Geben Sie einen höheren Betrag ein, wenn Sie Ihr Maximalgebot erhöhen möchten.",
     proxyBidTip: "Geben Sie den Höchstbetrag ein, den Sie zu zahlen bereit sind. Ihr Maximalgebot bleibt geheim. Das System bietet automatisch in Ihrem Namen.",
     searchResults: "Ergebnisse",
+    optionalLabel: "(optional)",
   }
 };
 

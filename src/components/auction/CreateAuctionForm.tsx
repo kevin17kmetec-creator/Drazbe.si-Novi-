@@ -760,13 +760,19 @@ export const CreateAuctionForm: React.FC<{
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                         <div className="space-y-4">
-                            <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">{t('category')}</label>
+                            {/* Kategorie ist optional (hat Standardwert 'Ostalo') */}
+                            <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">
+                                {t('category')} <span className="normal-case font-bold text-slate-400">{t('optionalLabel') || "(neobvezno)"}</span>
+                            </label>
                             <select value={formData.category} className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl py-4 px-6 font-bold text-lg text-[#0A1128] focus:ring-0 focus:border-[#FEBA4F] transition-all outline-none appearance-none cursor-pointer shadow-inner" onChange={e => setFormData({...formData, category: e.target.value as Category, specifications: {} })}>
                                 {Object.values(Category).map(c => <option key={c} value={c}>{getCategoryTranslation(c, t)}</option>)}
                             </select>
                         </div>
                         <div className="space-y-4">
-                            <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">{t('itemCondition')}</label>
+                            {/* Artikelzustand ist optional (hat Standardwert 'Rabljeno') */}
+                            <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">
+                                {t('itemCondition')} <span className="normal-case font-bold text-slate-400">{t('optionalLabel') || "(neobvezno)"}</span>
+                            </label>
                             <select value={formData.condition} className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl py-4 px-6 font-bold text-lg text-[#0A1128] focus:ring-0 focus:border-[#FEBA4F] transition-all outline-none appearance-none cursor-pointer shadow-inner" onChange={e => setFormData({...formData, condition: e.target.value})}>
                                 <option value="Novo">{t('cond_new')}</option>
                                 <option value="Kot novo">{t('cond_likeNew')}</option>
@@ -785,13 +791,19 @@ export const CreateAuctionForm: React.FC<{
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                         <div className="space-y-4">
-                            <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">{t('region')}</label>
+                            {/* Region ist optional (hat Standardwert 'Osrednjeslovenska') */}
+                            <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">
+                                {t('region')} <span className="normal-case font-bold text-slate-400">{t('optionalLabel') || "(neobvezno)"}</span>
+                            </label>
                             <select value={formData.region} className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl py-4 px-6 font-bold text-lg text-[#0A1128] focus:ring-0 focus:border-[#FEBA4F] transition-all outline-none appearance-none cursor-pointer shadow-inner" onChange={e => setFormData({...formData, region: e.target.value as Region})}>
                                 {Object.values(Region).map(r => <option key={r} value={r}>{r}</option>)}
                             </select>
                         </div>
                         <div className="space-y-4">
-                            <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">{t('city')}</label>
+                            {/* Stadt/Ort ist optional (hat Standardwert) */}
+                            <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">
+                                {t('city')} <span className="normal-case font-bold text-slate-400">{t('optionalLabel') || "(neobvezno)"}</span>
+                            </label>
                             <select value={formData.location} className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl py-4 px-6 font-bold text-lg text-[#0A1128] focus:ring-0 focus:border-[#FEBA4F] transition-all outline-none appearance-none cursor-pointer shadow-inner" onChange={e => setFormData({...formData, location: e.target.value})}>
                                 {getLocationsForRegion(formData.region).map(loc => <option key={loc} value={loc}>{loc}</option>)}
                             </select>

@@ -309,7 +309,8 @@ export const MessagesView: React.FC<{
                 const isActive = activeChat === c.auction.id || activeChat === c.id || activeChat === `conv_${c.auction.id}`;
                 const isOnline = onlineUsers.has(c.otherUserId);
                 const title = c.auction.title[language as keyof typeof c.auction.title] || c.auction.title.SLO;
-                const count = c.id ? (unreadCounts[c.id] || 0) : 0;
+                // Fuer geoeffneten Chat kein Badge anzeigen
+                const count = isActive ? 0 : (c.id ? (unreadCounts[c.id] || 0) : 0);
                 const convPaid = c.auction.payment_status === 'paid' || (c.auction as any).post_auction_status === 'paid';
 
                 return (

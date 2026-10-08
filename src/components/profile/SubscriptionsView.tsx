@@ -54,12 +54,17 @@ export const SubscriptionsView: React.FC<{
       if (!response.ok) {
         throw new Error('Napaka pri prenosu računa');
       }
-      const data = await response.json();
-      if (data.url) {
-        window.open(data.url, '_blank');
-      } else {
-        throw new Error('Povezava ni na voljo');
-      }
+
+      // PDF-Blob empfangen und echten Download ueber ein Link-Element anstossen (DEL A)
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = `racun_${invoiceNo}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
     } catch (err: any) {
       console.error("Napaka pri prenosu PDF računa:", err);
       alert("Napaka pri prenosu računa. Poskusite ponovno.");

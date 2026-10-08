@@ -35,6 +35,7 @@ __export(app_exports, {
 });
 module.exports = __toCommonJS(app_exports);
 var import_express = __toESM(require("express"), 1);
+var import_jszip = __toESM(require("jszip"), 1);
 var import_crypto2 = __toESM(require("crypto"), 1);
 var import_redis = require("@upstash/redis");
 var import_ratelimit = require("@upstash/ratelimit");
@@ -414,9 +415,10 @@ var AUTO_RELEASE_AFTER_SHIPPED_DAYS = 7;
 var AUTO_RELEASE_AFTER_SHIPPED_DAYS_CROSS_BORDER = 14;
 var PICKUP_AUTO_RELEASE_DAYS = 7;
 var PRE_RELEASE_BUYER_REMINDER_HOURS = 48;
-var PAYOUT_MAX_ATTEMPTS = 5;
 var HOLD_ALERT_DAYS = 60;
 var HOLD_HARD_LIMIT_DAYS = 75;
+var MIN_PAYOUT_CENTS = 1e3;
+var PAYOUT_AUTO_DAYS = 30;
 
 // src/lib/feeCalculator.ts
 var EU_COUNTRIES = /* @__PURE__ */ new Set([
@@ -840,7 +842,7 @@ var AuctionEmailTemplate = ({
       badgeBg = "#10B981";
       badgeColor = "#FFFFFF";
       headline = "Kupec je potrdil prejem!";
-      subheadline = `Kupec je potrdil prejem predmeta "${auctionTitle}". Izpla\u010Dilo na va\u0161 Stripe ra\u010Dun je bilo spro\u017Eeno.`;
+      subheadline = `Kupec je potrdil prejem predmeta "${auctionTitle}". Izpla\u010Dilo na va\u0161 ra\u010Dun za izpla\u010Dila je bilo spro\u017Eeno.`;
       ctaText = "Status naro\u010Dila";
       ctaUrl = auctionUrl || "https://drazbe.eu";
       priceLabel = "Znesek izpla\u010Dila:";
@@ -1532,7 +1534,6 @@ async function claimIdentityLock(uid, taxId, country = "SI") {
   }
   const docId = lockKey(normalized);
   const lockRef = adminDb.collection("identity_locks").doc(docId);
-  const userRef = adminDb.collection("users").doc(uid);
   try {
     return await adminDb.runTransaction(async (transaction) => {
       const lockSnap = await transaction.get(lockRef);
@@ -2384,7 +2385,48 @@ function getSafePlace(user) {
   }
   return cleaned;
 }
-async function generateInvoicePDF(transaction = {}, buyer = {}, seller = {}, auction = {}, salesInvoiceNo, commissionInvoiceNo) {
+function getLogoPath() {
+  const searchPaths = [
+    import_path.default.join(process.cwd(), "public", "brand", "logo.png"),
+    import_path.default.join(process.cwd(), "dist", "brand", "logo.png"),
+    import_path.default.join(__dirname, "..", "..", "public", "brand", "logo.png"),
+    import_path.default.join(__dirname, "..", "public", "brand", "logo.png"),
+    import_path.default.join(__dirname, "public", "brand", "logo.png"),
+    import_path.default.join(__dirname, "brand", "logo.png"),
+    import_path.default.resolve("public", "brand", "logo.png"),
+    import_path.default.resolve("/app/applet/public/brand", "logo.png")
+  ];
+  for (const p of searchPaths) {
+    try {
+      if (import_fs.default.existsSync(p)) {
+        return p;
+      }
+    } catch {
+    }
+  }
+  return null;
+}
+function drawHeaderBrand(doc, y = 36) {
+  const logoPath = getLogoPath();
+  let logoDrawn = false;
+  if (logoPath) {
+    try {
+      doc.image(logoPath, 500, y, { width: 55 });
+      logoDrawn = true;
+    } catch {
+      logoDrawn = false;
+    }
+  }
+  doc.font("Roboto-Bold").fontSize(16).fillColor("#0A1128");
+  if (logoDrawn) {
+    doc.text("dra\u017Ebenik.si", 300, y + 4, { width: 190, align: "right" });
+    doc.font("Roboto").fontSize(8.5).fillColor("#94A3B8").text("Platforma za posredovanje", 300, y + 24, { width: 190, align: "right" });
+  } else {
+    doc.text("dra\u017Ebenik.si", 360, y + 4, { width: 195, align: "right" });
+    doc.font("Roboto").fontSize(8.5).fillColor("#94A3B8").text("Platforma za posredovanje", 360, y + 24, { width: 195, align: "right" });
+  }
+}
+async function generateInvoicePDF(transaction = {}, buyer = {}, seller = {}, auction = {}, salesInvoiceNo, commissionInvoiceNo, part = "both") {
   return new Promise((resolve, reject) => {
     const doc = new import_pdfkit.default({ margin: 40, size: "A4" });
     const buffers = [];
@@ -2546,6 +2588,7 @@ async function generateInvoicePDF(transaction = {}, buyer = {}, seller = {}, auc
     const auctionId = auction.id || transaction.auction_id || "ni podatka";
     const deliveryMethod = auction.delivery_method === "post" ? "Dostava po po\u0161ti" : auction.delivery_method === "pickup" ? "Osebni prevzem na lokaciji prodajalca" : "Osebni prevzem ali po dogovoru";
     const colorDark = "#0A1128";
+    const colorAccent = "#FEBA4F";
     const colorMuted = "#64748B";
     const colorLight = "#94A3B8";
     const colorBorder = "#E2E8F0";
@@ -2557,261 +2600,267 @@ async function generateInvoicePDF(transaction = {}, buyer = {}, seller = {}, auc
       if (hasCustomFonts) doc.font("Roboto");
       else doc.font("Helvetica");
     };
-    setBold();
-    const docTitle = relationship === "C2C" ? "POTRDILO O NAKUPU (C2C)" : relationship === "C2B" ? "KUPOPRODAJNA POGODBA" : "RA\u010CUN / INVOICE";
-    doc.fontSize(20).fillColor(colorDark).text(docTitle, 40, 42);
-    setBold();
-    doc.fontSize(18).fillColor(colorLight).text("dra\u017Ebenik.si", 360, 42, { width: 195, align: "right" });
-    setRegular();
-    doc.fontSize(8.5).fillColor(colorLight).text("Platforma za posredovanje", 360, 65, { width: 195, align: "right" });
-    let yPos = 72;
-    setRegular();
-    doc.fontSize(8.5).fillColor(colorMuted);
-    setRegular();
-    doc.fillColor(colorMuted).text("\u0160tevilka dokumenta: ", 40, yPos, { continued: true });
-    setBold();
-    doc.fillColor(colorDark).text(docNo);
-    yPos += 13;
-    setRegular();
-    doc.fillColor(colorMuted).text("Kraj izdaje: ", 40, yPos, { continued: true });
-    setBold();
-    doc.fillColor(colorDark).text(sellerPlace);
-    yPos += 13;
-    setRegular();
-    doc.fillColor(colorMuted).text("Datum izdaje / sklenitve: ", 40, yPos, { continued: true });
-    setBold();
-    doc.fillColor(colorDark).text(paymentDate);
-    yPos += 13;
-    setRegular();
-    doc.fillColor(colorMuted).text("Datum opravljene storitve/dobave: ", 40, yPos, { continued: true });
-    setBold();
-    doc.fillColor(colorDark).text(paymentDate);
-    yPos += 20;
-    doc.strokeColor(colorBorder).lineWidth(1).moveTo(40, yPos).lineTo(555, yPos).stroke();
-    yPos += 14;
     const colLeft = 40;
     const colRight = 310;
-    setBold();
-    doc.fontSize(7.5).fillColor(colorLight).text("IZDAJATELJ (PRODAJALEC)", colLeft, yPos);
-    doc.text("PREJEMNIK (KUPEC)", colRight, yPos);
-    yPos += 13;
-    setBold();
-    doc.fontSize(10.5).fillColor(colorDark).text(sellerName, colLeft, yPos, { width: 240 });
-    doc.text(buyerName, colRight, yPos, { width: 240 });
-    yPos += 15;
-    setRegular();
-    doc.fontSize(8.5).fillColor(colorMuted).text(sellerAddress, colLeft, yPos, { width: 240 });
-    doc.text(buyerAddress, colRight, yPos, { width: 240 });
-    yPos += 13;
-    doc.text(`Dav\u010Dna \u0161tevilka: ${sellerTaxId ? sellerTaxId : "Ni navedena"}`, colLeft, yPos);
-    doc.text(`Dav\u010Dna \u0161tevilka: ${buyerTaxId ? buyerTaxId : "Ni navedena"}`, colRight, yPos);
-    if (sellerRegNo || buyerRegNo) {
-      yPos += 12;
-      if (sellerRegNo) doc.text(`Mati\u010Dna \u0161tevilka: ${sellerRegNo}`, colLeft, yPos);
-      if (buyerRegNo) doc.text(`Mati\u010Dna \u0161tevilka: ${buyerRegNo}`, colRight, yPos);
-    }
-    yPos += 18;
-    doc.strokeColor(colorBorder).lineWidth(1).moveTo(40, yPos).lineTo(555, yPos).stroke();
-    yPos += 12;
-    doc.roundedRect(40, yPos, 515, 24, 4).fillAndStroke("#F8FAFC", "#E2E8F0");
-    const badgeCenterX = 53;
-    const badgeCenterY = yPos + 12;
-    doc.circle(badgeCenterX, badgeCenterY, 5.5).fillColor("#2563EB").fill();
-    setBold();
-    doc.fontSize(7).fillColor("#FFFFFF").text("i", badgeCenterX - 1.8, badgeCenterY - 4, { lineBreak: false });
-    setBold();
-    doc.fontSize(8).fillColor(colorDark).text("Identifikacija: ", 66, yPos + 7, { continued: true });
-    setRegular();
-    doc.fillColor(colorMuted).text("Stranki sta elektronsko identificirani znotraj platforme dra\u017Ebenik.si.");
-    yPos += 38;
-    setBold();
-    doc.fontSize(8).fillColor(colorDark);
-    doc.text("OPIS", 40, yPos);
-    doc.text("KOLI\u010CINA", 260, yPos, { width: 70, align: "center" });
-    doc.text("CENA (\u20AC)", 355, yPos, { width: 85, align: "right" });
-    doc.text("SKUPAJ (\u20AC)", 455, yPos, { width: 100, align: "right" });
-    yPos += 13;
-    doc.strokeColor(colorDark).lineWidth(1.5).moveTo(40, yPos).lineTo(555, yPos).stroke();
-    yPos += 10;
-    setBold();
-    doc.fontSize(9.5).fillColor(colorDark).text(itemTitle, 40, yPos, { width: 220 });
-    setRegular();
-    doc.fontSize(9).text("1", 260, yPos, { width: 70, align: "center" });
-    doc.text(formatEuro(itemPrice), 355, yPos, { width: 85, align: "right" });
-    setBold();
-    doc.text(formatEuro(itemPrice), 455, yPos, { width: 100, align: "right" });
-    yPos += 13;
-    setRegular();
-    doc.fontSize(7.5).fillColor(colorLight).text(`ID dra\u017Ebe: ${auctionId}`, 40, yPos);
-    yPos += 15;
-    doc.roundedRect(40, yPos, 515, 18, 3).fill("#F8FAFC");
-    doc.fontSize(8).fillColor(colorMuted).text(`Na\u010Din predaje: ${deliveryMethod}`, 50, yPos + 5);
-    yPos += 24;
-    doc.strokeColor(colorBorder).lineWidth(1).moveTo(40, yPos).lineTo(555, yPos).stroke();
-    yPos += 14;
     const totalsLeft = 325;
     const totalsValueRight = 555;
-    if (isVatApplicable) {
-      setRegular();
-      doc.fontSize(8.5).fillColor(colorMuted).text("Osnova za DDV (22%):", totalsLeft, yPos);
+    if (part === "both" || part === "sales") {
+      drawHeaderBrand(doc, 36);
       setBold();
-      doc.fontSize(8.5).fillColor(colorDark).text(`${formatEuro(vatBase)} \u20AC`, totalsLeft + 120, yPos, { width: 110, align: "right" });
+      const docTitle = relationship === "C2B" ? "KUPOPRODAJNA POGODBA" : relationship === "C2C" || !isSellerBusiness ? "KUPOPRODAJNA POGODBA / RA\u010CUN" : "RA\u010CUN / INVOICE";
+      doc.roundedRect(40, 42, 4, 20, 2).fill(colorAccent);
+      doc.fontSize(18).fillColor(colorDark).text(docTitle, 52, 42);
+      let yPos = 72;
+      setRegular();
+      doc.fontSize(8.5).fillColor(colorMuted);
+      setRegular();
+      doc.fillColor(colorMuted).text("\u0160tevilka dokumenta: ", 40, yPos, { continued: true });
+      setBold();
+      doc.fillColor(colorDark).text(docNo);
+      yPos += 13;
+      setRegular();
+      doc.fillColor(colorMuted).text("Kraj izdaje: ", 40, yPos, { continued: true });
+      setBold();
+      doc.fillColor(colorDark).text(sellerPlace);
+      yPos += 13;
+      setRegular();
+      doc.fillColor(colorMuted).text("Datum izdaje / sklenitve: ", 40, yPos, { continued: true });
+      setBold();
+      doc.fillColor(colorDark).text(paymentDate);
+      yPos += 13;
+      setRegular();
+      doc.fillColor(colorMuted).text("Datum opravljene storitve/dobave: ", 40, yPos, { continued: true });
+      setBold();
+      doc.fillColor(colorDark).text(paymentDate);
+      yPos += 20;
+      doc.strokeColor(colorBorder).lineWidth(1).moveTo(40, yPos).lineTo(555, yPos).stroke();
+      yPos += 14;
+      setBold();
+      doc.fontSize(7.5).fillColor(colorLight).text("IZDAJATELJ (PRODAJALEC)", colLeft, yPos);
+      doc.text("PREJEMNIK (KUPEC)", colRight, yPos);
+      yPos += 13;
+      setBold();
+      doc.fontSize(10.5).fillColor(colorDark).text(sellerName, colLeft, yPos, { width: 240 });
+      doc.text(buyerName, colRight, yPos, { width: 240 });
       yPos += 15;
       setRegular();
-      doc.fontSize(8.5).fillColor(colorMuted).text("Znesek DDV (22%):", totalsLeft, yPos);
+      doc.fontSize(8.5).fillColor(colorMuted).text(sellerAddress, colLeft, yPos, { width: 240 });
+      doc.text(buyerAddress, colRight, yPos, { width: 240 });
+      yPos += 13;
+      doc.text(`Dav\u010Dna \u0161tevilka: ${sellerTaxId ? sellerTaxId : "Ni navedena"}`, colLeft, yPos);
+      doc.text(`Dav\u010Dna \u0161tevilka: ${buyerTaxId ? buyerTaxId : "Ni navedena"}`, colRight, yPos);
+      if (sellerRegNo || buyerRegNo) {
+        yPos += 12;
+        if (sellerRegNo) doc.text(`Mati\u010Dna \u0161tevilka: ${sellerRegNo}`, colLeft, yPos);
+        if (buyerRegNo) doc.text(`Mati\u010Dna \u0161tevilka: ${buyerRegNo}`, colRight, yPos);
+      }
+      yPos += 18;
+      doc.strokeColor(colorBorder).lineWidth(1).moveTo(40, yPos).lineTo(555, yPos).stroke();
+      yPos += 12;
+      doc.roundedRect(40, yPos, 515, 24, 4).fillAndStroke("#F8FAFC", "#E2E8F0");
+      const badgeCenterX = 53;
+      const badgeCenterY = yPos + 12;
+      doc.circle(badgeCenterX, badgeCenterY, 5.5).fillColor(colorAccent).fill();
       setBold();
-      doc.fontSize(8.5).fillColor(colorDark).text(`${formatEuro(vatAmount)} \u20AC`, totalsLeft + 120, yPos, { width: 110, align: "right" });
-      yPos += 15;
-    } else {
+      doc.fontSize(7).fillColor(colorDark).text("i", badgeCenterX - 1.8, badgeCenterY - 4, { lineBreak: false });
+      setBold();
+      doc.fontSize(8).fillColor(colorDark).text("Identifikacija: ", 66, yPos + 7, { continued: true });
       setRegular();
-      doc.fontSize(8.5).fillColor(colorMuted).text("Kupnina / Znesek:", totalsLeft, yPos);
+      doc.fillColor(colorMuted).text("Stranki sta elektronsko identificirani znotraj platforme dra\u017Ebenik.si.");
+      yPos += 38;
       setBold();
-      doc.fontSize(8.5).fillColor(colorDark).text(`${formatEuro(itemPrice)} \u20AC`, totalsLeft + 120, yPos, { width: 110, align: "right" });
-      yPos += 15;
+      doc.fontSize(8).fillColor(colorDark);
+      doc.text("OPIS", 40, yPos);
+      doc.text("KOLI\u010CINA", 260, yPos, { width: 70, align: "center" });
+      doc.text("CENA (\u20AC)", 355, yPos, { width: 85, align: "right" });
+      doc.text("SKUPAJ (\u20AC)", 455, yPos, { width: 100, align: "right" });
+      yPos += 13;
+      doc.strokeColor(colorDark).lineWidth(1.5).moveTo(40, yPos).lineTo(555, yPos).stroke();
+      yPos += 10;
+      setBold();
+      doc.fontSize(9.5).fillColor(colorDark).text(itemTitle, 40, yPos, { width: 220 });
       setRegular();
-      doc.fontSize(8.5).fillColor(colorMuted).text("DDV:", totalsLeft, yPos);
+      doc.fontSize(9).text("1", 260, yPos, { width: 70, align: "center" });
+      doc.text(formatEuro(itemPrice), 355, yPos, { width: 85, align: "right" });
       setBold();
-      doc.fontSize(8.5).fillColor(colorDark).text("Ni obra\u010Dunan", totalsLeft + 120, yPos, { width: 110, align: "right" });
+      doc.text(formatEuro(itemPrice), 455, yPos, { width: 100, align: "right" });
+      yPos += 13;
+      setRegular();
+      doc.fontSize(7.5).fillColor(colorLight).text(`ID dra\u017Ebe: ${auctionId}`, 40, yPos);
       yPos += 15;
+      doc.roundedRect(40, yPos, 515, 18, 3).fill("#F8FAFC");
+      doc.fontSize(8).fillColor(colorMuted).text(`Na\u010Din predaje: ${deliveryMethod}`, 50, yPos + 5);
+      yPos += 24;
+      doc.strokeColor(colorBorder).lineWidth(1).moveTo(40, yPos).lineTo(555, yPos).stroke();
+      yPos += 14;
+      if (isVatApplicable) {
+        setRegular();
+        doc.fontSize(8.5).fillColor(colorMuted).text("Osnova za DDV (22%):", totalsLeft, yPos);
+        setBold();
+        doc.fontSize(8.5).fillColor(colorDark).text(`${formatEuro(vatBase)} \u20AC`, totalsLeft + 120, yPos, { width: 110, align: "right" });
+        yPos += 15;
+        setRegular();
+        doc.fontSize(8.5).fillColor(colorMuted).text("Znesek DDV (22%):", totalsLeft, yPos);
+        setBold();
+        doc.fontSize(8.5).fillColor(colorDark).text(`${formatEuro(vatAmount)} \u20AC`, totalsLeft + 120, yPos, { width: 110, align: "right" });
+        yPos += 15;
+      } else {
+        setRegular();
+        doc.fontSize(8.5).fillColor(colorMuted).text("Kupnina / Znesek:", totalsLeft, yPos);
+        setBold();
+        doc.fontSize(8.5).fillColor(colorDark).text(`${formatEuro(itemPrice)} \u20AC`, totalsLeft + 120, yPos, { width: 110, align: "right" });
+        yPos += 15;
+        setRegular();
+        doc.fontSize(8.5).fillColor(colorMuted).text("DDV:", totalsLeft, yPos);
+        setBold();
+        doc.fontSize(8.5).fillColor(colorDark).text("Ni obra\u010Dunan", totalsLeft + 120, yPos, { width: 110, align: "right" });
+        yPos += 15;
+      }
+      doc.strokeColor(colorDark).lineWidth(1.5).moveTo(totalsLeft, yPos).lineTo(totalsValueRight, yPos).stroke();
+      yPos += 7;
+      setBold();
+      doc.fontSize(10).fillColor(colorDark).text("SKUPAJ ZA PLA\u010CILO:", totalsLeft, yPos);
+      doc.fontSize(10.5).text(`${formatEuro(itemPrice)} \u20AC`, totalsLeft + 120, yPos, { width: 110, align: "right" });
+      const footerY = 665;
+      doc.strokeColor(colorBorder).lineWidth(1).moveTo(40, footerY).lineTo(555, footerY).stroke();
+      let footY = footerY + 11;
+      setBold();
+      doc.fontSize(7.5).fillColor(colorDark).text("Jamstvo za neskladnost blaga (ZVPot-1): ", 40, footY, { continued: true });
+      setRegular();
+      doc.fillColor(colorMuted).text("Za blago veljajo zakonska jamstva za neskladnost blaga v skladu z ZVPot-1.");
+      footY += 13;
+      setBold();
+      doc.fontSize(7.5).fillColor(colorDark).text("Prenos lastni\u0161tva: ", 40, footY, { continued: true });
+      setRegular();
+      doc.fillColor(colorMuted).text("Lastninska pravica in nevarnost naklju\u010Dnega uni\u010Denja preideta na kupca ob celotnem pla\u010Dilu kupnine in prevzemu predmeta.");
+      footY += 13;
+      setBold();
+      doc.fontSize(7.5).fillColor(colorDark).text("Pravna opomba in DDV: ", 40, footY, { continued: true });
+      setRegular();
+      doc.fillColor(colorMuted).text(noteText);
+      footY += 15;
+      setRegular();
+      doc.fontSize(7).fillColor(colorLight).text(
+        "Platforma dra\u017Ebenik.si nastopa izklju\u010Dno kot tehnolo\u0161ki posrednik in ni stranka v prodajni pogodbi. Ta dokument slu\u017Ei kot kupoprodajna pogodba in potrdilo o sklenjenem poslu ter pla\u010Dilu med prodajalcem in kupcem, generirano samodejno s strani sistema po uspe\u0161nem zaklju\u010Dku dra\u017Ebe.",
+        40,
+        footY,
+        { width: 515 }
+      );
     }
-    doc.strokeColor(colorDark).lineWidth(1.5).moveTo(totalsLeft, yPos).lineTo(totalsValueRight, yPos).stroke();
-    yPos += 7;
-    setBold();
-    doc.fontSize(10).fillColor(colorDark).text("SKUPAJ ZA PLA\u010CILO:", totalsLeft, yPos);
-    doc.fontSize(10.5).text(`${formatEuro(itemPrice)} \u20AC`, totalsLeft + 120, yPos, { width: 110, align: "right" });
-    const footerY = 665;
-    doc.strokeColor(colorBorder).lineWidth(1).moveTo(40, footerY).lineTo(555, footerY).stroke();
-    let footY = footerY + 11;
-    setBold();
-    doc.fontSize(7.5).fillColor(colorDark).text("Jamstvo za neskladnost blaga (ZVPot-1): ", 40, footY, { continued: true });
-    setRegular();
-    doc.fillColor(colorMuted).text("Za blago veljajo zakonska jamstva za neskladnost blaga v skladu z ZVPot-1.");
-    footY += 13;
-    setBold();
-    doc.fontSize(7.5).fillColor(colorDark).text("Prenos lastni\u0161tva: ", 40, footY, { continued: true });
-    setRegular();
-    doc.fillColor(colorMuted).text("Lastninska pravica in nevarnost naklju\u010Dnega uni\u010Denja preideta na kupca ob celotnem pla\u010Dilu kupnine in prevzemu predmeta.");
-    footY += 13;
-    setBold();
-    doc.fontSize(7.5).fillColor(colorDark).text("Pravna opomba in DDV: ", 40, footY, { continued: true });
-    setRegular();
-    doc.fillColor(colorMuted).text(noteText);
-    footY += 15;
-    setRegular();
-    doc.fontSize(7).fillColor(colorLight).text(
-      "Platforma dra\u017Ebenik.si nastopa izklju\u010Dno kot tehnolo\u0161ki posrednik in ni stranka v prodajni pogodbi. Ta dokument slu\u017Ei kot kupoprodajna pogodba in potrdilo o sklenjenem poslu ter pla\u010Dilu med prodajalcem in kupcem, generirano samodejno s strani sistema po uspe\u0161nem zaklju\u010Dku dra\u017Ebe.",
-      40,
-      footY,
-      { width: 515 }
-    );
-    doc.addPage({ margin: 40, size: "A4" });
-    const feeDocNo = commissionInvoiceNo || `PROV-${(transaction.id || auction.id || "000000").substring(0, 8).toUpperCase()}`;
-    const feeBase = Number(transaction.platform_fee ?? itemPrice * 0.1 / 1.22);
-    const feeVatRate = transaction.vat_rate !== void 0 ? Number(transaction.vat_rate) : 22;
-    const feeVat = Number(transaction.vat_amount ?? feeBase * (feeVatRate / 100));
-    isReverseCharge = Boolean(transaction.is_reverse_charge);
-    const feeTotal = feeBase + feeVat;
-    setBold();
-    doc.fontSize(16).fillColor(colorDark).text("RA\u010CUN ZA STORITEV / SERVICE INVOICE", 40, 42, { width: 515, align: "center" });
-    let p2Y = 75;
-    doc.strokeColor(colorBorder).lineWidth(1).moveTo(40, p2Y).lineTo(555, p2Y).stroke();
-    p2Y += 13;
-    setBold();
-    doc.fontSize(7.5).fillColor(colorLight).text("IZDAJATELJ (PLATFORMA)", colLeft, p2Y);
-    doc.text("PREJEMNIK STORITVE (KUPEC)", colRight, p2Y);
-    p2Y += 13;
-    setBold();
-    doc.fontSize(10.5).fillColor(colorDark).text(PLATFORM_COMPANY.name, colLeft, p2Y, { width: 240 });
-    doc.text(buyerName, colRight, p2Y, { width: 240 });
-    p2Y += 15;
-    setRegular();
-    doc.fontSize(8.5).fillColor(colorMuted).text(PLATFORM_COMPANY.address, colLeft, p2Y, { width: 240 });
-    doc.text(buyerAddress, colRight, p2Y, { width: 240 });
-    p2Y += 13;
-    doc.text(`Dav\u010Dna \u0161tevilka: ${PLATFORM_COMPANY.vatId}`, colLeft, p2Y);
-    doc.text(`Dav\u010Dna \u0161tevilka: ${buyerTaxId ? buyerTaxId : "Ni navedena"}`, colRight, p2Y);
-    p2Y += 12;
-    doc.text(`Mati\u010Dna \u0161tevilka: ${PLATFORM_COMPANY.registrationNumber}`, colLeft, p2Y);
-    if (buyerRegNo) {
-      doc.text(`Mati\u010Dna \u0161tevilka: ${buyerRegNo}`, colRight, p2Y);
+    if (part === "both") {
+      doc.addPage({ margin: 40, size: "A4" });
     }
-    p2Y += 18;
-    doc.strokeColor(colorBorder).lineWidth(1).moveTo(40, p2Y).lineTo(555, p2Y).stroke();
-    p2Y += 14;
-    setRegular();
-    doc.fontSize(8.5).fillColor(colorMuted).text("\u0160tevilka ra\u010Duna: ", colLeft, p2Y, { continued: true });
-    setBold();
-    doc.fillColor(colorDark).text(feeDocNo);
-    p2Y += 13;
-    setRegular();
-    doc.fillColor(colorMuted).text("Datum izdaje in opravljene storitve: ", colLeft, p2Y, { continued: true });
-    setBold();
-    doc.fillColor(colorDark).text(paymentDate);
-    p2Y += 13;
-    setRegular();
-    doc.fillColor(colorMuted).text("Na\u010Din pla\u010Dila: ", colLeft, p2Y, { continued: true });
-    setBold();
-    doc.fillColor(colorDark).text("Spletno pla\u010Dilo / Kartica");
-    p2Y += 13;
-    setRegular();
-    doc.fillColor(colorMuted).text("Status pla\u010Dila: ", colLeft, p2Y, { continued: true });
-    setBold();
-    doc.fillColor("#059669").text(`PLA\u010CANO (${paymentDate})`);
-    p2Y += 28;
-    setBold();
-    doc.fontSize(8).fillColor(colorDark);
-    doc.text("OPIS", 40, p2Y);
-    doc.text("OSNOVA (\u20AC)", 455, p2Y, { width: 100, align: "right" });
-    p2Y += 13;
-    doc.strokeColor(colorDark).lineWidth(1.5).moveTo(40, p2Y).lineTo(555, p2Y).stroke();
-    p2Y += 10;
-    setBold();
-    doc.fontSize(9.5).fillColor(colorDark).text("Provizija platforme za uporabo sistema", 40, p2Y, { width: 350 });
-    setRegular();
-    doc.fontSize(9).text(formatEuro(feeBase), 455, p2Y, { width: 100, align: "right" });
-    yPos += 13;
-    setRegular();
-    doc.fontSize(7.5).fillColor(colorLight).text(`Dra\u017Eba: ${itemTitle}`, 40, p2Y + 14);
-    p2Y += 28;
-    doc.strokeColor(colorBorder).lineWidth(1).moveTo(40, p2Y).lineTo(555, p2Y).stroke();
-    p2Y += 15;
-    setRegular();
-    doc.fontSize(8.5).fillColor(colorMuted).text("Osnova / Base:", totalsLeft, p2Y);
-    setBold();
-    doc.fontSize(8.5).fillColor(colorDark).text(`${formatEuro(feeBase)} \u20AC`, totalsLeft + 120, p2Y, { width: 110, align: "right" });
-    p2Y += 15;
-    setRegular();
-    doc.fontSize(8.5).fillColor(colorMuted).text(`DDV / VAT (${feeVatRate}%):`, totalsLeft, p2Y);
-    setBold();
-    doc.fontSize(8.5).fillColor(colorDark).text(`${formatEuro(feeVat)} \u20AC`, totalsLeft + 120, p2Y, { width: 110, align: "right" });
-    if (isReverseCharge) {
+    if (part === "both" || part === "commission") {
+      const feeDocNo = commissionInvoiceNo || `PROV-${(transaction.id || auction.id || "000000").substring(0, 8).toUpperCase()}`;
+      const feeBase = Number(transaction.platform_fee ?? itemPrice * 0.1 / 1.22);
+      const feeVatRate = transaction.vat_rate !== void 0 ? Number(transaction.vat_rate) : 22;
+      const feeVat = Number(transaction.vat_amount ?? feeBase * (feeVatRate / 100));
+      isReverseCharge = Boolean(transaction.is_reverse_charge);
+      const feeTotal = feeBase + feeVat;
+      drawHeaderBrand(doc, 36);
+      setBold();
+      doc.roundedRect(40, 42, 4, 18, 2).fill(colorAccent);
+      doc.fontSize(16).fillColor(colorDark).text("RA\u010CUN ZA STORITEV / SERVICE INVOICE", 52, 42);
+      let p2Y = 75;
+      doc.strokeColor(colorBorder).lineWidth(1).moveTo(40, p2Y).lineTo(555, p2Y).stroke();
+      p2Y += 13;
+      setBold();
+      doc.fontSize(7.5).fillColor(colorLight).text("IZDAJATELJ (PLATFORMA)", colLeft, p2Y);
+      doc.text("PREJEMNIK STORITVE (KUPEC)", colRight, p2Y);
+      p2Y += 13;
+      setBold();
+      doc.fontSize(10.5).fillColor(colorDark).text(PLATFORM_COMPANY.name, colLeft, p2Y, { width: 240 });
+      doc.text(buyerName, colRight, p2Y, { width: 240 });
       p2Y += 15;
+      setRegular();
+      doc.fontSize(8.5).fillColor(colorMuted).text(PLATFORM_COMPANY.address, colLeft, p2Y, { width: 240 });
+      doc.text(buyerAddress, colRight, p2Y, { width: 240 });
+      p2Y += 13;
+      doc.text(`Dav\u010Dna \u0161tevilka: ${PLATFORM_COMPANY.vatId}`, colLeft, p2Y);
+      doc.text(`Dav\u010Dna \u0161tevilka: ${buyerTaxId ? buyerTaxId : "Ni navedena"}`, colRight, p2Y);
+      p2Y += 12;
+      doc.text(`Mati\u010Dna \u0161tevilka: ${PLATFORM_COMPANY.registrationNumber}`, colLeft, p2Y);
+      if (buyerRegNo) {
+        doc.text(`Mati\u010Dna \u0161tevilka: ${buyerRegNo}`, colRight, p2Y);
+      }
+      p2Y += 18;
+      doc.strokeColor(colorBorder).lineWidth(1).moveTo(40, p2Y).lineTo(555, p2Y).stroke();
+      p2Y += 14;
+      setRegular();
+      doc.fontSize(8.5).fillColor(colorMuted).text("\u0160tevilka ra\u010Duna: ", colLeft, p2Y, { continued: true });
       setBold();
-      doc.fontSize(8).fillColor("#D97706").text("Obrnjena dav\u010Dna obveznost / Reverse charge", totalsLeft, p2Y, { width: 230 });
+      doc.fillColor(colorDark).text(feeDocNo);
+      p2Y += 13;
+      setRegular();
+      doc.fillColor(colorMuted).text("Datum izdaje in opravljene storitve: ", colLeft, p2Y, { continued: true });
+      setBold();
+      doc.fillColor(colorDark).text(paymentDate);
+      p2Y += 13;
+      setRegular();
+      doc.fillColor(colorMuted).text("Na\u010Din pla\u010Dila: ", colLeft, p2Y, { continued: true });
+      setBold();
+      doc.fillColor(colorDark).text("Spletno pla\u010Dilo / Kartica");
+      p2Y += 13;
+      setRegular();
+      doc.fillColor(colorMuted).text("Status pla\u010Dila: ", colLeft, p2Y, { continued: true });
+      setBold();
+      doc.fillColor("#059669").text(`PLA\u010CANO (${paymentDate})`);
+      p2Y += 28;
+      setBold();
+      doc.fontSize(8).fillColor(colorDark);
+      doc.text("OPIS", 40, p2Y);
+      doc.text("OSNOVA (\u20AC)", 455, p2Y, { width: 100, align: "right" });
+      p2Y += 13;
+      doc.strokeColor(colorDark).lineWidth(1.5).moveTo(40, p2Y).lineTo(555, p2Y).stroke();
+      p2Y += 10;
+      setBold();
+      doc.fontSize(9.5).fillColor(colorDark).text("Provizija platforme za uporabo sistema", 40, p2Y, { width: 350 });
+      setRegular();
+      doc.fontSize(9).text(formatEuro(feeBase), 455, p2Y, { width: 100, align: "right" });
+      p2Y += 13;
+      setRegular();
+      doc.fontSize(7.5).fillColor(colorLight).text(`Dra\u017Eba: ${itemTitle}`, 40, p2Y);
+      p2Y += 18;
+      doc.strokeColor(colorBorder).lineWidth(1).moveTo(40, p2Y).lineTo(555, p2Y).stroke();
+      p2Y += 15;
+      setRegular();
+      doc.fontSize(8.5).fillColor(colorMuted).text("Osnova / Base:", totalsLeft, p2Y);
+      setBold();
+      doc.fontSize(8.5).fillColor(colorDark).text(`${formatEuro(feeBase)} \u20AC`, totalsLeft + 120, p2Y, { width: 110, align: "right" });
+      p2Y += 15;
+      setRegular();
+      doc.fontSize(8.5).fillColor(colorMuted).text(`DDV / VAT (${feeVatRate}%):`, totalsLeft, p2Y);
+      setBold();
+      doc.fontSize(8.5).fillColor(colorDark).text(`${formatEuro(feeVat)} \u20AC`, totalsLeft + 120, p2Y, { width: 110, align: "right" });
+      if (isReverseCharge) {
+        p2Y += 15;
+        setBold();
+        doc.fontSize(8).fillColor("#D97706").text("Obrnjena dav\u010Dna obveznost / Reverse charge", totalsLeft, p2Y, { width: 230 });
+      }
+      p2Y += 15;
+      doc.strokeColor(colorDark).lineWidth(1.5).moveTo(totalsLeft, p2Y).lineTo(totalsValueRight, p2Y).stroke();
+      p2Y += 7;
+      setBold();
+      doc.fontSize(10).fillColor(colorDark).text("SKUPAJ PROVIZIJA:", totalsLeft, p2Y);
+      doc.fontSize(10.5).text(`${formatEuro(feeTotal)} \u20AC`, totalsLeft + 120, p2Y, { width: 110, align: "right" });
+      const p2FooterY = 690;
+      doc.strokeColor(colorBorder).lineWidth(1).moveTo(40, p2FooterY).lineTo(555, p2FooterY).stroke();
+      let p2FootY = p2FooterY + 12;
+      setRegular();
+      doc.fontSize(7.5).fillColor(colorMuted).text(
+        "Dizain d.o.o. je registriran izdajatelj ra\u010Duna za posredni\u0161ke storitve platforme dra\u017Ebenik.si. V ceno storitve je vklju\u010Den 22% DDV.",
+        40,
+        p2FootY,
+        { width: 515 }
+      );
+      p2FootY += 13;
+      doc.fontSize(7).fillColor(colorLight).text(
+        "Dokument je generiran elektronsko in je veljaven brez \u017Eiga ali podpisa v skladu z ZZEPA ter 84. \u010Dlenom Zakona o davku na dodano vrednost (ZDDV-1).",
+        40,
+        p2FootY,
+        { width: 515 }
+      );
     }
-    p2Y += 15;
-    doc.strokeColor(colorDark).lineWidth(1.5).moveTo(totalsLeft, p2Y).lineTo(totalsValueRight, p2Y).stroke();
-    p2Y += 7;
-    setBold();
-    doc.fontSize(10).fillColor(colorDark).text("SKUPAJ PROVIZIJA:", totalsLeft, p2Y);
-    doc.fontSize(10.5).text(`${formatEuro(feeTotal)} \u20AC`, totalsLeft + 120, p2Y, { width: 110, align: "right" });
-    const p2FooterY = 690;
-    doc.strokeColor(colorBorder).lineWidth(1).moveTo(40, p2FooterY).lineTo(555, p2FooterY).stroke();
-    let p2FootY = p2FooterY + 12;
-    setRegular();
-    doc.fontSize(7.5).fillColor(colorMuted).text(
-      "Dizain d.o.o. je registriran izdajatelj ra\u010Duna za posredni\u0161ke storitve platforme dra\u017Ebenik.si. V ceno storitve je vklju\u010Den 22% DDV.",
-      40,
-      p2FootY,
-      { width: 515 }
-    );
-    p2FootY += 13;
-    doc.fontSize(7).fillColor(colorLight).text(
-      "Dokument je generiran elektronsko in je veljaven brez \u017Eiga ali podpisa v skladu z ZZEPA ter 84. \u010Dlenom Zakona o davku na dodano vrednost (ZDDV-1).",
-      40,
-      p2FootY,
-      { width: 515 }
-    );
     doc.end();
   });
 }
@@ -2902,6 +2951,7 @@ async function generateSubscriptionInvoicePDF(params) {
       else doc.font("Helvetica");
     };
     const colorDark = "#0A1128";
+    const colorAccent = "#FEBA4F";
     const colorMuted = "#64748B";
     const colorLight = "#94A3B8";
     const colorBorder = "#E2E8F0";
@@ -2933,8 +2983,10 @@ async function generateSubscriptionInvoicePDF(params) {
     const planDesc = isPro ? "Aktivna naro\u010Dnina za profesionalne prodajalce: neomejeno objavljenih dra\u017Eb, zni\u017Eana 4% provizija platforme, prednostna izpostavljenost." : "Aktivna naro\u010Dnina za redne prodajalce: do 20 objavljenih dra\u017Eb mese\u010Dno, zni\u017Eana 6% provizija platforme.";
     const colLeft = 40;
     const colRight = 310;
+    drawHeaderBrand(doc, 36);
     setBold();
-    doc.fontSize(16).fillColor(colorDark).text("RA\u010CUN ZA NARO\u010CNINO / SUBSCRIPTION INVOICE", 40, 42, { width: 515, align: "center" });
+    doc.roundedRect(40, 42, 4, 18, 2).fill(colorAccent);
+    doc.fontSize(16).fillColor(colorDark).text("RA\u010CUN ZA NARO\u010CNINO / SUBSCRIPTION INVOICE", 52, 42);
     let yPos = 75;
     doc.strokeColor(colorBorder).lineWidth(1).moveTo(40, yPos).lineTo(555, yPos).stroke();
     yPos += 13;
@@ -3048,7 +3100,7 @@ async function generateSubscriptionInvoicePDF(params) {
     }
     footY += 16;
     doc.fontSize(7).fillColor(colorLight).text(
-      "Dokument je bil izdan elektronsko s strani platforme dra\u017Ebenik.si / drazbe.si in je pravno veljaven brez podpisa in \u017Eiga. Za morebitna vpra\u0161anja glede naro\u010Dnine se obrnite na podpora@drazbe.si.",
+      "Dokument je bil izdan elektronsko s strani platforme dra\u017Ebenik.si / drazbe.si in je pravno veljaven brez podpisa in \u017Eiga. Za morebitna vpra\u0161anja glede naro\u010Dnine se obrnite na [VSTAVITE E-NASLOV PODPORE].",
       40,
       footY,
       { width: 515 }
@@ -3466,6 +3518,34 @@ async function createAndSendSubscriptionInvoice(params) {
       created_at: (/* @__PURE__ */ new Date()).toISOString()
     });
     console.log(`[subscription-invoice] Uspe\u0161no shranjen dokument ra\u010Duna ${invoiceNo} za uporabnika ${userId}`);
+    try {
+      const isCompany = userData.company_status === "company" || userData.user_type === "business" || Boolean(userData.company_name);
+      const buyerTaxId = userData.tax_id || userData.taxId || userData.vat_id || "";
+      const userCountry = (userData.country_code || userData.country || "SI").toUpperCase();
+      const euCountries = ["AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "ES", "SE"];
+      const isReverseCharge = isCompany && buyerTaxId && euCountries.includes(userCountry) && userCountry !== "SI";
+      const grossCents = Math.round(Number(amountTotal) * 100);
+      const vatRate = isReverseCharge ? 0 : 22;
+      const netCents = isReverseCharge ? grossCents : Math.round(grossCents / 1.22);
+      const vatCents = isReverseCharge ? 0 : grossCents - netCents;
+      await archiveAccountingDocument({
+        type: "SUBSCRIPTION",
+        invoiceNo,
+        issuedAt: /* @__PURE__ */ new Date(),
+        pdfBuffer,
+        netCents,
+        vatCents,
+        grossCents,
+        vatRate,
+        buyerId: userId,
+        sellerId: "",
+        transactionId: sourceId,
+        auctionId: "",
+        issuer: "platform"
+      });
+    } catch (archiveErr) {
+      console.error("[subscription-invoice] Fehler bei Buchhaltungsarchivierung:", archiveErr.message);
+    }
     const targetEmail = userData.email;
     if (targetEmail && process.env.RESEND_API_KEY) {
       try {
@@ -3537,6 +3617,38 @@ async function createAndSendSubscriptionInvoice(params) {
   } catch (err) {
     console.error("[subscription-invoice] Napaka pri obdelavi ra\u010Duna za naro\u010Dnino:", err.message);
   }
+}
+async function archiveAccountingDocument(params) {
+  const docRef = adminDb.collection("accounting_documents").doc(params.invoiceNo);
+  const docSnap = await safeGetDoc(docRef);
+  if (docSnap.exists) {
+    return docSnap.data()?.storage_path || "";
+  }
+  const issueDate = typeof params.issuedAt === "string" ? new Date(params.issuedAt) : params.issuedAt || /* @__PURE__ */ new Date();
+  const yearStr = String(issueDate.getFullYear());
+  const monthStr = String(issueDate.getMonth() + 1).padStart(2, "0");
+  const storagePath = `accounting/${yearStr}/${monthStr}/${params.type}/${params.invoiceNo}.pdf`;
+  await uploadBufferToStorage(params.pdfBuffer, storagePath);
+  await docRef.set({
+    type: params.type,
+    invoice_no: params.invoiceNo,
+    year: issueDate.getFullYear(),
+    month: monthStr,
+    issued_at: issueDate.toISOString(),
+    currency: "EUR",
+    net_cents: Math.round(params.netCents),
+    vat_cents: Math.round(params.vatCents),
+    gross_cents: Math.round(params.grossCents),
+    vat_rate: params.vatRate,
+    buyer_id: params.buyerId || "",
+    seller_id: params.sellerId || "",
+    transaction_id: params.transactionId || "",
+    auction_id: params.auctionId || "",
+    issuer: params.issuer,
+    storage_path: storagePath,
+    created_at: (/* @__PURE__ */ new Date()).toISOString()
+  });
+  return storagePath;
 }
 function formatE164Phone(phoneStr, defaultCountry = "SI") {
   if (!phoneStr || typeof phoneStr !== "string") return void 0;
@@ -3822,7 +3934,7 @@ app.use((req, res, next) => {
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
   if (process.env.NODE_ENV === "production") {
     res.setHeader("X-Frame-Options", "DENY");
-    res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.google.com/recaptcha/ https://www.gstatic.com/recaptcha/ https://js.stripe.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://*.googleapis.com https://www.google.com/recaptcha/ https://api.stripe.com ws: wss:; frame-src 'self' https://www.google.com/recaptcha/ https://js.stripe.com; img-src 'self' data: https: blob:;");
+    res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.google.com/recaptcha/ https://www.gstatic.com/recaptcha/ https://js.stripe.com https://connect-js.stripe.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://*.googleapis.com https://www.google.com/recaptcha/ https://api.stripe.com ws: wss:; frame-src 'self' https://www.google.com/recaptcha/ https://js.stripe.com https://connect-js.stripe.com https://hooks.stripe.com; img-src 'self' data: https: blob: https://*.stripe.com;");
   }
   next();
 });
@@ -3944,7 +4056,7 @@ async function refundTransactionToBuyer(txId, reason) {
     return { ok: false, status: "error" };
   }
 }
-async function releaseSellerPayout(txId, reason) {
+async function releaseSellerFunds(txId, reason) {
   const txRef = adminDb.collection("transactions").doc(txId);
   const nowMs = Date.now();
   const leaseUntil = nowMs + 3e4;
@@ -3955,8 +4067,8 @@ async function releaseSellerPayout(txId, reason) {
         return { ok: false, status: "not_found", tx: null };
       }
       const data = txDoc.data() || {};
-      if (data.payout_status === "paid_out") {
-        return { ok: true, status: "paid_out", tx: data };
+      if (data.payout_status === "paid_out" || data.payout_status === "releasable") {
+        return { ok: true, status: data.payout_status, tx: data };
       }
       if (data.payout_status === "frozen" || data.payout_status === "refunded") {
         return { ok: false, status: data.payout_status, tx: data };
@@ -3972,100 +4084,58 @@ async function releaseSellerPayout(txId, reason) {
     if (!txResult.ok) {
       return { ok: false, status: txResult.status };
     }
-    if (txResult.status === "paid_out") {
-      return { ok: true, status: "paid_out" };
+    if (txResult.status === "paid_out" || txResult.status === "releasable") {
+      return { ok: true, status: txResult.status };
     }
     const tx = txResult.tx;
     if (!tx) {
       return { ok: false, status: "not_found" };
     }
-    const sellerStripeAccountId = tx.seller_stripe_account_id;
-    const sellerNetCents = tx.seller_net_cents;
-    if (!sellerStripeAccountId || !sellerNetCents) {
-      await txRef.update({ payout_lease_until: 0 });
-      return { ok: false, status: "missing_stripe_info" };
-    }
-    const stripe = getStripe();
-    let balance;
-    try {
-      balance = await stripe.balance.retrieve({}, { stripeAccount: sellerStripeAccountId });
-    } catch (balErr) {
-      console.error("[releaseSellerPayout] Error retrieving seller balance:", balErr.message);
-      await txRef.update({ payout_lease_until: 0 });
-      return { ok: false, status: "balance_check_failed" };
-    }
-    const availableEurCents = balance.available.find((b) => b.currency === "eur")?.amount || 0;
-    if (availableEurCents < sellerNetCents) {
-      await txRef.update({
-        payout_status: "release_waiting_funds",
-        payout_lease_until: 0
-      });
-      return { ok: false, status: "release_waiting_funds" };
-    }
-    try {
-      const payout = await stripe.payouts.create({
-        amount: sellerNetCents,
-        currency: "eur",
-        metadata: { tx_id: txId, auction_id: tx.auction_id || "" }
-      }, {
-        stripeAccount: sellerStripeAccountId,
-        // Schluessel je Versuchsfolge, sonst wiederholt Stripe einen endgueltigen Fehlschlag
-        idempotencyKey: "payout_" + txId + "_" + (tx.payout_key_seq || 0)
-      });
-      await txRef.update({
-        payout_status: "paid_out",
-        payout_id: payout.id,
-        paid_out_at: (/* @__PURE__ */ new Date()).toISOString(),
-        release_reason: reason,
-        status: "COMPLETED",
-        payout_lease_until: 0
-      });
-      if (tx.auction_id) {
-        try {
-          await adminDb.collection("auctions").doc(tx.auction_id).update({
-            review_enabled: true
-          });
-        } catch (revErr) {
-          console.warn("[releaseSellerPayout] Could not enable review on auction:", revErr.message);
-        }
-      }
+    const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+    await txRef.update({
+      payout_status: "releasable",
+      status: "COMPLETED",
+      released_at: nowIso,
+      release_reason: reason,
+      payout_lease_until: 0
+    });
+    if (tx.auction_id) {
       try {
-        const sellerDoc = await safeGetDoc(adminDb.collection("users").doc(tx.seller_id));
-        const seller = sellerDoc.data();
-        if (seller?.email && process.env.RESEND_API_KEY) {
-          const auctionDoc = await safeGetDoc(adminDb.collection("auctions").doc(tx.auction_id));
-          const auction = auctionDoc.data();
-          const auctionTitleText = auction?.title?.SLO || auction?.title?.EN || "Predmet dra\u017Ebe";
-          const resendClient3 = new import_resend2.Resend(process.env.RESEND_API_KEY);
-          await resendClient3.emails.send({
-            from: process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>",
-            to: seller.email,
-            subject: "Izpla\u010Dilo izvedeno",
-            html: `<p>Izpla\u010Dilo za dra\u017Ebo <strong>${auctionTitleText}</strong> v vi\u0161ini <strong>${(tx.seller_net_cents / 100).toFixed(2)}</strong> EUR je bilo uspe\u0161no izvedeno na va\u0161 povezan Stripe ra\u010Dun.</p>`
-          });
-        }
-      } catch (emErr) {
-        console.error("[releaseSellerPayout] Error sending success email:", emErr.message);
+        await adminDb.collection("auctions").doc(tx.auction_id).update({
+          review_enabled: true
+        });
+      } catch (revErr) {
+        console.warn("[releaseSellerFunds] Could not enable review on auction:", revErr.message);
       }
-      return { ok: true, status: "paid_out" };
-    } catch (payoutErr) {
-      console.error("[releaseSellerPayout] Stripe Payout Creation failed:", payoutErr.message);
-      const safeErr = formatStripeError(payoutErr);
-      const attempts = (tx.payout_attempts || 0) + 1;
-      const nextAttempt = attempts < PAYOUT_MAX_ATTEMPTS ? new Date(Date.now() + 6 * 60 * 60 * 1e3).toISOString() : null;
-      await txRef.update({
-        payout_status: "release_failed",
-        payout_error: safeErr.userMessage,
-        payout_attempts: attempts,
-        // Bei Verbindungsfehlern denselben Schluessel behalten, die Auszahlung koennte angekommen sein
-        payout_key_seq: payoutErr?.type === "StripeConnectionError" || payoutErr?.type === "StripeAPIError" ? tx.payout_key_seq || 0 : (tx.payout_key_seq || 0) + 1,
-        next_payout_attempt_at: nextAttempt,
-        payout_lease_until: 0
-      });
-      return { ok: false, status: "release_failed" };
     }
+    try {
+      const sellerDoc = await safeGetDoc(adminDb.collection("users").doc(tx.seller_id));
+      const seller = sellerDoc.data();
+      if (seller?.email && process.env.RESEND_API_KEY) {
+        const auctionDoc = await safeGetDoc(adminDb.collection("auctions").doc(tx.auction_id));
+        const auction = auctionDoc.data();
+        const auctionTitleText = auction?.title?.SLO || auction?.title?.EN || "Predmet dra\u017Ebe";
+        const netAmt = ((tx.seller_net_cents || 0) / 100).toFixed(2);
+        const resendClient3 = new import_resend2.Resend(process.env.RESEND_API_KEY);
+        await resendClient3.emails.send({
+          from: process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>",
+          to: seller.email,
+          subject: "Sredstva so spro\u0161\u010Dena in na voljo za izpla\u010Dilo",
+          html: `<div style="font-family: sans-serif; color: #0A1128; padding: 20px;">
+            <h2 style="color: #0A1128;">Sredstva so spro\u0161\u010Dena</h2>
+            <p>Spo\u0161tovani,</p>
+            <p>Sredstva v vi\u0161ini <strong>${netAmt} EUR</strong> za dra\u017Ebo <strong>${auctionTitleText}</strong> so bila uspe\u0161no spro\u0161\u010Dena in so vam zdaj na voljo za izpla\u010Dilo v nastavitvah profila.</p>
+            <p>Izpla\u010Dilo lahko zahtevate kadar koli (najmanj 10,00 \u20AC) ali pa se bo samodejno izvedlo po 30 dneh.</p>
+            <p>Lep pozdrav,<br/>dra\u017Ebe.si</p>
+          </div>`
+        });
+      }
+    } catch (emErr) {
+      console.error("[releaseSellerFunds] Error sending release email:", emErr.message);
+    }
+    return { ok: true, status: "releasable" };
   } catch (err) {
-    console.error("[releaseSellerPayout] Unexpected error:", err.message);
+    console.error("[releaseSellerFunds] Unexpected error:", err.message);
     try {
       await txRef.update({ payout_lease_until: 0 });
     } catch (_) {
@@ -4082,14 +4152,186 @@ async function completeTransactionAndPayout(txRef, txId, reason) {
     auto_complete_at: null
   });
   try {
-    await releaseSellerPayout(txId, reason);
+    await releaseSellerFunds(txId, reason);
   } catch (payErr) {
-    console.error("[completeTransactionAndPayout] payout failed:", payErr?.message);
+    console.error("[completeTransactionAndPayout] fund release failed:", payErr?.message);
   }
 }
 function generatePickupPin() {
   return String((0, import_crypto2.randomInt)(0, 1e6)).padStart(6, "0");
 }
+async function executeSellerBatchPayout(sellerId, trigger) {
+  const userRef = adminDb.collection("users").doc(sellerId);
+  const userDoc = await safeGetDoc(userRef);
+  const user = userDoc.data() || {};
+  const stripeAccountId = user.stripe_account_id || user.stripeAccountId;
+  if (!stripeAccountId || !user.stripe_onboarding_complete) {
+    return { success: false, error: "Stripe onboarding ni zaklju\u010Den." };
+  }
+  const txSnap = await safeGetDocs(
+    adminDb.collection("transactions").where("seller_id", "==", sellerId).where("payout_status", "==", "releasable").orderBy("released_at", "asc")
+  );
+  if (txSnap.empty) {
+    return { success: false, error: "Ni sredstev na voljo za izpla\u010Dilo." };
+  }
+  const stripe = getStripe();
+  let balance;
+  try {
+    balance = await stripe.balance.retrieve({}, { stripeAccount: stripeAccountId });
+  } catch (balErr) {
+    console.error("[executeSellerBatchPayout] Error retrieving balance:", balErr.message);
+    return { success: false, error: "Napaka pri preverjanju salda pri ponudniku pla\u010Dil." };
+  }
+  const availableEurCents = balance.available.find((b) => b.currency === "eur")?.amount || 0;
+  let totalCents = 0;
+  const includedTxs = [];
+  for (const doc of txSnap.docs) {
+    const data = doc.data() || {};
+    const net = data.seller_net_cents || 0;
+    if (net <= 0) continue;
+    if (trigger === "manual" && totalCents + net > availableEurCents) {
+      break;
+    }
+    if (trigger === "auto") {
+      const releasedAt = new Date(data.released_at || data.created_at || Date.now()).getTime();
+      const ageDays = (Date.now() - releasedAt) / (1e3 * 60 * 60 * 24);
+      if (ageDays < PAYOUT_AUTO_DAYS) {
+        continue;
+      }
+    }
+    totalCents += net;
+    includedTxs.push({ id: doc.id, ref: doc.ref, net });
+  }
+  if (includedTxs.length === 0) {
+    return { success: false, error: "Ni izpolnjenih pogojev za izpla\u010Dilo." };
+  }
+  if (trigger === "manual" && totalCents < MIN_PAYOUT_CENTS) {
+    return { success: false, error: `Najmanj\u0161i znesek za izpla\u010Dilo je ${(MIN_PAYOUT_CENTS / 100).toFixed(2)} \u20AC.` };
+  }
+  if (trigger === "auto" && totalCents < MIN_PAYOUT_CENTS) {
+    return { success: false, error: "Skupni znesek \u0161e ne dosega minimalnega zneska za samodejno izpla\u010Dilo." };
+  }
+  const txIdsString = includedTxs.map((t) => t.id).join(",");
+  const batchId = import_crypto2.default.createHash("sha256").update(txIdsString + "_" + Date.now()).digest("hex").substring(0, 16);
+  try {
+    const payout = await stripe.payouts.create({
+      amount: totalCents,
+      currency: "eur",
+      metadata: {
+        seller_id: sellerId,
+        tx_count: String(includedTxs.length),
+        batch_id: batchId
+      }
+    }, {
+      stripeAccount: stripeAccountId,
+      idempotencyKey: "batch_" + batchId
+    });
+    const paidOutAtIso = (/* @__PURE__ */ new Date()).toISOString();
+    const batchWrite = adminDb.batch();
+    for (const item of includedTxs) {
+      batchWrite.update(item.ref, {
+        payout_status: "paid_out",
+        payout_id: payout.id,
+        paid_out_at: paidOutAtIso,
+        payout_batch_id: batchId
+      });
+    }
+    await batchWrite.commit();
+    if (user.email && process.env.RESEND_API_KEY) {
+      try {
+        const formattedAmount = (totalCents / 100).toFixed(2);
+        const resendClient3 = new import_resend2.Resend(process.env.RESEND_API_KEY);
+        await resendClient3.emails.send({
+          from: process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>",
+          to: user.email,
+          subject: "Izpla\u010Dilo izvedeno na ban\u010Dni ra\u010Dun",
+          html: `<div style="font-family: sans-serif; color: #0A1128; padding: 20px;">
+            <h2 style="color: #0A1128;">Izpla\u010Dilo uspe\u0161no izvedeno</h2>
+            <p>Spo\u0161tovani,</p>
+            <p>Va\u0161e zbirno izpla\u010Dilo v vi\u0161ini <strong>${formattedAmount} EUR</strong> (vklju\u010Dno s/za ${includedTxs.length} dra\u017Ebami) je bilo uspe\u0161no posredovano na va\u0161 ban\u010Dni ra\u010Dun.</p>
+            <p>Denar bo prispel na va\u0161 ra\u010Dun v 1 do 3 delovnih dneh.</p>
+            <p>Hvala, ker uporabljate dra\u017Ebe.si!</p>
+          </div>`
+        });
+      } catch (mailErr) {
+        console.error("[executeSellerBatchPayout] Error sending payout email:", mailErr.message);
+      }
+    }
+    return { success: true, payoutId: payout.id, totalCents, count: includedTxs.length };
+  } catch (stripeErr) {
+    console.error("[executeSellerBatchPayout] Stripe Payout failed:", stripeErr.message);
+    const safeErr = formatStripeError(stripeErr);
+    for (const item of includedTxs) {
+      await item.ref.update({
+        payout_last_error: safeErr.userMessage
+      }).catch(() => {
+      });
+    }
+    return { success: false, error: safeErr.userMessage };
+  }
+}
+app.post("/api/seller/request-payout", async (req, res) => {
+  let uid;
+  try {
+    uid = await authenticateFirebaseUser(req);
+  } catch (authErr) {
+    return res.status(401).json({ error: authErr.message || "Unauthorized" });
+  }
+  const userRef = adminDb.collection("users").doc(uid);
+  const nowMs = Date.now();
+  const leaseUntil = nowMs + 6e4;
+  try {
+    const lockResult = await adminDb.runTransaction(async (t) => {
+      const uDoc = await t.get(userRef);
+      if (!uDoc.exists) {
+        return { ok: false, error: "Uporabnik ne obstaja." };
+      }
+      const data = uDoc.data() || {};
+      if (data.isBlocked) {
+        return { ok: false, error: "Va\u0161 ra\u010Dun je blokiran." };
+      }
+      if (!data.stripe_onboarding_complete) {
+        return { ok: false, error: "Izpla\u010Dila \u0161e niso urejena." };
+      }
+      const lastReq = data.last_payout_requested_at ? new Date(data.last_payout_requested_at).getTime() : 0;
+      if (nowMs - lastReq < 24 * 60 * 60 * 1e3) {
+        return { ok: false, error: "Izpla\u010Dilo ste \u017Ee zahtevali danes. Prosimo, poskusite jutri." };
+      }
+      if (typeof data.payout_request_lease_until === "number" && data.payout_request_lease_until > nowMs) {
+        return { ok: false, error: "Zahteva za izpla\u010Dilo se \u017Ee obdeluje. Prosimo, po\u010Dakajte." };
+      }
+      t.update(userRef, {
+        payout_request_lease_until: leaseUntil
+      });
+      return { ok: true };
+    });
+    if (!lockResult.ok) {
+      return res.status(400).json({ error: lockResult.error });
+    }
+    try {
+      await assertVerifiedUser(uid, await (await userRef.get()).data() || {});
+    } catch (verErr) {
+      await userRef.update({ payout_request_lease_until: 0 });
+      return res.status(403).json({ error: verErr.message });
+    }
+    const batchRes = await executeSellerBatchPayout(uid, "manual");
+    await userRef.update({
+      payout_request_lease_until: 0,
+      ...batchRes.success ? { last_payout_requested_at: (/* @__PURE__ */ new Date()).toISOString() } : {}
+    });
+    if (!batchRes.success) {
+      return res.status(400).json({ error: batchRes.error });
+    }
+    return res.json({ success: true, totalCents: batchRes.totalCents, count: batchRes.count });
+  } catch (err) {
+    console.error("Error in request-payout:", err);
+    try {
+      await userRef.update({ payout_request_lease_until: 0 });
+    } catch (_) {
+    }
+    return res.status(500).json({ error: err.message || "Napaka pri obdelavi izpla\u010Dila." });
+  }
+});
 async function getOrCreatePickupPin(txId) {
   const secretRef = adminDb.collection("transaction_secrets").doc(txId);
   return adminDb.runTransaction(async (t) => {
@@ -4361,6 +4603,69 @@ async function finalizeAuctionPayment(params) {
             batch.set(ref, d);
           });
           await batch.commit();
+        }
+        try {
+          const itemPrice2 = Number(transactionRecord.item_price ?? (transactionRecord.amount_total || 0));
+          const salesGrossCents = transactionRecord.item_cents ?? Math.round(itemPrice2 * 100);
+          const sSnap = sellerSnapshot;
+          const bSnap = buyerSnapshot;
+          const sType = sSnap.user_type || sSnap.userType || "individual";
+          const isSellerBusiness = sType === "business";
+          const sellerVatStatus = sSnap.vat_status || sSnap.vatStatus || (isSellerBusiness ? "exempt_small" : "private");
+          const buyerCountry = (bSnap.country_code || bSnap.countryCode || bSnap.country || "SI").trim().toUpperCase();
+          const buyerTaxId = bSnap.tax_id || bSnap.taxId || bSnap.vat_id || bSnap.vatId || "";
+          const isReverseChargeSales = isSellerBusiness && sellerVatStatus === "payer" && buyerCountry !== "SI" && buyerTaxId;
+          let salesVatRate = 0;
+          let salesNetCents = salesGrossCents;
+          let salesVatCents = 0;
+          if (isSellerBusiness && sellerVatStatus === "payer" && !isReverseChargeSales) {
+            salesVatRate = 22;
+            salesNetCents = Math.round(salesGrossCents / 1.22);
+            salesVatCents = salesGrossCents - salesNetCents;
+          }
+          const salesPdf = await generateInvoicePDF(transactionRecord, buyerSnapshot, sellerSnapshot, auctionDataPdf, salesInvoiceNo, commissionInvoiceNo, "sales");
+          await archiveAccountingDocument({
+            type: "SALES",
+            invoiceNo: salesInvoiceNo,
+            issuedAt: auctionDataPdf?.paid_at || /* @__PURE__ */ new Date(),
+            pdfBuffer: salesPdf,
+            netCents: salesNetCents,
+            vatCents: salesVatCents,
+            grossCents: salesGrossCents,
+            vatRate: salesVatRate,
+            buyerId,
+            sellerId: auctionDataPdf?.sellerId || auctionDataPdf?.seller_id || "",
+            transactionId: txDocRef.id,
+            auctionId,
+            issuer: "seller_on_behalf"
+          });
+          const commNetCents = Math.round(Number(transactionRecord.platform_fee ?? itemPrice2 * 0.1 / 1.22) * 100);
+          const commVatRate = transactionRecord.vat_rate !== void 0 ? Number(transactionRecord.vat_rate) : 22;
+          const commVatCents = Math.round(Number(transactionRecord.vat_amount ?? commNetCents * (commVatRate / 100)) * 100);
+          const commGrossCents = commNetCents + commVatCents;
+          const commPdf = await generateInvoicePDF(transactionRecord, buyerSnapshot, sellerSnapshot, auctionDataPdf, salesInvoiceNo, commissionInvoiceNo, "commission");
+          await archiveAccountingDocument({
+            type: "COMMISSION",
+            invoiceNo: commissionInvoiceNo,
+            issuedAt: auctionDataPdf?.paid_at || /* @__PURE__ */ new Date(),
+            pdfBuffer: commPdf,
+            netCents: commNetCents,
+            vatCents: commVatCents,
+            grossCents: commGrossCents,
+            vatRate: commVatRate,
+            buyerId,
+            sellerId: "",
+            transactionId: txDocRef.id,
+            auctionId,
+            issuer: "platform"
+          });
+        } catch (archiveErr) {
+          console.error("[finalizeAuctionPayment] Fehler bei Buchhaltungsarchivierung:", archiveErr.message);
+          try {
+            await txDocRef.update({ accounting_archive_failed: true });
+          } catch (updateErr) {
+            console.error("[finalizeAuctionPayment] Fehler beim Setzen von accounting_archive_failed:", updateErr.message);
+          }
         }
         if (buyer.email && process.env.RESEND_API_KEY) {
           const auctionTitleText = auctionDataPdf?.title?.SLO || auctionDataPdf?.title?.EN || "Predmet dra\u017Ebe";
@@ -5685,14 +5990,23 @@ app.post("/api/stripe-account-session", async (req, res) => {
     }
     const accountId = await ensureSellerStripeAccount(userId, userData);
     const stripe = getStripe();
+    const scope = req.body?.scope === "manage" ? "manage" : "onboarding";
+    if (scope === "manage") {
+      if (userData.stripe_onboarding_complete !== true) {
+        return res.status(403).json({ error: "Onboarding erforderlich", code: "ONBOARDING_REQUIRED" });
+      }
+    }
+    const components = {
+      account_onboarding: { enabled: true, features: { external_account_collection: true } }
+    };
+    if (scope === "manage") {
+      components.account_management = { enabled: true, features: { external_account_collection: true } };
+      components.notification_banner = { enabled: true, features: { external_account_collection: true } };
+      components.payouts = { enabled: true, features: { instant_payouts: false, standard_payouts: false, edit_payout_schedule: false } };
+    }
     const accountSession = await stripe.accountSessions.create({
       account: accountId,
-      components: {
-        account_onboarding: {
-          enabled: true,
-          features: { external_account_collection: true }
-        }
-      }
+      components
     });
     return res.status(200).json({ client_secret: accountSession.client_secret });
   } catch (error) {
@@ -5861,6 +6175,7 @@ app.get("/api/seller/balance", async (req, res) => {
       stripeError = true;
     }
     let escrowCents = 0;
+    let releasableCents = 0;
     let paidOutCents = 0;
     let paidOutCount = 0;
     try {
@@ -5874,6 +6189,8 @@ app.get("/api/seller/balance", async (req, res) => {
         if (payoutStatus === "paid_out") {
           paidOutCents += netCents;
           paidOutCount++;
+        } else if (payoutStatus === "releasable") {
+          releasableCents += netCents;
         } else if (["held", "frozen", "release_waiting_funds", "release_failed"].includes(payoutStatus)) {
           escrowCents += netCents;
         }
@@ -5889,6 +6206,7 @@ app.get("/api/seller/balance", async (req, res) => {
       pendingCents,
       inTransitCents,
       escrowCents,
+      releasableCents,
       paidOutCents,
       paidOutCount,
       currency: "eur",
@@ -5901,26 +6219,7 @@ app.get("/api/seller/balance", async (req, res) => {
   }
 });
 app.post("/api/stripe-dashboard-link", async (req, res) => {
-  let uid;
-  try {
-    uid = await authenticateFirebaseUser(req);
-  } catch (authErr) {
-    return res.status(401).json({ error: authErr.message || "Unauthorized" });
-  }
-  try {
-    const userSnap = await safeGetDoc(adminDb.collection("users").doc(uid));
-    const user = userSnap.data() || {};
-    const accountId = user.stripe_account_id || user.stripeAccountId;
-    if (!accountId || !user.stripe_onboarding_complete) {
-      return res.status(400).json({ error: "Izpla\u010Dila \u0161e niso urejena." });
-    }
-    const stripe = getStripe();
-    const link = await stripe.accounts.createLoginLink(accountId);
-    return res.json({ success: true, url: link.url });
-  } catch (error) {
-    console.error("Stripe Dashboard Link Error:", error);
-    return res.status(500).json({ error: error.message || "Napaka pri ustvarjanju povezave do nadzorne plo\u0161\u010De." });
-  }
+  return res.status(410).json({ error: "Ta funkcija ni ve\u010D na voljo." });
 });
 app.post("/api/create-subscription-checkout", async (req, res) => {
   let userId;
@@ -6093,6 +6392,16 @@ app.post("/api/sync-user-subscription", async (req, res) => {
       }
       await userDocRef.set(updateData, { merge: true });
       console.log(`[sync-user-subscription] Successfully synced user ${targetUserId} to ${tier}`);
+      const subAmtSession = Number(matchingSession.amount_total ? matchingSession.amount_total / 100 : tier.includes("PRO") ? 50 : 20);
+      createAndSendSubscriptionInvoice({
+        userId: targetUserId,
+        packageId: tier,
+        amountTotal: subAmtSession,
+        sourceId: matchingSession.id,
+        paymentMethod: "Spletno pla\u010Dilo / Kartica (Stripe)",
+        periodStart: paidDate,
+        periodEnd: validUntil
+      }).catch((e) => console.error("[sync-user-subscription] Fehler beim Erstellen der Abonnementrechnung (Session):", e));
       return res.json({
         success: true,
         synced: true,
@@ -6132,6 +6441,16 @@ app.post("/api/sync-user-subscription", async (req, res) => {
               }
               await userDocRef.set(updateData, { merge: true });
               console.log(`[sync-user-subscription] Successfully synced user ${targetUserId} from PI to ${tier}`);
+              const subAmtPi = Number(pi.amount ? pi.amount / 100 : tier.includes("PRO") ? 50 : 20);
+              createAndSendSubscriptionInvoice({
+                userId: targetUserId,
+                packageId: tier,
+                amountTotal: subAmtPi,
+                sourceId: pi.id,
+                paymentMethod: "Spletno pla\u010Dilo / Kartica (Stripe)",
+                periodStart: piDate,
+                periodEnd: validUntil
+              }).catch((e) => console.error("[sync-user-subscription] Fehler beim Erstellen der Abonnementrechnung (PI):", e));
               return res.json({
                 success: true,
                 synced: true,
@@ -6281,14 +6600,26 @@ app.post("/api/test/send-email", async (req, res) => {
         first_name: recipientName.split(" ")[0] || "Janez",
         last_name: recipientName.split(" ")[1] || "Novak",
         email: toEmail,
+        street_address: "Dunajska cesta 156",
+        postal_code: "1000",
+        city: "Ljubljana",
+        country_code: "SI",
         address: "Dunajska cesta 156, 1000 Ljubljana",
         user_type: "individual"
       };
       const mockSeller = {
         company_name: "Dizain d.o.o. (Testni prodajalec)",
+        street_address: "Karantanska ulica 28",
+        postal_code: "2000",
+        city: "Maribor",
+        country_code: "SI",
         address: "Karantanska ulica 28, 2000 Maribor",
         tax_id: "SI57008060",
-        company_status: "company"
+        vat_id: "SI57008060",
+        registration_number: "6867056000",
+        user_type: "business",
+        company_status: "company",
+        vat_status: "payer"
       };
       const mockAuction = {
         id: auctionId,
@@ -7426,6 +7757,12 @@ var handleProcessEscrowCompletions = async (req, res) => {
   try {
     const now = (/* @__PURE__ */ new Date()).toISOString();
     let processed = 0;
+    const legacyWaitingSnap = await safeGetDocs(
+      adminDb.collection("transactions").where("payout_status", "in", ["release_waiting_funds", "release_failed"])
+    );
+    for (const docSnap of legacyWaitingSnap.docs) {
+      await docSnap.ref.update({ payout_status: "releasable" });
+    }
     const snapshotDelivered = await safeGetDocs(
       adminDb.collection("transactions").where("status", "==", "DELIVERED").where("auto_complete_at", "<=", now)
     );
@@ -7436,7 +7773,7 @@ var handleProcessEscrowCompletions = async (req, res) => {
         status: "COMPLETED",
         completed_at: now
       });
-      await releaseSellerPayout(docSnap.id, "auto_complete_delivered");
+      await releaseSellerFunds(docSnap.id, "auto_complete_delivered");
       processed++;
     }
     const heldSnap = await safeGetDocs(
@@ -7449,41 +7786,27 @@ var handleProcessEscrowCompletions = async (req, res) => {
     for (const docSnap of allToRelease) {
       const tx = docSnap.data();
       if (tx.payout_status === "frozen" || tx.payout_status === "refunded") continue;
-      await releaseSellerPayout(docSnap.id, "auto_deadline");
+      await releaseSellerFunds(docSnap.id, "auto_deadline");
       processed++;
     }
-    const waitingSnap = await safeGetDocs(
-      adminDb.collection("transactions").where("payout_status", "==", "release_waiting_funds")
+    const releasableSnap = await safeGetDocs(
+      adminDb.collection("transactions").where("payout_status", "==", "releasable").limit(100)
     );
-    for (const docSnap of waitingSnap.docs) {
-      await releaseSellerPayout(docSnap.id, "retry_waiting_funds");
-      processed++;
-    }
-    const failedSnap = await safeGetDocs(
-      adminDb.collection("transactions").where("payout_status", "==", "release_failed")
-    );
-    for (const docSnap of failedSnap.docs) {
+    const sellersToAutoPayout = /* @__PURE__ */ new Set();
+    const cutoffTime = Date.now() - PAYOUT_AUTO_DAYS * 24 * 60 * 60 * 1e3;
+    for (const docSnap of releasableSnap.docs) {
       const tx = docSnap.data();
-      if ((tx.payout_attempts || 0) >= PAYOUT_MAX_ATTEMPTS) {
-        if (!tx.payout_failed_alert_sent && process.env.RESEND_API_KEY) {
-          try {
-            const resendFail = new import_resend2.Resend(process.env.RESEND_API_KEY);
-            await resendFail.emails.send({
-              from: process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>",
-              to: adminEmailAddress,
-              subject: "Izpla\u010Dilo prodajalcu ni uspelo",
-              html: `<p>Izpla\u010Dilo za naro\u010Dilo <strong>${docSnap.id}</strong> ni uspelo ${tx.payout_attempts}-krat. Napaka: ${tx.payout_error || "neznana"}. Preverite prodajal\u010Dev Stripe ra\u010Dun.</p>`
-            });
-            await docSnap.ref.update({ payout_failed_alert_sent: true });
-          } catch (failMailErr) {
-            console.error("[cron] Admin alert for failed payout not sent:", failMailErr.message);
-          }
-        }
-        continue;
+      const releasedAt = new Date(tx.released_at || tx.created_at || Date.now()).getTime();
+      if (releasedAt <= cutoffTime && tx.seller_id) {
+        sellersToAutoPayout.add(tx.seller_id);
       }
-      if (tx.next_payout_attempt_at && tx.next_payout_attempt_at > now) continue;
-      await releaseSellerPayout(docSnap.id, "retry_failed");
-      processed++;
+    }
+    for (const sellerId of sellersToAutoPayout) {
+      try {
+        await executeSellerBatchPayout(sellerId, "auto");
+      } catch (autoErr) {
+        console.error(`[cron] Auto batch payout error for seller ${sellerId}:`, autoErr.message);
+      }
     }
     const holdAlertThreshold = new Date(Date.now() - HOLD_ALERT_DAYS * 24 * 60 * 60 * 1e3).toISOString();
     const holdAlertSnap = await safeGetDocs(
@@ -8505,9 +8828,13 @@ app.get("/api/subscription/download-invoice/:invoiceNo", async (req, res) => {
       return res.status(401).json({ error: "Niste prijavljeni." });
     }
     const { invoiceNo } = req.params;
-    const docSnap = await safeGetDocs(
-      adminDb.collection("documents").where("invoice_no", "==", invoiceNo).where("user_id", "==", authUid).limit(1)
-    );
+    const adminUids = (process.env.ADMIN_UIDS || "").split(",").map((s) => s.trim()).filter(Boolean);
+    const isAdmin = adminUids.includes(authUid);
+    let docQuery = adminDb.collection("documents").where("invoice_no", "==", invoiceNo);
+    if (!isAdmin) {
+      docQuery = docQuery.where("user_id", "==", authUid);
+    }
+    const docSnap = await safeGetDocs(docQuery.limit(1));
     if (docSnap.empty) {
       return res.status(404).json({ error: "Ra\u010Dun ni bil najden." });
     }
@@ -8526,15 +8853,150 @@ app.get("/api/subscription/download-invoice/:invoiceNo", async (req, res) => {
     const storage = getAdminStorage();
     const bucketName = process.env.FIREBASE_STORAGE_BUCKET || "drazbesi.firebasestorage.app";
     const file = storage.bucket(bucketName).file(storagePath);
-    const [url] = await file.getSignedUrl({
-      version: "v4",
-      action: "read",
-      expires: Date.now() + 10 * 60 * 1e3
-      // 10 minutes
-    });
-    return res.json({ url });
+    const [exists] = await file.exists();
+    if (!exists) {
+      return res.status(404).json({ error: "Datoteka ra\u010Duna v shrambi ne obstaja." });
+    }
+    if (req.query.json === "1") {
+      const [url] = await file.getSignedUrl({
+        version: "v4",
+        action: "read",
+        expires: Date.now() + 10 * 60 * 1e3
+      });
+      return res.json({ url });
+    }
+    const [pdfBuffer] = await file.download();
+    const isInline = String(req.query.inline) === "1";
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `${isInline ? "inline" : "attachment"}; filename="racun_${invoiceNo}.pdf"`);
+    res.setHeader("Cache-Control", "private, no-cache, no-store, must-revalidate");
+    return res.send(pdfBuffer);
   } catch (err) {
-    console.error("Error generating subscription invoice download URL:", err);
+    console.error("Error downloading subscription invoice:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+app.get("/api/invoices/file", async (req, res) => {
+  try {
+    let authUid = null;
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith("Bearer ")) {
+      try {
+        const decoded = await adminAuth.verifyIdToken(authHeader.split("Bearer ")[1]);
+        authUid = decoded.uid;
+      } catch (e) {
+      }
+    }
+    if (!authUid) {
+      return res.status(401).json({ error: "Niste prijavljeni." });
+    }
+    const { auction_id, inline } = req.query;
+    if (!auction_id || typeof auction_id !== "string") {
+      return res.status(400).json({ error: "Manjka ID dra\u017Ebe." });
+    }
+    const auctionDoc = await safeGetDoc(adminDb.collection("auctions").doc(auction_id));
+    if (!auctionDoc.exists) {
+      return res.status(404).json({ error: "Dra\u017Eba ni bila najdena." });
+    }
+    const auction = auctionDoc.data() || {};
+    const adminUids = (process.env.ADMIN_UIDS || "").split(",").map((s) => s.trim()).filter(Boolean);
+    const isAdmin = adminUids.includes(authUid);
+    const sellerId = auction.seller_id || auction.seller?.id || auction.sellerId;
+    const winnerId = auction.winner_id || auction.winner?.id || auction.buyer_id || auction.winnerId;
+    if (!isAdmin && authUid !== sellerId && authUid !== winnerId) {
+      return res.status(403).json({ error: "Nimate pravic za dostop do tega ra\u010Duna." });
+    }
+    const isPaid = auction.status === "completed" || auction.post_auction_status === "awaiting_buyer_receipt" || auction.post_auction_status === "buyer_received" || auction.payment_status === "paid" || auction.is_paid;
+    if (!isPaid) {
+      return res.status(400).json({ error: "Dra\u017Eba \u0161e ni pla\u010Dana." });
+    }
+    const docsSnap = await safeGetDocs(
+      adminDb.collection("documents").where("auction_id", "==", auction_id).where("type", "==", "invoice").limit(1)
+    );
+    const txSnap = await safeGetDocs(
+      adminDb.collection("transactions").where("auction_id", "==", auction_id).limit(1)
+    );
+    const txDoc = !txSnap.empty ? txSnap.docs[0] : null;
+    const txData = txDoc ? txDoc.data() : null;
+    if (txData?.invoice_review_required) {
+      return res.status(400).json({ error: "Ra\u010Dun je v pregledu in \u0161e ni na voljo." });
+    }
+    let pdfBuffer = null;
+    let invoiceNo = "";
+    if (!docsSnap.empty) {
+      const docData = docsSnap.docs[0].data();
+      invoiceNo = docData.sales_invoice_no || docData.invoice_no || txData?.sales_invoice_no || "";
+      let storagePath = docData.invoice_path || docData.file_url;
+      if (storagePath) {
+        if (storagePath.startsWith("http")) {
+          try {
+            storagePath = decodeURIComponent(storagePath.split("/o/")[1].split("?")[0]);
+          } catch (e) {
+          }
+        }
+        const storage = getAdminStorage();
+        const bucketName = process.env.FIREBASE_STORAGE_BUCKET || "drazbesi.firebasestorage.app";
+        const file = storage.bucket(bucketName).file(storagePath);
+        const [exists] = await file.exists();
+        if (exists) {
+          const [downloaded] = await file.download();
+          pdfBuffer = downloaded;
+        }
+      }
+    }
+    if (!pdfBuffer) {
+      if (!txDoc || !txData) {
+        return res.status(404).json({ error: "Ra\u010Dun \u0161e ni na voljo. Poskusite znova \u010Dez nekaj minut." });
+      }
+      let salesInvoiceNo = txData.sales_invoice_no;
+      let commissionInvoiceNo = txData.commission_invoice_no;
+      const updatedFields = {};
+      if (!salesInvoiceNo) {
+        salesInvoiceNo = await generateInvoiceNumber("SALES");
+        updatedFields.sales_invoice_no = salesInvoiceNo;
+      }
+      if (!commissionInvoiceNo) {
+        commissionInvoiceNo = await generateInvoiceNumber("COMMISSION");
+        updatedFields.commission_invoice_no = commissionInvoiceNo;
+      }
+      if (Object.keys(updatedFields).length > 0) {
+        await txDoc.ref.update(updatedFields);
+      }
+      invoiceNo = salesInvoiceNo;
+      let buyerSnapshot = txData.buyer_snapshot;
+      if (!buyerSnapshot && winnerId) {
+        const uSnap = await safeGetDoc(adminDb.collection("users").doc(winnerId));
+        if (uSnap.exists) buyerSnapshot = uSnap.data();
+      }
+      let sellerSnapshot = txData.seller_snapshot;
+      if (!sellerSnapshot && sellerId) {
+        const sSnap = await safeGetDoc(adminDb.collection("users").doc(sellerId));
+        if (sSnap.exists) sellerSnapshot = sSnap.data();
+      }
+      const transactionRecord = { id: txDoc.id, ...txData, ...updatedFields };
+      pdfBuffer = await generateInvoicePDF(transactionRecord, buyerSnapshot, sellerSnapshot, auction, salesInvoiceNo, commissionInvoiceNo);
+      const invoiceFileName = `racun_${salesInvoiceNo}.pdf`;
+      const invoicePath = await uploadBufferToStorage(pdfBuffer, `${winnerId || "invoices"}/${invoiceFileName}`);
+      await adminDb.collection("documents").add({
+        transaction_id: txDoc.id,
+        user_id: winnerId,
+        auction_id,
+        type: "invoice",
+        invoice_path: invoicePath,
+        sales_invoice_no: salesInvoiceNo,
+        commission_invoice_no: commissionInvoiceNo,
+        created_at: (/* @__PURE__ */ new Date()).toISOString()
+      });
+    }
+    const isInline = String(inline) === "1";
+    const cleanInvoiceNo = (invoiceNo || auction_id).replace(/[^a-zA-Z0-9_-]/g, "_");
+    const filename = `racun_${cleanInvoiceNo}.pdf`;
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `${isInline ? "inline" : "attachment"}; filename="${filename}"`);
+    res.setHeader("Cache-Control", "private, no-cache, no-store, must-revalidate");
+    return res.send(pdfBuffer);
+  } catch (err) {
+    console.error("Error serving invoice file:", err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -8657,7 +9119,7 @@ app.post("/api/delete-account", async (req, res) => {
         const allWonAuctions = [...wonAuctions.docs, ...wonAuctionsCamel.docs];
         for (const aDoc of allWonAuctions) {
           const aData = aDoc.data() || {};
-          if (aData.status !== "cancelled" && aData.payment_status !== "paid" && aData.post_auction_status !== "paid") {
+          if (aData.status !== "cancelled" && aData.payment_status !== "paid" && aData.post_auction_status !== "paid" && aData.unpaid_strike_applied !== true) {
             hasObligations = true;
             break;
           }
@@ -8665,23 +9127,13 @@ app.post("/api/delete-account", async (req, res) => {
       }
     } catch (obligationErr) {
       console.error("Napaka pri preverjanju odprtih obveznosti:", obligationErr);
+      return res.status(500).json({ error: "Preverjanje obveznosti ni uspelo. Poskusite znova." });
     }
     if (hasObligations) {
       return res.status(409).json({
         error: "OBLIGATIONS_PENDING",
         message: "Ra\u010Duna ni mogo\u010De izbrisati, dokler imate odprta naro\u010Dila, spore ali nepla\u010Dane dra\u017Ebe."
       });
-    }
-    try {
-      const userDoc = await adminDb.collection("users").doc(authUid).get();
-      const userData = userDoc.data() || {};
-      const taxId = userData.tax_id || userData.tax_number || userData.taxNumber || userData.taxId;
-      const country = userData.country || userData.country_code || userData.countryCode || "SI";
-      if (taxId) {
-        await releaseIdentityLock(authUid, taxId, country);
-      }
-    } catch (err) {
-      console.error("[delete-account] Fehler beim Freigeben des Identity Locks:", err);
     }
     console.log(`[delete-account] Za\u010Denjam brisanje profila in podatkov za uporabnika: ${authUid}`);
     const sellerAuctions = await adminDb.collection("auctions").where("seller_id", "==", authUid).get();
@@ -9469,6 +9921,7 @@ app.post("/api/profile/update", async (req, res) => {
       updatePayload.email_notifications = emailNotifs;
       updatePayload.emailNotifications = emailNotifs;
     }
+    const SUPPORT_EMAIL_PLACEHOLDER = "[VSTAVITE E-NASLOV PODPORE]";
     if (taxId) {
       const oldTaxId = currentData.tax_id || currentData.tax_number || currentData.taxNumber || currentData.taxId;
       const oldCountry = currentData.country || currentData.country_code || currentData.countryCode || "SI";
@@ -9478,12 +9931,12 @@ app.post("/api/profile/update", async (req, res) => {
           if (lockRes.error === "IDENTITY_BLOCKED") {
             return res.status(409).json({
               error: "IDENTITY_BLOCKED",
-              message: "Verifikacije ni mogo\u010De dokon\u010Dati. Kontaktirajte podporo: podpora@drazbe.si."
+              message: `Verifikacije ni mogo\u010De dokon\u010Dati. Kontaktirajte podporo: ${SUPPORT_EMAIL_PLACEHOLDER}.`
             });
           } else {
             return res.status(409).json({
               error: "TAX_ID_IN_USE",
-              message: "Ta dav\u010Dna \u0161tevilka je \u017Ee povezana z drugim ra\u010Dunom. \u010Ce je to va\u0161a \u0161tevilka, nas kontaktirajte: podpora@drazbe.si."
+              message: `Ta dav\u010Dna \u0161tevilka je \u017Ee povezana z drugim ra\u010Dunom. \u010Ce je to va\u0161a \u0161tevilka, nas kontaktirajte: ${SUPPORT_EMAIL_PLACEHOLDER}.`
             });
           }
         }
@@ -9988,13 +10441,11 @@ app.post("/api/admin/orders/:id/resolve-dispute", async (req, res) => {
     const resendClient3 = new import_resend2.Resend(process.env.RESEND_API_KEY);
     if (decision === "release_to_seller") {
       await txRef.update({
-        payout_status: "held",
+        payout_status: "releasable",
         admin_dispute_decision: "release_to_seller",
         admin_dispute_note: note || ""
       });
-      const resPay = await releaseSellerPayout(id, "admin_release");
-      if (!resPay.ok && resPay.status === "release_waiting_funds") {
-      }
+      await releaseSellerFunds(id, "admin_release");
     } else if (decision === "refund_buyer") {
       if (!tx.stripe_payment_intent_id) {
         return res.status(400).json({ error: "Naro\u010Dilo nima povezanega pla\u010Dilnega ID (payment_intent_id)." });
@@ -10088,7 +10539,7 @@ app.post("/api/admin/identity-lock/release", async (req, res) => {
     const lockRef = adminDb.collection("identity_locks").doc(docId);
     const lockSnap = await lockRef.get();
     if (!lockSnap.exists) {
-      return res.status(404).json({ error: "Sperre fuer diese Steuernummer nicht gefunden." });
+      return res.status(404).json({ error: "Zapora za to dav\u010Dno \u0161tevilko ni bila najdena." });
     }
     const lockData = lockSnap.data() || {};
     await lockRef.delete();
@@ -10130,6 +10581,420 @@ app.post("/api/admin/run-cron", async (req, res) => {
   } catch (err) {
     console.error("Error in /api/admin/run-cron:", err);
     return res.status(500).json({ error: err.message });
+  }
+});
+app.post("/api/admin/accounting/backfill", async (req, res) => {
+  let uid;
+  try {
+    uid = await authenticateFirebaseUser(req);
+  } catch (authErr) {
+    return res.status(401).json({ error: authErr.message || "Unauthorized" });
+  }
+  const adminUids = (process.env.ADMIN_UIDS || "admin,owner").split(",").map((s) => s.trim()).filter(Boolean);
+  let isAdmin = adminUids.includes(uid) || uid === "admin" || uid === "owner";
+  if (!isAdmin) {
+    const userDoc = await safeGetDoc(adminDb.collection("users").doc(uid));
+    if (userDoc.exists && userDoc.data()?.role === "admin") {
+      isAdmin = true;
+    }
+  }
+  if (!isAdmin) {
+    return res.status(403).json({ error: "Nimate administratorskih pravic." });
+  }
+  try {
+    let processed = 0;
+    let archived = 0;
+    const errors = [];
+    const subDocsSnap = await adminDb.collection("documents").where("type", "==", "subscription_invoice").get();
+    for (const doc of subDocsSnap.docs) {
+      processed++;
+      const data = doc.data();
+      const invoiceNo = data.invoice_no;
+      if (!invoiceNo) continue;
+      const existingAcc = await safeGetDoc(adminDb.collection("accounting_documents").doc(invoiceNo));
+      if (existingAcc.exists) continue;
+      try {
+        const userDoc = await safeGetDoc(adminDb.collection("users").doc(data.user_id));
+        const userData = userDoc.exists ? userDoc.data() : {};
+        const amountTotal = Number(data.amount || 20);
+        const isCompany = userData.company_status === "company" || userData.user_type === "business" || Boolean(userData.company_name);
+        const buyerTaxId = userData.tax_id || userData.taxId || userData.vat_id || "";
+        const userCountry = (userData.country_code || userData.country || "SI").toUpperCase();
+        const euCountries = ["AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "ES", "SE"];
+        const isReverseCharge = isCompany && buyerTaxId && euCountries.includes(userCountry) && userCountry !== "SI";
+        const grossCents = Math.round(amountTotal * 100);
+        const vatRate = isReverseCharge ? 0 : 22;
+        const netCents = isReverseCharge ? grossCents : Math.round(grossCents / 1.22);
+        const vatCents = isReverseCharge ? 0 : grossCents - netCents;
+        const pdfBuffer = await generateSubscriptionInvoicePDF({
+          invoiceNo,
+          user: userData,
+          planId: data.package_id || "basic",
+          amount: amountTotal,
+          paymentMethod: data.payment_method || "Spletno pla\u010Dilo / Kartica (Stripe)",
+          paymentDate: data.created_at ? new Date(data.created_at).toLocaleDateString("sl-SI") : void 0
+        });
+        await archiveAccountingDocument({
+          type: "SUBSCRIPTION",
+          invoiceNo,
+          issuedAt: data.created_at || /* @__PURE__ */ new Date(),
+          pdfBuffer,
+          netCents,
+          vatCents,
+          grossCents,
+          vatRate,
+          buyerId: data.user_id || "",
+          sellerId: "",
+          transactionId: data.source_id || doc.id,
+          auctionId: "",
+          issuer: "platform"
+        });
+        archived++;
+      } catch (subErr) {
+        errors.push(`Sub ${invoiceNo}: ${subErr.message}`);
+      }
+    }
+    const invDocsSnap = await adminDb.collection("documents").where("type", "==", "invoice").get();
+    for (const doc of invDocsSnap.docs) {
+      processed++;
+      const data = doc.data();
+      const txId = data.transaction_id;
+      if (!txId) continue;
+      try {
+        const txSnap = await safeGetDoc(adminDb.collection("transactions").doc(txId));
+        if (!txSnap.exists) continue;
+        const txData = txSnap.data();
+        const sInvNo = txData.sales_invoice_no;
+        const cInvNo = txData.commission_invoice_no;
+        if (!sInvNo || !cInvNo) continue;
+        const aucSnap = await safeGetDoc(adminDb.collection("auctions").doc(data.auction_id || txData.auction_id));
+        const aucData = aucSnap.exists ? aucSnap.data() : {};
+        const buyerSnapshot = txData.buyer_snapshot || {};
+        const sellerSnapshot = txData.seller_snapshot || {};
+        const transactionRecord = { id: txId, ...txData };
+        const existingSales = await safeGetDoc(adminDb.collection("accounting_documents").doc(sInvNo));
+        if (!existingSales.exists) {
+          const itemPrice = Number(transactionRecord.item_price ?? (transactionRecord.amount_total || 0));
+          const salesGrossCents = transactionRecord.item_cents ?? Math.round(itemPrice * 100);
+          const sType = sellerSnapshot.user_type || sellerSnapshot.userType || "individual";
+          const isSellerBusiness = sType === "business";
+          const sellerVatStatus = sellerSnapshot.vat_status || sellerSnapshot.vatStatus || (isSellerBusiness ? "exempt_small" : "private");
+          const buyerCountry = (buyerSnapshot.country_code || buyerSnapshot.countryCode || buyerSnapshot.country || "SI").trim().toUpperCase();
+          const buyerTaxId = buyerSnapshot.tax_id || buyerSnapshot.taxId || buyerSnapshot.vat_id || buyerSnapshot.vatId || "";
+          const isReverseChargeSales = isSellerBusiness && sellerVatStatus === "payer" && buyerCountry !== "SI" && buyerTaxId;
+          let salesVatRate = 0;
+          let salesNetCents = salesGrossCents;
+          let salesVatCents = 0;
+          if (isSellerBusiness && sellerVatStatus === "payer" && !isReverseChargeSales) {
+            salesVatRate = 22;
+            salesNetCents = Math.round(salesGrossCents / 1.22);
+            salesVatCents = salesGrossCents - salesNetCents;
+          }
+          const salesPdf = await generateInvoicePDF(transactionRecord, buyerSnapshot, sellerSnapshot, aucData, sInvNo, cInvNo, "sales");
+          await archiveAccountingDocument({
+            type: "SALES",
+            invoiceNo: sInvNo,
+            issuedAt: aucData?.paid_at || txData.created_at || /* @__PURE__ */ new Date(),
+            pdfBuffer: salesPdf,
+            netCents: salesNetCents,
+            vatCents: salesVatCents,
+            grossCents: salesGrossCents,
+            vatRate: salesVatRate,
+            buyerId: txData.buyer_id || data.user_id || "",
+            sellerId: aucData?.sellerId || aucData?.seller_id || txData.seller_id || "",
+            transactionId: txId,
+            auctionId: data.auction_id || txData.auction_id || "",
+            issuer: "seller_on_behalf"
+          });
+          archived++;
+        }
+        const existingComm = await safeGetDoc(adminDb.collection("accounting_documents").doc(cInvNo));
+        if (!existingComm.exists) {
+          const itemPrice = Number(transactionRecord.item_price ?? (transactionRecord.amount_total || 0));
+          const commNetCents = Math.round(Number(transactionRecord.platform_fee ?? itemPrice * 0.1 / 1.22) * 100);
+          const commVatRate = transactionRecord.vat_rate !== void 0 ? Number(transactionRecord.vat_rate) : 22;
+          const commVatCents = Math.round(Number(transactionRecord.vat_amount ?? commNetCents * (commVatRate / 100)) * 100);
+          const commGrossCents = commNetCents + commVatCents;
+          const commPdf = await generateInvoicePDF(transactionRecord, buyerSnapshot, sellerSnapshot, aucData, sInvNo, cInvNo, "commission");
+          await archiveAccountingDocument({
+            type: "COMMISSION",
+            invoiceNo: cInvNo,
+            issuedAt: aucData?.paid_at || txData.created_at || /* @__PURE__ */ new Date(),
+            pdfBuffer: commPdf,
+            netCents: commNetCents,
+            vatCents: commVatCents,
+            grossCents: commGrossCents,
+            vatRate: commVatRate,
+            buyerId: txData.buyer_id || data.user_id || "",
+            sellerId: "",
+            transactionId: txId,
+            auctionId: data.auction_id || txData.auction_id || "",
+            issuer: "platform"
+          });
+          archived++;
+        }
+      } catch (invErr) {
+        errors.push(`Invoice doc ${doc.id}: ${invErr.message}`);
+      }
+    }
+    return res.json({
+      success: true,
+      processedCount: processed,
+      archivedCount: archived,
+      errors: errors.slice(0, 10)
+    });
+  } catch (err) {
+    console.error("Error in /api/admin/accounting/backfill:", err);
+    return res.status(500).json({ error: err.message || "Napaka pri usklajevanju ra\u010Dunovodskega arhiva" });
+  }
+});
+app.get("/api/admin/accounting/documents", async (req, res) => {
+  let uid;
+  try {
+    uid = await authenticateFirebaseUser(req);
+  } catch (authErr) {
+    return res.status(401).json({ error: authErr.message || "Unauthorized" });
+  }
+  const adminUids = (process.env.ADMIN_UIDS || "admin,owner").split(",").map((s) => s.trim()).filter(Boolean);
+  let isAdmin = adminUids.includes(uid) || uid === "admin" || uid === "owner";
+  if (!isAdmin) {
+    const userDoc = await safeGetDoc(adminDb.collection("users").doc(uid));
+    if (userDoc.exists && userDoc.data()?.role === "admin") {
+      isAdmin = true;
+    }
+  }
+  if (!isAdmin) {
+    return res.status(403).json({ error: "Nimate administratorskih pravic." });
+  }
+  try {
+    const { year, month, type } = req.query;
+    let queryRef = adminDb.collection("accounting_documents");
+    if (year) {
+      queryRef = queryRef.where("year", "==", parseInt(String(year), 10));
+    }
+    if (month) {
+      const monthStr = String(month).padStart(2, "0");
+      queryRef = queryRef.where("month", "==", monthStr);
+    }
+    if (type && String(type).toUpperCase() !== "ALL") {
+      queryRef = queryRef.where("type", "==", String(type).toUpperCase());
+    }
+    const snap = await queryRef.get();
+    let totalNetCents = 0;
+    let totalVatCents = 0;
+    let totalGrossCents = 0;
+    const documents = [];
+    for (const doc of snap.docs) {
+      const data = doc.data();
+      totalNetCents += Number(data.net_cents || 0);
+      totalVatCents += Number(data.vat_cents || 0);
+      totalGrossCents += Number(data.gross_cents || 0);
+      documents.push({
+        id: doc.id,
+        ...data
+      });
+    }
+    documents.sort((a, b) => new Date(b.issued_at || b.created_at).getTime() - new Date(a.issued_at || a.created_at).getTime());
+    return res.json({
+      documents,
+      totals: {
+        totalNetCents,
+        totalVatCents,
+        totalGrossCents,
+        count: documents.length
+      }
+    });
+  } catch (err) {
+    console.error("Error in /api/admin/accounting/documents:", err);
+    return res.status(500).json({ error: err.message || "Napaka pri pridobivanju ra\u010Dunovodskih dokumentov" });
+  }
+});
+app.get("/api/admin/accounting/file", async (req, res) => {
+  let uid;
+  try {
+    uid = await authenticateFirebaseUser(req);
+  } catch (authErr) {
+    return res.status(401).json({ error: authErr.message || "Unauthorized" });
+  }
+  const adminUids = (process.env.ADMIN_UIDS || "admin,owner").split(",").map((s) => s.trim()).filter(Boolean);
+  let isAdmin = adminUids.includes(uid) || uid === "admin" || uid === "owner";
+  if (!isAdmin) {
+    const userDoc = await safeGetDoc(adminDb.collection("users").doc(uid));
+    if (userDoc.exists && userDoc.data()?.role === "admin") {
+      isAdmin = true;
+    }
+  }
+  if (!isAdmin) {
+    return res.status(403).json({ error: "Nimate administratorskih pravic." });
+  }
+  const invoiceNo = String(req.query.invoice_no || "").trim();
+  if (!invoiceNo) {
+    return res.status(400).json({ error: "Manjka \u0161tevilka ra\u010Duna (invoice_no)." });
+  }
+  try {
+    const docRef = adminDb.collection("accounting_documents").doc(invoiceNo);
+    const docSnap = await safeGetDoc(docRef);
+    if (!docSnap.exists) {
+      return res.status(404).json({ error: "Ra\u010Dun v arhivu ni bil najden." });
+    }
+    const data = docSnap.data();
+    const storagePath = data.storage_path;
+    let pdfBuffer = null;
+    if (storagePath) {
+      try {
+        const storage = getAdminStorage();
+        const bucketName = process.env.FIREBASE_STORAGE_BUCKET || "drazbesi.firebasestorage.app";
+        const file = storage.bucket(bucketName).file(storagePath);
+        const [downloaded] = await file.download();
+        pdfBuffer = downloaded;
+      } catch (dlErr) {
+        console.warn(`[accounting/file] Storage Download fehlgeschlagen fuer ${storagePath}:`, dlErr.message);
+      }
+    }
+    if (!pdfBuffer) {
+      if (data.type === "SUBSCRIPTION") {
+        const userDoc = await safeGetDoc(adminDb.collection("users").doc(data.buyer_id));
+        const userData = userDoc.exists ? userDoc.data() : {};
+        pdfBuffer = await generateSubscriptionInvoicePDF({
+          invoiceNo,
+          user: userData,
+          planId: data.package_id || "basic",
+          amount: data.gross_cents ? data.gross_cents / 100 : 20,
+          paymentDate: new Date(data.issued_at || data.created_at).toLocaleDateString("sl-SI")
+        });
+      } else {
+        const txSnap = await safeGetDoc(adminDb.collection("transactions").doc(data.transaction_id));
+        const txData = txSnap.exists ? txSnap.data() : {};
+        const aucSnap = await safeGetDoc(adminDb.collection("auctions").doc(data.auction_id || txData.auction_id));
+        const aucData = aucSnap.exists ? aucSnap.data() : {};
+        const part = data.type === "COMMISSION" ? "commission" : "sales";
+        pdfBuffer = await generateInvoicePDF(
+          { id: data.transaction_id, ...txData },
+          txData.buyer_snapshot || {},
+          txData.seller_snapshot || {},
+          aucData,
+          data.type === "SALES" ? invoiceNo : txData.sales_invoice_no,
+          data.type === "COMMISSION" ? invoiceNo : txData.commission_invoice_no,
+          part
+        );
+      }
+    }
+    const isInline = req.query.inline === "1";
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `${isInline ? "inline" : "attachment"}; filename="racun_${invoiceNo}.pdf"`);
+    res.setHeader("Cache-Control", "private, no-cache");
+    return res.send(pdfBuffer);
+  } catch (err) {
+    console.error("Error in /api/admin/accounting/file:", err);
+    return res.status(500).json({ error: err.message || "Napaka pri prenosu ra\u010Duna" });
+  }
+});
+app.get("/api/admin/accounting/export", async (req, res) => {
+  let uid;
+  try {
+    uid = await authenticateFirebaseUser(req);
+  } catch (authErr) {
+    return res.status(401).json({ error: authErr.message || "Unauthorized" });
+  }
+  const adminUids = (process.env.ADMIN_UIDS || "admin,owner").split(",").map((s) => s.trim()).filter(Boolean);
+  let isAdmin = adminUids.includes(uid) || uid === "admin" || uid === "owner";
+  if (!isAdmin) {
+    const userDoc = await safeGetDoc(adminDb.collection("users").doc(uid));
+    if (userDoc.exists && userDoc.data()?.role === "admin") {
+      isAdmin = true;
+    }
+  }
+  if (!isAdmin) {
+    return res.status(403).json({ error: "Nimate administratorskih pravic." });
+  }
+  const { year, month, type } = req.query;
+  if (!year || !month) {
+    return res.status(400).json({ error: "Leto (year) in mesec (month) sta obvezna parametra." });
+  }
+  const yearNum = parseInt(String(year), 10);
+  const monthStr = String(month).padStart(2, "0");
+  const typeFilter = String(type || "ALL").toUpperCase();
+  try {
+    let queryRef = adminDb.collection("accounting_documents").where("year", "==", yearNum).where("month", "==", monthStr);
+    if (typeFilter !== "ALL") {
+      queryRef = queryRef.where("type", "==", typeFilter);
+    }
+    const snap = await queryRef.get();
+    const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    if (docs.length > 300 && typeFilter === "ALL") {
+      return res.status(400).json({
+        error: "Zaradi \u010Dasovne omejitve stre\u017Enika pri ve\u010D kot 300 dokumentih izvozite vsako vrsto ra\u010Duna posebej (izberite filter SALES, COMMISSION ali SUBSCRIPTION)."
+      });
+    }
+    const zip = new import_jszip.default();
+    const storage = getAdminStorage();
+    const bucketName = process.env.FIREBASE_STORAGE_BUCKET || "drazbesi.firebasestorage.app";
+    let csvContent = '\uFEFF"\u0160tevilka";"Datum";"Vrsta";"Neto (\u20AC)";"DDV (\u20AC)";"Bruto (\u20AC)";"Stopnja DDV (%)";"Kupec";"Prodajalec"\r\n';
+    docs.sort((a, b) => new Date(a.issued_at || a.created_at).getTime() - new Date(b.issued_at || b.created_at).getTime());
+    for (const item of docs) {
+      let pdfBuffer = null;
+      if (item.storage_path) {
+        try {
+          const file = storage.bucket(bucketName).file(item.storage_path);
+          const [downloaded] = await file.download();
+          pdfBuffer = downloaded;
+        } catch (dlErr) {
+          console.warn(`[export] Storage Download fehlgeschlagen fuer ${item.storage_path}:`, dlErr.message);
+        }
+      }
+      if (!pdfBuffer) {
+        try {
+          if (item.type === "SUBSCRIPTION") {
+            const userDoc = await safeGetDoc(adminDb.collection("users").doc(item.buyer_id));
+            const userData = userDoc.exists ? userDoc.data() : {};
+            pdfBuffer = await generateSubscriptionInvoicePDF({
+              invoiceNo: item.invoice_no,
+              user: userData,
+              planId: item.package_id || "basic",
+              amount: item.gross_cents ? item.gross_cents / 100 : 20,
+              paymentDate: new Date(item.issued_at || item.created_at).toLocaleDateString("sl-SI")
+            });
+          } else {
+            const txSnap = await safeGetDoc(adminDb.collection("transactions").doc(item.transaction_id));
+            const txData = txSnap.exists ? txSnap.data() : {};
+            const aucSnap = await safeGetDoc(adminDb.collection("auctions").doc(item.auction_id || txData.auction_id));
+            const aucData = aucSnap.exists ? aucSnap.data() : {};
+            const part = item.type === "COMMISSION" ? "commission" : "sales";
+            pdfBuffer = await generateInvoicePDF(
+              { id: item.transaction_id, ...txData },
+              txData.buyer_snapshot || {},
+              txData.seller_snapshot || {},
+              aucData,
+              item.type === "SALES" ? item.invoice_no : txData.sales_invoice_no,
+              item.type === "COMMISSION" ? item.invoice_no : txData.commission_invoice_no,
+              part
+            );
+          }
+        } catch (genErr) {
+          console.error(`[export] Regenerierung fehlgeschlagen fuer ${item.invoice_no}:`, genErr.message);
+        }
+      }
+      if (pdfBuffer) {
+        zip.folder(item.type)?.file(`racun_${item.invoice_no}.pdf`, pdfBuffer);
+      }
+      const dateStr = item.issued_at ? new Date(item.issued_at).toLocaleDateString("sl-SI") : "";
+      const netStr = (Number(item.net_cents || 0) / 100).toFixed(2).replace(".", ",");
+      const vatStr = (Number(item.vat_cents || 0) / 100).toFixed(2).replace(".", ",");
+      const grossStr = (Number(item.gross_cents || 0) / 100).toFixed(2).replace(".", ",");
+      const vatRateStr = item.vat_rate !== void 0 ? String(item.vat_rate) : "0";
+      const buyerNameStr = String(item.buyer_id || "").replace(/"/g, '""');
+      const sellerNameStr = String(item.issuer === "platform" ? "Dizain d.o.o." : item.seller_id || "").replace(/"/g, '""');
+      csvContent += `"${item.invoice_no}";"${dateStr}";"${item.type}";"${netStr}";"${vatStr}";"${grossStr}";"${vatRateStr}";"${buyerNameStr}";"${sellerNameStr}"\r
+`;
+    }
+    zip.file("pregled.csv", csvContent);
+    const zipBuffer = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", `attachment; filename="racunovodstvo_${yearNum}_${monthStr}.zip"`);
+    return res.send(zipBuffer);
+  } catch (err) {
+    console.error("Error in /api/admin/accounting/export:", err);
+    return res.status(500).json({ error: err.message || "Napaka pri izvozu ra\u010Dunovodskega arhiva" });
   }
 });
 app.use("/api", (req, res) => {

@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Search, Globe, ChevronDown, User, PlusCircle, Trophy, Eye, CreditCard, Settings, LogOut, ChevronRight, Gavel, MessageSquare } from 'lucide-react';
+import { Search, Globe, ChevronDown, User, PlusCircle, Trophy, Eye, CreditCard, Settings, LogOut, ChevronRight, Gavel, MessageSquare, FileText } from 'lucide-react';
 import { ViewState, Region, Category, AuctionItem } from "../../types";
 import { useChat } from "../../context/ChatContext";
 import { SloveniaMap } from "@/src/components/ui/SloveniaMap";
@@ -31,6 +31,7 @@ export const Header: React.FC<{
   onWatchlist: () => void;
   onMessages: () => void;
   onAcceptTerms?: () => void;
+  onAdminAccounting?: () => void;
   activeView: ViewState;
   selectedRegion: Region | null;
   selectedCategory: Category | null;
@@ -45,7 +46,7 @@ export const Header: React.FC<{
   userEmail?: string;
   userProfilePicture?: string;
   userData?: any;
-}> = ({ isTermsBarReady = false, notifications = [], onMarkNotificationRead, onSelectNotification, onHome, onSearch, onRegionSelect, onCategorySelect, onLastChance, onLogin, onRegister, onLogout, onSettings, onSubscriptions, onCreateAuction, onMyWinnings, onMyBids, onMySold, onMyUnsold, onWatchlist, onMessages, onAcceptTerms, activeView, selectedRegion, selectedCategory, isLoggedIn, isAuthLoading, isVerified, language, onLanguageChange, t, auctions, newWinningsCount, userEmail, userProfilePicture, userData }) => {
+}> = ({ isTermsBarReady = false, notifications = [], onMarkNotificationRead, onSelectNotification, onHome, onSearch, onRegionSelect, onCategorySelect, onLastChance, onLogin, onRegister, onLogout, onSettings, onSubscriptions, onCreateAuction, onMyWinnings, onMyBids, onMySold, onMyUnsold, onWatchlist, onMessages, onAcceptTerms, activeView, selectedRegion, selectedCategory, isLoggedIn, isAuthLoading, isVerified, language, onLanguageChange, t, auctions, newWinningsCount, userEmail, userProfilePicture, userData, onAdminAccounting }) => {
   const { unreadMessageCount } = useChat();
 
   const [isRegOpen, setIsRegOpen] = useState(false);
@@ -303,6 +304,11 @@ export const Header: React.FC<{
                         <button onClick={() => { onWatchlist(); setIsUserMenuOpen(false); }} className="w-full flex items-center gap-3 px-6 py-4 hover:bg-slate-50 transition-colors text-xs font-black uppercase tracking-widest"><Eye size={18} /> {t('watchlist')}</button>
                         <button onClick={() => { onSubscriptions(); setIsUserMenuOpen(false); }} className="w-full flex items-center gap-3 px-6 py-4 hover:bg-slate-50 transition-colors text-xs font-black uppercase tracking-widest"><CreditCard size={18} /> {t('subscriptions')}</button>
                         <button onClick={() => { onSettings(); setIsUserMenuOpen(false); }} className="w-full flex items-center gap-3 px-6 py-4 hover:bg-slate-50 transition-colors text-xs font-black uppercase tracking-widest"><Settings size={18} /> {t('settings')}</button>
+                        {((userData?.role === 'admin' || userData?.isAdmin === true || ((import.meta.env.VITE_ADMIN_UIDS as string) || '').split(',').map((s: string) => s.trim()).includes(userData?.id))) && onAdminAccounting && (
+                          <button onClick={() => { onAdminAccounting(); setIsUserMenuOpen(false); }} className="w-full flex items-center gap-3 px-6 py-4 hover:bg-slate-50 transition-colors text-xs font-black uppercase tracking-widest text-[#0A1128] border-t border-slate-100">
+                            <FileText size={18} className="text-[#FEBA4F]" /> Računovodstvo
+                          </button>
+                        )}
                         <button onClick={() => { onLogout(); setIsUserMenuOpen(false); }} className="w-full flex items-center gap-3 px-6 py-4 hover:bg-red-50 text-red-600 transition-colors text-xs font-black uppercase tracking-widest border-t border-slate-100"><LogOut size={18} /> {t('logout')}</button>
                     </div>
                   )}

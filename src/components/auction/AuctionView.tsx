@@ -13,6 +13,7 @@ import { PaymentTimeline } from "../orders/PaymentTimeline";
 import { useFeePreview } from "../../lib/useFeePreview";
 import { formatAttributeLabel } from "../../lib/categoryAttributes";
 import { toast } from 'sonner';
+import { WinnerActions } from './WinnerActions';
 
 const TimeBox = ({ value, label }: { value: number, label: string }) => (
   <div className="flex flex-col items-center justify-center bg-white/10 rounded-xl w-14 h-14 md:w-16 md:h-16 border border-white/10">
@@ -21,7 +22,28 @@ const TimeBox = ({ value, label }: { value: number, label: string }) => (
   </div>
 );
 
-export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onSellerClick, t, language, isVerified, currentPlan, isWatched, onWatchToggle, currentUserId, myMax, myBidsMap }: { 
+export default function AuctionView({ 
+  item, 
+  onBack, 
+  onBidSubmit, 
+  onCheckout, 
+  onSellerClick, 
+  t, 
+  language, 
+  isVerified, 
+  currentPlan, 
+  isWatched, 
+  onWatchToggle, 
+  currentUserId, 
+  myMax, 
+  myBidsMap,
+  user,
+  setReceiptConfirmModal,
+  openReviewModal,
+  canLeaveReview,
+  onOpenMessages,
+  onOpenInvoice
+}: { 
   item: any, 
   onBack: () => void, 
   onBidSubmit: (item: any, amount: number) => Promise<"error" | "ok" | "outbid" | "login_required" | "cancelled">,
@@ -35,7 +57,13 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
   onWatchToggle?: () => void,
   currentUserId?: string,
   myMax?: number,
-  myBidsMap?: Map<string, number>
+  myBidsMap?: Map<string, number>,
+  user?: any,
+  setReceiptConfirmModal?: (data: any) => void,
+  openReviewModal?: (item: any) => void,
+  canLeaveReview?: (item: any) => boolean,
+  onOpenMessages?: (auctionId: string) => void,
+  onOpenInvoice?: (auction: any) => void
 }) {
   const [auctionData, setAuctionData] = useState<any>(item);
 
@@ -363,6 +391,22 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                         <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest bg-white/5 px-3 py-1 rounded-lg">
                           Plačano dne: {new Date(currentAuction.paid_at).toLocaleDateString('sl-SI', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                         </span>
+                      )}
+
+                      {/* WinnerActions nur fuer den Gewinner rendern (DEL D) */}
+                      {isWinner && setReceiptConfirmModal && openReviewModal && canLeaveReview && (
+                        <div className="w-full mt-4 pt-4 border-t border-white/10 text-slate-900">
+                          <WinnerActions 
+                            wonItem={currentAuction}
+                            user={user}
+                            isPaid={true}
+                            setReceiptConfirmModal={setReceiptConfirmModal}
+                            openReviewModal={openReviewModal}
+                            canLeaveReview={canLeaveReview}
+                            onOpenMessages={onOpenMessages}
+                            onOpenInvoice={onOpenInvoice}
+                          />
+                        </div>
                       )}
                     </div>
                   ) : (

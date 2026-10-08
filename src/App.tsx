@@ -23,6 +23,7 @@ import { Header } from "@/src/components/layout/Header";
 import { Footer } from "@/src/components/layout/Footer";
 import { CheckoutModal } from "@/src/components/modals/CheckoutModal";
 import { SettingsView } from "@/src/components/profile/SettingsView";
+import { AccountingView } from "@/src/components/admin/AccountingView";
 import { ConfirmBidModal } from "@/src/components/modals/ConfirmBidModal";
 import { MessagesView } from "@/src/components/profile/MessagesView";
 import { MissingInvoiceDataModal } from "@/src/components/modals/MissingInvoiceDataModal";
@@ -39,6 +40,7 @@ import { getAuthHeaders } from "./lib/authFetch";
 import { friendlyError } from "./lib/friendlyError";
 import { sendEmailVerificationAction } from "@/src/actions/auth-emails";
 import { canLeaveReview } from "./lib/reviewEligibility";
+import { WinnerActions } from "./components/auction/WinnerActions";
 import { 
   createAuctionAction, 
   confirmCheckoutSessionAction, 
@@ -341,6 +343,58 @@ function slugToSettingsTab(slug: string): 'profile' | 'personal' | 'stripe' {
   }
 }
 
+// Hilfsfunktion zur Pruefung, ob eine Auktion geoeffnet werden darf (DEL E)
+export function canViewAuction(auction: any, currentUser: any, currentUserData?: any): boolean {
+  if (!auction) return false;
+
+  // Pruefen, ob die Auktion beendet bzw. abgeschlossen ist
+  const status = auction.status ? String(auction.status).toLowerCase() : '';
+  const isStatusEnded = ['completed', 'cancelled', 'paid', 'sold', 'unsold'].includes(status);
+
+  const endTimeMs = auction.endTime
+    ? new Date(auction.endTime).getTime()
+    : (auction.end_time ? new Date(auction.end_time).getTime() : 0);
+  const isTimeEnded = endTimeMs > 0 && Date.now() > endTimeMs;
+
+  const isAuctionClosed = isStatusEnded || isTimeEnded;
+
+  // Aktive Auktionen duerfen von allen Nutzern (auch Gaesten) geoeffnet werden
+  if (!isAuctionClosed) {
+    return true;
+  }
+
+  // Bei geschlossenen Auktionen duerfen nur Verkaeufer, Gewinner oder Administratoren die Detailansicht oeffnen
+  if (!currentUser && !currentUserData) {
+    return false;
+  }
+
+  const userId = currentUser?.uid || currentUser?.id || currentUserData?.id;
+  if (!userId) {
+    return false;
+  }
+
+  // Verkaeufer-Pruefung
+  const sellerId = auction.sellerId || auction.seller_id || (typeof auction.seller === 'string' ? auction.seller : null);
+  if (sellerId && sellerId === userId) {
+    return true;
+  }
+
+  // Gewinner-Pruefung
+  const winnerId = auction.winner_id || auction.winnerId || auction.highestBidder;
+  if (winnerId && winnerId === userId) {
+    return true;
+  }
+
+  // Administrator-Pruefung (VITE_ADMIN_UIDS oder Rollen-Attribut)
+  const envAdminUids = ((import.meta.env.VITE_ADMIN_UIDS as string) || '').split(',').map((s: string) => s.trim()).filter(Boolean);
+  const isAdmin = envAdminUids.includes(userId) || currentUserData?.role === 'admin' || currentUserData?.isAdmin === true || currentUser?.role === 'admin';
+  if (isAdmin) {
+    return true;
+  }
+
+  return false;
+}
+
 const WonAuctionItem: React.FC<{
   wonItem: any;
   language: string;
@@ -530,187 +584,60 @@ const WonAuctionItem: React.FC<{
               )}
             </div>
 
-            <div className="flex flex-col sm:flex-row gap-3 w-full shrink-0">
-              <div className="flex flex-col gap-3 flex-1 min-w-[140px]">
-                <button
-                  onClick={() => {
-                    navigateTo("detail", { selectedItem: wonItem });
-                  }}
-                  className="bg-slate-100 text-[#0A1128] px-4 py-3 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-[#FEBA4F] transition-all shadow-sm flex items-center justify-center gap-2 h-[42px]"
-                >
-                  Odpri dražbo
-                </button>
-                
-                <button
-                  onClick={async () => {
-                    let seller = transactionPartners.get(wonItem.id);
-                    if (!seller) {
-                      try {
-                        const token = await user?.getIdToken();
-                        const res = await fetch(`/api/transactions/partner-info?auction_id=${wonItem.id}`, {
-                          headers: { 'Authorization': `Bearer ${token}` }
+            {/* Gemeinsame WinnerActions-Komponente fuer den Gewinner (DEL D) */}
+            <WinnerActions
+              wonItem={wonItem}
+              user={user}
+              isPaid={isPaid}
+              setReceiptConfirmModal={setReceiptConfirmModal}
+              openReviewModal={openReviewModal}
+              canLeaveReview={canLeaveReview}
+              onOpenMessages={(auctionId) => {
+                setActiveConversationId(auctionId);
+                setActiveView("messages");
+                window.scrollTo({
+                  top: 0,
+                  behavior: "instant",
+                });
+              }}
+              onOpenInvoice={async () => {
+                let seller = transactionPartners.get(wonItem.id);
+                if (!seller) {
+                  try {
+                    const token = await user?.getIdToken();
+                    const res = await fetch(`/api/transactions/partner-info?auction_id=${wonItem.id}`, {
+                      headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    if (res.ok) {
+                      const data = await res.json();
+                      if (data?.success && data?.partner) {
+                        seller = data.partner;
+                        setTransactionPartners(prev => {
+                          const next = new Map(prev);
+                          next.set(wonItem.id, data.partner);
+                          return next;
                         });
-                        if (res.ok) {
-                          const data = await res.json();
-                          if (data?.success && data?.partner) {
-                            seller = data.partner;
-                            setTransactionPartners(prev => {
-                              const next = new Map(prev);
-                              next.set(wonItem.id, data.partner);
-                              return next;
-                            });
-                          }
-                        }
-                      } catch (e) {
-                        console.warn("Error fetching seller details:", e);
                       }
                     }
-                    setInvoiceModalData({
-                      isOpen: true,
-                      auction: wonItem,
-                      seller: seller || null,
-                      buyer: userData
-                    });
-                  }}
-                  className="bg-slate-100 text-[#0A1128] border-2 border-slate-200 px-4 py-3 rounded-2xl font-black uppercase tracking-widest text-xs hover:border-slate-400 hover:bg-slate-200 transition-all flex items-center justify-center gap-1.5 h-[42px] mt-auto"
-                >
-                  <FileText size={14} /> Račun
-                </button>
-                
-                <button
-                  onClick={() => setTimelineModalAuctionId(wonItem.id)}
-                  className="bg-slate-100 text-[#0A1128] border-2 border-slate-200 px-4 py-3 rounded-2xl font-black uppercase tracking-widest text-xs hover:border-[#FEBA4F] transition-all flex items-center justify-center gap-1.5 h-[42px] mt-2"
-                >
-                  <Clock size={14} /> Status plačila
-                </button>
-              </div>
-
-              <div className="flex flex-col gap-3 flex-1 min-w-[140px]">
-              {/* Nur bei Abholung */}
-              {wonItem.delivery_method === "pickup" ? (
-                  <button
-                    onClick={() => {
-                      setActiveConversationId(wonItem.id);
-                      setActiveView("messages");
-                      window.scrollTo({
-                        top: 0,
-                        behavior: "instant",
-                      });
-                    }}
-                    className="bg-[#FEBA4F] text-[#0A1128] px-4 py-3 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-[#0A1128] hover:text-[#FEBA4F] transition-all flex items-center justify-center gap-2 h-[42px]"
-                  >
-                    <MessageSquare size={14} /> Sporočila
-                  </button>
-                ) : (
-                  <div className="h-[42px] hidden sm:block"></div>
-                )}
-
-                <div className="flex flex-col items-center justify-center gap-2 mt-auto w-full">
-                  {wonItem.buyer_received ? (
-                    <div className="text-green-500 font-bold text-[10px] uppercase flex items-center gap-1 w-full justify-center bg-green-50 py-2 rounded-xl border border-green-100 h-[42px]">
-                      <CheckCircle2 size={12} /> Predmet prejet
-                    </div>
-                  ) : (
-                    <>
-                      {/* Nur bei Abholung */}
-                      {wonItem.delivery_method === "pickup" && isPaid && (
-                        <button
-                          onClick={async () => {
-                            if (pickupPin) {
-                              setPickupPin(null);
-                              return;
-                            }
-                            setPinLoading(true);
-                            try {
-                              const token = await user?.getIdToken();
-                              const res = await fetch(`/api/orders/${wonItem.id}/pickup-pin`, {
-                                headers: { Authorization: `Bearer ${token}` }
-                              });
-                              const data = await res.json().catch(() => ({}));
-                              if (res.ok && data?.pin) {
-                                setPickupPin(data.pin);
-                              } else {
-                                toast.error(data.error || "Napaka pri pridobivanju prevzemne kode.");
-                              }
-                            } catch (err: any) {
-                              toast.error(err?.message || "Napaka pri pridobivanju prevzemne kode.");
-                            } finally {
-                              setPinLoading(false);
-                            }
-                          }}
-                          disabled={pinLoading}
-                          className="bg-amber-100 text-[#0A1128] border-2 border-[#FEBA4F] px-4 py-2 rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-[#FEBA4F] transition-all w-full h-[42px] flex items-center justify-center gap-1.5"
-                        >
-                          <Key size={14} className="text-[#0A1128]" />
-                          {pinLoading ? "Nalaganje..." : pickupPin ? "Skrij kodo" : "Pokaži prevzemno kodo"}
-                        </button>
-                      )}
-                      <button
-                        onClick={() => {
-                          setReceiptConfirmModal({
-                            isOpen: true,
-                            auctionId: wonItem.id,
-                            sellerId: wonItem.sellerId,
-                          });
-                        }}
-                        className="bg-white border-2 border-slate-200 text-[#0A1128] px-4 py-2 rounded-xl font-bold text-[10px] uppercase tracking-widest hover:border-[#FEBA4F] transition-all w-full h-[42px] flex items-center justify-center"
-                      >
-                        Potrdi prejem
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-3 flex-1 min-w-[140px]">
-                {(wonItem as any).review_submitted ? (
-                  <button
-                    onClick={() => openReviewModal(wonItem)}
-                    className="bg-green-50 text-green-700 border-2 border-green-200 px-4 py-3 rounded-2xl font-black uppercase tracking-widest text-[11px] hover:bg-green-100 transition-all flex items-center justify-center gap-1.5 h-[42px] shadow-sm"
-                    title="Vaša oddana ocena za prodajalca"
-                  >
-                    <Star size={14} className="text-[#FEBA4F] fill-[#FEBA4F]" />
-                    <span>Ocenjeno ({(wonItem as any).review_rating || 5}★)</span>
-                  </button>
-                ) : canLeaveReview(wonItem) ? (
-                  <button
-                    onClick={() => openReviewModal(wonItem)}
-                    className="bg-[#0A1128] text-[#FEBA4F] hover:bg-[#FEBA4F] hover:text-[#0A1128] border-2 border-[#FEBA4F]/40 px-4 py-3 rounded-2xl font-black uppercase tracking-widest text-[11px] transition-all shadow-md flex items-center justify-center gap-1.5 h-[42px]"
-                    title="Oddajte oceno za prodajalca"
-                  >
-                    <Star size={14} className="fill-current" />
-                    <span>Oceni prodajalca</span>
-                  </button>
-                ) : (
-                  <button
-                    disabled
-                    className="bg-slate-100 text-slate-400 border border-slate-200 px-4 py-3 rounded-2xl font-black uppercase tracking-widest text-[11px] flex items-center justify-center gap-1.5 h-[42px] cursor-not-allowed opacity-60"
-                    title="Oceno lahko oddate po potrditvi prejema."
-                  >
-                    <Star size={14} className="text-slate-400" />
-                    <span>Oceni prodajalca</span>
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {pickupPin && (
-              <div className="w-full bg-amber-50 border-2 border-[#FEBA4F] rounded-2xl p-4 mt-3 flex flex-col items-center text-center gap-2">
-                <span className="text-xs font-black uppercase text-slate-500 tracking-wider">Prevzemna koda za prodajalca</span>
-                <div className="font-mono text-3xl font-black tracking-[0.3em] text-[#0A1128] py-1 select-all">
-                  {pickupPin}
-                </div>
-                <p className="text-xs text-slate-600 font-bold max-w-md">
-                  Kodo pokažite prodajalcu šele po pregledu predmeta. Z razkritjem kode potrjujete, da je predmet skladen z opisom, in prodajalec prejme izplačilo.
-                </p>
-                <button
-                  onClick={() => setPickupPin(null)}
-                  className="text-xs font-bold text-slate-500 underline hover:text-[#0A1128] mt-1"
-                >
-                  Skrij kodo
-                </button>
-              </div>
-            )}
+                  } catch (e) {
+                    console.warn("Error fetching seller details:", e);
+                  }
+                }
+                setInvoiceModalData({
+                  isOpen: true,
+                  auction: wonItem,
+                  seller: seller || null,
+                  buyer: userData
+                });
+              }}
+              onOpenDetail={(item) => {
+                navigateTo("detail", { selectedItem: item });
+              }}
+              onOpenTimeline={(auctionId) => {
+                setTimelineModalAuctionId(auctionId);
+              }}
+              layout="card"
+            />
           </div>
         ) : isOverdue ? (
           <div className="flex flex-col gap-2 w-full lg:w-auto min-w-[220px]">
@@ -926,6 +853,12 @@ const MainApp: React.FC = () => {
       checkPath.startsWith("/abonnements")
     )
       return "subscriptions";
+    if (
+      checkPath.startsWith("/admin/racunovodstvo") ||
+      checkPath.startsWith("/admin/accounting") ||
+      checkPath.startsWith("/admin/buchhaltung")
+    )
+      return "adminAccounting";
     if (checkPath.startsWith("/prijava") || checkPath.startsWith("/login") || checkPath.startsWith("/anmelden"))
       return "login";
     if (
@@ -1217,12 +1150,22 @@ const MainApp: React.FC = () => {
         if (overrides.republishData !== undefined) setRepublishData(overrides.republishData);
       }
 
+      // Zugriffsschutz fuer geschlossene Auktionen (DEL E)
+      if (targetView === "detail") {
+        const itemToCheck = overrides?.selectedItem !== undefined ? overrides.selectedItem : selectedItem;
+        if (itemToCheck && !canViewAuction(itemToCheck, auth.currentUser, userData)) {
+          toast.info("Dražba je zaključena.");
+          setActiveView("grid");
+          return;
+        }
+      }
+
       setActiveView(targetView);
       if (options?.scrollToTop !== false) {
         window.scrollTo({ top: 0, behavior: "instant" });
       }
     },
-    [captureCurrentNavState]
+    [captureCurrentNavState, userData, selectedItem]
   );
 
   // Weiterleitung zur Zustimmung, wenn der Server TERMS_REQUIRED meldet
@@ -1307,7 +1250,8 @@ const MainApp: React.FC = () => {
       myUnsold: { SLO: "/neprodano", EN: "/my-unsold", DE: "/unverkauft" },
       watchlist: { SLO: "/seznam-zelja", EN: "/watchlist", DE: "/beobachtungsliste" },
       lastChance: { SLO: "/zadnja-priloznost", EN: "/last-chance", DE: "/letzte-chance" },
-      verification: { SLO: "/verifikacija", EN: "/verification", DE: "/verifizierung" }
+      verification: { SLO: "/verifikacija", EN: "/verification", DE: "/verifizierung" },
+      adminAccounting: { SLO: "/admin/racunovodstvo", EN: "/admin/accounting", DE: "/admin/buchhaltung" }
     };
 
     if (localizedPaths[activeView]) {
@@ -1450,14 +1394,18 @@ const MainApp: React.FC = () => {
       if (regionsToSet.length > 0) setSelectedRegions(regionsToSet);
       setSettingsTab(tabToSet);
 
+      const drazbaQueryId = searchParams.get("drazba");
+      const isAuctionPath = path.startsWith("/drazba") || path.startsWith("/auction") || path.startsWith("/auktion");
+      const targetAuctionId = isAuctionPath ? id : (drazbaQueryId || null);
+
       if (path.startsWith("/sporocila") || path.startsWith("/messages") || path.startsWith("/nachrichten")) {
         if (id) setActiveConversationId(id);
         setActiveView("messages");
-      } else if (path.startsWith("/drazba") || path.startsWith("/auction") || path.startsWith("/auktion")) {
-        if (id) {
-          let found = [].find((a) => a.id === id);
+      } else if (isAuctionPath || drazbaQueryId) {
+        if (targetAuctionId) {
+          let found = [].find((a) => a.id === targetAuctionId);
           if (!found) {
-            const snap = await getDoc(doc(db, 'auctions', id));
+            const snap = await getDoc(doc(db, 'auctions', targetAuctionId));
             const data: any = snap.exists() ? { id: snap.id, ...snap.data() } : null;
             if (data) {
               found = {
@@ -1476,8 +1424,13 @@ const MainApp: React.FC = () => {
             }
           }
           if (found) {
-            setSelectedItem(found);
-            setActiveView("detail");
+            if (!canViewAuction(found, auth.currentUser, null)) {
+              toast.info("Dražba je zaključena.");
+              setActiveView("grid");
+            } else {
+              setSelectedItem(found);
+              setActiveView("detail");
+            }
           } else {
             setActiveView("grid");
           }
@@ -1702,24 +1655,49 @@ const MainApp: React.FC = () => {
   const lastSessionCheckRef = useRef(0);
   const isCheckingSessionRef = useRef(false);
   const [user, setUser] = useState<any>(auth.currentUser);
+  const markNotificationReadRef = useRef<((id?: string, all?: boolean) => void) | null>(null);
 
-  // Behandlung von Klicks auf Benachrichtigungen
+  // Behandlung von Klicks auf Benachrichtigungen (DEL E)
   const handleSelectNotification = useCallback((notification: any) => {
     if (!notification) return;
+    if (notification.type === 'lost') {
+      if (notification.id) {
+        markNotificationReadRef.current?.(notification.id);
+      }
+      toast.info("Dražba je zaključena.");
+      return;
+    }
     if (notification.type === 'won') {
       navigateTo("winnings");
     } else if (notification.auction_id) {
       const target = auctions.find((a) => a.id === notification.auction_id);
       if (target) {
+        if (!canViewAuction(target, user, userData)) {
+          toast.info("Dražba je zaključena.");
+          navigateTo("grid");
+          return;
+        }
         navigateTo("detail", { selectedItem: target });
       } else {
         navigateTo("grid");
       }
     }
-  }, [auctions, navigateTo]);
+  }, [auctions, navigateTo, user, userData]);
+
+  // Schutz fuer geschlossene Auktionen bei direkter Ansicht (DEL E)
+  useEffect(() => {
+    if (activeView === "detail" && selectedItem) {
+      const current = auctions.find((a) => a.id === selectedItem.id) || selectedItem;
+      if (!canViewAuction(current, user, userData)) {
+        toast.info("Dražba je zaključena.");
+        setActiveView("grid");
+      }
+    }
+  }, [activeView, selectedItem, auctions, user, userData]);
 
   // Hook für Echtzeit-Polling von Benachrichtigungen
   const { notifications, markRead: markNotificationRead } = useNotifications(user, handleSelectNotification);
+  markNotificationReadRef.current = markNotificationRead;
 
   useEffect(() => {
     let unsubscribeSnap: (() => void) | null = null;
@@ -2050,6 +2028,38 @@ const MainApp: React.FC = () => {
       console.warn("Error fetching transaction partner info:", e);
     }
   }, [user]);
+
+  // Handler zum Oeffnen der Rechnung fuer eine Auktion (DEL D)
+  const handleOpenInvoice = useCallback(async (auction: any) => {
+    let seller = transactionPartners.get(auction.id);
+    if (!seller && user) {
+      try {
+        const token = await user.getIdToken();
+        const res = await fetch(`/api/transactions/partner-info?auction_id=${auction.id}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.success && data.partner) {
+            seller = data.partner;
+            setTransactionPartners((prev) => {
+              const next = new Map(prev);
+              next.set(auction.id, data.partner);
+              return next;
+            });
+          }
+        }
+      } catch (e) {
+        console.warn("Fehler beim Abrufen der Partner-Details fuer Rechnung:", e);
+      }
+    }
+    setInvoiceModalData({
+      isOpen: true,
+      auction: auction,
+      seller: seller || null,
+      buyer: userData
+    });
+  }, [user, transactionPartners, userData]);
 
   // Load transaction partner info automatically for paid auctions the user won or sold
   useEffect(() => {
@@ -3508,9 +3518,14 @@ const MainApp: React.FC = () => {
       break;
     case "detail":
       if (selectedItem) {
+        const detailItem = auctions.find(a => a.id === selectedItem.id) || selectedItem;
+        if (!canViewAuction(detailItem, user, userData)) {
+          content = null;
+          break;
+        }
         content = (
           <AuctionView
-            item={auctions.find(a => a.id === selectedItem.id) || selectedItem}
+            item={detailItem}
             t={t}
             onSellerClick={(sellerInput) => {
               const currentAuction = auctions.find(a => a.id === selectedItem.id) || selectedItem;
@@ -3551,6 +3566,19 @@ const MainApp: React.FC = () => {
               });
               setIsCheckoutOpen(true);
             }}
+            user={user}
+            setReceiptConfirmModal={setReceiptConfirmModal}
+            openReviewModal={openReviewModal}
+            canLeaveReview={canLeaveReview}
+            onOpenMessages={(auctionId: string) => {
+              setActiveConversationId(auctionId);
+              setActiveView("messages");
+              window.scrollTo({
+                top: 0,
+                behavior: "instant",
+              });
+            }}
+            onOpenInvoice={handleOpenInvoice}
           />
         );
       }
@@ -3685,6 +3713,15 @@ const MainApp: React.FC = () => {
           onNavigateToCreateAuction={() => navigateTo("createAuction")}
           activeTab={settingsTab}
           setActiveTab={setSettingsTab}
+          onBack={() => goBack("grid")}
+        />
+      );
+      break;
+    case "adminAccounting":
+      content = (
+        <AccountingView
+          user={user}
+          userData={userData}
           onBack={() => goBack("grid")}
         />
       );
@@ -5409,6 +5446,9 @@ const MainApp: React.FC = () => {
           }}
           onSubscriptions={() => {
             navigateTo("subscriptions");
+          }}
+          onAdminAccounting={() => {
+            navigateTo("adminAccounting");
           }}
           onCreateAuction={() => {
             navigateTo("createAuction", { createMode: 'choice', republishData: null });
