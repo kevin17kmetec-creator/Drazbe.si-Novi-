@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, CheckCircle, AlertTriangle } from 'lucide-react';
+import { doc, getDoc } from 'firebase/firestore';
+import { db, auth } from '../../lib/firebase';
 import { AuctionItem, SubscriptionTier } from '../../types';
 import { Portal } from '../ui/Portal';
 import { useFeePreview } from '../../lib/useFeePreview';
@@ -11,16 +13,44 @@ export const ConfirmBidModal: React.FC<{
   initialBidAmount: number;
   currentPlan: SubscriptionTier;
   t: any;
-  onConfirm: (amount: number, taxData?: any) => Promise<void>;
+  onConfirm: (amount: number, taxData?: any, acceptedBidTerms?: boolean) => Promise<void>;
   userData: any;
-}> = ({ isOpen, onClose, item, initialBidAmount, currentPlan, t, onConfirm, userData }) => {
+  onOpenTerms?: () => void;
+}> = ({ isOpen, onClose, item, initialBidAmount, currentPlan, t, onConfirm, userData, onOpenTerms }) => {
   const [bidAmount, setBidAmount] = useState<string>(initialBidAmount.toString());
   const [loading, setLoading] = useState(false);
   const [timeLeft, setTimeLeft] = useState(0);
+  const [hasBidOnAuction, setHasBidOnAuction] = useState<boolean>(true);
+  const [acceptedBidTerms, setAcceptedBidTerms] = useState<boolean>(false);
 
   useEffect(() => {
     setBidAmount(initialBidAmount.toString());
   }, [initialBidAmount, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !item?.id || !auth.currentUser?.uid) return;
+    let isMounted = true;
+    const checkMyBid = async () => {
+      try {
+        const myBidSnap = await getDoc(doc(db, 'users', auth.currentUser!.uid, 'my_bids', item.id));
+        if (!isMounted) return;
+        const exists = myBidSnap.exists();
+        setHasBidOnAuction(exists);
+        if (exists) {
+          setAcceptedBidTerms(true);
+        } else {
+          setAcceptedBidTerms(false);
+        }
+      } catch (e) {
+        if (isMounted) {
+          setHasBidOnAuction(false);
+          setAcceptedBidTerms(false);
+        }
+      }
+    };
+    checkMyBid();
+    return () => { isMounted = false; };
+  }, [isOpen, item?.id]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -46,11 +76,13 @@ export const ConfirmBidModal: React.FC<{
   const m = Math.floor((timeLeft % 3600) / 60);
   const s = Math.floor(timeLeft % 60);
 
+  const isSubmitDisabled = loading || previewLoading || !!previewError || (!hasBidOnAuction && !acceptedBidTerms);
+
   const handleConfirm = async () => {
-    if (loading || previewLoading || !!previewError || !previewData) return;
+    if (isSubmitDisabled || !previewData) return;
     setLoading(true);
     try {
-      await onConfirm(numBid, previewData);
+      await onConfirm(numBid, previewData, acceptedBidTerms);
     } catch (e) {
       console.error("Bid submission error:", e);
       onClose();
@@ -116,7 +148,7 @@ export const ConfirmBidModal: React.FC<{
                   </div>
                   {previewData?.feeIsMinimum && (
                     <p className="text-[10px] text-slate-400 mt-0.5">
-                      Uporabljena je minimalna provizija 0,70 €.
+                      Uporabljena je minimalna provizija 1,00 €.
                     </p>
                   )}
                   <div className="flex justify-between items-center text-slate-500 text-sm">
@@ -140,8 +172,31 @@ export const ConfirmBidModal: React.FC<{
               </p>
             </div>
 
-            <div className="border-t border-slate-300 pt-2 mb-6">
-              <p className="text-xs text-slate-500">{t('marginScheme')}</p>
+            <div className="border-t border-slate-300 pt-2 mb-4">
+              <p className="text-xs text-slate-500 mb-3">{t('marginScheme')}</p>
+
+              {!hasBidOnAuction && (
+                <label className="flex items-start gap-2 text-xs text-slate-700 font-medium cursor-pointer select-none bg-slate-50 p-3 rounded-xl border border-slate-200">
+                  <input
+                    type="checkbox"
+                    checked={acceptedBidTerms}
+                    onChange={(e) => setAcceptedBidTerms(e.target.checked)}
+                    className="mt-0.5 rounded border-slate-300 text-[#0A1128] focus:ring-[#FEBA4F]"
+                  />
+                  <span>
+                    {t('bidTermsCheckbox') || 'Strinjam se s Splošnimi pogoji in vem, da je moja ponudba pravno zavezujoča.'}{' '}
+                    {onOpenTerms && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.preventDefault(); onOpenTerms(); }}
+                        className="text-amber-600 underline font-bold hover:text-amber-700"
+                      >
+                        {t('terms') || 'Splošni pogoji'}
+                      </button>
+                    )}
+                  </span>
+                </label>
+              )}
             </div>
 
             <div className="flex gap-2">
@@ -156,8 +211,8 @@ export const ConfirmBidModal: React.FC<{
               </div>
               <button 
                 onClick={handleConfirm}
-                disabled={loading || previewLoading || !!previewError}
-                className={`flex-[2] text-white font-black uppercase tracking-widest text-xs py-3 px-4 rounded-2xl transition-all shadow-xl flex items-center justify-center gap-2 ${loading || previewLoading || !!previewError ? 'bg-slate-400 cursor-not-allowed' : 'bg-[#0A1128] hover:bg-[#FEBA4F] hover:text-[#0A1128]'}`}
+                disabled={isSubmitDisabled}
+                className={`flex-[2] text-white font-black uppercase tracking-widest text-xs py-3 px-4 rounded-2xl transition-all shadow-xl flex items-center justify-center gap-2 ${isSubmitDisabled ? 'bg-slate-400 cursor-not-allowed' : 'bg-[#0A1128] hover:bg-[#FEBA4F] hover:text-[#0A1128]'}`}
               >
                 {loading ? (
                   <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />

@@ -5045,7 +5045,7 @@ const MainApp: React.FC = () => {
     if (bidResolverRef.current) bidResolverRef.current("cancelled");
   };
 
-  async function handleConfirmBid(confirmedAmount?: number) {
+  async function handleConfirmBid(confirmedAmount?: number, taxData?: any, acceptedBidTerms?: boolean) {
     if (!pendingBid) {
       if (bidResolverRef.current) bidResolverRef.current("error");
       return;
@@ -5069,6 +5069,7 @@ const MainApp: React.FC = () => {
         body: JSON.stringify({
           auction_id: item.id,
           amount,
+          accepted_bid_terms: acceptedBidTerms ?? true
         }),
       });
 
@@ -5563,6 +5564,7 @@ const MainApp: React.FC = () => {
             t={t}
             onConfirm={handleConfirmBid}
             userData={userData}
+            onOpenTerms={() => setActiveLegal('terms')}
           />
         )}
         {activeLegal && (

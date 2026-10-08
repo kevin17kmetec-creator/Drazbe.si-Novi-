@@ -31,6 +31,7 @@ var app_exports = {};
 __export(app_exports, {
   app: () => app,
   default: () => app_default,
+  isAdminUser: () => isAdminUser,
   recordSaleCompletion: () => recordSaleCompletion
 });
 module.exports = __toCommonJS(app_exports);
@@ -467,21 +468,20 @@ function getEffectiveTier(userData, nowMs = Date.now()) {
   }
   return tier;
 }
-var FIXED_PLATFORM_FEE_CENTS = 30;
 var MIN_PLATFORM_FEE_CENTS = 100;
 function calculatePlatformFeeCents(itemPriceCents, tier) {
   if (!itemPriceCents || itemPriceCents <= 0) return 0;
-  let b1Bp = 800;
-  let b2Bp = 500;
-  let b3Bp = 400;
+  let b1Bp = 1e3;
+  let b2Bp = 600;
+  let b3Bp = 450;
   if (tier === "PRO") {
-    b1Bp = 400;
-    b2Bp = 350;
-    b3Bp = 300;
+    b1Bp = 500;
+    b2Bp = 400;
+    b3Bp = 320;
   } else if (tier === "BASIC") {
     b1Bp = 700;
-    b2Bp = 450;
-    b3Bp = 350;
+    b2Bp = 500;
+    b3Bp = 400;
   }
   let totalFeeCents = 0;
   let remaining = itemPriceCents;
@@ -496,8 +496,7 @@ function calculatePlatformFeeCents(itemPriceCents, tier) {
   if (remaining > 0) {
     totalFeeCents += remaining * b3Bp / 1e4;
   }
-  const feeWithFixed = Math.round(totalFeeCents) + FIXED_PLATFORM_FEE_CENTS;
-  return Math.max(feeWithFixed, MIN_PLATFORM_FEE_CENTS);
+  return Math.max(Math.round(totalFeeCents), MIN_PLATFORM_FEE_CENTS);
 }
 function getCommissionVat(countryCode, isBusiness, hasValidVatId) {
   const cc = (countryCode || "SI").trim().toUpperCase();
@@ -3108,7 +3107,1217 @@ async function generateSubscriptionInvoicePDF(params) {
 // src/lib/termsVersion.ts
 var TERMS_VERSION = "2026-10-v2";
 
+// src/lib/translations.ts
+var translations = {
+  SLO: {
+    auctionPaid: "Dra\u017Eba pla\u010Dana",
+    paid: "Pla\u010Dano",
+    profileSaved: "Nastavitve so bile uspe\u0161no shranjene.",
+    winnerPaidNotice: "\u010Cestitamo! Va\u0161e pla\u010Dilo je bilo uspe\u0161no potrjeno. Prodajalec pripravlja po\u0161iljko oz. prevzem.",
+    sellerPaidNotice: "Kupec je uspe\u0161no pla\u010Dal dra\u017Ebo. Sredstva so varno shranjena v va\u0161ih zadr\u017Eanih sredstvih.",
+    auctionCompletedPaid: "Dra\u017Eba je bila uspe\u0161no zaklju\u010Dena in pla\u010Dana.",
+    top10: "TOP 10 DRA\u017DB DNEVA",
+    allAuctions: "VSE DRA\u017DBE",
+    regions: "REGIJE",
+    lastChance: "ZADNJA PRILO\u017DNOST",
+    lastChanceTitle: "ZADNJA PRILO\u017DNOST",
+    myProfile: "MOJ PROFIL",
+    login: "PRIJAVA",
+    searchPlaceholder: "I\u0161\u010Di po lokaciji ali nazivu...",
+    currentBid: "Trenutna cena",
+    timeLeft: "Preostali \u010Das",
+    bidCount: "Ponudbe",
+    placeBid: "POTRDI",
+    aboutAuction: "O dra\u017Ebi",
+    saveChanges: "SHRANI SPREMEMBE",
+    activeAuctions: "AKTUALNE DRA\u017DBE",
+    trending: "Aktualno",
+    location: "Lokacija",
+    openAuction: "ODPRI DRA\u017DBO",
+    footerDesc: "Prva slovenska platforma za profesionalne dra\u017Ebe, vozila in opremo.",
+    help: "POMO\u010C",
+    terms: "Splo\u0161ni pogoji",
+    privacy: "Varovanje podatkov",
+    howItWorks: "Kako deluje?",
+    contact: "KONTAKT",
+    rights: "Vse pravice pridr\u017Eane | dra\u017Ebenik.si",
+    verifyNotice: "Profil ni verificiran. Za oddajo ponudb je potrebna verifikacija identitete (18. \u010Dlen SP).",
+    verifyAction: "VERIFICIRAJ ZDAJ",
+    createAuction: "USTVARI DRA\u017DBO",
+    publishAuction: "OBJAVI DRA\u017DBO",
+    cannotPublish: "Objava dra\u017Ebe ni mogo\u010Da",
+    connectBankAccountDesc: "Za objavo dra\u017Ebe morate najprej povezati svoj ban\u010Dni ra\u010Dun za prejem izpla\u010Dil.",
+    editPayouts: "Uredi pla\u010Dila in izpla\u010Dila",
+    myBidsDesc: "Pregled vseh va\u0161ih sodelovanj na dra\u017Ebah",
+    condition: "Stanje",
+    missingFields: "Prosimo izpolnite vsa obvezna polja",
+    logout: "ODJAVA",
+    cancel: "PREKLI\u010CI",
+    itemsPerPage: "Prika\u017Ei:",
+    prev: "Nazaj",
+    next: "Naprej",
+    legalTerms: "Splo\u0161ni pogoji uporabe",
+    legalPrivacy: "Varstvo osebnih podatkov (GDPR)",
+    legalHow: "Navodila za sodelovanje",
+    termsText: "POGOJI UPORABE SPLETNE PLATFORME DRA\u017DBENIK.SI\nVerzija 2026-10-v2\n\n1. SPLO\u0160NE DOLO\u010CBE\n1.1 Platformo dra\u017Ebenik.si (v nadaljevanju: platforma) upravlja dru\u017Eba Dizain d.o.o., Karantanska ulica 28, 2000 Maribor, ID za DDV SI57008060, mati\u010Dna \u0161tevilka [VSTAVITE], e-po\u0161ta [VSTAVITE E-NASLOV PODPORE] (v nadaljevanju: upravljavec).\n1.2 Ti pogoji urejajo uporabo platforme in razmerja med upravljavcem, prodajalci in kupci. Z registracijo in uporabo platforme uporabnik potrjuje, da je pogoje prebral in jih sprejema.\n1.3 Uporabnik mora biti star najmanj 18 let in poslovno sposoben. Podjetja in samostojni podjetniki nastopajo kot podjetja (poslovni uporabniki), vsi drugi kot zasebne osebe.\n\n2. VLOGA PLATFORME\n2.1 Platforma je spletna tr\u017Enica, ki omogo\u010Da objavo dra\u017Eb, oddajo ponudb in sklepanje kupoprodajnih pogodb med prodajalcem in kupcem.\n2.2 Kupoprodajna pogodba se sklene neposredno med prodajalcem in kupcem v trenutku, ko dra\u017Eba uspe\u0161no zaklju\u010Di. Upravljavec ni prodajalec, kupec ali lastnik predmetov in ni stranka kupoprodajne pogodbe.\n2.3 Upravljavec ne preverja pravilnosti, popolnosti in zakonitosti opisov predmetov in ne jam\u010Di za lastnosti ali pravno stanje predmetov. Za predmet, njegov opis, lastnosti in zakonitost odgovarja prodajalec.\n2.4 Platforma prikazuje pri vsakem prodajalcu, ali nastopa kot podjetje ali kot zasebna oseba. Pravice potro\u0161nika (to\u010Dka 11) veljajo samo pri nakupu od podjetja.\n\n3. REGISTRACIJA IN RA\u010CUN\n3.1 Uporabnik mora navesti resni\u010Dne in popolne podatke ter jih posodabljati. Za sodelovanje pri dra\u017Ebah mora potrditi e-po\u0161tni naslov in izpolniti profil.\n3.2 Uporabnik odgovarja za varovanje svojih prijavnih podatkov in za vse dejavnosti na svojem ra\u010Dunu.\n3.3 Upravljavec lahko zaradi varnosti, prepre\u010Devanja goljufij ali zakonskih obveznosti zahteva dodatno preverjanje identitete, zlasti ko skupni nakupi uporabnika v koledarskem letu prese\u017Eejo 5.000 EUR.\n3.4 Upravljavec lahko za\u010Dasno omeji ali ukine ra\u010Dun, ki kr\u0161i te pogoje ali zakonodajo. O razlogih uporabnika obvesti, razen \u010De zakon to prepoveduje.\n\n4. DRA\u017DBE IN PONUDBE\n4.1 Vsaka oddana ponudba je zavezujo\u010Da. Ponudbe ni mogo\u010De umakniti ali preklicati.\n4.2 Dra\u017Eba se zaklju\u010Di ob izteku objavljenega \u010Dasa. Zmaga ponudnik z najvi\u0161jo veljavno ponudbo. \u010Ce zmagovalec ne pla\u010Da v roku, lahko prodajalec ponudi nakup drugemu najvi\u0161jemu ponudniku po njegovi ponudbi.\n4.3 Prodajalec ne sme sodelovati pri dra\u017Ebi lastnih predmetov niti jih ponujati prek drugih ra\u010Dunov za zvi\u0161anje cene.\n4.4 Prepovedani so predmeti, katerih promet je po zakonu prepovedan ali omejen, ponarejeni predmeti, predmeti, ki kr\u0161ijo pravice tretjih, in drugi predmeti, ki jih upravljavec ozna\u010Di kot prepovedane. Upravljavec lahko oglas odstrani.\n\n5. PRODAJALCI\n5.1 Prodajalec lahko objavlja dra\u017Ebe, ko ima potrjen e-po\u0161tni naslov, izpolnjen profil in urejena izpla\u010Dila pri ponudniku pla\u010Dil Stripe (to\u010Dka 7).\n5.2 Prodajalec potrjuje, da bo ponujal samo predmete in storitve, ki so skladni z veljavno zakonodajo, da je njegov opis resni\u010Den in da je predmet njegova last ali ga lahko prodaja.\n5.3 Prodajalec je dol\u017Ean predmet po zaklju\u010Dku dra\u017Ebe in prejetem pla\u010Dilu odposlati ali predati kupcu skladno z objavljenim na\u010Dinom predaje.\n5.4 Prodajalec, ki nastopa kot podjetje, odgovarja za izpolnjevanje svojih zakonskih obveznosti (informacije potro\u0161nikom, pravica do odstopa, jam\u010Devanje za skladnost blaga, dav\u010Dne obveznosti).\n5.5 Zaradi zakonskih obveznosti (zlasti Akta o digitalnih storitvah) upravljavec od prodajalcev zbira podatke o identiteti, naslovu, kontaktu, pla\u010Dilnem ra\u010Dunu in vpisu v register ter lahko zahteva dokazila.\n\n6. PROVIZIJA IN DDV\n6.1 Kupec poleg cene, dose\u017Eene na dra\u017Ebi, pla\u010Da provizijo platforme in DDV na provizijo. Prodajalec prejme polno ceno, dose\u017Eeno na dra\u017Ebi.\n6.2 Vi\u0161ina provizije je odvisna od naro\u010Dni\u0161kega paketa kupca v trenutku pla\u010Dila in od cene predmeta, v skladu s cenikom na platformi. Provizija in DDV sta prikazana pred oddajo ponudbe in pred pla\u010Dilom.\n6.3 DDV na provizijo se obra\u010Duna po veljavnih predpisih. Za kupce iz Slovenije in zasebne osebe iz dr\u017Eav EU se obra\u010Duna DDV po stopnji 22 %. Za podjetja iz druge dr\u017Eave EU z veljavno identifikacijsko \u0161tevilko za DDV (preverjeno v sistemu VIES) se uporabi obrnjena dav\u010Dna obveznost. Za kupce izven EU se DDV ne obra\u010Duna.\n6.4 Provizija ne more biti ni\u017Eja od minimalne provizije 1,00 EUR. Provizija je prihodek upravljavca. Za provizijo upravljavec kupcu izda ra\u010Dun.\n\n7. PLA\u010CILO IN IZPLA\u010CILO PRODAJALCU\n7.1 Pla\u010Dila obdeluje ponudnik pla\u010Dilnih storitev Stripe. Za uporabo Stripe veljajo njegovi pogoji. Upravljavec ne ponuja pla\u010Dilnih storitev in ne vodi pla\u010Dilnih ra\u010Dunov uporabnikov.\n7.2 Kupec pla\u010Da skupni znesek (cena predmeta, provizija in DDV na provizijo) s kartico prek Stripe v roku, ki je naveden ob zmagi. Nepla\u010Dilo je kr\u0161itev pogojev (to\u010Dka 10).\n7.3 Cena predmeta se ob pla\u010Dilu knji\u017Ei na prodajal\u010Dev ra\u010Dun pri Stripe. Provizija z DDV pripade upravljavcu.\n7.4 Do potrditve prejema predmeta se izpla\u010Dilo prodajalcu zadr\u017Ei. Sredstva se sprostijo prodajalcu takoj, ko (a) kupec potrdi prejem na platformi, ali (b) prodajalec vnese prevzemno PIN kodo kupca pri osebnem prevzemu, ali (c) pote\u010De rok iz to\u010Dke 7.5 in kupec ni vlo\u017Eil prito\u017Ebe.\n7.5 \u010Ce kupec prejema ne potrdi, se izpla\u010Dilo samodejno sprosti: pri odpremi po po\u0161ti 7 dni po odpremi (pri po\u0161iljkah v tujino 14 dni), pri osebnem prevzemu 7 dni po pla\u010Dilu, razen \u010De kupec v tem roku vlo\u017Ei prito\u017Ebo. Ob potrditvi prejema ali vnosu prevzemne kode se izpla\u010Dilo sprosti takoj brez dodatnega \u010Dakanja.\n7.6 \u010Ce kupec v tem roku vlo\u017Ei prito\u017Ebo, se izpla\u010Dilo zadr\u017Ei do razre\u0161itve spora. Rok za izpla\u010Dilo, ki ga omogo\u010Da Stripe, ne more presegati 90 dni od pla\u010Dila; upravljavec se zato obvezuje spor razre\u0161iti pred tem rokom.\n7.7 Spro\u0161\u010Dena sredstva prodajalec izpla\u010Da na svoj ban\u010Dni ra\u010Dun na zahtevo v nastavitvah (najmanj 10 EUR, najve\u010D ena zahteva na 24 ur). Sredstva, ki jih prodajalec ne zahteva 30 dni od sprostitve, se samodejno izpla\u010Dajo na njegov ban\u010Dni ra\u010Dun. Stro\u0161ke izpla\u010Dil nosi upravljavec, prodajalec prejme celoten znesek vrednosti predmeta.\n7.8 \u010Ce prodajalec predmeta v 7 dneh po pla\u010Dilu ne odpo\u0161lje, se naro\u010Dilo samodejno prekli\u010De in kupcu se vrne celoten znesek, vklju\u010Dno s provizijo in DDV.\n\n8. PREVZEM, DOSTAVA IN POTRDITEV PREJEMA\n8.1 Na\u010Din predaje (osebni prevzem ali po\u0161iljanje) dolo\u010Di prodajalec pri objavi dra\u017Ebe.\n8.2 Kupec je dol\u017Ean prejem predmeta potrditi na platformi. Pri osebnem prevzemu kupec prodajalcu poka\u017Ee prevzemno kodo \u0161ele po pregledu predmeta; z razkritjem kode potrjuje prejem.\n8.3 \u010Ce predmet ni skladen z opisom, mora kupec prito\u017Ebo vlo\u017Eiti na platformi v roku, ki velja za zadr\u017Eanje izpla\u010Dila (to\u010Dka 7.5).\n8.4 S potrditvijo prejema na platformi ali z razkritjem prevzemne kode prodajalcu kupec izjavlja, da je predmet pregledal, da je skladen z opisom in vsemi podatki prodajalca ter da ga sprejema. S potrditvijo je poslovanje na platformi med kupcem in prodajalcem zaklju\u010Deno, izpla\u010Dilo prodajalcu se sprosti takoj in prito\u017Eba prek platforme po potrditvi ni ve\u010D mogo\u010Da. Enako velja za osebni prevzem in za po\u0161iljanje po po\u0161ti. Kupec zato prejem potrdi \u0161ele po pregledu predmeta. Zakonske pravice potro\u0161nika po to\u010Dki 11 (pri nakupu od podjetja) s tem niso omejene.\n\n9. SPORI IN POVRA\u010CILA\n9.1 Kupec in prodajalec se najprej poskusita dogovoriti sama prek sporo\u010Dil na platformi.\n9.2 \u010Ce dogovor ni mogo\u010D, lahko vsaka stran odpre spor. Upravljavec lahko na podlagi predlo\u017Eenih dokazov odlo\u010Di, da se izpla\u010Dilo sprosti prodajalcu ali da se znesek vrne kupcu. Odlo\u010Ditev ne izklju\u010Duje pravice strank do sodnega varstva.\n9.3 \u010Ce je kupcu znesek vrnjen, se vrne tudi provizija in DDV, upravljavec pa izda dobropis.\n\n10. NEPLA\u010CILO IN KR\u0160ITVE\n10.1 Nepla\u010Dilo kupnine je huda kr\u0161itev pogojev. Uporabnik dobi opomin. Po tretjem opominu lahko upravljavec ra\u010Dun blokira.\n10.2 Upravljavec lahko za\u010Dasno ali trajno ukine ra\u010Dun, ki kr\u0161i pogoje, ali zadr\u017Ei izpla\u010Dila, \u010De obstaja utemeljen sum goljufije ali kr\u0161itve zakona. Uporabnik ima pravico do prito\u017Ebe na naslov podpore (to\u010Dka 16.2).\n\n11. PRAVICE POTRO\u0160NIKA\n11.1 Kadar prodajalec nastopa kot podjetje in kupec kot potro\u0161nik, veljajo zakonske pravice potro\u0161nika, zlasti pravica do informacij, jam\u010Devanje za skladnost blaga in pravica do odstopa od pogodbe v 14 dneh po prejemu blaga, razen v primerih, ki jih dolo\u010Da zakon.\n11.2 Kadar prodajalec nastopa kot zasebna oseba, pravice potro\u0161nika ne veljajo. Kupec kupuje predmet kot opisan. Prodajalec odgovarja za skladnost z opisom in za napake, ki jih je zamol\u010Dal, po splo\u0161nih dolo\u010Dbah Obligacijskega zakonika.\n11.3 Za izvajanje pravice do odstopa in jam\u010Devanja je odgovoren prodajalec.\n\n12. RA\u010CUNI IN DOKUMENTI\n12.1 Prodajalec poobla\u0161\u010Da upravljavca, da v njegovem imenu in za njegov ra\u010Dun izda ra\u010Dun ali potrdilo za prodan predmet, skladno s statusom prodajalca (zasebna oseba ali podjetje, zavezanec za DDV ali ne). Prodajalec odgovarja za pravilnost svojih podatkov.\n12.2 Pri prodaji med zasebnimi osebami se izda potrdilo o nakupu brez DDV. Ra\u010Dun za provizijo upravljavec izda kupcu.\n12.3 Ra\u010Duni in potrdila so uporabnikom na voljo na platformi in jih prejmejo po e-po\u0161ti.\n\n13. DAV\u010CNE IN ZAKONSKE OBVEZNOSTI\n13.1 Upravljavec je kot operater platforme dol\u017Ean poro\u010Dati Finan\u010Dni upravi RS o prodajalcih in njihovih prejemkih (direktiva DAC7), \u010De prodajalec v koledarskem letu opravi 30 ali ve\u010D prodaj ali njegovi prejemki prese\u017Eejo 2.000 EUR. Prodajalec je dol\u017Ean na poziv predlo\u017Eiti zahtevane podatke, vklju\u010Dno z dav\u010Dno \u0161tevilko.\n13.2 Prodajalec odgovarja za pla\u010Dilo davkov od svojih prihodkov.\n13.3 \u010Ce uporabnik ne predlo\u017Ei zahtevanih podatkov, lahko upravljavec zadr\u017Ei objavo novih dra\u017Eb in izpla\u010Dila.\n\n14. OSEBNI PODATKI\n14.1 Upravljavec obdeluje osebne podatke v skladu s Politiko zasebnosti. Podatke, potrebne za pla\u010Dilo in preverjanje identitete, obdeluje tudi Stripe kot samostojni upravljavec.\n14.2 Kupec in prodajalec za izvedbo posla vidita nujne podatke druge strani (ime, naslov za dostavo).\n\n15. ODGOVORNOST\n15.1 Upravljavec odgovarja za \u0161kodo samo v primerih, ki jih dolo\u010Da zakon. Upravljavec ne odgovarja za izpade Stripe, bank in drugih tretjih oseb, za vsebino oglasov, za dejanja uporabnikov in za nedosegljivost platforme zaradi vzdr\u017Eevanja ali vi\u0161je sile.\n15.2 Omejitev odgovornosti ne velja za naklep, hudo malomarnost in odgovornost, ki je po zakonu ni mogo\u010De izklju\u010Diti, \u0161e posebej ne v razmerju do potro\u0161nikov.\n\n16. VSEBINE, PRIJAVE IN PRITO\u017DBE\n16.1 Nezakonito vsebino ali sumljiv oglas lahko vsakdo prijavi na naslov [VSTAVITE E-NASLOV PODPORE] ali prek obrazca na platformi. Prijavo obravnavamo \u010Dim prej. \u010Ce oglas odstranimo ali ra\u010Dun omejimo, uporabnika obvestimo o razlogu in mo\u017Enosti prito\u017Ebe.\n16.2 Prito\u017Ebo zoper odlo\u010Ditev upravljavca lahko uporabnik vlo\u017Ei na naslov [VSTAVITE E-NASLOV PODPORE] v 30 dneh po prejemu odlo\u010Ditve. Odgovorimo v razumnem roku.\n\n17. SPREMEMBE POGOJEV\n17.1 Upravljavec lahko pogoje spremeni. O bistvenih spremembah uporabnike obvesti vnaprej. Za nadaljnjo uporabo platforme mora uporabnik novo razli\u010Dico sprejeti. Za dra\u017Ebe, ki so se za\u010Dele pred spremembo, veljajo pogoji, ki so veljali ob za\u010Detku dra\u017Ebe.\n\n18. KON\u010CNE DOLO\u010CBE\n18.1 Za razmerja po teh pogojih velja pravo Republike Slovenije. Za spore z uporabniki, ki niso potro\u0161niki, je pristojno stvarno pristojno sodi\u0161\u010De v Mariboru. Za potro\u0161nike veljajo pravila o pristojnosti po zakonu.\n18.2 \u010Ce je posamezna dolo\u010Dba neveljavna, ostale dolo\u010Dbe veljajo naprej.\n18.3 Veljavna je slovenska razli\u010Dica pogojev.",
+    privacyText: "Skladno z uredbo GDPR va\u0161e podatke varujemo z najvi\u0161jimi varnostnimi standardi.\nPodatki se uporabljajo strogo izklju\u010Dno za namene izvedbe dra\u017Eb, varnega in legitimnega povezovanja kupcev ter prodajalcev in verifikacije identitete uporabnikov za prepre\u010Devanje zlorab.\n\nPlatforma lahko va\u0161e nujne kontaktne in identifikacijske podatke posreduje zgolj nasprotni stranki po uspe\u0161no zaklju\u010Deni dra\u017Ebi izrecno za namen izpeljave nakupa oziroma sklenitve pravnega posla in organizacije prevzema.\nVa\u0161i osebni podatki v nobenem drugem primeru ne bodo posredovani nepoobla\u0161\u010Denim tretjim osebam brez va\u0161e izrecne osebne privolitve ali zahteve sodi\u0161\u010Da.\n\nZa prepre\u010Devanje zlorab hranimo zgo\u0161\u010Deno (nepovratno \u0161ifrirano) vrednost dav\u010Dne \u0161tevilke. \u010Ce je ra\u010Dun blokiran zaradi ponavljajo\u010Dih se nepla\u010Danih dra\u017Eb, to vrednost hranimo tudi po izbrisu ra\u010Duna, in sicer na podlagi zakonitega interesa (\u010Dlen 6(1)(f) GDPR) najve\u010D 5 let od blokade.",
+    howText: "dra\u017Ebenik.si je spletni sistem digitalnih dra\u017Eb v realnem \u010Dasu.\nZa sodelovanje morate uspe\u0161no:\n1. Registrirati uporabni\u0161ki ra\u010Dun,\n2. Opraviti verifikacijo (z oddajo identifikacijskega dokumenta in osnovnih podatkov).\n\nSistem in pravila dra\u017Eenja:\n\u2022 Vsak uporabnik lahko dra\u017Ei za katerikoli predmet.\n\u2022 Vsako prebitje ponudbe (novo oddana vi\u0161ja ponudba) v zadnjih 60 sekundah pred koncem dra\u017Ebe \u010Dasovno omejitev PONASTAVI NAZAJ NA 60 SEKUND, kar prepre\u010Di zlorabe in zagotovi enake mo\u017Enosti vsem dra\u017Eiteljem.\n\u2022 Zmagovalec je tisti z najvi\u0161jo ponudbo ob dejanskem izteku \u010Dasa dra\u017Ebe.",
+    individual: "Fizi\u010Dna oseba",
+    business: "Podjetje",
+    identityVerification: "Verifikacija identitete",
+    verifiedStatus: "Profil uspe\u0161no verificiran",
+    unverifiedStatus: "Profil \u0161e ni verificiran",
+    langSelect: "Izbira jezika",
+    settings: "Nastavitve",
+    subscription: "Naro\u010Dnina",
+    subscriptions: "Naro\u010Dnine",
+    paymentInPrep: "To pla\u010Dilno sredstvo je trenutno v pripravi.",
+    firstName: "Ime",
+    lastName: "Priimek",
+    email: "E-po\u0161ta",
+    password: "Geslo",
+    profilePicture: "Profilna slika",
+    freeTier: "Brezpla\u010Dno",
+    basicTier: "Osnovni",
+    proTier: "Napredni",
+    freeDesc: "Idealen za\u010Detek za ob\u010Dasne uporabnike. Do 5 objav mese\u010Dno, provizija 10 % / 6 % / 4,5 % po stopnjah (najmanj 1,00 \u20AC brez DDV).",
+    basicDesc: "Za aktivne uporabnike. Do 20 objav mese\u010Dno, provizija 7 % / 5 % / 4 % po stopnjah (najmanj 1,00 \u20AC brez DDV).",
+    proDesc: "Za profesionalce in podjetja. Neomejeno objav, provizija 5 % / 4 % / 3,2 % po stopnjah (najmanj 1,00 \u20AC brez DDV).",
+    subscribe: "Naro\u010Di se",
+    subscribed: "Naro\u010Den",
+    currentPlan: "Trenutni paket",
+    paymentMethods: "Na\u010Dini pla\u010Dila",
+    payWithCard: "Pla\u010Daj s kartico",
+    payWithGoogle: "Google Pay",
+    payWithApple: "Apple Pay",
+    payWithPaypal: "PayPal",
+    checkout: "Blagajna",
+    totalAmount: "Skupni znesek",
+    payNow: "Pla\u010Daj zdaj",
+    paymentSuccess: "Pla\u010Dilo uspe\u0161no!",
+    sellerProfile: "Profil prodajalca",
+    memberSince: "\u010Clan od",
+    totalSold: "Skupaj prodano",
+    positiveFeedback: "Pozitivne ocene",
+    activeAuctionsTab: "Aktualne dra\u017Ebe",
+    pastAuctionsTab: "Pretekle dra\u017Ebe",
+    userReviewsTab: "Ocene uporabnikov",
+    leaveReview: "Oddaj svojo oceno",
+    reviewNotice: "Ker ste pri tem prodajalcu \u017Ee kupovali, lahko oddate svojo izku\u0161njo.",
+    rating: "Ocena",
+    recommend: "Bi priporo\u010Dali?",
+    yesRecommend: "Da, priporo\u010Dam",
+    noRecommend: "Ne priporo\u010Dam",
+    comment: "Va\u0161 komentar",
+    commentPlaceholder: "Opi\u0161ite svojo izku\u0161njo s prodajalcem...",
+    publishReview: "Objavi oceno",
+    reviewRestriction: "Oceno lahko oddajo le uporabniki, ki so pri tem prodajalcu \u017Ee uspe\u0161no opravili nakup.",
+    noActiveAuctions: "Trenutno ni aktivnih dra\u017Eb.",
+    noPastAuctions: "Ni preteklih dra\u017Eb.",
+    noReviews: "Prodajalec \u0161e nima ocen.",
+    verifiedSeller: "Preverjeno",
+    businessSeller: "Podjetje",
+    individualSeller: "Zasebni prodajalec",
+    loading: "Nalagam",
+    backToList: "Nazaj na seznam",
+    info: "Informacije",
+    information: "Informacije",
+    description: "Opis",
+    biddingPossible: "Oddaja ponudb mo\u017Ena",
+    auctionEnded: "Dra\u017Eba zaklju\u010Dena",
+    closing: "Zaklju\u010Dek",
+    unknown: "Neznano",
+    viewing: "Ogled",
+    byArrangement: "Po dogovoru s prodajalcem",
+    pickup: "Prevzem",
+    pickupLocation: "Prevzemna lokacija",
+    region: "Regija",
+    locationHiddenNotice: "To\u010Dna lokacija bo razkrita zmagovalcu po pla\u010Dilu.",
+    mapAvailable: "Zemljevid na voljo",
+    mapHidden: "Zemljevid skrit",
+    contactInfo: "Kontakt",
+    team: "Ekipa",
+    viewSeller: "Ogled prodajalca",
+    winnerNotice: "\u010Cestitamo, zmagali ste! Prosimo, dokon\u010Dajte pla\u010Dilo.",
+    sellerWinnerNotice: "Zmagovalec je bil obve\u0161\u010Den in preusmerjen na pla\u010Dilo.",
+    notWinnerNotice: "Dra\u017Eba se je kon\u010Dala. Niste zmagovalec.",
+    days: "DNI",
+    hours: "URE",
+    minutes: "MIN",
+    seconds: "SEK",
+    startingPrice: "Za\u010Detna cena",
+    myMaxBid: "Moja max ponudba",
+    placeBidBtn: "Ponudi",
+    feesAndTerms: "Pristojbine in pogoji",
+    auctionFee: "Dra\u017Ebena provizija",
+    percent: "Odstotkov",
+    vat: "DDV",
+    deliveryTerms: "Pogoji dostave",
+    deliveryTermsNotice: "Osebni prevzem na lokaciji prodajalca. Po\u0161iljanje ni mogo\u010De, razen \u010De je izrecno dogovorjeno.",
+    paymentOptions: "Mo\u017Enosti pla\u010Dila",
+    creditCard: "Kreditna kartica",
+    ended: "Zaklju\u010Deno",
+    finalPrice: "Kon\u010Dna cena",
+    seller: "Prodajalec",
+    watch: "Opazuj",
+    loadingImages: "Nalaganje slik...",
+    bidSuccessMsg: "Ponudba uspe\u0161no oddana!",
+    confirmBidTitle: "Potrditev ponudbe",
+    bidTerms: "Z oddajo ponudbe se strinjate z na\u0161imi Splo\u0161nimi pogoji poslovanja in potrjujete, da je va\u0161a ponudba pravno zavezujo\u010Da. V primeru zmage ste dol\u017Eni predmet pla\u010Dati.",
+    confirmBidBtn: "Potrdi ponudba",
+    uhr: "URA",
+    bidFailed: "Ponudba ni uspela.",
+    auctionFallback: "Dra\u017Eba",
+    noDescription: "Ni dodatnega opisa.",
+    slovenia: "Slovenija",
+    passwordsNotMatch: "Novi gesli se ne ujemata!",
+    oldPasswordRequired: "Za spremembo gesla morate vnesti staro geslo.",
+    auctionPublished: "Dra\u017Eba je bila uspe\u0161no objavljena z avtomatskimi prevodi!",
+    enterAllData: "Vnesite vse podatke.",
+    publishError: "Napaka pri objavi.",
+    checkoutDesc: "Pregled in pla\u010Dilo dobljenih dra\u017Eb",
+    finalAmount: "Kon\u010Dni znesek",
+    paymentFor: "Pla\u010Dilo za",
+    show: "Prika\u017Ei",
+    verificationRequired: "V skladu z 18. \u010Dlenom SP je za sodelovanje na dra\u017Ebi obvezna verifikacija podatkov.",
+    address: "Naslov prebivali\u0161\u010Da",
+    emso: "EM\u0160O",
+    taxNumber: "Dav\u010Dna \u0161tevilka",
+    companyAddress: "Sede\u017E podjetja",
+    profileVerifiedAs: "Va\u0161 profil je verificiran kot",
+    accountTypeChangeNotPossible: "Sprememba tipa ra\u010Duna po verifikaciji ni ve\u010D mogo\u010Da.",
+    newAuction: "Nova dra\u017Eba",
+    auctionTitle: "Naslov dra\u017Ebe",
+    describeItem: "Podrobno opi\u0161ite predmet...",
+    processing: "Obdelava...",
+    cond_new: "Novo",
+    cond_likeNew: "Kot novo",
+    cond_used: "Rabljeno",
+    cond_needsFix: "Potrebno obnove",
+    cond_parts: "Za dele",
+    itemCondition: "Stanje predmeta",
+    mainImage: "Glavna",
+    preparingAndOptimizing: "Priprava in optimizacija slik...",
+    preparing: "Priprava...",
+    compressing: "Stiskanje...",
+    uploading: "Nalaganje...",
+    auctionPreview: "Predogled dra\u017Ebe",
+    loggedInAs: "Prijavljen kot",
+    soldAuctions: "Prodane dra\u017Ebe",
+    unsoldAuctions: "Neprodane dra\u017Ebe",
+    regionMap: "Zemljevid regij",
+    clearFilter: "Po\u010Disti filter",
+    streetAddress: "Ulica in hi\u0161na \u0161tevilka",
+    statusText: "Status",
+    statusActive: "Aktivno",
+    backToAuctions: "Nazaj na dra\u017Ebe",
+    back: "Nazaj",
+    cardPreview: "Predogled kartice (Glavna stran)",
+    pagePreview: "Predogled strani (Podrobnosti)",
+    cancelUpload: "Prekini nalaganje",
+    minImagesError: "Nalo\u017Eite vsaj 3 slike.",
+    maxImagesError: "Nalo\u017Eite lahko najve\u010D 10 slik.",
+    createAccount: "USTVARI RA\u010CUN",
+    noAccountRegister: "\u0160e nimate ra\u010Duna? Registracija",
+    haveAccountLogin: "\u017De imate ra\u010Dun? Prijava",
+    success: "Uspe\u0161no!",
+    enterTitle: "Vnesite naslov...",
+    itemDescription: "Opis predmeta",
+    startingPriceEur: "Izklicna cena (\u20AC)",
+    itemImages: "Slike predmeta",
+    uploadImages: "Nalo\u017Ei slike",
+    publishAuctionBtn: "Objavi dra\u017Ebo",
+    dragImages: "Povlecite slike sem ali kliknite",
+    supportedFormats: "Podpira: JPG, PNG (max 5MB na sliko, min. 3 in max. 10 slik)",
+    showing: "Prikazujem",
+    of: "od",
+    auctions: "dra\u017Eb",
+    auctionEndTime: "Zaklju\u010Dek dra\u017Ebe",
+    endDate: "Datum zaklju\u010Dka",
+    endTime: "Ura zaklju\u010Dka",
+    invalidEndTime: "Zaklju\u010Dek dra\u017Ebe mora biti med 3 in 14 dni od danes, med 06:00 in 21:59.",
+    categories: "KATEGORIJE",
+    allCategories: "Vse kategorije",
+    category: "Kategorija",
+    cat_clothing: "Obla\u010Dila",
+    cat_computers: "Ra\u010Dunalniki",
+    cat_leisure: "Prosti \u010Das in \u0161port",
+    cat_home: "Dom in vrt",
+    cat_auto: "Avtomobilizem",
+    cat_realestate: "Nepremi\u010Dnine",
+    cat_health: "Lepota in zdravje",
+    cat_kids: "Otro\u0161ka oprema",
+    cat_agriculture: "Kmetijstvo",
+    cat_art: "Umetnine",
+    cat_instruments: "Glasbila",
+    cat_collecting: "Zbirateljstvo",
+    cat_other: "Ostalo",
+    cat_tools: "Orodja in stroji",
+    cat_electronics: "Zabavna elektronika",
+    cat_books: "Knjige in revije",
+    cat_animals: "\u017Divali in oprema",
+    cat_nautical: "Navtika",
+    cat_catering: "Gostinska oprema",
+    cat_construction: "Gradbeni\u0161tvo",
+    cat_antiques: "Starine in umetnine",
+    watchlist: "Opazovano",
+    watchlistTitle: "Opazovane dra\u017Ebe",
+    watchlistDesc: "Dra\u017Ebe, ki jih spremljate",
+    noWatchlist: "Nimate opazovanih dra\u017Eb",
+    myWinnings: "Moje zmage",
+    myBids: "Oddane ponudbe",
+    noBids: "Nimate oddanih ponudb",
+    bidTermsNotice: "Z oddajo ponudbe se strinjate s pogoji poslovanja.",
+    bidTermsAccept: "Z oddajo ponudbe se strinjate s splo\u0161nimi pogoji. Va\u0161a ponudba je pravno zavezujo\u010Da.",
+    bidTermsCheckbox: "Strinjam se s Splo\u0161nimi pogoji in vem, da je moja ponudba pravno zavezujo\u010Da.",
+    yourBid: "Va\u0161a ponudba",
+    auctionFeeLabel: "Provizija dra\u017Ebe",
+    vatLabel: "DDV",
+    totalSum: "Skupni znesek",
+    marginScheme: "Diferen\u010Dna obdav\u010Ditev v skladu z 104. \u010Dlenom ZDDV-1",
+    noWinnings: "Nimate dobljenih dra\u017Eb",
+    companyName: "Naziv podjetja",
+    representative: "Zastopnik (Ime in priimek)",
+    verificationDate: "Datum verifikacije",
+    status: "Status",
+    active: "Aktivno",
+    fullName: "Polno ime",
+    register: "Registracija",
+    loggedOut: "Odjavljeni ste.",
+    loginRequired: "Za to dejanje se prijavite.",
+    bidOutbid: "Ponudba je bila \u017Ee prese\u017Eena.",
+    bidError: "Napaka pri oddaji ponudbe.",
+    fetchError: "Napaka pri pridobivanju podatkov.",
+    bidTooLow: "Va\u0161a ponudba je prenizka.",
+    settingsSaved: "Nastavitve shranjene.",
+    verificationError: "Napaka pri verifikaciji.",
+    authError: "Napaka pri prijavi/registraciji:",
+    emailRequired: "Vnesite e-po\u0161tni naslov.",
+    resetLinkSent: "Povezava za ponastavitev gesla je bila poslana.",
+    googleLoginError: "Napaka pri prijavi z Googlom.",
+    emailInUse: "Ta e-po\u0161tni naslov je \u017Ee v uporabi.",
+    passwordRequirements: "Geslo ne ustreza varnostnim zahtevam.",
+    registrationSuccess: "Registracija uspe\u0161na! Preverite e-po\u0161to.",
+    imageEnhanced: "Slika uspe\u0161no polep\u0161ana!",
+    imageNotChanged: "Slika analizirana, vendar ni bila neposredno spremenjena.",
+    imageEnhanceError: "Napaka pri polep\u0161anju slike.",
+    priceMin1: "Izklicna cena mora biti vsaj 1\u20AC.",
+    imageUploadError: "Napaka pri nalaganju slik.",
+    chatLoadError: "Napaka pri nalaganju klepetov.",
+    messageSendError: "Napaka pri po\u0161iljanju sporo\u010Dila.",
+    changePicture: "Spremeni sliko",
+    verificationStatus: "Status verifikacije",
+    verified: "Verificiran",
+    notVerified: "Ni verificiran",
+    verifyNow: "Verificiraj zdaj",
+    basicData: "Osnovni podatki",
+    usernameLabel: "Uporabni\u0161ko ime (vidno na dra\u017Ebah)",
+    verificationData: "Verifikacijski podatki",
+    street: "Ulica in hi\u0161na \u0161tevilka",
+    city: "Mesto",
+    postalCode: "Po\u0161tna \u0161tevilka",
+    companyStreet: "Ulica in hi\u0161na \u0161tevilka (Sede\u017E podjetja)",
+    companyCity: "Mesto (Sede\u017E podjetja)",
+    companyPostalCode: "Po\u0161tna \u0161tevilka (Sede\u017E podjetja)",
+    changePassword: "Sprememba gesla",
+    oldPassword: "Staro geslo",
+    newPassword: "Novo geslo",
+    confirmNewPassword: "Potrdi novo geslo",
+    verifyBtn: "Potrdi verifikacijo",
+    biddingHistory: "Zgodovina ponudb",
+    you: "Vi",
+    bidder: "Ponudnik",
+    noBidsYet: "Ni \u0161e ponudb.",
+    isSubscriptionCanceled: "Va\u0161a naro\u010Dnina je bila preklicana.",
+    nextBillingDate: "Naslednja bremenitev",
+    validUntil: "Velja do",
+    cancelSubscription: "Prekli\u010Di naro\u010Dnino",
+    cancelNotice: "Preklic bo zaustavil samodejno obnovitev. Ugodnosti boste obdr\u017Eali do izteka trenutnega obdobja.",
+    idRequired: "Obvezna identifikacija (Nakup nad 10.000 \u20AC)",
+    idFront: "Osebni dokument - Sprednja stran",
+    idBack: "Osebni dokument - Zadnja stran",
+    idWarning: "Za nakupe nad 10.000 \u20AC je obvezna nalo\u017Eitev osebnega dokumenta (sprednja in zadnja stran).",
+    paymentSuccessEmail: "Pla\u010Dilo uspe\u0161no! Ra\u010Dun in potrdilo sta bila poslana na va\u0161 e-mail.",
+    forgotPassword: "Pozabljeno geslo",
+    backToLogin: "Nazaj na prijavo",
+    sendLink: "Po\u0161lji povezavo",
+    rememberMe: "Zapomni si me",
+    googleLogin: "Prijava z Googlom",
+    confirmPassword: "Potrdi geslo",
+    strength: "Mo\u010D gesla",
+    weak: "\u0160ibko",
+    moderate: "Srednje",
+    good: "Dobro",
+    excellent: "Odli\u010Dno",
+    min8chars: "Vsaj 8 znakov",
+    oneUpper: "Vsaj 1 velika za\u010Detnica",
+    oneNumber: "Vsaj 1 \u0161tevilka",
+    forgotPasswordQuestion: "Pozabljeno geslo?",
+    forgotPasswordDesc: "Vnesite svoj e-po\u0161tni naslov in poslali vam bomo povezavo za ponastavitev gesla.",
+    or: "ali",
+    messages: "Sporo\u010Dila",
+    chatDesc: "Dogovor o prevzemu predmetov",
+    yourChats: "Va\u0161i klepeti",
+    noActiveChats: "Ni aktivnih klepetov",
+    chatStartNotice: "Klepeti se pojavijo po kon\u010Dani dra\u017Ebi med prodajalcem in zmagovalcem.",
+    amount: "Znesek",
+    startConversation: "Za\u010Dnite pogovor",
+    pickupAgreement: "Dogovorite se za prevzem predmeta",
+    yourInbox: "Va\u0161 predal",
+    selectChatDesc: "Izberite klepet na levi strani, da za\u010Dnete pogovor s prodajalcem ali zmagovalcem dra\u017Ebe.",
+    leading: "Vodilni",
+    winner: "Zmagovalec",
+    unknownSeller: "Neznan prodajalec",
+    showCount: "Prika\u017Ei ~{n}",
+    tabProfileSecurity: "Profil in varnost",
+    tabPersonalData: "Osebni podatki",
+    tabNotifications: "Obvestila",
+    tabPaymentsPayouts: "Pla\u010Dila in izpla\u010Dila",
+    annualPurchaseLimitTitle: "Letni limit nakupov (Zakonodaja EU / AML)",
+    annualLimitVerified: "Va\u0161 profil je verificiran. Nakupovanje je neomejeno.",
+    annualLimitUnverified: "Uporabniki lahko brez dodatne verifikacije nemoteno opravijo do 10.000 \u20AC nakupov na koledarsko leto.",
+    spendingInYear: "Poraba v letu",
+    personalDataVerificationNotice: "Va\u0161i osebni podatki se bodo prikazali, ko boste verificirali svoj profil v zgornjem zavitku.",
+    country: "Dr\u017Eava",
+    phoneNumber: "Telefonska \u0161tevilka",
+    autoInvoiceGeneration: "Samodejno generiranje ra\u010Dunov za provizije",
+    walletFunds: "Sredstva na ra\u010Dunu (Wallet)",
+    walletDesc: "Denar od uspe\u0161no prodanih dra\u017Eb, ki ga lahko uporabite za nakupe ali zahtevate izpla\u010Dilo.",
+    currentBalance: "Trenutno stanje",
+    requestPayout: "Zahtevaj izpla\u010Dilo",
+    insufficientFunds: "Na ra\u010Dunu ni dovolj sredstev za izpla\u010Dilo.",
+    connectStripeForPayout: "Prosimo, pove\u017Eite Stripe ban\u010Dni ra\u010Dun za izpla\u010Dilo.",
+    payoutRequestSuccess: "Zahtevek za izpla\u010Dilo poslan! Sredstva bodo nakazana na va\u0161 povezan ra\u010Dun.",
+    stripeBankConnection: "Povezava ban\u010Dnega ra\u010Duna (Stripe)",
+    stripeBankConnectionDesc: "Pove\u017Eite svoj ban\u010Dni ra\u010Dun za prejemanje izpla\u010Dil od prodanih dra\u017Eb ter upravljajte svoje podatke o nakazilih.",
+    stripeAccountAndPayouts: "Stripe ra\u010Dun in izpla\u010Dila",
+    stripeVerificationAndPayouts: "Stripe preverjanje in izpla\u010Dila",
+    stripeConnectedDesc: "Va\u0161 ra\u010Dun je povezan. Lahko preglejte in posodobite svoje ban\u010Dne podatke ter nastavitve izpla\u010Dil.",
+    stripeUnconnectedDesc: "Za objavo dra\u017Eb in prejemanje sredstev morate overiti in povezati ban\u010Dni ra\u010Dun. Preverjanje poteka varno na na\u0161i platformi preko sistema Stripe.",
+    manageBankAccount: "Upravljaj ban\u010Dni ra\u010Dun",
+    startVerification: "Za\u010Dni preverjanje",
+    increaseBid: "Zvi\u0161aj ponudbo",
+    reverseCharge: "OBRNJENA DAV\u010CNA OBVEZNOST (REVERSE CHARGE)",
+    proxyBidLeadingTip: "Ste vodilni ponudnik! Vnesite vi\u0161ji znesek, \u010De \u017Eelite povi\u0161ati va\u0161o maksimalno ponudbo.",
+    proxyBidTip: "Vnesite najvi\u0161ji znesek, ki ste ga pripravljeni pla\u010Dati. Va\u0161a maksimalna ponudba ostane skrivnost. Sistem bo samodejno vi\u0161al ponudbo v va\u0161em imenu.",
+    searchResults: "Rezultati",
+    optionalLabel: "(neobvezno)"
+  },
+  EN: {
+    auctionPaid: "Auction Paid",
+    paid: "Paid",
+    profileSaved: "Settings successfully saved.",
+    winnerPaidNotice: "Congratulations! Your payment has been confirmed. The seller is preparing the item.",
+    sellerPaidNotice: "The buyer has successfully paid for the auction. Funds are safely secured in your escrow balance.",
+    auctionCompletedPaid: "The auction has been successfully completed and paid.",
+    top10: "TOP 10 AUCTIONS OF THE DAY",
+    allAuctions: "ALL AUCTIONS",
+    regions: "REGIONS",
+    lastChance: "LAST CHANCE",
+    lastChanceTitle: "LAST CHANCE AUCTIONS",
+    myProfile: "MY PROFILE",
+    login: "LOGIN",
+    searchPlaceholder: "Search by location or name...",
+    currentBid: "Current price",
+    timeLeft: "Time left",
+    bidCount: "Bids",
+    placeBid: "CONFIRM",
+    aboutAuction: "About auction",
+    saveChanges: "SAVE CHANGES",
+    activeAuctions: "ACTIVE AUCTIONS",
+    trending: "Trending",
+    location: "Location",
+    openAuction: "OPEN AUCTION",
+    footerDesc: "The first Slovenian platform for professional auctions, vehicles and equipment.",
+    help: "HELP",
+    terms: "Terms & Conditions",
+    privacy: "Data Privacy",
+    howItWorks: "How it works?",
+    contact: "CONTACT",
+    rights: "All rights reserved | dra\u017Ebenik.si",
+    verifyNotice: "Profile not verified. Identity verification is required for bidding (Art. 18 SP).",
+    verifyAction: "VERIFY NOW",
+    createAuction: "CREATE AUCTION",
+    publishAuction: "PUBLISH AUCTION",
+    cannotPublish: "Cannot Publish Auction",
+    connectBankAccountDesc: "To publish an auction, you must first connect your bank account to receive payouts.",
+    editPayouts: "Manage Payments & Payouts",
+    myBidsDesc: "Overview of all your auction bids",
+    condition: "Condition",
+    missingFields: "Please fill in all required fields",
+    logout: "LOGOUT",
+    cancel: "CANCEL",
+    itemsPerPage: "Show:",
+    prev: "Prev",
+    next: "Next",
+    legalTerms: "General Terms of Use",
+    legalPrivacy: "Data Protection (GDPR)",
+    legalHow: "Participation Instructions",
+    termsText: "Veljavna je slovenska razli\u010Dica pogojev.\nPOGOJI UPORABE SPLETNE PLATFORME DRA\u017DBENIK.SI\nVerzija 2026-10-v2\n\n1. SPLO\u0160NE DOLO\u010CBE\n1.1 Platformo dra\u017Ebenik.si (v nadaljevanju: platforma) upravlja dru\u017Eba Dizain d.o.o., Karantanska ulica 28, 2000 Maribor, ID za DDV SI57008060, mati\u010Dna \u0161tevilka [VSTAVITE], e-po\u0161ta [VSTAVITE E-NASLOV PODPORE] (v nadaljevanju: upravljavec).\n1.2 Ti pogoji urejajo uporabo platforme in razmerja med upravljavcem, prodajalci in kupci. Z registracijo in uporabo platforme uporabnik potrjuje, da je pogoje prebral in jih sprejema.\n1.3 Uporabnik mora biti star najmanj 18 let in poslovno sposoben. Podjetja in samostojni podjetniki nastopajo kot podjetja (poslovni uporabniki), vsi drugi kot zasebne osebe.\n\n2. VLOGA PLATFORME\n2.1 Platforma je spletna tr\u017Enica, ki omogo\u010Da objavo dra\u017Eb, oddajo ponudb in sklepanje kupoprodajnih pogodb med prodajalcem in kupcem.\n2.2 Kupoprodajna pogodba se sklene neposredno med prodajalcem in kupcem v trenutku, ko dra\u017Eba uspe\u0161no zaklju\u010Di. Upravljavec ni prodajalec, kupec ali lastnik predmetov in ni stranka kupoprodajne pogodbe.\n2.3 Upravljavec ne preverja pravilnosti, popolnosti in zakonitosti opisov predmetov in ne jam\u010Di za lastnosti ali pravno stanje predmetov. Za predmet, njegov opis, lastnosti in zakonitost odgovarja prodajalec.\n2.4 Platforma prikazuje pri vsakem prodajalcu, ali nastopa kot podjetje ali kot zasebna oseba. Pravice potro\u0161nika (to\u010Dka 11) veljajo samo pri nakupu od podjetja.\n\n3. REGISTRACIJA IN RA\u010CUN\n3.1 Uporabnik mora navesti resni\u010Dne in popolne podatke ter jih posodabljati. Za sodelovanje pri dra\u017Ebah mora potrditi e-po\u0161tni naslov in izpolniti profil.\n3.2 Uporabnik odgovarja za varovanje svojih prijavnih podatkov in za vse dejavnosti na svojem ra\u010Dunu.\n3.3 Upravljavec lahko zaradi varnosti, prepre\u010Devanja goljufij ali zakonskih obveznosti zahteva dodatno preverjanje identitete, zlasti ko skupni nakupi uporabnika v koledarskem letu prese\u017Eejo 5.000 EUR.\n3.4 Upravljavec lahko za\u010Dasno omeji ali ukine ra\u010Dun, ki kr\u0161i te pogoje ali zakonodajo. O razlogih uporabnika obvesti, razen \u010De zakon to prepoveduje.\n\n4. DRA\u017DBE IN PONUDBE\n4.1 Vsaka oddana ponudba je zavezujo\u010Da. Ponudbe ni mogo\u010De umakniti ali preklicati.\n4.2 Dra\u017Eba se zaklju\u010Di ob izteku objavljenega \u010Dasa. Zmaga ponudnik z najvi\u0161jo veljavno ponudbo. \u010Ce zmagovalec ne pla\u010Da v roku, lahko prodajalec ponudi nakup drugemu najvi\u0161jemu ponudniku po njegovi ponudbi.\n4.3 Prodajalec ne sme sodelovati pri dra\u017Ebi lastnih predmetov niti jih ponujati prek drugih ra\u010Dunov za zvi\u0161anje cene.\n4.4 Prepovedani so predmeti, katerih promet je po zakonu prepovedan ali omejen, ponarejeni predmeti, predmeti, ki kr\u0161ijo pravice tretjih, in drugi predmeti, ki jih upravljavec ozna\u010Di kot prepovedane. Upravljavec lahko oglas odstrani.\n\n5. PRODAJALCI\n5.1 Prodajalec lahko objavlja dra\u017Ebe, ko ima potrjen e-po\u0161tni naslov, izpolnjen profil in urejena izpla\u010Dila pri ponudniku pla\u010Dil Stripe (to\u010Dka 7).\n5.2 Prodajalec potrjuje, da bo ponujal samo predmete in storitve, ki so skladni z veljavno zakonodajo, da je njegov opis resni\u010Den in da je predmet njegova last ali ga lahko prodaja.\n5.3 Prodajalec je dol\u017Ean predmet po zaklju\u010Dku dra\u017Ebe in prejetem pla\u010Dilu odposlati ali predati kupcu skladno z objavljenim na\u010Dinom predaje.\n5.4 Prodajalec, ki nastopa kot podjetje, odgovarja za izpolnjevanje svojih zakonskih obveznosti (informacije potro\u0161nikom, pravica do odstopa, jam\u010Devanje za skladnost blaga, dav\u010Dne obveznosti).\n5.5 Zaradi zakonskih obveznosti (zlasti Akta o digitalnih storitvah) upravljavec od prodajalcev zbira podatke o identiteti, naslovu, kontaktu, pla\u010Dilnem ra\u010Dunu in vpisu v register ter lahko zahteva dokazila.\n\n6. PROVIZIJA IN DDV\n6.1 Kupec poleg cene, dose\u017Eene na dra\u017Ebi, pla\u010Da provizijo platforme in DDV na provizijo. Prodajalec prejme polno ceno, dose\u017Eeno na dra\u017Ebi.\n6.2 Vi\u0161ina provizije je odvisna od naro\u010Dni\u0161kega paketa kupca v trenutku pla\u010Dila in od cene predmeta, v skladu s cenikom na platformi. Provizija in DDV sta prikazana pred oddajo ponudbe in pred pla\u010Dilom.\n6.3 DDV na provizijo se obra\u010Duna po veljavnih predpisih. Za kupce iz Slovenije in zasebne osebe iz dr\u017Eav EU se obra\u010Duna DDV po stopnji 22 %. Za podjetja iz druge dr\u017Eave EU z veljavno identifikacijsko \u0161tevilko za DDV (preverjeno v sistemu VIES) se uporabi obrnjena dav\u010Dna obveznost. Za kupce izven EU se DDV ne obra\u010Duna.\n6.4 Provizija ne more biti ni\u017Eja od minimalne provizije 1,00 EUR. Provizija je prihodek upravljavca. Za provizijo upravljavec kupcu izda ra\u010Dun.\n\n7. PLA\u010CILO IN IZPLA\u010CILO PRODAJALCU\n7.1 Pla\u010Dila obdeluje ponudnik pla\u010Dilnih storitev Stripe. Za uporabo Stripe veljajo njegovi pogoji. Upravljavec ne ponuja pla\u010Dilnih storitev in ne vodi pla\u010Dilnih ra\u010Dunov uporabnikov.\n7.2 Kupec pla\u010Da skupni znesek (cena predmeta, provizija in DDV na provizijo) s kartico prek Stripe v roku, ki je naveden ob zmagi. Nepla\u010Dilo je kr\u0161itev pogojev (to\u010Dka 10).\n7.3 Cena predmeta se ob pla\u010Dilu knji\u017Ei na prodajal\u010Dev ra\u010Dun pri Stripe. Provizija z DDV pripade upravljavcu.\n7.4 Do potrditve prejema predmeta se izpla\u010Dilo prodajalcu zadr\u017Ei. Sredstva se sprostijo prodajalcu takoj, ko (a) kupec potrdi prejem na platformi, ali (b) prodajalec vnese prevzemno PIN kodo kupca pri osebnem prevzemu, ali (c) pote\u010De rok iz to\u010Dke 7.5 in kupec ni vlo\u017Eil prito\u017Ebe.\n7.5 \u010Ce kupec prejema ne potrdi, se izpla\u010Dilo samodejno sprosti: pri odpremi po po\u0161ti 7 dni po odpremi (pri po\u0161iljkah v tujino 14 dni), pri osebnem prevzemu 7 dni po pla\u010Dilu, razen \u010De kupec v tem roku vlo\u017Ei prito\u017Ebo. Ob potrditvi prejema ali vnosu prevzemne kode se izpla\u010Dilo sprosti takoj brez dodatnega \u010Dakanja.\n7.6 \u010Ce kupec v tem roku vlo\u017Ei prito\u017Ebo, se izpla\u010Dilo zadr\u017Ei do razre\u0161itve spora. Rok za izpla\u010Dilo, ki ga omogo\u010Da Stripe, ne more presegati 90 dni od pla\u010Dila; upravljavec se zato obvezuje spor razre\u0161iti pred tem rokom.\n7.7 Spro\u0161\u010Dena sredstva prodajalec izpla\u010Da na svoj ban\u010Dni ra\u010Dun na zahtevo v nastavitvah (najmanj 10 EUR, najve\u010D ena zahteva na 24 ur). Sredstva, ki jih prodajalec ne zahteva 30 dni od sprostitve, se samodejno izpla\u010Dajo na njegov ban\u010Dni ra\u010Dun. Stro\u0161ke izpla\u010Dil nosi upravljavec, prodajalec prejme celoten znesek vrednosti predmeta.\n7.8 \u010Ce prodajalec predmeta v 7 dneh po pla\u010Dilu ne odpo\u0161lje, se naro\u010Dilo samodejno prekli\u010De in kupcu se vrne celoten znesek, vklju\u010Dno s provizijo in DDV.\n\n8. PREVZEM, DOSTAVA IN POTRDITEV PREJEMA\n8.1 Na\u010Din predaje (osebni prevzem ali po\u0161iljanje) dolo\u010Di prodajalec pri objavi dra\u017Ebe.\n8.2 Kupec je dol\u017Ean prejem predmeta potrditi na platformi. Pri osebnem prevzemu kupec prodajalcu poka\u017Ee prevzemno kodo \u0161ele po pregledu predmeta; z razkritjem kode potrjuje prejem.\n8.3 \u010Ce predmet ni skladen z opisom, mora kupec prito\u017Ebo vlo\u017Eiti na platformi v roku, ki velja za zadr\u017Eanje izpla\u010Dila (to\u010Dka 7.5).\n8.4 S potrditvijo prejema na platformi ali z razkritjem prevzemne kode prodajalcu kupec izjavlja, da je predmet pregledal, da je skladen z opisom in vsemi podatki prodajalca ter da ga sprejema. S potrditvijo je poslovanje na platformi med kupcem in prodajalcem zaklju\u010Deno, izpla\u010Dilo prodajalcu se sprosti takoj in prito\u017Eba prek platforme po potrditvi ni ve\u010D mogo\u010Da. Enako velja za osebni prevzem in za po\u0161iljanje po po\u0161ti. Kupec zato prejem potrdi \u0161ele po pregledu predmeta. Zakonske pravice potro\u0161nika po to\u010Dki 11 (pri nakupu od podjetja) s tem niso omejene.\n\n9. SPORI IN POVRA\u010CILA\n9.1 Kupec in prodajalec se najprej poskusita dogovoriti sama prek sporo\u010Dil na platformi.\n9.2 \u010Ce dogovor ni mogo\u010D, lahko vsaka stran odpre spor. Upravljavec lahko na podlagi predlo\u017Eenih dokazov odlo\u010Di, da se izpla\u010Dilo sprosti prodajalcu ali da se znesek vrne kupcu. Odlo\u010Ditev ne izklju\u010Duje pravice strank do sodnega varstva.\n9.3 \u010Ce je kupcu znesek vrnjen, se vrne tudi provizija in DDV, upravljavec pa izda dobropis.\n\n10. NEPLA\u010CILO IN KR\u0160ITVE\n10.1 Nepla\u010Dilo kupnine je huda kr\u0161itev pogojev. Uporabnik dobi opomin. Po tretjem opominu lahko upravljavec ra\u010Dun blokira.\n10.2 Upravljavec lahko za\u010Dasno ali trajno ukine ra\u010Dun, ki kr\u0161i pogoje, ali zadr\u017Ei izpla\u010Dila, \u010De obstaja utemeljen sum goljufije ali kr\u0161itve zakona. Uporabnik ima pravico do prito\u017Ebe na naslov podpore (to\u010Dka 16.2).\n\n11. PRAVICE POTRO\u0160NIKA\n11.1 Kadar prodajalec nastopa kot podjetje in kupec kot potro\u0161nik, veljajo zakonske pravice potro\u0161nika, zlasti pravica do informacij, jam\u010Devanje za skladnost blaga in pravica do odstopa od pogodbe v 14 dneh po prejemu blaga, razen v primerih, ki jih dolo\u010Da zakon.\n11.2 Kadar prodajalec nastopa kot zasebna oseba, pravice potro\u0161nika ne veljajo. Kupec kupuje predmet kot opisan. Prodajalec odgovarja za skladnost z opisom in za napake, ki jih je zamol\u010Dal, po splo\u0161nih dolo\u010Dbah Obligacijskega zakonika.\n11.3 Za izvajanje pravice do odstopa in jam\u010Devanja je odgovoren prodajalec.\n\n12. RA\u010CUNI IN DOKUMENTI\n12.1 Prodajalec poobla\u0161\u010Da upravljavca, da v njegovem imenu in za njegov ra\u010Dun izda ra\u010Dun ali potrdilo za prodan predmet, skladno s statusom prodajalca (zasebna oseba ali podjetje, zavezanec za DDV ali ne). Prodajalec odgovarja za pravilnost svojih podatkov.\n12.2 Pri prodaji med zasebnimi osebami se izda potrdilo o nakupu brez DDV. Ra\u010Dun za provizijo upravljavec izda kupcu.\n12.3 Ra\u010Duni in potrdila so uporabnikom na voljo na platformi in jih prejmejo po e-po\u0161ti.\n\n13. DAV\u010CNE IN ZAKONSKE OBVEZNOSTI\n13.1 Upravljavec je kot operater platforme dol\u017Ean poro\u010Dati Finan\u010Dni upravi RS o prodajalcih in njihovih prejemkih (direktiva DAC7), \u010De prodajalec v koledarskem letu opravi 30 ali ve\u010D prodaj ali njegovi prejemki prese\u017Eejo 2.000 EUR. Prodajalec je dol\u017Ean na poziv predlo\u017Eiti zahtevane podatke, vklju\u010Dno z dav\u010Dno \u0161tevilko.\n13.2 Prodajalec odgovarja za pla\u010Dilo davkov od svojih prihodkov.\n13.3 \u010Ce uporabnik ne predlo\u017Ei zahtevanih podatkov, lahko upravljavec zadr\u017Ei objavo novih dra\u017Eb in izpla\u010Dila.\n\n14. OSEBNI PODATKI\n14.1 Upravljavec obdeluje osebne podatke v skladu s Politiko zasebnosti. Podatke, potrebne za pla\u010Dilo in preverjanje identitete, obdeluje tudi Stripe kot samostojni upravljavec.\n14.2 Kupec in prodajalec za izvedbo posla vidita nujne podatke druge strani (ime, naslov za dostavo).\n\n15. ODGOVORNOST\n15.1 Upravljavec odgovarja za \u0161kodo samo v primerih, ki jih dolo\u010Da zakon. Upravljavec ne odgovarja za izpade Stripe, bank in drugih tretjih oseb, za vsebino oglasov, za dejanja uporabnikov in za nedosegljivost platforme zaradi vzdr\u017Eevanja ali vi\u0161je sile.\n15.2 Omejitev odgovornosti ne velja za naklep, hudo malomarnost in odgovornost, ki je po zakonu ni mogo\u010De izklju\u010Diti, \u0161e posebej ne v razmerju do potro\u0161nikov.\n\n16. VSEBINE, PRIJAVE IN PRITO\u017DBE\n16.1 Nezakonito vsebino ali sumljiv oglas lahko vsakdo prijavi na naslov [VSTAVITE E-NASLOV PODPORE] ali prek obrazca na platformi. Prijavo obravnavamo \u010Dim prej. \u010Ce oglas odstranimo ali ra\u010Dun omejimo, uporabnika obvestimo o razlogu in mo\u017Enosti prito\u017Ebe.\n16.2 Prito\u017Ebo zoper odlo\u010Ditev upravljavca lahko uporabnik vlo\u017Ei na naslov [VSTAVITE E-NASLOV PODPORE] v 30 dneh po prejemu odlo\u010Ditve. Odgovorimo v razumnem roku.\n\n17. SPREMEMBE POGOJEV\n17.1 Upravljavec lahko pogoje spremeni. O bistvenih spremembah uporabnike obvesti vnaprej. Za nadaljnjo uporabo platforme mora uporabnik novo razli\u010Dico sprejeti. Za dra\u017Ebe, ki so se za\u010Dele pred spremembo, veljajo pogoji, ki so veljali ob za\u010Detku dra\u017Ebe.\n\n18. KON\u010CNE DOLO\u010CBE\n18.1 Za razmerja po teh pogojih velja pravo Republike Slovenije. Za spore z uporabniki, ki niso potro\u0161niki, je pristojno stvarno pristojno sodi\u0161\u010De v Mariboru. Za potro\u0161nike veljajo pravila o pristojnosti po zakonu.\n18.2 \u010Ce je posamezna dolo\u010Dba neveljavna, ostale dolo\u010Dbe veljajo naprej.\n18.3 Veljavna je slovenska razli\u010Dica pogojev.",
+    privacyText: "In accordance with the GDPR regulation, we protect your data with the highest security standards.\nData is used strictly and exclusively for the purposes of conducting auctions, securely and legitimately connecting buyers and sellers, and verifying user identity to prevent abuse.\n\nThe platform may forward your essential contact and identification data solely to the opposing party upon the successful conclusion of an auction expressly for the purpose of carrying out the purchase or conclusion of a legal transaction.\nYour personal data will in no other cases be disclosed to unauthorized third parties without your explicit personal consent or a court order.\n\nTo prevent abuse, we store a hashed (irreversibly encrypted) value of the tax number. If the account is blocked due to repeated unpaid auctions, we keep this value even after the account is deleted, based on legitimate interest (Article 6(1)(f) GDPR) for a maximum of 5 years from the block.",
+    howText: "dra\u017Ebenik.si is an online real-time digital auction system.\nTo participate, you must successfully:\n1. Register a user account,\n2. Perform verification.\n\nBidding system and rules:\n\u2022 Any registered user can bid on any item.\n\u2022 Every bid overcome in the last 60 seconds before the end of the auction AUTOMATICALLY RESETS the timer back to 60 seconds, which prevents abuse ('sniping') and provides equal opportunities to all bidders.\n\u2022 The winner is the one with the highest bid at the actual expiration time of the auction.",
+    individual: "Individual",
+    business: "Business",
+    identityVerification: "Identity Verification",
+    verifiedStatus: "Profile verified",
+    unverifiedStatus: "Profile not verified",
+    langSelect: "Language selection",
+    settings: "Settings",
+    subscription: "Subscription",
+    subscriptions: "Subscriptions",
+    paymentInPrep: "This payment method is currently in preparation.",
+    firstName: "First Name",
+    lastName: "Last Name",
+    email: "Email",
+    password: "Password",
+    profilePicture: "Profile Picture",
+    freeTier: "Free",
+    basicTier: "Basic",
+    proTier: "Pro",
+    freeDesc: "Up to 5 posts/month, 10% / 6% / 4.5% bracket fee (min \u20AC1.00)",
+    basicDesc: "Up to 20 posts/month, 7% / 5% / 4% bracket fee (min \u20AC1.00)",
+    proDesc: "Unlimited posts, 5% / 4% / 3.2% bracket fee (min \u20AC1.00)",
+    subscribe: "Subscribe",
+    subscribed: "Subscribed",
+    currentPlan: "Current Plan",
+    paymentMethods: "Payment Methods",
+    payWithCard: "Pay with Card",
+    payWithGoogle: "Google Pay",
+    payWithApple: "Apple Pay",
+    payWithPaypal: "PayPal",
+    checkout: "Checkout",
+    totalAmount: "Total Amount",
+    payNow: "Pay Now",
+    paymentSuccess: "Payment Successful!",
+    sellerProfile: "Seller Profile",
+    memberSince: "Member Since",
+    totalSold: "Total Sold",
+    positiveFeedback: "Positive Feedback",
+    activeAuctionsTab: "Active Auctions",
+    pastAuctionsTab: "Past Auctions",
+    userReviewsTab: "User Reviews",
+    leaveReview: "Leave a Review",
+    reviewNotice: "Since you have purchased from this seller before, you can share your experience.",
+    rating: "Rating",
+    recommend: "Would you recommend?",
+    yesRecommend: "Yes, I recommend",
+    noRecommend: "I don't recommend",
+    comment: "Your comment",
+    commentPlaceholder: "Describe your experience with the seller...",
+    publishReview: "Publish Review",
+    reviewRestriction: "Only users who have successfully completed a purchase from this seller can leave a review.",
+    noActiveAuctions: "No active auctions at the moment.",
+    noPastAuctions: "No past auctions.",
+    noReviews: "Seller has no reviews yet.",
+    verifiedSeller: "Verified",
+    businessSeller: "Business",
+    individualSeller: "Individual Seller",
+    loading: "Loading",
+    backToList: "Back to list",
+    info: "Information",
+    information: "Information",
+    description: "Description",
+    biddingPossible: "Bidding possible",
+    auctionEnded: "Auction ended",
+    closing: "Closing",
+    unknown: "Unknown",
+    viewing: "Viewing",
+    byArrangement: "By arrangement with the seller",
+    pickup: "Pickup",
+    pickupLocation: "Pickup Location",
+    region: "Region",
+    locationHiddenNotice: "Exact location will be revealed to the winner after payment.",
+    mapAvailable: "Map available",
+    mapHidden: "Map hidden",
+    contactInfo: "Contact",
+    team: "Team",
+    viewSeller: "View Seller",
+    winnerNotice: "Congratulations, you won! Please complete the payment.",
+    sellerWinnerNotice: "The winner has been notified and redirected to payment.",
+    notWinnerNotice: "The auction has ended. You are not the winner.",
+    days: "DAYS",
+    hours: "HOURS",
+    minutes: "MIN",
+    seconds: "SEC",
+    startingPrice: "Starting Price",
+    myMaxBid: "My Max Bid",
+    placeBidBtn: "Place Bid",
+    feesAndTerms: "Fees and Terms",
+    auctionFee: "Auction Fee",
+    percent: "Percent",
+    vat: "VAT",
+    deliveryTerms: "Delivery Terms",
+    deliveryTermsNotice: "Personal pickup at the seller's location. Shipping is not possible unless explicitly agreed upon.",
+    paymentOptions: "Payment Options",
+    creditCard: "Credit Card",
+    ended: "Ended",
+    finalPrice: "Final Price",
+    seller: "Seller",
+    watch: "Watch",
+    loadingImages: "Loading images...",
+    bidSuccessMsg: "Bid successfully placed!",
+    confirmBidTitle: "Confirm Bid",
+    bidTerms: "By placing a bid, you agree to our Terms and Conditions and confirm that your bid is legally binding. If you win, you are obligated to pay for the item.",
+    confirmBidBtn: "Confirm Bid",
+    uhr: "HRS",
+    bidFailed: "Bid failed.",
+    auctionFallback: "Auction",
+    noDescription: "No additional description.",
+    slovenia: "Slovenia",
+    passwordsNotMatch: "New passwords do not match!",
+    oldPasswordRequired: "You must enter your old password to change it.",
+    auctionPublished: "Auction successfully published with automatic translations!",
+    enterAllData: "Please enter all data.",
+    publishError: "Error publishing.",
+    checkoutDesc: "Review and pay for won auctions",
+    finalAmount: "Final amount",
+    paymentFor: "Payment for",
+    show: "Show",
+    verificationRequired: "According to Article 18 of the General Terms, data verification is required to participate in the auction.",
+    address: "Residential Address",
+    emso: "Personal ID Number (EM\u0160O)",
+    taxNumber: "Tax Number",
+    companyAddress: "Company Address",
+    profileVerifiedAs: "Your profile is verified as",
+    accountTypeChangeNotPossible: "Account type change is no longer possible after verification.",
+    newAuction: "New Auction",
+    auctionTitle: "Auction Title",
+    describeItem: "Describe the item in detail...",
+    processing: "Processing...",
+    cond_new: "New",
+    cond_likeNew: "Like New",
+    cond_used: "Used",
+    cond_needsFix: "Needs Repair",
+    cond_parts: "For Parts",
+    itemCondition: "Item Condition",
+    mainImage: "Main",
+    preparingAndOptimizing: "Preparing and optimizing images...",
+    preparing: "Preparing...",
+    compressing: "Compressing...",
+    uploading: "Uploading...",
+    auctionPreview: "Auction Preview",
+    loggedInAs: "Logged in as",
+    soldAuctions: "Sold Auctions",
+    unsoldAuctions: "Unsold Auctions",
+    regionMap: "Region Map",
+    clearFilter: "Clear Filter",
+    streetAddress: "Street and House Number",
+    statusText: "Status",
+    statusActive: "Active",
+    backToAuctions: "Back to Auctions",
+    back: "Back",
+    cardPreview: "Card Preview (Main Page)",
+    pagePreview: "Page Preview (Details)",
+    cancelUpload: "Cancel Upload",
+    minImagesError: "Please upload at least 3 images.",
+    maxImagesError: "You can upload a maximum of 10 images.",
+    createAccount: "CREATE ACCOUNT",
+    noAccountRegister: "Don't have an account? Register",
+    haveAccountLogin: "Already have an account? Login",
+    success: "Success!",
+    enterTitle: "Enter title...",
+    itemDescription: "Item Description",
+    startingPriceEur: "Starting Price (\u20AC)",
+    itemImages: "Item Images",
+    uploadImages: "Upload Images",
+    publishAuctionBtn: "Publish Auction",
+    dragImages: "Drag images here or click",
+    supportedFormats: "Supports: JPG, PNG (max 5MB per image, min. 3 and max. 10 images)",
+    showing: "Showing",
+    of: "of",
+    auctions: "auctions",
+    auctionEndTime: "Auction End Time",
+    endDate: "End Date",
+    endTime: "End Time",
+    invalidEndTime: "Auction end must be between 3 and 14 days from today, between 06:00 and 21:59.",
+    categories: "CATEGORIES",
+    allCategories: "All Categories",
+    category: "Category",
+    cat_clothing: "Clothing",
+    cat_computers: "Computers",
+    cat_leisure: "Leisure & Sport",
+    cat_home: "Home & Garden",
+    cat_auto: "Automotive",
+    cat_realestate: "Real Estate",
+    cat_health: "Health & Beauty",
+    cat_kids: "Kids Equipment",
+    cat_agriculture: "Agriculture",
+    cat_art: "Art",
+    cat_instruments: "Musical Instruments",
+    cat_collecting: "Collecting",
+    cat_other: "Other",
+    cat_tools: "Tools & Machinery",
+    cat_electronics: "Consumer Electronics",
+    cat_books: "Books & Magazines",
+    cat_animals: "Animals & Pet Supplies",
+    cat_nautical: "Nautical",
+    cat_catering: "Catering Equipment",
+    cat_construction: "Construction",
+    cat_antiques: "Antiques & Art",
+    watchlist: "Watchlist",
+    watchlistTitle: "Watched Auctions",
+    watchlistDesc: "Auctions you are following",
+    noWatchlist: "You have no watched auctions",
+    myWinnings: "My Winnings",
+    myBids: "My Bids",
+    noBids: "You have no placed bids",
+    bidTermsNotice: "By placing a bid, you agree to the terms of business.",
+    bidTermsAccept: "With the bid submission you accept the terms. Your bid is legally binding.",
+    bidTermsCheckbox: "I agree to the Terms and Conditions and acknowledge that my bid is legally binding.",
+    yourBid: "Your bid",
+    auctionFeeLabel: "Auction fee",
+    vatLabel: "VAT",
+    totalSum: "Total sum",
+    marginScheme: "Margin scheme according to Article 104 of ZDDV-1",
+    noWinnings: "You have no won auctions",
+    companyName: "Company Name",
+    representative: "Representative (Full Name)",
+    verificationDate: "Verification Date",
+    status: "Status",
+    active: "Active",
+    fullName: "Full Name",
+    register: "Register",
+    loggedOut: "You have been logged out.",
+    loginRequired: "Please log in for this action.",
+    bidOutbid: "Your bid was immediately outbid.",
+    bidError: "Error placing bid.",
+    fetchError: "Error fetching data.",
+    bidTooLow: "Your bid is too low.",
+    settingsSaved: "Settings saved.",
+    verificationError: "Verification error.",
+    authError: "Login/Registration error:",
+    emailRequired: "Please enter your email.",
+    resetLinkSent: "Password reset link sent.",
+    googleLoginError: "Google login error.",
+    emailInUse: "Email already in use.",
+    passwordRequirements: "Password does not meet requirements.",
+    registrationSuccess: "Registration successful! Check your email.",
+    imageEnhanced: "Image enhanced successfully!",
+    imageNotChanged: "Image analyzed, but not changed.",
+    imageEnhanceError: "Error enhancing image.",
+    priceMin1: "Starting price must be at least 1\u20AC.",
+    imageUploadError: "Error uploading images.",
+    chatLoadError: "Error loading chats.",
+    messageSendError: "Error sending message.",
+    changePicture: "Change picture",
+    verificationStatus: "Verification status",
+    verified: "Verified",
+    notVerified: "Not verified",
+    verifyNow: "Verify now",
+    basicData: "Basic data",
+    usernameLabel: "Username (visible on auctions)",
+    verificationData: "Verification data",
+    street: "Street and house number",
+    city: "City",
+    postalCode: "Postal code",
+    companyStreet: "Street and house number (Company HQ)",
+    companyCity: "City (Company HQ)",
+    companyPostalCode: "Postal code (Company HQ)",
+    changePassword: "Change password",
+    oldPassword: "Old password",
+    newPassword: "New password",
+    confirmNewPassword: "Confirm new password",
+    verifyBtn: "Confirm verification",
+    biddingHistory: "Bidding history",
+    you: "You",
+    bidder: "Bidder",
+    noBidsYet: "No bids yet.",
+    isSubscriptionCanceled: "Your subscription has been canceled.",
+    nextBillingDate: "Next billing date",
+    validUntil: "Valid until",
+    cancelSubscription: "Cancel subscription",
+    cancelNotice: "Cancellation will stop automatic renewal. You will keep the benefits until the end of the current period.",
+    idRequired: "Identification Required (Purchase over \u20AC10,000)",
+    idFront: "Identity Document - Front Side",
+    idBack: "Identity Document - Back Side",
+    idWarning: "For purchases over \u20AC10,000, uploading an identity document (front and back side) is mandatory.",
+    paymentSuccessEmail: "Payment successful! The invoice and confirmation have been sent to your email.",
+    forgotPassword: "Forgot Password",
+    backToLogin: "Back to Login",
+    sendLink: "Send Link",
+    rememberMe: "Remember Me",
+    googleLogin: "Google Login",
+    confirmPassword: "Confirm Password",
+    strength: "Password Strength",
+    weak: "Weak",
+    moderate: "Moderate",
+    good: "Good",
+    excellent: "Excellent",
+    min8chars: "At least 8 characters",
+    oneUpper: "At least 1 uppercase letter",
+    oneNumber: "At least 1 number",
+    forgotPasswordQuestion: "Forgot Password?",
+    forgotPasswordDesc: "Enter your email address and we will send you a password reset link.",
+    or: "or",
+    messages: "Messages",
+    chatDesc: "Item pickup agreement",
+    yourChats: "Your Chats",
+    noActiveChats: "No active chats",
+    chatStartNotice: "Chats appear after the auction ends between the seller and the winner.",
+    amount: "Amount",
+    startConversation: "Start Conversation",
+    pickupAgreement: "Arrange for item pickup",
+    yourInbox: "Your Inbox",
+    selectChatDesc: "Select a chat on the left to start a conversation with the seller or the auction winner.",
+    leading: "Leading",
+    winner: "Winner",
+    unknownSeller: "Unknown Seller",
+    showCount: "Show ~{n}",
+    tabProfileSecurity: "Profile & Security",
+    tabPersonalData: "Personal Data",
+    tabNotifications: "Notifications",
+    tabPaymentsPayouts: "Payments & Payouts",
+    annualPurchaseLimitTitle: "Annual Purchase Limit (EU Legislation / AML)",
+    annualLimitVerified: "Your profile is verified. Purchasing is unlimited.",
+    annualLimitUnverified: "Users can make up to \u20AC10,000 in purchases per calendar year without additional verification.",
+    spendingInYear: "Spending in",
+    personalDataVerificationNotice: "Your personal data will appear once you verify your profile in the tab above.",
+    country: "Country",
+    phoneNumber: "Phone number",
+    autoInvoiceGeneration: "Auto-generate commission invoices",
+    walletFunds: "Account Funds (Wallet)",
+    walletDesc: "Funds from successfully sold auctions that you can use for purchases or request payout.",
+    currentBalance: "Current Balance",
+    requestPayout: "Request Payout",
+    insufficientFunds: "Insufficient funds in wallet for payout.",
+    connectStripeForPayout: "Please connect a Stripe bank account for payouts.",
+    payoutRequestSuccess: "Payout request submitted! Funds will be transferred to your connected account.",
+    stripeBankConnection: "Bank Account Connection (Stripe)",
+    stripeBankConnectionDesc: "Connect your bank account to receive payouts from sold auctions and manage your transfer details.",
+    stripeAccountAndPayouts: "Stripe Account & Payouts",
+    stripeVerificationAndPayouts: "Stripe Verification & Payouts",
+    stripeConnectedDesc: "Your account is connected. You can review and update your banking details and payout settings.",
+    stripeUnconnectedDesc: "To publish auctions and receive funds, you must verify and connect a bank account. Verification is handled securely via Stripe.",
+    manageBankAccount: "Manage Bank Account",
+    startVerification: "Start Verification",
+    increaseBid: "Increase bid",
+    reverseCharge: "REVERSE CHARGE",
+    proxyBidLeadingTip: "You are the leading bidder! Enter a higher amount if you wish to increase your maximum bid.",
+    proxyBidTip: "Enter the maximum amount you are willing to pay. Your maximum bid remains secret. The system will automatically bid on your behalf.",
+    searchResults: "Results",
+    optionalLabel: "(optional)"
+  },
+  DE: {
+    auctionPaid: "Auktion bezahlt",
+    paid: "Bezahlt",
+    profileSaved: "Einstellungen erfolgreich gespeichert.",
+    winnerPaidNotice: "Herzlichen Gl\xFCckwunsch! Ihre Zahlung wurde best\xE4tigt. Der Verk\xE4ufer bereitet den Versand vor.",
+    sellerPaidNotice: "Der K\xE4ufer hat die Auktion erfolgreich bezahlt. Der Betrag ist sicher auf Ihrem Treuhandkonto hinterlegt.",
+    auctionCompletedPaid: "Die Auktion wurde erfolgreich abgeschlossen und bezahlt.",
+    top10: "TOP 10 AUKTIONEN DES TAGES",
+    allAuctions: "ALLE AUKTIONEN",
+    regions: "REGIONEN",
+    lastChance: "LETZTE CHANCE",
+    lastChanceTitle: "LETZTE CHANCE AUKTIONEN",
+    myProfile: "MEIN PROFIL",
+    login: "ANMELDEN",
+    searchPlaceholder: "Suche nach Ort oder Name...",
+    currentBid: "Aktueller Preis",
+    timeLeft: "Verbleibende Zeit",
+    bidCount: "Gebote",
+    placeBid: "BEST\xC4TIGEN",
+    aboutAuction: "\xDCber die Auktion",
+    saveChanges: "\xC4NDERUNGEN SPEICHERN",
+    activeAuctions: "AKTIVE AUKTIONEN",
+    trending: "Trend",
+    location: "Standort",
+    openAuction: "AUKTION \xD6FFNEN",
+    footerDesc: "Die erste slowenische Plattform f\xFCr professionelle Auktionen, Fahrzeuge und Ausr\xFCstung.",
+    help: "HILFE",
+    terms: "AGB",
+    privacy: "Datenschutz",
+    howItWorks: "Wie funktioniert es?",
+    contact: "KONTAKT",
+    rights: "Alle Rechte vorbehalten | dra\u017Ebenik.si",
+    verifyNotice: "Profil nicht verifiziert. Identit\xE4tspr\xFCfung f\xFCr Gebote erforderlich (Art. 18 SP).",
+    verifyAction: "JETZT VERIFIZIEREN",
+    createAuction: "AUKTION ERSTELLEN",
+    publishAuction: "AUKTION VER\xD6FFENTLICHEN",
+    cannotPublish: "Auktion kann nicht ver\xF6ffentlicht werden",
+    connectBankAccountDesc: "Um eine Auktion zu ver\xF6ffentlichen, m\xFCssen Sie zuerst Ihr Bankkonto f\xFCr Auszahlungen verkn\xFCpfen.",
+    editPayouts: "Zahlungen & Auszahlungen verwalten",
+    myBidsDesc: "\xDCbersicht \xFCber alle Ihre Auktionsgebote",
+    condition: "Zustand",
+    missingFields: "Bitte f\xFCllen Sie alle Pflichtfelder aus",
+    logout: "ABMELDEN",
+    cancel: "ABBRECHEN",
+    itemsPerPage: "Anzeigen:",
+    prev: "Zur\xFCck",
+    next: "Weiter",
+    legalTerms: "Allgemeine Nutzungsbedingungen",
+    legalPrivacy: "Datenschutz (DSGVO)",
+    legalHow: "Teilnahmehinweise",
+    termsText: "Veljavna je slovenska razli\u010Dica pogojev.\nPOGOJI UPORABE SPLETNE PLATFORME DRA\u017DBENIK.SI\nVerzija 2026-10-v2\n\n1. SPLO\u0160NE DOLO\u010CBE\n1.1 Platformo dra\u017Ebenik.si (v nadaljevanju: platforma) upravlja dru\u017Eba Dizain d.o.o., Karantanska ulica 28, 2000 Maribor, ID za DDV SI57008060, mati\u010Dna \u0161tevilka [VSTAVITE], e-po\u0161ta [VSTAVITE E-NASLOV PODPORE] (v nadaljevanju: upravljavec).\n1.2 Ti pogoji urejajo uporabo platforme in razmerja med upravljavcem, prodajalci in kupci. Z registracijo in uporabo platforme uporabnik potrjuje, da je pogoje prebral in jih sprejema.\n1.3 Uporabnik mora biti star najmanj 18 let in poslovno sposoben. Podjetja in samostojni podjetniki nastopajo kot podjetja (poslovni uporabniki), vsi drugi kot zasebne osebe.\n\n2. VLOGA PLATFORME\n2.1 Platforma je spletna tr\u017Enica, ki omogo\u010Da objavo dra\u017Eb, oddajo ponudb in sklepanje kupoprodajnih pogodb med prodajalcem in kupcem.\n2.2 Kupoprodajna pogodba se sklene neposredno med prodajalcem in kupcem v trenutku, ko dra\u017Eba uspe\u0161no zaklju\u010Di. Upravljavec ni prodajalec, kupec ali lastnik predmetov in ni stranka kupoprodajne pogodbe.\n2.3 Upravljavec ne preverja pravilnosti, popolnosti in zakonitosti opisov predmetov in ne jam\u010Di za lastnosti ali pravno stanje predmetov. Za predmet, njegov opis, lastnosti in zakonitost odgovarja prodajalec.\n2.4 Platforma prikazuje pri vsakem prodajalcu, ali nastopa kot podjetje ali kot zasebna oseba. Pravice potro\u0161nika (to\u010Dka 11) veljajo samo pri nakupu od podjetja.\n\n3. REGISTRACIJA IN RA\u010CUN\n3.1 Uporabnik mora navesti resni\u010Dne in popolne podatke ter jih posodabljati. Za sodelovanje pri dra\u017Ebah mora potrditi e-po\u0161tni naslov in izpolniti profil.\n3.2 Uporabnik odgovarja za varovanje svojih prijavnih podatkov in za vse dejavnosti na svojem ra\u010Dunu.\n3.3 Upravljavec lahko zaradi varnosti, prepre\u010Devanja goljufij ali zakonskih obveznosti zahteva dodatno preverjanje identitete, zlasti ko skupni nakupi uporabnika v koledarskem letu prese\u017Eejo 5.000 EUR.\n3.4 Upravljavec lahko za\u010Dasno omeji ali ukine ra\u010Dun, ki kr\u0161i te pogoje ali zakonodajo. O razlogih uporabnika obvesti, razen \u010De zakon to prepoveduje.\n\n4. DRA\u017DBE IN PONUDBE\n4.1 Vsaka oddana ponudba je zavezujo\u010Da. Ponudbe ni mogo\u010De umakniti ali preklicati.\n4.2 Dra\u017Eba se zaklju\u010Di ob izteku objavljenega \u010Dasa. Zmaga ponudnik z najvi\u0161jo veljavno ponudbo. \u010Ce zmagovalec ne pla\u010Da v roku, lahko prodajalec ponudi nakup drugemu najvi\u0161jemu ponudniku po njegovi ponudbi.\n4.3 Prodajalec ne sme sodelovati pri dra\u017Ebi lastnih predmetov niti jih ponujati prek drugih ra\u010Dunov za zvi\u0161anje cene.\n4.4 Prepovedani so predmeti, katerih promet je po zakonu prepovedan ali omejen, ponarejeni predmeti, predmeti, ki kr\u0161ijo pravice tretjih, in drugi predmeti, ki jih upravljavec ozna\u010Di kot prepovedane. Upravljavec lahko oglas odstrani.\n\n5. PRODAJALCI\n5.1 Prodajalec lahko objavlja dra\u017Ebe, ko ima potrjen e-po\u0161tni naslov, izpolnjen profil in urejena izpla\u010Dila pri ponudniku pla\u010Dil Stripe (to\u010Dka 7).\n5.2 Prodajalec potrjuje, da bo ponujal samo predmete in storitve, ki so skladni z veljavno zakonodajo, da je njegov opis resni\u010Den in da je predmet njegova last ali ga lahko prodaja.\n5.3 Prodajalec je dol\u017Ean predmet po zaklju\u010Dku dra\u017Ebe in prejetem pla\u010Dilu odposlati ali predati kupcu skladno z objavljenim na\u010Dinom predaje.\n5.4 Prodajalec, ki nastopa kot podjetje, odgovarja za izpolnjevanje svojih zakonskih obveznosti (informacije potro\u0161nikom, pravica do odstopa, jam\u010Devanje za skladnost blaga, dav\u010Dne obveznosti).\n5.5 Zaradi zakonskih obveznosti (zlasti Akta o digitalnih storitvah) upravljavec od prodajalcev zbira podatke o identiteti, naslovu, kontaktu, pla\u010Dilnem ra\u010Dunu in vpisu v register ter lahko zahteva dokazila.\n\n6. PROVIZIJA IN DDV\n6.1 Kupec poleg cene, dose\u017Eene na dra\u017Ebi, pla\u010Da provizijo platforme in DDV na provizijo. Prodajalec prejme polno ceno, dose\u017Eeno na dra\u017Ebi.\n6.2 Vi\u0161ina provizije je odvisna od naro\u010Dni\u0161kega paketa kupca v trenutku pla\u010Dila in od cene predmeta, v skladu s cenikom na platformi. Provizija in DDV sta prikazana pred oddajo ponudbe in pred pla\u010Dilom.\n6.3 DDV na provizijo se obra\u010Duna po veljavnih predpisih. Za kupce iz Slovenije in zasebne osebe iz dr\u017Eav EU se obra\u010Duna DDV po stopnji 22 %. Za podjetja iz druge dr\u017Eave EU z veljavno identifikacijsko \u0161tevilko za DDV (preverjeno v sistemu VIES) se uporabi obrnjena dav\u010Dna obveznost. Za kupce izven EU se DDV ne obra\u010Duna.\n6.4 Provizija ne more biti ni\u017Eja od minimalne provizije 1,00 EUR. Provizija je prihodek upravljavca. Za provizijo upravljavec kupcu izda ra\u010Dun.\n\n7. PLA\u010CILO IN IZPLA\u010CILO PRODAJALCU\n7.1 Pla\u010Dila obdeluje ponudnik pla\u010Dilnih storitev Stripe. Za uporabo Stripe veljajo njegovi pogoji. Upravljavec ne ponuja pla\u010Dilnih storitev in ne vodi pla\u010Dilnih ra\u010Dunov uporabnikov.\n7.2 Kupec pla\u010Da skupni znesek (cena predmeta, provizija in DDV na provizijo) s kartico prek Stripe v roku, ki je naveden ob zmagi. Nepla\u010Dilo je kr\u0161itev pogojev (to\u010Dka 10).\n7.3 Cena predmeta se ob pla\u010Dilu knji\u017Ei na prodajal\u010Dev ra\u010Dun pri Stripe. Provizija z DDV pripade upravljavcu.\n7.4 Do potrditve prejema predmeta se izpla\u010Dilo prodajalcu zadr\u017Ei. Sredstva se sprostijo prodajalcu takoj, ko (a) kupec potrdi prejem na platformi, ali (b) prodajalec vnese prevzemno PIN kodo kupca pri osebnem prevzemu, ali (c) pote\u010De rok iz to\u010Dke 7.5 in kupec ni vlo\u017Eil prito\u017Ebe.\n7.5 \u010Ce kupec prejema ne potrdi, se izpla\u010Dilo samodejno sprosti: pri odpremi po po\u0161ti 7 dni po odpremi (pri po\u0161iljkah v tujino 14 dni), pri osebnem prevzemu 7 dni po pla\u010Dilu, razen \u010De kupec v tem roku vlo\u017Ei prito\u017Ebo. Ob potrditvi prejema ali vnosu prevzemne kode se izpla\u010Dilo sprosti takoj brez dodatnega \u010Dakanja.\n7.6 \u010Ce kupec v tem roku vlo\u017Ei prito\u017Ebo, se izpla\u010Dilo zadr\u017Ei do razre\u0161itve spora. Rok za izpla\u010Dilo, ki ga omogo\u010Da Stripe, ne more presegati 90 dni od pla\u010Dila; upravljavec se zato obvezuje spor razre\u0161iti pred tem rokom.\n7.7 Spro\u0161\u010Dena sredstva prodajalec izpla\u010Da na svoj ban\u010Dni ra\u010Dun na zahtevo v nastavitvah (najmanj 10 EUR, najve\u010D ena zahteva na 24 ur). Sredstva, ki jih prodajalec ne zahteva 30 dni od sprostitve, se samodejno izpla\u010Dajo na njegov ban\u010Dni ra\u010Dun. Stro\u0161ke izpla\u010Dil nosi upravljavec, prodajalec prejme celoten znesek vrednosti predmeta.\n7.8 \u010Ce prodajalec predmeta v 7 dneh po pla\u010Dilu ne odpo\u0161lje, se naro\u010Dilo samodejno prekli\u010De in kupcu se vrne celoten znesek, vklju\u010Dno s provizijo in DDV.\n\n8. PREVZEM, DOSTAVA IN POTRDITEV PREJEMA\n8.1 Na\u010Din predaje (osebni prevzem ali po\u0161iljanje) dolo\u010Di prodajalec pri objavi dra\u017Ebe.\n8.2 Kupec je dol\u017Ean prejem predmeta potrditi na platformi. Pri osebnem prevzemu kupec prodajalcu poka\u017Ee prevzemno kodo \u0161ele po pregledu predmeta; z razkritjem kode potrjuje prejem.\n8.3 \u010Ce predmet ni skladen z opisom, mora kupec prito\u017Ebo vlo\u017Eiti na platformi v roku, ki velja za zadr\u017Eanje izpla\u010Dila (to\u010Dka 7.5).\n8.4 S potrditvijo prejema na platformi ali z razkritjem prevzemne kode prodajalcu kupec izjavlja, da je predmet pregledal, da je skladen z opisom in vsemi podatki prodajalca ter da ga sprejema. S potrditvijo je poslovanje na platformi med kupcem in prodajalcem zaklju\u010Deno, izpla\u010Dilo prodajalcu se sprosti takoj in prito\u017Eba prek platforme po potrditvi ni ve\u010D mogo\u010Da. Enako velja za osebni prevzem in za po\u0161iljanje po po\u0161ti. Kupec zato prejem potrdi \u0161ele po pregledu predmeta. Zakonske pravice potro\u0161nika po to\u010Dki 11 (pri nakupu od podjetja) s tem niso omejene.\n\n9. SPORI IN POVRA\u010CILA\n9.1 Kupec in prodajalec se najprej poskusita dogovoriti sama prek sporo\u010Dil na platformi.\n9.2 \u010Ce dogovor ni mogo\u010D, lahko vsaka stran odpre spor. Upravljavec lahko na podlagi predlo\u017Eenih dokazov odlo\u010Di, da se izpla\u010Dilo sprosti prodajalcu ali da se znesek vrne kupcu. Odlo\u010Ditev ne izklju\u010Duje pravice strank do sodnega varstva.\n9.3 \u010Ce je kupcu znesek vrnjen, se vrne tudi provizija in DDV, upravljavec pa izda dobropis.\n\n10. NEPLA\u010CILO IN KR\u0160ITVE\n10.1 Nepla\u010Dilo kupnine je huda kr\u0161itev pogojev. Uporabnik dobi opomin. Po tretjem opominu lahko upravljavec ra\u010Dun blokira.\n10.2 Upravljavec lahko za\u010Dasno ali trajno ukine ra\u010Dun, ki kr\u0161i pogoje, ali zadr\u017Ei izpla\u010Dila, \u010De obstaja utemeljen sum goljufije ali kr\u0161itve zakona. Uporabnik ima pravico do prito\u017Ebe na naslov podpore (to\u010Dka 16.2).\n\n11. PRAVICE POTRO\u0160NIKA\n11.1 Kadar prodajalec nastopa kot podjetje in kupec kot potro\u0161nik, veljajo zakonske pravice potro\u0161nika, zlasti pravica do informacij, jam\u010Devanje za skladnost blaga in pravica do odstopa od pogodbe v 14 dneh po prejemu blaga, razen v primerih, ki jih dolo\u010Da zakon.\n11.2 Kadar prodajalec nastopa kot zasebna oseba, pravice potro\u0161nika ne veljajo. Kupec kupuje predmet kot opisan. Prodajalec odgovarja za skladnost z opisom in za napake, ki jih je zamol\u010Dal, po splo\u0161nih dolo\u010Dbah Obligacijskega zakonika.\n11.3 Za izvajanje pravice do odstopa in jam\u010Devanja je odgovoren prodajalec.\n\n12. RA\u010CUNI IN DOKUMENTI\n12.1 Prodajalec poobla\u0161\u010Da upravljavca, da v njegovem imenu in za njegov ra\u010Dun izda ra\u010Dun ali potrdilo za prodan predmet, skladno s statusom prodajalca (zasebna oseba ali podjetje, zavezanec za DDV ali ne). Prodajalec odgovarja za pravilnost svojih podatkov.\n12.2 Pri prodaji med zasebnimi osebami se izda potrdilo o nakupu brez DDV. Ra\u010Dun za provizijo upravljavec izda kupcu.\n12.3 Ra\u010Duni in potrdila so uporabnikom na voljo na platformi in jih prejmejo po e-po\u0161ti.\n\n13. DAV\u010CNE IN ZAKONSKE OBVEZNOSTI\n13.1 Upravljavec je kot operater platforme dol\u017Ean poro\u010Dati Finan\u010Dni upravi RS o prodajalcih in njihovih prejemkih (direktiva DAC7), \u010De prodajalec v koledarskem letu opravi 30 ali ve\u010D prodaj ali njegovi prejemki prese\u017Eejo 2.000 EUR. Prodajalec je dol\u017Ean na poziv predlo\u017Eiti zahtevane podatke, vklju\u010Dno z dav\u010Dno \u0161tevilko.\n13.2 Prodajalec odgovarja za pla\u010Dilo davkov od svojih prihodkov.\n13.3 \u010Ce uporabnik ne predlo\u017Ei zahtevanih podatkov, lahko upravljavec zadr\u017Ei objavo novih dra\u017Eb in izpla\u010Dila.\n\n14. OSEBNI PODATKI\n14.1 Upravljavec obdeluje osebne podatke v skladu s Politiko zasebnosti. Podatke, potrebne za pla\u010Dilo in preverjanje identitete, obdeluje tudi Stripe kot samostojni upravljavec.\n14.2 Kupec in prodajalec za izvedbo posla vidita nujne podatke druge strani (ime, naslov za dostavo).\n\n15. ODGOVORNOST\n15.1 Upravljavec odgovarja za \u0161kodo samo v primerih, ki jih dolo\u010Da zakon. Upravljavec ne odgovarja za izpade Stripe, bank in drugih tretjih oseb, za vsebino oglasov, za dejanja uporabnikov in za nedosegljivost platforme zaradi vzdr\u017Eevanja ali vi\u0161je sile.\n15.2 Omejitev odgovornosti ne velja za naklep, hudo malomarnost in odgovornost, ki je po zakonu ni mogo\u010De izklju\u010Diti, \u0161e posebej ne v razmerju do potro\u0161nikov.\n\n16. VSEBINE, PRIJAVE IN PRITO\u017DBE\n16.1 Nezakonito vsebino ali sumljiv oglas lahko vsakdo prijavi na naslov [VSTAVITE E-NASLOV PODPORE] ali prek obrazca na platformi. Prijavo obravnavamo \u010Dim prej. \u010Ce oglas odstranimo ali ra\u010Dun omejimo, uporabnika obvestimo o razlogu in mo\u017Enosti prito\u017Ebe.\n16.2 Prito\u017Ebo zoper odlo\u010Ditev upravljavca lahko uporabnik vlo\u017Ei na naslov [VSTAVITE E-NASLOV PODPORE] v 30 dneh po prejemu odlo\u010Ditve. Odgovorimo v razumnem roku.\n\n17. SPREMEMBE POGOJEV\n17.1 Upravljavec lahko pogoje spremeni. O bistvenih spremembah uporabnike obvesti vnaprej. Za nadaljnjo uporabo platforme mora uporabnik novo razli\u010Dico sprejeti. Za dra\u017Ebe, ki so se za\u010Dele pred spremembo, veljajo pogoji, ki so veljali ob za\u010Detku dra\u017Ebe.\n\n18. KON\u010CNE DOLO\u010CBE\n18.1 Za razmerja po teh pogojih velja pravo Republike Slovenije. Za spore z uporabniki, ki niso potro\u0161niki, je pristojno stvarno pristojno sodi\u0161\u010De v Mariboru. Za potro\u0161nike veljajo pravila o pristojnosti po zakonu.\n18.2 \u010Ce je posamezna dolo\u010Dba neveljavna, ostale dolo\u010Dbe veljajo naprej.\n18.3 Veljavna je slovenska razli\u010Dica pogojev.",
+    privacyText: "Gem\xE4\xDF der DSGVO-Verordnung sch\xFCtzen wir Ihre Daten mit den h\xF6chsten Sicherheitsstandards.\nDaten werden strengstens ausschlie\xDFlich f\xFCr die Durchf\xFChrung von Auktionen, die sichere Bereitstellung der Verbindung von K\xE4ufern und Verk\xE4ufern sowie die \xDCberpr\xFCfung der Identit\xE4t von Benutzern zur Verhinderung von Missbrauch verwendet.\n\nDie Plattform kann Ihre Kontakt- und Identifikationsdaten nach erfolgreichem Abschluss einer Auktion lediglich an die Gegenpartei weitergeben, ausdr\xFCcklich zum Zweck der Durchf\xFChrung des Kaufs.\nIhre pers\xF6nlichen Daten werden in keinem anderen Fall ohne Ihre ausdr\xFCckliche Zustimmung an unbefugte Dritte weitergegeben.\n\nZur Verhinderung von Missbrauch speichern wir den gehashten (unwiderruflich verschl\xFCsselten) Wert der Steuernummer. Wenn das Konto aufgrund wiederholter unbezahlter Auktionen gesperrt wird, bewahren wir diesen Wert auch nach der Kontol\xF6schung auf, basierend auf berechtigtem Interesse (Artikel 6(1)(f) DSGVO) f\xFCr maximal 5 Jahre ab der Sperrung.",
+    howText: "dra\u017Ebenik.si ist ein sicheres, digitales Echtzeit-Auktionssystem.\nZur Teilnahme m\xFCssen Sie:\n1. Ein Benutzerkonto registrieren,\n2. Eine Verifizierung durchf\xFChren.\n\nAuktionssystem und Regeln:\n\u2022 Jeder Nutzer kann mitbieten.\n\u2022 Jedes \xDCberbieten in den letzten 60 Sekunden vor Auktionsende SETZT den Timer AUTOMATISCH AUF 60 SEKUNDEN ZUR\xDCCK, was 'Sniping' verhindert und gleiche Chancen sichert.\n\u2022 Gewinner ist derjenige mit dem h\xF6chsten Gebot zum Ablauf der Zeit.",
+    individual: "Privatperson",
+    business: "Unternehmen",
+    identityVerification: "Identit\xE4tspr\xFCfung",
+    verifiedStatus: "Profil verifiziert",
+    unverifiedStatus: "Profil nicht verifiziert",
+    langSelect: "Sprachauswahl",
+    settings: "Einstellungen",
+    subscription: "Abonnement",
+    subscriptions: "Abonnements",
+    paymentInPrep: "Diese Zahlungsmethode wird derzeit vorbereitet.",
+    firstName: "Vorname",
+    lastName: "Nachname",
+    email: "E-Mail",
+    password: "Passwort",
+    profilePicture: "Profilbild",
+    freeTier: "Kostenlos",
+    basicTier: "Basis",
+    proTier: "Pro",
+    freeDesc: "Bis zu 5 Beitr\xE4ge/Monat, 10% / 6% / 4,5% Stufengeb\xFChr (mind. 1,00 \u20AC)",
+    basicDesc: "Bis zu 20 Beitr\xE4ge/Monat, 7% / 5% / 4% Stufengeb\xFChr (mind. 1,00 \u20AC)",
+    proDesc: "Unbegrenzte Beitr\xE4ge, 5% / 4% / 3,2% Stufengeb\xFChr (mind. 1,00 \u20AC)",
+    subscribe: "Abonnieren",
+    subscribed: "Abonniert",
+    currentPlan: "Aktueller Plan",
+    paymentMethods: "Zahlungsmethoden",
+    payWithCard: "Mit Karte zahlen",
+    payWithGoogle: "Google Pay",
+    payWithApple: "Apple Pay",
+    payWithPaypal: "PayPal",
+    checkout: "Kasse",
+    totalAmount: "Gesamtbetrag",
+    payNow: "Jetzt bezahlen",
+    paymentSuccess: "Zahlung erfolgreich!",
+    sellerProfile: "Verk\xE4uferprofil",
+    memberSince: "Mitglied seit",
+    totalSold: "Insgesamt verkauft",
+    positiveFeedback: "Positive Bewertungen",
+    activeAuctionsTab: "Aktuelle Auktionen",
+    pastAuctionsTab: "Vergangene Auktionen",
+    userReviewsTab: "Nutzerbewertungen",
+    leaveReview: "Bewertung abgeben",
+    reviewNotice: "Da Sie bereits bei diesem Verk\xE4ufer gekauft haben, k\xF6nnen Sie Ihre Erfahrung teilen.",
+    rating: "Bewertung",
+    recommend: "W\xFCrden Sie ihn weiterempfehlen?",
+    yesRecommend: "Ja, ich empfehle ihn",
+    noRecommend: "Ich empfehle ihn nicht",
+    comment: "Ihr Kommentar",
+    commentPlaceholder: "Beschreiben Sie Ihre Erfahrung mit dem Verk\xE4ufer...",
+    publishReview: "Bewertung ver\xF6ffentlichen",
+    reviewRestriction: "Nur Nutzer, die bereits erfolgreich bei diesem Verk\xE4ufer eingekauft haben, k\xF6nnen eine Bewertung abgeben.",
+    noActiveAuctions: "Momentan keine aktiven Auktionen.",
+    noPastAuctions: "Keine vergangenen Auktionen.",
+    noReviews: "Der Verk\xE4ufer hat noch keine Bewertungen.",
+    verifiedSeller: "Verifiziert",
+    businessSeller: "Unternehmen",
+    individualSeller: "Privatverk\xE4ufer",
+    loading: "Laden",
+    backToList: "Zur\xFCck zur Liste",
+    info: "Informationen",
+    information: "Informationen",
+    description: "Beschreibung",
+    biddingPossible: "Gebote m\xF6glich",
+    auctionEnded: "Auktion beendet",
+    closing: "Abschluss",
+    unknown: "Unbekannt",
+    viewing: "Besichtigung",
+    byArrangement: "Nach Vereinbarung mit dem Verk\xE4ufer",
+    pickup: "Abholung",
+    pickupLocation: "Abholort",
+    region: "Region",
+    locationHiddenNotice: "Der genaue Standort wird dem Gewinner nach der Zahlung mitgeteilt.",
+    mapAvailable: "Karte verf\xFCgbar",
+    mapHidden: "Karte ausgeblendet",
+    contactInfo: "Kontakt",
+    team: "Team",
+    viewSeller: "Verk\xE4ufer ansehen",
+    winnerNotice: "Herzlichen Gl\xFCckwunsch, Sie haben gewonnen! Bitte schlie\xDFen Sie die Zahlung ab.",
+    sellerWinnerNotice: "Der Gewinner wurde benachrichtigt und zur Zahlung weitergeleitet.",
+    notWinnerNotice: "Die Auktion ist beendet. Sie sind nicht der Gewinner.",
+    days: "TAGE",
+    hours: "STUNDEN",
+    minutes: "MIN",
+    seconds: "SEK",
+    startingPrice: "Startpreis",
+    myMaxBid: "Mein Maximalgebot",
+    placeBidBtn: "Gebot abgeben",
+    feesAndTerms: "Geb\xFChren und Bedingungen",
+    auctionFee: "Auktionsgeb\xFChr",
+    percent: "Prozent",
+    vat: "MwSt.",
+    deliveryTerms: "Lieferbedingungen",
+    deliveryTermsNotice: "Pers\xF6nliche Abholung am Standort des Verk\xE4ufers. Versand ist nicht m\xF6glich, es sei denn, es wurde ausdr\xFCcklich vereinbart.",
+    paymentOptions: "Zahlungsm\xF6glichkeiten",
+    creditCard: "Kreditkarte",
+    ended: "Beendet",
+    finalPrice: "Endpreis",
+    seller: "Verk\xE4ufer",
+    watch: "Beobachten",
+    loadingImages: "Bilder laden...",
+    bidSuccessMsg: "Gebot erfolgreich abgegeben!",
+    confirmBidTitle: "Gebot best\xE4tigen",
+    bidTerms: "Mit der Abgabe eines Gebots stimmen Sie unseren Allgemeinen Gesch\xE4ftsbedingungen zu und best\xE4tigen, dass Ihr Gebot rechtlich bindend ist. Im Falle eines Gewinns sind Sie verpflichtet, den Artikel zu bezahlen.",
+    confirmBidBtn: "Gebot best\xE4tigen",
+    uhr: "UHR",
+    bidFailed: "Gebot fehlgeschlagen.",
+    auctionFallback: "Auktion",
+    noDescription: "Keine zus\xE4tzliche Beschreibung.",
+    slovenia: "Slowenien",
+    passwordsNotMatch: "Neue Passw\xF6rter stimmen nicht \xFCberein!",
+    oldPasswordRequired: "Sie m\xFCssen Ihr altes Passwort eingeben, um es zu \xE4ndern.",
+    auctionPublished: "Auktion erfolgreich mit automatischen \xDCbersetzungen ver\xF6ffentlicht!",
+    enterAllData: "Bitte geben Sie alle Daten ein.",
+    publishError: "Fehler beim Ver\xF6ffentlichen.",
+    checkoutDesc: "\xDCberpr\xFCfen und bezahlen Sie gewonnene Auktionen",
+    finalAmount: "Endbetrag",
+    paymentFor: "Zahlung f\xFCr",
+    show: "Anzeigen",
+    verificationRequired: "Gem\xE4\xDF Artikel 18 der Allgemeinen Gesch\xE4ftsbedingungen ist eine Daten\xFCberpr\xFCfung erforderlich, um an der Auktion teilzunehmen.",
+    address: "Wohnadresse",
+    emso: "Pers\xF6nliche Identifikationsnummer",
+    taxNumber: "Steuernummer",
+    companyAddress: "Firmenadresse",
+    profileVerifiedAs: "Ihr Profil ist verifiziert als",
+    accountTypeChangeNotPossible: "Eine \xC4nderung des Kontotyps ist nach der Verifizierung nicht mehr m\xF6glich.",
+    newAuction: "Neue Auktion",
+    auctionTitle: "Auktionstitel",
+    describeItem: "Beschreiben Sie den Artikel im Detail...",
+    processing: "Verarbeitung...",
+    cond_new: "Neu",
+    cond_likeNew: "Wie neu",
+    cond_used: "Gebraucht",
+    cond_needsFix: "Reparaturbed\xFCrftig",
+    cond_parts: "Als Ersatzteil",
+    itemCondition: "Artikelzustand",
+    mainImage: "Hauptbild",
+    preparingAndOptimizing: "Bilder werden vorbereitet und optimiert...",
+    preparing: "Vorbereitung...",
+    compressing: "Komprimierung...",
+    uploading: "Hochladen...",
+    auctionPreview: "Auktionsvorschau",
+    loggedInAs: "Angemeldet als",
+    soldAuctions: "Verkaufte Auktionen",
+    unsoldAuctions: "Unverkaufte Auktionen",
+    regionMap: "Regionenkarte",
+    clearFilter: "Filter l\xF6schen",
+    streetAddress: "Stra\xDFe und Hausnummer",
+    statusText: "Status",
+    statusActive: "Aktiv",
+    backToAuctions: "Zur\xFCck zu den Auktionen",
+    back: "Zur\xFCck",
+    cardPreview: "Karten-Vorschau (Hauptseite)",
+    pagePreview: "Seiten-Vorschau (Details)",
+    cancelUpload: "Hochladen abbrechen",
+    minImagesError: "Bitte laden Sie mindestens 3 Bilder hoch.",
+    maxImagesError: "Sie k\xF6nnen maximal 10 Bilder hochladen.",
+    createAccount: "KONTO ERSTELLEN",
+    noAccountRegister: "Noch kein Konto? Registrieren",
+    haveAccountLogin: "Bereits ein Konto? Anmelden",
+    success: "Erfolgreich!",
+    enterTitle: "Titel eingeben...",
+    itemDescription: "Artikelbeschreibung",
+    startingPriceEur: "Startpreis (\u20AC)",
+    itemImages: "Artikelbilder",
+    uploadImages: "Bilder hochladen",
+    publishAuctionBtn: "Auktion ver\xF6ffentlichen",
+    dragImages: "Bilder hierher ziehen oder klicken",
+    supportedFormats: "Unterst\xFCtzt: JPG, PNG (max. 5MB pro Bild, min. 3 und max. 10 Bilder)",
+    showing: "Zeige",
+    of: "von",
+    auctions: "Auktionen",
+    auctionEndTime: "Auktionsende",
+    endDate: "Enddatum",
+    endTime: "Endzeit",
+    invalidEndTime: "Das Auktionsende muss zwischen 3 und 14 Tagen ab heute liegen, zwischen 06:00 und 21:59 Uhr.",
+    categories: "KATEGORIEN",
+    allCategories: "Alle Kategorien",
+    category: "Kategorie",
+    cat_clothing: "Kleidung",
+    cat_computers: "Computer",
+    cat_leisure: "Freizeit & Sport",
+    cat_home: "Haus & Garten",
+    cat_auto: "Automobil",
+    cat_realestate: "Immobilien",
+    cat_health: "Gesundheit & Sch\xF6nheit",
+    cat_kids: "Kinderausstattung",
+    cat_agriculture: "Landwirtschaft",
+    cat_art: "Kunst",
+    cat_instruments: "Musikinstrumente",
+    cat_collecting: "Sammeln",
+    cat_other: "Sonstiges",
+    cat_tools: "Werkzeuge & Maschinen",
+    cat_electronics: "Unterhaltungselektronik",
+    cat_books: "B\xFCcher & Zeitschriften",
+    cat_animals: "Tiere & Tierbedarf",
+    cat_nautical: "Nautik",
+    cat_catering: "Gastronomiebedarf",
+    cat_construction: "Bauwesen",
+    cat_antiques: "Antiquit\xE4ten & Kunst",
+    watchlist: "Beobachtungsliste",
+    watchlistTitle: "Beobachtete Auktionen",
+    watchlistDesc: "Auktionen, denen Sie folgen",
+    noWatchlist: "Sie haben keine beobachteten Auktionen",
+    myWinnings: "Meine Gewinne",
+    myBids: "Meine Gebote",
+    noBids: "Sie haben keine Gebote abgegeben",
+    bidTermsNotice: "Mit der Gebotsabgabe stimmen Sie den AGB zu.",
+    bidTermsAccept: "Mit der Gebotsabgabe akzeptieren Sie die AGB. Ihr Gebot ist rechtlich bindend.",
+    bidTermsCheckbox: "Ich stimme den AGB zu und nehme zur Kenntnis, dass mein Gebot rechtlich bindend ist.",
+    yourBid: "Ihr Gebot",
+    auctionFeeLabel: "Auktionsgeb\xFChr",
+    vatLabel: "MwSt",
+    totalSum: "Gesamtsumme",
+    marginScheme: "Differenzbesteuerung gem\xE4\xDF \xA724 UStG",
+    noWinnings: "Sie haben keine gewonnenen Auktionen",
+    companyName: "Firmenname",
+    representative: "Vertreter (Vollst\xE4ndiger Name)",
+    verificationDate: "Verifizierungsdatum",
+    status: "Status",
+    active: "Aktiv",
+    fullName: "Vollst\xE4ndiger Name",
+    register: "Registrieren",
+    loggedOut: "Sie wurden abgemeldet.",
+    loginRequired: "Bitte melden Sie sich an.",
+    bidOutbid: "Ihr Gebot wurde sofort \xFCberboten.",
+    bidError: "Fehler beim Bieten.",
+    fetchError: "Fehler beim Abrufen der Daten.",
+    bidTooLow: "Ihr Gebot ist zu niedrig.",
+    settingsSaved: "Einstellungen gespeichert.",
+    verificationError: "Verifizierungsfehler.",
+    authError: "Anmelde-/Registrierungsfehler:",
+    emailRequired: "Bitte E-Mail eingeben.",
+    resetLinkSent: "Link zum Zur\xFCcksetzen des Passworts gesendet.",
+    googleLoginError: "Google-Anmeldefehler.",
+    emailInUse: "E-Mail wird bereits verwendet.",
+    passwordRequirements: "Passwort entspricht nicht den Anforderungen.",
+    registrationSuccess: "Registrierung erfolgreich! E-Mail pr\xFCfen.",
+    imageEnhanced: "Bild erfolgreich verbessert!",
+    imageNotChanged: "Bild analysiert, aber nicht ge\xE4ndert.",
+    imageEnhanceError: "Fehler beim Verbessern des Bildes.",
+    priceMin1: "Startpreis muss mindestens 1\u20AC betragen.",
+    imageUploadError: "Fehler beim Hochladen von Bildern.",
+    chatLoadError: "Fehler beim Laden von Chats.",
+    messageSendError: "Fehler beim Senden der Nachricht.",
+    changePicture: "Bild \xE4ndern",
+    verificationStatus: "Verifizierungsstatus",
+    verified: "Verifiziert",
+    notVerified: "Nicht verifiziert",
+    verifyNow: "Jetzt verifizieren",
+    basicData: "Grunddaten",
+    usernameLabel: "Benutzername (sichtbar bei Auktionen)",
+    verificationData: "Verifizierungsdaten",
+    street: "Stra\xDFe und Hausnummer",
+    city: "Stadt",
+    postalCode: "Postleitzahl",
+    companyStreet: "Stra\xDFe und Hausnummer (Firmensitz)",
+    companyCity: "Stadt (Firmensitz)",
+    companyPostalCode: "Postleitzahl (Firmensitz)",
+    changePassword: "Passwort \xE4ndern",
+    oldPassword: "Altes Passwort",
+    newPassword: "Neues Passwort",
+    confirmNewPassword: "Neues Passwort best\xE4tigen",
+    verifyBtn: "Verifizierung best\xE4tigen",
+    biddingHistory: "Gebotshistorie",
+    you: "Sie",
+    bidder: "Bieter",
+    isSubscriptionCanceled: "Ihr Abonnement wurde gek\xFCndigt.",
+    nextBillingDate: "N\xE4chster Abrechnungstermin",
+    validUntil: "G\xFCltig bis",
+    cancelSubscription: "Abonnement k\xFCndigen",
+    cancelNotice: "Die K\xFCndigung stoppt die automatische Verl\xE4ngerung. Sie behalten die Vorteile bis zum Ende des aktuellen Zeitraums bei.",
+    idRequired: "Identifikation erforderlich (Kauf \xFCber 10.000 \u20AC)",
+    idFront: "Ausweisdokument - Vorderseite",
+    idBack: "Ausweisdokument - R\xFCckseite",
+    idWarning: "F\xFCr K\xE4ufe \xFCber 10.000 \u20AC ist das Hochladen eines Ausweisdokuments (Vorder- und R\xFCckseite) obligatorisch.",
+    paymentSuccessEmail: "Zahlung erfolgreich! Die Rechnung und Best\xE4tigung wurden an Ihre E-Mail gesendet.",
+    forgotPassword: "Passwort vergessen",
+    backToLogin: "Zur\xFCck zum Login",
+    sendLink: "Link senden",
+    rememberMe: "Erinnern Sie sich an mich",
+    googleLogin: "Google-Anmeldung",
+    confirmPassword: "Passwort best\xE4tigen",
+    strength: "Passwortst\xE4rke",
+    weak: "Schwach",
+    moderate: "Mittel",
+    good: "Gut",
+    excellent: "Hervorragend",
+    min8chars: "Mindestens 8 Zeichen",
+    oneUpper: "Mindestens 1 Gro\xDFbuchstabe",
+    oneNumber: "Mindestens 1 Zahl",
+    forgotPasswordQuestion: "Passwort vergessen?",
+    forgotPasswordDesc: "Geben Sie Ihre E-Mail-Adresse ein und wir senden Ihnen einen Link zum Zur\xFCcksetzen des Passworts.",
+    or: "oder",
+    messages: "Nachrichten",
+    chatDesc: "Vereinbarung zur Abholung des Artikels",
+    yourChats: "Ihre Chats",
+    noActiveChats: "Keine aktiven Chats",
+    chatStartNotice: "Chats erscheinen nach Auktionsende zwischen dem Verk\xE4ufer und dem Gewinner.",
+    amount: "Betrag",
+    startConversation: "Gespr\xE4ch beginnen",
+    pickupAgreement: "Abholung des Artikels vereinbaren",
+    yourInbox: "Ihr Posteingang",
+    selectChatDesc: "W\xE4hlen Sie links einen Chat aus, um ein Gespr\xE4ch mit dem Verk\xE4ufer oder dem Auktionsgewinner zu beginnen.",
+    noBidsYet: "Noch keine Gebote.",
+    leading: "F\xFChrend",
+    winner: "Gewinner",
+    unknownSeller: "Unbekannter Verk\xE4ufer",
+    showCount: "Anzeigen ~{n}",
+    tabProfileSecurity: "Profil & Sicherheit",
+    tabPersonalData: "Pers\xF6nliche Daten",
+    tabNotifications: "Benachrichtigungen",
+    tabPaymentsPayouts: "Zahlungen & Auszahlungen",
+    annualPurchaseLimitTitle: "J\xE4hrliches Einkaufslimit (EU-Gesetzgebung / AML)",
+    annualLimitVerified: "Ihr Profil ist verifiziert. Einkaufen ist unbegrenzt.",
+    annualLimitUnverified: "Benutzer k\xF6nnen ohne zus\xE4tzliche Verifizierung bis zu 10.000 \u20AC an Eink\xE4ufen pro Kalenderjahr t\xE4tigen.",
+    spendingInYear: "Ausgaben im Jahr",
+    personalDataVerificationNotice: "Ihre pers\xF6nlichen Daten werden angezeigt, sobald Sie Ihr Profil im oberen Reiter verifizieren.",
+    country: "Land",
+    phoneNumber: "Telefonnummer",
+    autoInvoiceGeneration: "Automatische Rechnungserstellung f\xFCr Provisionen",
+    walletFunds: "Kontoguthaben (Wallet)",
+    walletDesc: "Guthaben aus erfolgreich verkauften Auktionen, das Sie f\xFCr Eink\xE4ufe verwenden oder zur Auszahlung anfordern k\xF6nnen.",
+    currentBalance: "Aktueller Kontostand",
+    requestPayout: "Auszahlung anfordern",
+    insufficientFunds: "Unzureichendes Guthaben f\xFCr eine Auszahlung.",
+    connectStripeForPayout: "Bitte verbinden Sie ein Stripe-Bankkonto f\xFCr Auszahlungen.",
+    payoutRequestSuccess: "Auszahlungsantrag gesendet! Das Guthaben wird auf Ihr verkn\xFCpftes Konto \xFCberwiesen.",
+    stripeBankConnection: "Bankkontoverbindung (Stripe)",
+    stripeBankConnectionDesc: "Verkn\xFCpfen Sie Ihr Bankkonto, um Auszahlungen aus verkauften Auktionen zu erhalten und Ihre \xDCberweisungsdaten zu verwalten.",
+    stripeAccountAndPayouts: "Stripe-Konto & Auszahlungen",
+    stripeVerificationAndPayouts: "Stripe-Verifizierung & Auszahlungen",
+    stripeConnectedDesc: "Ihr Konto ist verkn\xFCpft. Sie k\xF6nnen Ihre Bankdaten und Auszahlungseinstellungen einsehen und aktualisieren.",
+    stripeUnconnectedDesc: "Um Auktionen zu ver\xF6ffentlichen und Gelder zu erhalten, m\xFCssen Sie ein Bankkonto verifizieren und verkn\xFCpfen. Die \xDCberpr\xFCfung erfolgt sicher \xFCber Stripe.",
+    manageBankAccount: "Bankkonto verwalten",
+    startVerification: "Verifizierung starten",
+    increaseBid: "Gebot erh\xF6hen",
+    reverseCharge: "STEUERSCHULDUMKEHR (REVERSE CHARGE)",
+    proxyBidLeadingTip: "Sie sind der H\xF6chstbietende! Geben Sie einen h\xF6heren Betrag ein, wenn Sie Ihr Maximalgebot erh\xF6hen m\xF6chten.",
+    proxyBidTip: "Geben Sie den H\xF6chstbetrag ein, den Sie zu zahlen bereit sind. Ihr Maximalgebot bleibt geheim. Das System bietet automatisch in Ihrem Namen.",
+    searchResults: "Ergebnisse",
+    optionalLabel: "(optional)"
+  }
+};
+
 // src/server/app.ts
+async function recordTermsAcceptance(params) {
+  try {
+    const { uid, context, req, termsVersion = TERMS_VERSION, auctionId = null } = params;
+    const rawIp = req.headers["x-forwarded-for"];
+    const ip = (rawIp ? String(rawIp).split(",")[0].trim() : req.ip) || req.socket?.remoteAddress || "";
+    const userAgent = req.headers["user-agent"] || "";
+    const language = req.headers["accept-language"] || "sl";
+    const termsText = translations?.SLO?.termsText || "";
+    const termsTextSha256 = import_crypto2.default.createHash("sha256").update(termsText).digest("hex");
+    await adminDb.collection("terms_acceptances").add({
+      uid,
+      terms_version: termsVersion,
+      terms_text_sha256: termsTextSha256,
+      context,
+      accepted_at: (/* @__PURE__ */ new Date()).toISOString(),
+      ip,
+      user_agent: userAgent,
+      language,
+      auction_id: auctionId
+    });
+  } catch (err) {
+    console.error("Fehler beim Speichern des AGB-Nachweises:", err);
+  }
+}
 var resendClient2 = process.env.RESEND_API_KEY ? new import_resend2.Resend(process.env.RESEND_API_KEY) : null;
 var adminEmailAddress = process.env.ADMIN_EMAIL || "info@drazbenik.si";
 async function safeGetDocs(queryRef) {
@@ -3148,6 +4357,18 @@ async function safeGetDoc(docRef) {
       ref: docRef
     };
   }
+}
+async function isAdminUser(uid) {
+  if (!uid) return false;
+  const adminUids = (process.env.ADMIN_UIDS || "").split(",").map((s) => s.trim()).filter(Boolean);
+  if (adminUids.includes(uid)) {
+    return true;
+  }
+  const userDoc = await safeGetDoc(adminDb.collection("users").doc(uid));
+  if (userDoc.exists() && userDoc.data()?.role === "admin") {
+    return true;
+  }
+  return false;
 }
 async function assertVerifiedUser(userId, userData) {
   let isEmailVerified = userData?.email_verified === true || userData?.is_verified === true;
@@ -5242,6 +6463,7 @@ app.post("/api/place-bid", async (req, res) => {
     let finalWinnerId = userId;
     let finalPrice = amount;
     let finalMyMax = amount;
+    let wasFirstBidOnAuction = false;
     await adminDb.runTransaction(async (transaction) => {
       const auctionDoc = await transaction.get(auctionRef);
       if (!isDocSnapshotExists(auctionDoc)) {
@@ -5252,6 +6474,11 @@ app.post("/api/place-bid", async (req, res) => {
       const privData = isDocSnapshotExists(privateDoc) ? getDocSnapshotData(privateDoc) || {} : {};
       const myBidDoc = await transaction.get(myBidRef);
       const myBidData = isDocSnapshotExists(myBidDoc) ? getDocSnapshotData(myBidDoc) || {} : {};
+      const isFirstBidOnAuction = !isDocSnapshotExists(myBidDoc) || !myBidData.updated_at;
+      wasFirstBidOnAuction = isFirstBidOnAuction;
+      if (isFirstBidOnAuction && req.body.accepted_bid_terms !== true) {
+        throw new Error("BID_TERMS_REQUIRED");
+      }
       const auctionStatus = data.status || "active";
       const rawEndTime = data.end_time || data.endTime;
       const parsedEndTime = rawEndTime ? new Date(rawEndTime).getTime() : 0;
@@ -5351,11 +6578,30 @@ app.post("/api/place-bid", async (req, res) => {
         price: publicBidPrice,
         created_at: (/* @__PURE__ */ new Date()).toISOString()
       });
-      transaction.set(myBidRef, {
+      const rawIp = req.headers["x-forwarded-for"];
+      const clientIp = (rawIp ? String(rawIp).split(",")[0].trim() : req.ip) || req.socket?.remoteAddress || "";
+      const clientUserAgent = req.headers["user-agent"] || "";
+      const bidLogRef = adminDb.collection("auctions_private").doc(auction_id).collection("bid_log").doc();
+      transaction.set(bidLogRef, {
+        uid: userId,
+        max_bid_cents: Math.round(amount * 100),
+        resulting_price_cents: Math.round(newCurrentPrice * 100),
+        created_at: (/* @__PURE__ */ new Date()).toISOString(),
+        terms_version: userData.terms_version || TERMS_VERSION,
+        ip: clientIp,
+        user_agent: clientUserAgent,
+        is_first_bid_on_auction: isFirstBidOnAuction
+      });
+      const myBidPayload = {
         auction_id,
         my_max: calculatedMyMax,
         updated_at: (/* @__PURE__ */ new Date()).toISOString()
-      }, { merge: true });
+      };
+      if (isFirstBidOnAuction) {
+        myBidPayload.bid_terms_accepted_at = (/* @__PURE__ */ new Date()).toISOString();
+        myBidPayload.bid_terms_version = userData.terms_version || TERMS_VERSION;
+      }
+      transaction.set(myBidRef, myBidPayload, { merge: true });
       finalWinnerId = newWinnerId;
       finalPrice = newCurrentPrice;
       if (prevWinnerId && prevWinnerId !== userId && newWinnerId === userId) {
@@ -5369,6 +6615,15 @@ app.post("/api/place-bid", async (req, res) => {
         };
       }
     });
+    if (wasFirstBidOnAuction) {
+      await recordTermsAcceptance({
+        uid: userId,
+        context: "first_bid",
+        req,
+        termsVersion: userData.terms_version || TERMS_VERSION,
+        auctionId: auction_id
+      });
+    }
     if (outbidUserToNotify) {
       (async () => {
         try {
@@ -5412,6 +6667,9 @@ app.post("/api/place-bid", async (req, res) => {
     });
   } catch (e) {
     console.error("[PLACE BID ERROR]", e);
+    if (e.message === "BID_TERMS_REQUIRED") {
+      return res.status(400).json({ error: "BID_TERMS_REQUIRED", message: "Za oddajo prve ponudbe morate sprejeti splo\u0161ne pogoje." });
+    }
     res.status(400).json({ error: e.message || "Napaka pri oddaji ponudbe" });
   }
 });
@@ -6622,8 +7880,7 @@ app.post("/api/test/send-email", async (req, res) => {
   } catch (authErr) {
     return res.status(401).json({ error: authErr.message || "Unauthorized" });
   }
-  const adminUids = (process.env.ADMIN_UIDS || "").split(",").map((s) => s.trim()).filter(Boolean);
-  if (!adminUids.includes(userId)) {
+  if (!await isAdminUser(userId)) {
     return res.status(403).json({ error: "Forbidden" });
   }
   try {
@@ -6794,8 +8051,7 @@ app.post("/api/test/generate-pdf", async (req, res) => {
   } catch (authErr) {
     return res.status(401).json({ error: authErr.message || "Unauthorized" });
   }
-  const adminUids = (process.env.ADMIN_UIDS || "").split(",").map((s) => s.trim()).filter(Boolean);
-  if (!adminUids.includes(userId)) {
+  if (!await isAdminUser(userId)) {
     return res.status(403).json({ error: "Forbidden" });
   }
   try {
@@ -6909,8 +8165,7 @@ app.post("/api/test/test-payout", async (req, res) => {
   } catch (authErr) {
     return res.status(401).json({ error: authErr.message || "Unauthorized" });
   }
-  const adminUids = (process.env.ADMIN_UIDS || "").split(",").map((s) => s.trim()).filter(Boolean);
-  if (!adminUids.includes(userId)) {
+  if (!await isAdminUser(userId)) {
     return res.status(403).json({ error: "Forbidden" });
   }
   try {
@@ -7045,8 +8300,7 @@ app.post("/api/test/add-test-funds", async (req, res) => {
   } catch (authErr) {
     return res.status(401).json({ error: authErr.message || "Unauthorized" });
   }
-  const adminUids = (process.env.ADMIN_UIDS || "").split(",").map((s) => s.trim()).filter(Boolean);
-  if (!adminUids.includes(userId)) {
+  if (!await isAdminUser(userId)) {
     return res.status(403).json({ error: "Forbidden" });
   }
   try {
@@ -8985,8 +10239,7 @@ app.get("/api/subscription/download-invoice/:invoiceNo", async (req, res) => {
       return res.status(401).json({ error: "Niste prijavljeni." });
     }
     const { invoiceNo } = req.params;
-    const adminUids = (process.env.ADMIN_UIDS || "").split(",").map((s) => s.trim()).filter(Boolean);
-    const isAdmin = adminUids.includes(authUid);
+    const isAdmin = await isAdminUser(authUid);
     let docQuery = adminDb.collection("documents").where("invoice_no", "==", invoiceNo);
     if (!isAdmin) {
       docQuery = docQuery.where("user_id", "==", authUid);
@@ -9056,8 +10309,7 @@ app.get("/api/invoices/file", async (req, res) => {
       return res.status(404).json({ error: "Dra\u017Eba ni bila najdena." });
     }
     const auction = auctionDoc.data() || {};
-    const adminUids = (process.env.ADMIN_UIDS || "").split(",").map((s) => s.trim()).filter(Boolean);
-    const isAdmin = adminUids.includes(authUid);
+    const isAdmin = await isAdminUser(authUid);
     const sellerId = auction.seller_id || auction.seller?.id || auction.sellerId;
     const winnerId = auction.winner_id || auction.winner?.id || auction.buyer_id || auction.winnerId;
     if (!isAdmin && authUid !== sellerId && authUid !== winnerId) {
@@ -9896,6 +11148,7 @@ app.post("/api/profile/init", async (req, res) => {
         terms_version: TERMS_VERSION,
         terms_accepted_at: now
       });
+      await recordTermsAcceptance({ uid, context: "registration", req });
     } else {
       const updates = {};
       if (emailVerified) {
@@ -10143,6 +11396,7 @@ app.post("/api/accept-terms", async (req, res) => {
       terms_accepted_at: now
     }, { merge: true });
   }
+  await recordTermsAcceptance({ uid, context: "reaccept", req, termsVersion: terms_version });
   return res.json({ success: true });
 });
 app.post("/api/seller/accept-terms", async (req, res) => {
@@ -10164,6 +11418,7 @@ app.post("/api/seller/accept-terms", async (req, res) => {
     seller_invoice_authorization: true,
     seller_self_certified: true
   }, { merge: true });
+  await recordTermsAcceptance({ uid, context: "seller_terms", req, termsVersion: terms_version });
   return res.json({ success: true });
 });
 app.post("/api/subscription/downgrade-free", async (req, res) => {
@@ -10575,8 +11830,7 @@ app.post("/api/admin/orders/:id/resolve-dispute", async (req, res) => {
   } catch (authErr) {
     return res.status(401).json({ error: authErr.message || "Unauthorized" });
   }
-  const adminUids = (process.env.ADMIN_UIDS || "admin,owner").split(",").map((s) => s.trim()).filter(Boolean);
-  if (!adminUids.includes(uid) && uid !== "admin" && uid !== "owner") {
+  if (!await isAdminUser(uid)) {
     return res.status(403).json({ error: "Nimate administratorskih pravic." });
   }
   try {
@@ -10679,8 +11933,7 @@ app.post("/api/admin/identity-lock/release", async (req, res) => {
   } catch (authErr) {
     return res.status(401).json({ error: authErr.message || "Unauthorized" });
   }
-  const adminUids = (process.env.ADMIN_UIDS || "admin,owner").split(",").map((s) => s.trim()).filter(Boolean);
-  if (!adminUids.includes(uid) && uid !== "admin" && uid !== "owner") {
+  if (!await isAdminUser(uid)) {
     return res.status(403).json({ error: "Nimate administratorskih pravic." });
   }
   try {
@@ -10728,8 +11981,7 @@ app.post("/api/admin/run-cron", async (req, res) => {
   } catch (authErr) {
     return res.status(401).json({ error: authErr.message || "Unauthorized" });
   }
-  const adminUids = (process.env.ADMIN_UIDS || "admin,owner").split(",").map((s) => s.trim()).filter(Boolean);
-  if (!adminUids.includes(uid) && uid !== "admin" && uid !== "owner") {
+  if (!await isAdminUser(uid)) {
     return res.status(403).json({ error: "Nimate administratorskih pravic." });
   }
   try {
@@ -10747,15 +11999,7 @@ app.post("/api/admin/accounting/backfill", async (req, res) => {
   } catch (authErr) {
     return res.status(401).json({ error: authErr.message || "Unauthorized" });
   }
-  const adminUids = (process.env.ADMIN_UIDS || "admin,owner").split(",").map((s) => s.trim()).filter(Boolean);
-  let isAdmin = adminUids.includes(uid) || uid === "admin" || uid === "owner";
-  if (!isAdmin) {
-    const userDoc = await safeGetDoc(adminDb.collection("users").doc(uid));
-    if (userDoc.exists && userDoc.data()?.role === "admin") {
-      isAdmin = true;
-    }
-  }
-  if (!isAdmin) {
+  if (!await isAdminUser(uid)) {
     return res.status(403).json({ error: "Nimate administratorskih pravic." });
   }
   try {
@@ -10912,15 +12156,7 @@ app.get("/api/admin/accounting/documents", async (req, res) => {
   } catch (authErr) {
     return res.status(401).json({ error: authErr.message || "Unauthorized" });
   }
-  const adminUids = (process.env.ADMIN_UIDS || "admin,owner").split(",").map((s) => s.trim()).filter(Boolean);
-  let isAdmin = adminUids.includes(uid) || uid === "admin" || uid === "owner";
-  if (!isAdmin) {
-    const userDoc = await safeGetDoc(adminDb.collection("users").doc(uid));
-    if (userDoc.exists && userDoc.data()?.role === "admin") {
-      isAdmin = true;
-    }
-  }
-  if (!isAdmin) {
+  if (!await isAdminUser(uid)) {
     return res.status(403).json({ error: "Nimate administratorskih pravic." });
   }
   try {
@@ -10973,15 +12209,7 @@ app.get("/api/admin/accounting/file", async (req, res) => {
   } catch (authErr) {
     return res.status(401).json({ error: authErr.message || "Unauthorized" });
   }
-  const adminUids = (process.env.ADMIN_UIDS || "admin,owner").split(",").map((s) => s.trim()).filter(Boolean);
-  let isAdmin = adminUids.includes(uid) || uid === "admin" || uid === "owner";
-  if (!isAdmin) {
-    const userDoc = await safeGetDoc(adminDb.collection("users").doc(uid));
-    if (userDoc.exists && userDoc.data()?.role === "admin") {
-      isAdmin = true;
-    }
-  }
-  if (!isAdmin) {
+  if (!await isAdminUser(uid)) {
     return res.status(403).json({ error: "Nimate administratorskih pravic." });
   }
   const invoiceNo = String(req.query.invoice_no || "").trim();
@@ -11053,15 +12281,7 @@ app.get("/api/admin/accounting/export", async (req, res) => {
   } catch (authErr) {
     return res.status(401).json({ error: authErr.message || "Unauthorized" });
   }
-  const adminUids = (process.env.ADMIN_UIDS || "admin,owner").split(",").map((s) => s.trim()).filter(Boolean);
-  let isAdmin = adminUids.includes(uid) || uid === "admin" || uid === "owner";
-  if (!isAdmin) {
-    const userDoc = await safeGetDoc(adminDb.collection("users").doc(uid));
-    if (userDoc.exists && userDoc.data()?.role === "admin") {
-      isAdmin = true;
-    }
-  }
-  if (!isAdmin) {
+  if (!await isAdminUser(uid)) {
     return res.status(403).json({ error: "Nimate administratorskih pravic." });
   }
   const { year, month, type } = req.query;
@@ -11154,6 +12374,53 @@ app.get("/api/admin/accounting/export", async (req, res) => {
     return res.status(500).json({ error: err.message || "Napaka pri izvozu ra\u010Dunovodskega arhiva" });
   }
 });
+app.get("/api/admin/disputes/evidence", async (req, res) => {
+  try {
+    let uid;
+    try {
+      uid = await authenticateFirebaseUser(req);
+    } catch (e) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    if (!await isAdminUser(uid)) {
+      return res.status(403).json({ error: "Forbidden: Admin access required." });
+    }
+    const auction_id = String(req.query.auction_id || "");
+    if (!auction_id) {
+      return res.status(400).json({ error: "Zahtevan je parameter auction_id." });
+    }
+    const auctionDoc = await adminDb.collection("auctions").doc(auction_id).get();
+    if (!auctionDoc.exists) {
+      return res.status(404).json({ error: "Dra\u017Eba ne obstaja." });
+    }
+    const auctionData = auctionDoc.data() || {};
+    const sellerId = auctionData.seller_id || auctionData.sellerId;
+    const winnerId = auctionData.winner_id || auctionData.winnerId;
+    const bidLogSnap = await adminDb.collection("auctions_private").doc(auction_id).collection("bid_log").orderBy("created_at", "asc").get();
+    const bid_log = bidLogSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const targetUids = Array.from(new Set([sellerId, winnerId].filter(Boolean)));
+    let terms_acceptances = [];
+    if (targetUids.length > 0) {
+      const taSnap = await adminDb.collection("terms_acceptances").where("uid", "in", targetUids).get();
+      terms_acceptances = taSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    }
+    const txSnap = await adminDb.collection("transactions").where("auction_id", "==", auction_id).limit(1).get();
+    const transaction_id = !txSnap.empty ? txSnap.docs[0].id : null;
+    const termsText = translations?.SLO?.termsText || "";
+    const terms_text_sha256 = import_crypto2.default.createHash("sha256").update(termsText).digest("hex");
+    return res.json({
+      auction_id,
+      transaction_id,
+      terms_version: TERMS_VERSION,
+      terms_text_sha256,
+      bid_log,
+      terms_acceptances
+    });
+  } catch (err) {
+    console.error("Error in /api/admin/disputes/evidence:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
 app.use("/api", (req, res) => {
   res.status(404).json({ error: "API route not found on Vercel backend", url: req.url, originalUrl: req.originalUrl });
 });
@@ -11164,5 +12431,6 @@ app.use((err, _req, res, _next) => {
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   app,
+  isAdminUser,
   recordSaleCompletion
 });

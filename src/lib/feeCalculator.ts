@@ -27,24 +27,23 @@ export function getEffectiveTier(userData: any, nowMs = Date.now()): Tier {
   return tier;
 }
 
-export const FIXED_PLATFORM_FEE_CENTS = 30;
 export const MIN_PLATFORM_FEE_CENTS = 100;
 
-// Deutscher Kommentar: Berechnet die Plattformgebuehr in Cents (Prozentsatz nach Stufen + 30 Cents Fixgebuehr, mindestens 100 Cents)
+// Deutscher Kommentar: Berechnet die Plattformgebuehr in Cents (Prozentsatz nach Stufen, mindestens 100 Cents)
 export function calculatePlatformFeeCents(itemPriceCents: number, tier: Tier): number {
   if (!itemPriceCents || itemPriceCents <= 0) return 0;
-  let b1Bp = 800; // 8%
-  let b2Bp = 500; // 5%
-  let b3Bp = 400; // 4%
+  let b1Bp = 1000; // 10%
+  let b2Bp = 600;  // 6%
+  let b3Bp = 450;  // 4.5%
 
   if (tier === 'PRO') {
-    b1Bp = 400; // 4%
-    b2Bp = 350; // 3.5%
-    b3Bp = 300; // 3%
+    b1Bp = 500; // 5%
+    b2Bp = 400; // 4%
+    b3Bp = 320; // 3.2%
   } else if (tier === 'BASIC') {
     b1Bp = 700; // 7%
-    b2Bp = 450; // 4.5%
-    b3Bp = 350; // 3.5%
+    b2Bp = 500; // 5%
+    b3Bp = 400; // 4%
   }
 
   let totalFeeCents = 0;
@@ -67,9 +66,8 @@ export function calculatePlatformFeeCents(itemPriceCents: number, tier: Tier): n
     totalFeeCents += (remaining * b3Bp) / 10000;
   }
 
-  // Deutscher Kommentar: Prozentualer Anteil gerundet plus 0,30 EUR Fixgebuehr, mindestens 1,00 EUR
-  const feeWithFixed = Math.round(totalFeeCents) + FIXED_PLATFORM_FEE_CENTS;
-  return Math.max(feeWithFixed, MIN_PLATFORM_FEE_CENTS);
+  // Deutscher Kommentar: Prozentualer Anteil gerundet, mindestens 1,00 EUR
+  return Math.max(Math.round(totalFeeCents), MIN_PLATFORM_FEE_CENTS);
 }
 
 // Deutscher Kommentar: Ermittelt den MwSt-Satz und die Umkehrung der Steuerschuldnerschaft

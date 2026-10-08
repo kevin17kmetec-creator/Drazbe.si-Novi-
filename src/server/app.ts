@@ -54,6 +54,40 @@ import {
 } from './emailService';
 import { syncPublicProfile } from './publicProfile';
 import { TERMS_VERSION } from '../lib/termsVersion';
+import { translations } from '../lib/translations';
+
+// Deutscher Kommentar: Speichert einen unveraenderlichen Nachweis ueber die Zustimmung zu den AGB
+async function recordTermsAcceptance(params: {
+  uid: string;
+  context: 'registration' | 'reaccept' | 'seller_terms' | 'first_bid';
+  req: express.Request;
+  termsVersion?: string;
+  auctionId?: string | null;
+}) {
+  try {
+    const { uid, context, req, termsVersion = TERMS_VERSION, auctionId = null } = params;
+    const rawIp = req.headers['x-forwarded-for'];
+    const ip = (rawIp ? String(rawIp).split(',')[0].trim() : req.ip) || req.socket?.remoteAddress || '';
+    const userAgent = (req.headers['user-agent'] as string) || '';
+    const language = (req.headers['accept-language'] as string) || 'sl';
+    const termsText = translations?.SLO?.termsText || '';
+    const termsTextSha256 = crypto.createHash('sha256').update(termsText).digest('hex');
+
+    await adminDb.collection('terms_acceptances').add({
+      uid,
+      terms_version: termsVersion,
+      terms_text_sha256: termsTextSha256,
+      context,
+      accepted_at: new Date().toISOString(),
+      ip,
+      user_agent: userAgent,
+      language,
+      auction_id: auctionId
+    });
+  } catch (err) {
+    console.error("Fehler beim Speichern des AGB-Nachweises:", err);
+  }
+}
 import { PLATFORM_COMPANY } from '../lib/platformCompany';
 import { claimIdentityLock, releaseIdentityLock, markIdentityBlocked, normalizeTaxId, lockKey } from './identityLock';
 // Benachrichtigungs- und Anwesenheitshelfer
@@ -111,6 +145,20 @@ async function safeGetDoc(docRef: any) {
       ref: docRef
     };
   }
+}
+
+// Deutscher Kommentar: Prueft, ob der angegebene Benutzer ein Administrator ist
+export async function isAdminUser(uid: string): Promise<boolean> {
+  if (!uid) return false;
+  const adminUids = (process.env.ADMIN_UIDS || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (adminUids.includes(uid)) {
+    return true;
+  }
+  const userDoc = await safeGetDoc(adminDb.collection('users').doc(uid));
+  if (userDoc.exists() && userDoc.data()?.role === 'admin') {
+    return true;
+  }
+  return false;
 }
 
 async function assertVerifiedUser(userId: string, userData: any): Promise<void> {
@@ -2645,6 +2693,7 @@ app.post("/api/place-bid", async (req, res) => {
     let finalWinnerId = userId;
     let finalPrice = amount;
     let finalMyMax = amount;
+    let wasFirstBidOnAuction = false;
 
     await adminDb.runTransaction(async (transaction) => {
       // 1. ALL READS FIRST
@@ -2659,6 +2708,12 @@ app.post("/api/place-bid", async (req, res) => {
 
       const myBidDoc = await transaction.get(myBidRef);
       const myBidData = isDocSnapshotExists(myBidDoc) ? (getDocSnapshotData(myBidDoc) || {}) : {};
+      const isFirstBidOnAuction = !isDocSnapshotExists(myBidDoc) || !myBidData.updated_at;
+      wasFirstBidOnAuction = isFirstBidOnAuction;
+
+      if (isFirstBidOnAuction && req.body.accepted_bid_terms !== true) {
+        throw new Error("BID_TERMS_REQUIRED");
+      }
 
       // Pruefung, ob die Auktion aktiv ist und nicht in der Vergangenheit liegt
       const auctionStatus = data.status || 'active';
@@ -2789,12 +2844,34 @@ app.post("/api/place-bid", async (req, res) => {
         created_at: new Date().toISOString()
       });
 
-      // D) Write user private my_bids document
-      transaction.set(myBidRef, {
+      // D) Write bid_log subcollection entry in auctions_private/{auction_id}/bid_log
+      const rawIp = req.headers['x-forwarded-for'];
+      const clientIp = (rawIp ? String(rawIp).split(',')[0].trim() : req.ip) || req.socket?.remoteAddress || '';
+      const clientUserAgent = (req.headers['user-agent'] as string) || '';
+      const bidLogRef = adminDb.collection('auctions_private').doc(auction_id).collection('bid_log').doc();
+
+      transaction.set(bidLogRef, {
+        uid: userId,
+        max_bid_cents: Math.round(amount * 100),
+        resulting_price_cents: Math.round(newCurrentPrice * 100),
+        created_at: new Date().toISOString(),
+        terms_version: userData.terms_version || TERMS_VERSION,
+        ip: clientIp,
+        user_agent: clientUserAgent,
+        is_first_bid_on_auction: isFirstBidOnAuction
+      });
+
+      // E) Write user private my_bids document
+      const myBidPayload: any = {
         auction_id,
         my_max: calculatedMyMax,
         updated_at: new Date().toISOString()
-      }, { merge: true });
+      };
+      if (isFirstBidOnAuction) {
+        myBidPayload.bid_terms_accepted_at = new Date().toISOString();
+        myBidPayload.bid_terms_version = userData.terms_version || TERMS_VERSION;
+      }
+      transaction.set(myBidRef, myBidPayload, { merge: true });
 
       finalWinnerId = newWinnerId;
       finalPrice = newCurrentPrice;
@@ -2811,6 +2888,16 @@ app.post("/api/place-bid", async (req, res) => {
         };
       }
     });
+
+    if (wasFirstBidOnAuction) {
+      await recordTermsAcceptance({
+        uid: userId,
+        context: 'first_bid',
+        req,
+        termsVersion: userData.terms_version || TERMS_VERSION,
+        auctionId: auction_id
+      });
+    }
 
     // Send outbid notification and email asynchronously
     if (outbidUserToNotify) {
@@ -2860,6 +2947,9 @@ app.post("/api/place-bid", async (req, res) => {
     });
   } catch (e: any) {
     console.error("[PLACE BID ERROR]", e);
+    if (e.message === 'BID_TERMS_REQUIRED') {
+      return res.status(400).json({ error: 'BID_TERMS_REQUIRED', message: 'Za oddajo prve ponudbe morate sprejeti splošne pogoje.' });
+    }
     res.status(400).json({ error: e.message || "Napaka pri oddaji ponudbe" });
   }
 });
@@ -4304,8 +4394,7 @@ app.post("/api/test/send-email", async (req, res) => {
     return res.status(401).json({ error: authErr.message || 'Unauthorized' });
   }
 
-  const adminUids = (process.env.ADMIN_UIDS || '').split(',').map(s => s.trim()).filter(Boolean);
-  if (!adminUids.includes(userId)) {
+  if (!(await isAdminUser(userId))) {
     return res.status(403).json({ error: 'Forbidden' });
   }
 
@@ -4491,8 +4580,7 @@ app.post("/api/test/generate-pdf", async (req, res) => {
     return res.status(401).json({ error: authErr.message || 'Unauthorized' });
   }
 
-  const adminUids = (process.env.ADMIN_UIDS || '').split(',').map(s => s.trim()).filter(Boolean);
-  if (!adminUids.includes(userId)) {
+  if (!(await isAdminUser(userId))) {
     return res.status(403).json({ error: 'Forbidden' });
   }
 
@@ -4619,8 +4707,7 @@ app.post("/api/test/test-payout", async (req, res) => {
     return res.status(401).json({ error: authErr.message || 'Unauthorized' });
   }
 
-  const adminUids = (process.env.ADMIN_UIDS || '').split(',').map(s => s.trim()).filter(Boolean);
-  if (!adminUids.includes(userId)) {
+  if (!(await isAdminUser(userId))) {
     return res.status(403).json({ error: 'Forbidden' });
   }
 
@@ -4780,8 +4867,7 @@ app.post("/api/test/add-test-funds", async (req, res) => {
     return res.status(401).json({ error: authErr.message || 'Unauthorized' });
   }
 
-  const adminUids = (process.env.ADMIN_UIDS || '').split(',').map(s => s.trim()).filter(Boolean);
-  if (!adminUids.includes(userId)) {
+  if (!(await isAdminUser(userId))) {
     return res.status(403).json({ error: 'Forbidden' });
   }
 
@@ -7148,8 +7234,7 @@ app.get("/api/subscription/download-invoice/:invoiceNo", async (req, res) => {
     }
 
     const { invoiceNo } = req.params;
-    const adminUids = (process.env.ADMIN_UIDS || '').split(',').map(s => s.trim()).filter(Boolean);
-    const isAdmin = adminUids.includes(authUid);
+    const isAdmin = await isAdminUser(authUid);
 
     let docQuery = adminDb.collection('documents')
       .where('invoice_no', '==', invoiceNo);
@@ -7232,8 +7317,7 @@ app.get("/api/invoices/file", async (req, res) => {
     }
     const auction = auctionDoc.data() || {};
 
-    const adminUids = (process.env.ADMIN_UIDS || '').split(',').map(s => s.trim()).filter(Boolean);
-    const isAdmin = adminUids.includes(authUid);
+    const isAdmin = await isAdminUser(authUid);
 
     const sellerId = auction.seller_id || auction.seller?.id || auction.sellerId;
     const winnerId = auction.winner_id || auction.winner?.id || auction.buyer_id || auction.winnerId;
@@ -8272,6 +8356,8 @@ app.post("/api/profile/init", async (req, res) => {
         terms_version: TERMS_VERSION,
         terms_accepted_at: now
       });
+
+      await recordTermsAcceptance({ uid, context: 'registration', req });
     } else {
       const updates: any = {};
       if (emailVerified) {
@@ -8550,6 +8636,7 @@ app.post("/api/accept-terms", async (req, res) => {
       terms_accepted_at: now
     }, { merge: true });
   }
+  await recordTermsAcceptance({ uid, context: 'reaccept', req, termsVersion: terms_version });
   return res.json({ success: true });
 });
 
@@ -8569,6 +8656,7 @@ app.post("/api/seller/accept-terms", async (req, res) => {
     seller_invoice_authorization: true,
     seller_self_certified: true
   }, { merge: true });
+  await recordTermsAcceptance({ uid, context: 'seller_terms', req, termsVersion: terms_version });
   return res.json({ success: true });
 });
 
@@ -9059,8 +9147,7 @@ app.post("/api/admin/orders/:id/resolve-dispute", async (req, res) => {
     return res.status(401).json({ error: authErr.message || 'Unauthorized' });
   }
 
-  const adminUids = (process.env.ADMIN_UIDS || 'admin,owner').split(',').map(s => s.trim()).filter(Boolean);
-  if (!adminUids.includes(uid) && uid !== 'admin' && uid !== 'owner') {
+  if (!(await isAdminUser(uid))) {
     return res.status(403).json({ error: "Nimate administratorskih pravic." });
   }
 
@@ -9183,8 +9270,7 @@ app.post("/api/admin/identity-lock/release", async (req, res) => {
     return res.status(401).json({ error: authErr.message || 'Unauthorized' });
   }
 
-  const adminUids = (process.env.ADMIN_UIDS || 'admin,owner').split(',').map(s => s.trim()).filter(Boolean);
-  if (!adminUids.includes(uid) && uid !== 'admin' && uid !== 'owner') {
+  if (!(await isAdminUser(uid))) {
     return res.status(403).json({ error: "Nimate administratorskih pravic." });
   }
 
@@ -9244,8 +9330,7 @@ app.post("/api/admin/run-cron", async (req, res) => {
     return res.status(401).json({ error: authErr.message || 'Unauthorized' });
   }
 
-  const adminUids = (process.env.ADMIN_UIDS || 'admin,owner').split(',').map(s => s.trim()).filter(Boolean);
-  if (!adminUids.includes(uid) && uid !== 'admin' && uid !== 'owner') {
+  if (!(await isAdminUser(uid))) {
     return res.status(403).json({ error: "Nimate administratorskih pravic." });
   }
 
@@ -9268,15 +9353,7 @@ app.post("/api/admin/accounting/backfill", async (req, res) => {
     return res.status(401).json({ error: authErr.message || 'Unauthorized' });
   }
 
-  const adminUids = (process.env.ADMIN_UIDS || 'admin,owner').split(',').map(s => s.trim()).filter(Boolean);
-  let isAdmin = adminUids.includes(uid) || uid === 'admin' || uid === 'owner';
-  if (!isAdmin) {
-    const userDoc = await safeGetDoc(adminDb.collection('users').doc(uid));
-    if (userDoc.exists && userDoc.data()?.role === 'admin') {
-      isAdmin = true;
-    }
-  }
-  if (!isAdmin) {
+  if (!(await isAdminUser(uid))) {
     return res.status(403).json({ error: "Nimate administratorskih pravic." });
   }
 
@@ -9460,15 +9537,7 @@ app.get("/api/admin/accounting/documents", async (req, res) => {
     return res.status(401).json({ error: authErr.message || 'Unauthorized' });
   }
 
-  const adminUids = (process.env.ADMIN_UIDS || 'admin,owner').split(',').map(s => s.trim()).filter(Boolean);
-  let isAdmin = adminUids.includes(uid) || uid === 'admin' || uid === 'owner';
-  if (!isAdmin) {
-    const userDoc = await safeGetDoc(adminDb.collection('users').doc(uid));
-    if (userDoc.exists && userDoc.data()?.role === 'admin') {
-      isAdmin = true;
-    }
-  }
-  if (!isAdmin) {
+  if (!(await isAdminUser(uid))) {
     return res.status(403).json({ error: "Nimate administratorskih pravic." });
   }
 
@@ -9532,15 +9601,7 @@ app.get("/api/admin/accounting/file", async (req, res) => {
     return res.status(401).json({ error: authErr.message || 'Unauthorized' });
   }
 
-  const adminUids = (process.env.ADMIN_UIDS || 'admin,owner').split(',').map(s => s.trim()).filter(Boolean);
-  let isAdmin = adminUids.includes(uid) || uid === 'admin' || uid === 'owner';
-  if (!isAdmin) {
-    const userDoc = await safeGetDoc(adminDb.collection('users').doc(uid));
-    if (userDoc.exists && userDoc.data()?.role === 'admin') {
-      isAdmin = true;
-    }
-  }
-  if (!isAdmin) {
+  if (!(await isAdminUser(uid))) {
     return res.status(403).json({ error: "Nimate administratorskih pravic." });
   }
 
@@ -9623,15 +9684,7 @@ app.get("/api/admin/accounting/export", async (req, res) => {
     return res.status(401).json({ error: authErr.message || 'Unauthorized' });
   }
 
-  const adminUids = (process.env.ADMIN_UIDS || 'admin,owner').split(',').map(s => s.trim()).filter(Boolean);
-  let isAdmin = adminUids.includes(uid) || uid === 'admin' || uid === 'owner';
-  if (!isAdmin) {
-    const userDoc = await safeGetDoc(adminDb.collection('users').doc(uid));
-    if (userDoc.exists && userDoc.data()?.role === 'admin') {
-      isAdmin = true;
-    }
-  }
-  if (!isAdmin) {
+  if (!(await isAdminUser(uid))) {
     return res.status(403).json({ error: "Nimate administratorskih pravic." });
   }
 
@@ -9745,6 +9798,63 @@ app.get("/api/admin/accounting/export", async (req, res) => {
   } catch (err: any) {
     console.error('Error in /api/admin/accounting/export:', err);
     return res.status(500).json({ error: err.message || 'Napaka pri izvozu računovodskega arhiva' });
+  }
+});
+
+// Deutscher Kommentar: Liefert Beweise und Log-Eintraege fuer Streitfaelle (bid_log, terms_acceptances, Transaktions-ID)
+app.get("/api/admin/disputes/evidence", async (req, res) => {
+  try {
+    let uid: string;
+    try {
+      uid = await authenticateFirebaseUser(req);
+    } catch (e: any) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    if (!(await isAdminUser(uid))) {
+      return res.status(403).json({ error: "Forbidden: Admin access required." });
+    }
+
+    const auction_id = String(req.query.auction_id || '');
+    if (!auction_id) {
+      return res.status(400).json({ error: "Zahtevan je parameter auction_id." });
+    }
+
+    const auctionDoc = await adminDb.collection('auctions').doc(auction_id).get();
+    if (!auctionDoc.exists) {
+      return res.status(404).json({ error: "Dražba ne obstaja." });
+    }
+    const auctionData = auctionDoc.data() || {};
+    const sellerId = auctionData.seller_id || auctionData.sellerId;
+    const winnerId = auctionData.winner_id || auctionData.winnerId;
+
+    const bidLogSnap = await adminDb.collection('auctions_private').doc(auction_id).collection('bid_log').orderBy('created_at', 'asc').get();
+    const bid_log = bidLogSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+    const targetUids = Array.from(new Set([sellerId, winnerId].filter(Boolean)));
+    let terms_acceptances: any[] = [];
+    if (targetUids.length > 0) {
+      const taSnap = await adminDb.collection('terms_acceptances').where('uid', 'in', targetUids).get();
+      terms_acceptances = taSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    }
+
+    const txSnap = await adminDb.collection('transactions').where('auction_id', '==', auction_id).limit(1).get();
+    const transaction_id = !txSnap.empty ? txSnap.docs[0].id : null;
+
+    const termsText = translations?.SLO?.termsText || '';
+    const terms_text_sha256 = crypto.createHash('sha256').update(termsText).digest('hex');
+
+    return res.json({
+      auction_id,
+      transaction_id,
+      terms_version: TERMS_VERSION,
+      terms_text_sha256,
+      bid_log,
+      terms_acceptances
+    });
+  } catch (err: any) {
+    console.error("Error in /api/admin/disputes/evidence:", err);
+    return res.status(500).json({ error: err.message });
   }
 });
 

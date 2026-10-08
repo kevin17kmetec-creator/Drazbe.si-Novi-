@@ -686,7 +686,7 @@ export default function AuctionView({
                     </div>
                     {activeFeeIsMinimum && (
                       <p className="text-[10px] text-slate-400 mt-0.5">
-                        Uporabljena je minimalna provizija 0,70 €.
+                        Uporabljena je minimalna provizija 1,00 €.
                       </p>
                     )}
                     <p className="text-[10px] text-slate-400 mt-0.5">
