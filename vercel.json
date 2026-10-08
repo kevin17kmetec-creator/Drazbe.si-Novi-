@@ -51,7 +51,7 @@
     },
     {
       "path": "/api/cron/reconcile-bank-transfers",
-      "schedule": "0 * * * *"
+      "schedule": "30 1 * * *"
     }
   ]
 }
