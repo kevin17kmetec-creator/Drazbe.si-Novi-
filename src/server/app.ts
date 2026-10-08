@@ -1373,126 +1373,179 @@ async function executeSellerBatchPayout(sellerId: string, trigger: 'manual' | 'a
     return { success: false, error: 'Stripe onboarding ni zaključen.' };
   }
 
-  // Transakcije z statusom 'releasable' narascajoce po released_at
-  const txSnap = await safeGetDocs(
-    adminDb.collection('transactions')
-      .where('seller_id', '==', sellerId)
-      .where('payout_status', '==', 'releasable')
-      .orderBy('released_at', 'asc')
-  );
-
-  if (txSnap.empty) {
-    return { success: false, error: 'Ni sredstev na voljo za izplačilo.' };
-  }
-
-  const stripe = getStripe();
-  let balance: Stripe.Balance;
-  try {
-    balance = await stripe.balance.retrieve({}, { stripeAccount: stripeAccountId });
-  } catch (balErr: any) {
-    console.error('[executeSellerBatchPayout] Error retrieving balance:', balErr.message);
-    return { success: false, error: 'Napaka pri preverjanju salda pri ponudniku plačil.' };
-  }
-
-  const availableEurCents = balance.available.find(b => b.currency === 'eur')?.amount || 0;
-
-  let totalCents = 0;
-  const includedTxs: any[] = [];
-
-  for (const doc of txSnap.docs) {
-    const data = doc.data() || {};
-    const net = data.seller_net_cents || 0;
-    if (net <= 0) continue;
-
-    if (trigger === 'manual' && totalCents + net > availableEurCents) {
-      break;
-    }
-    if (trigger === 'auto') {
-      const releasedAt = new Date(data.released_at || data.created_at || Date.now()).getTime();
-      const ageDays = (Date.now() - releasedAt) / (1000 * 60 * 60 * 24);
-      if (ageDays < PAYOUT_AUTO_DAYS) {
-        continue;
+  // Deutscher Kommentar: Sperre bei automatischem Aufruf setzen
+  if (trigger === 'auto') {
+    const nowMs = Date.now();
+    const leaseUntil = nowMs + 60000;
+    const lockOk = await adminDb.runTransaction(async (t) => {
+      const uDoc = await t.get(userRef);
+      if (!uDoc.exists) return false;
+      const uData = uDoc.data() || {};
+      if (typeof uData.payout_request_lease_until === 'number' && uData.payout_request_lease_until > nowMs) {
+        return false;
       }
+      t.update(userRef, { payout_request_lease_until: leaseUntil });
+      return true;
+    }).catch(() => false);
+
+    if (!lockOk) {
+      return { success: false, error: 'Zahteva za izplačilo se že obdeluje ali zaklep ni uspel.' };
     }
-
-    totalCents += net;
-    includedTxs.push({ id: doc.id, ref: doc.ref, net });
   }
-
-  if (includedTxs.length === 0) {
-    return { success: false, error: 'Ni izpolnjenih pogojev za izplačilo.' };
-  }
-
-  if (trigger === 'manual' && totalCents < MIN_PAYOUT_CENTS) {
-    return { success: false, error: `Najmanjši znesek za izplačilo je ${(MIN_PAYOUT_CENTS / 100).toFixed(2)} €.` };
-  }
-
-  if (trigger === 'auto' && totalCents < MIN_PAYOUT_CENTS) {
-    return { success: false, error: 'Skupni znesek še ne dosega minimalnega zneska za samodejno izplačilo.' };
-  }
-
-  const txIdsString = includedTxs.map(t => t.id).join(',');
-  const batchId = crypto.createHash('sha256').update(txIdsString + '_' + Date.now()).digest('hex').substring(0, 16);
 
   try {
-    const payout = await stripe.payouts.create({
-      amount: totalCents,
-      currency: 'eur',
-      metadata: {
-        seller_id: sellerId,
-        tx_count: String(includedTxs.length),
-        batch_id: batchId
-      }
-    }, {
-      stripeAccount: stripeAccountId,
-      idempotencyKey: 'batch_' + batchId
+    // Deutscher Kommentar: Abfrage aller 'releasable' Transaktionen ohne orderBy in Firestore (Sortierung erfolgt im Speicher)
+    const txSnap = await safeGetDocs(
+      adminDb.collection('transactions')
+        .where('seller_id', '==', sellerId)
+        .where('payout_status', '==', 'releasable')
+    );
+
+    if (txSnap.empty) {
+      return { success: false, error: 'Ni sredstev na voljo za izplačilo.' };
+    }
+
+    const sortedDocs = txSnap.docs.slice().sort((a, b) => {
+      const da = a.data() || {};
+      const db = b.data() || {};
+      const ta = new Date(da.released_at || da.completed_at || da.created_at || 0).getTime();
+      const tb = new Date(db.released_at || db.completed_at || db.created_at || 0).getTime();
+      return ta - tb;
     });
 
-    const paidOutAtIso = new Date().toISOString();
-    const batchWrite = adminDb.batch();
+    const stripe = getStripe();
+    let balance: Stripe.Balance;
+    try {
+      balance = await stripe.balance.retrieve({}, { stripeAccount: stripeAccountId });
+    } catch (balErr: any) {
+      console.error('[executeSellerBatchPayout] Error retrieving balance:', balErr.message);
+      return { success: false, error: 'Napaka pri preverjanju salda pri ponudniku plačil.' };
+    }
 
+    const availableEurCents = balance.available.find(b => b.currency === 'eur')?.amount || 0;
+
+    let totalCents = 0;
+    const includedTxs: any[] = [];
+
+    for (const doc of sortedDocs) {
+      const data = doc.data() || {};
+      const net = data.seller_net_cents || 0;
+      if (net <= 0) continue;
+
+      if (trigger === 'manual' && totalCents + net > availableEurCents) {
+        break;
+      }
+      if (trigger === 'auto') {
+        const releasedAt = new Date(data.released_at || data.created_at || Date.now()).getTime();
+        const ageDays = (Date.now() - releasedAt) / (1000 * 60 * 60 * 24);
+        if (ageDays < PAYOUT_AUTO_DAYS) {
+          continue;
+        }
+      }
+
+      totalCents += net;
+      includedTxs.push({ id: doc.id, ref: doc.ref, net });
+    }
+
+    if (includedTxs.length === 0) {
+      return { success: false, error: 'Ni izpolnjenih pogojev za izplačilo.' };
+    }
+
+    if (trigger === 'manual' && totalCents < MIN_PAYOUT_CENTS) {
+      return { success: false, error: `Najmanjši znesek za izplačilo je ${(MIN_PAYOUT_CENTS / 100).toFixed(2)} €.` };
+    }
+
+    if (trigger === 'auto' && totalCents < MIN_PAYOUT_CENTS) {
+      return { success: false, error: 'Skupni znesek še ne dosega minimalnega zneska za samodejno izplačilo.' };
+    }
+
+    // Deutscher Kommentar: Idempotenter Hash ohne Date.now() aus sortierten Transaktions-IDs und Betrag
+    const sortedIds = includedTxs.map(t => t.id).sort();
+    const batchId = crypto.createHash('sha256').update(sortedIds.join(',') + '_' + totalCents).digest('hex').substring(0, 16);
+
+    // Deutscher Kommentar: Vor dem Auszahlungsaufruf Status auf 'payout_pending' setzen
+    const pendingAtIso = new Date().toISOString();
+    const preBatch = adminDb.batch();
     for (const item of includedTxs) {
-      batchWrite.update(item.ref, {
-        payout_status: 'paid_out',
-        payout_id: payout.id,
-        paid_out_at: paidOutAtIso,
-        payout_batch_id: batchId
+      preBatch.update(item.ref, {
+        payout_status: 'payout_pending',
+        payout_batch_id: batchId,
+        payout_pending_at: pendingAtIso
       });
     }
+    await preBatch.commit();
 
-    await batchWrite.commit();
+    try {
+      const payout = await stripe.payouts.create({
+        amount: totalCents,
+        currency: 'eur',
+        metadata: {
+          seller_id: sellerId,
+          tx_count: String(includedTxs.length),
+          batch_id: batchId
+        }
+      }, {
+        stripeAccount: stripeAccountId,
+        idempotencyKey: 'batch_' + batchId
+      });
 
-    if (user.email && process.env.RESEND_API_KEY) {
-      try {
-        const formattedAmount = (totalCents / 100).toFixed(2);
-        const resendClient = new Resend(process.env.RESEND_API_KEY);
-        await resendClient.emails.send({
-          from: process.env.EMAIL_FROM || 'dražbenik.si <obvestila@drazbenik.si>',
-          to: user.email,
-          subject: 'Izplačilo izvedeno na bančni račun',
-          html: `<div style="font-family: sans-serif; color: #0A1128; padding: 20px;">
-            <h2 style="color: #0A1128;">Izplačilo uspešno izvedeno</h2>
-            <p>Spoštovani,</p>
-            <p>Vaše zbirno izplačilo v višini <strong>${formattedAmount} EUR</strong> (vključno s/za ${includedTxs.length} dražbami) je bilo uspešno posredovano na vaš bančni račun.</p>
-            <p>Denar bo prispel na vaš račun v 1 do 3 delovnih dneh.</p>
-            <p>Hvala, ker uporabljate dražbe.si!</p>
-          </div>`
+      const paidOutAtIso = new Date().toISOString();
+      const batchWrite = adminDb.batch();
+
+      for (const item of includedTxs) {
+        batchWrite.update(item.ref, {
+          payout_status: 'paid_out',
+          payout_id: payout.id,
+          paid_out_at: paidOutAtIso
         });
-      } catch (mailErr: any) {
-        console.error('[executeSellerBatchPayout] Error sending payout email:', mailErr.message);
       }
-    }
 
-    return { success: true, payoutId: payout.id, totalCents, count: includedTxs.length };
-  } catch (stripeErr: any) {
-    console.error('[executeSellerBatchPayout] Stripe Payout failed:', stripeErr.message);
-    const safeErr = formatStripeError(stripeErr);
-    for (const item of includedTxs) {
-      await item.ref.update({
-        payout_last_error: safeErr.userMessage
-      }).catch(() => {});
+      await batchWrite.commit();
+
+      if (user.email && process.env.RESEND_API_KEY) {
+        try {
+          const formattedAmount = (totalCents / 100).toFixed(2);
+          const resendClient = new Resend(process.env.RESEND_API_KEY);
+          await resendClient.emails.send({
+            from: process.env.EMAIL_FROM || 'dražbenik.si <obvestila@drazbenik.si>',
+            to: user.email,
+            subject: 'Izplačilo izvedeno na bančni račun',
+            html: `<div style="font-family: sans-serif; color: #0A1128; padding: 20px;">
+              <h2 style="color: #0A1128;">Izplačilo uspešno izvedeno</h2>
+              <p>Spoštovani,</p>
+              <p>Vaše zbirno izplačilo v višini <strong>${formattedAmount} EUR</strong> (vključno s/za ${includedTxs.length} dražbami) je bilo uspešno posredovano na vaš bančni račun.</p>
+              <p>Denar bo prispel na vaš račun v 1 do 3 delovnih dneh.</p>
+              <p>Hvala, ker uporabljate dražbe.si!</p>
+            </div>`
+          });
+        } catch (mailErr: any) {
+          console.error('[executeSellerBatchPayout] Error sending payout email:', mailErr.message);
+        }
+      }
+
+      return { success: true, payoutId: payout.id, totalCents, count: includedTxs.length };
+    } catch (stripeErr: any) {
+      console.error('[executeSellerBatchPayout] Stripe Payout failed:', stripeErr.message);
+      let userMessage = formatStripeError(stripeErr).userMessage;
+      const rawMsg = (stripeErr?.message || '').toLowerCase();
+      if (stripeErr?.code === 'account_invalid' || stripeErr?.code === 'external_account_not_found' || rawMsg.includes('external account') || rawMsg.includes('bank account') || rawMsg.includes('no attached bank account') || rawMsg.includes('no bank account') || rawMsg.includes('destination')) {
+        userMessage = "Najprej dodajte bančni račun v nastavitvah izplačil.";
+      }
+
+      const errBatch = adminDb.batch();
+      for (const item of includedTxs) {
+        errBatch.update(item.ref, {
+          payout_status: 'releasable',
+          payout_last_error: userMessage
+        });
+      }
+      await errBatch.commit().catch(() => {});
+      return { success: false, error: userMessage };
     }
-    return { success: false, error: safeErr.userMessage };
+  } finally {
+    if (trigger === 'auto') {
+      await userRef.update({ payout_request_lease_until: 0 }).catch(() => {});
+    }
   }
 }
 
@@ -2359,6 +2412,71 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
     } catch (err: any) {
       console.error(`[webhook] Error releasing AML reservation for ${event.type}:`, err.message);
     }
+  } else if (event.type === 'payout.paid' || event.type === 'payout.failed' || event.type === 'payout.canceled') {
+    const payoutObj = event.data.object as Stripe.Payout;
+    const payoutId = payoutObj.id;
+
+    try {
+      const txSnap = await adminDb.collection('transactions')
+        .where('payout_id', '==', payoutId)
+        .get();
+
+      if (!txSnap.empty) {
+        const nowIso = new Date().toISOString();
+        if (event.type === 'payout.paid') {
+          const batch = adminDb.batch();
+          for (const doc of txSnap.docs) {
+            const data = doc.data() || {};
+            if (!data.payout_arrived_at) {
+              batch.update(doc.ref, { payout_arrived_at: nowIso });
+            }
+          }
+          await batch.commit();
+        } else {
+          // Deutscher Kommentar: Bei payout.failed oder payout.canceled Transaktionen auf 'releasable' zuruecksetzen und Fehler speichern
+          const errReason = payoutObj.failure_message || 'Izplačilo ni uspelo';
+          const batch = adminDb.batch();
+          let sellerIdToNotify: string | null = null;
+
+          for (const doc of txSnap.docs) {
+            const data = doc.data() || {};
+            batch.update(doc.ref, {
+              payout_status: 'releasable',
+              payout_last_error: errReason
+            });
+            if (data.seller_id) sellerIdToNotify = data.seller_id;
+          }
+          await batch.commit();
+
+          if (sellerIdToNotify) {
+            try {
+              const uDoc = await safeGetDoc(adminDb.collection('users').doc(sellerIdToNotify));
+              const uData = uDoc.data() || {};
+              if (uData.email && process.env.RESEND_API_KEY) {
+                const resendClient = new Resend(process.env.RESEND_API_KEY);
+                await resendClient.emails.send({
+                  from: process.env.EMAIL_FROM || 'dražbenik.si <obvestila@drazbenik.si>',
+                  to: uData.email,
+                  subject: 'Izplačilo ni uspelo',
+                  html: `<div style="font-family: sans-serif; color: #0A1128; padding: 20px;">
+                    <h2 style="color: #0A1128;">Izplačilo ni uspelo</h2>
+                    <p>Spoštovani,</p>
+                    <p>Vaše nakazilo na bančni račun ni bilo uspešno. Sredstva so ponovno na voljo za izplačilo na vašem računu.</p>
+                    <p>Prosimo, preverite svoje nastavitve izplačil ali poskusite znova.</p>
+                  </div>`
+                });
+              }
+            } catch (mailErr: any) {
+              console.error('[webhook] Error sending payout failure email:', mailErr.message);
+            }
+          }
+        }
+      }
+    } catch (err: any) {
+      console.error(`[webhook] Error processing ${event.type}:`, err.message);
+    }
+    res.json({ received: true });
+    return;
   } else if (event.type === 'account.updated') {
     const account = event.data.object as Stripe.Account;
     const accountId = account.id;
@@ -3791,6 +3909,8 @@ app.get("/api/seller/balance", async (req, res) => {
           paidOutCount++;
         } else if (payoutStatus === 'releasable') {
           releasableCents += netCents;
+        } else if (payoutStatus === 'payout_pending') {
+          inTransitCents += netCents;
         } else if (['held', 'frozen', 'release_waiting_funds', 'release_failed'].includes(payoutStatus)) {
           escrowCents += netCents;
         }
@@ -5698,6 +5818,68 @@ const handleProcessEscrowCompletions = async (req: express.Request, res: express
       }
     }
 
+    // (d) Deutscher Kommentar: Transaktionen im Status 'payout_pending', die aelter als 15 Minuten sind, ueberpruefen und loesen
+    const fifteenMinAgoIso = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+    const pendingSnap = await safeGetDocs(
+      adminDb.collection('transactions')
+        .where('payout_status', '==', 'payout_pending')
+        .where('payout_pending_at', '<=', fifteenMinAgoIso)
+    );
+
+    if (!pendingSnap.empty) {
+      const pendingByBatch: Record<string, { sellerId: string; docs: any[] }> = {};
+      for (const pDoc of pendingSnap.docs) {
+        const pData = pDoc.data() || {};
+        const bId = pData.payout_batch_id || 'unknown';
+        if (!pendingByBatch[bId]) {
+          pendingByBatch[bId] = { sellerId: pData.seller_id, docs: [] };
+        }
+        pendingByBatch[bId].docs.push(pDoc);
+      }
+
+      const stripeObj = getStripe();
+      for (const [batchId, batchData] of Object.entries(pendingByBatch)) {
+        try {
+          const uDoc = await safeGetDoc(adminDb.collection('users').doc(batchData.sellerId));
+          const uData = uDoc.data() || {};
+          const acctId = uData.stripe_account_id || uData.stripeAccountId;
+
+          let foundPayoutId: string | null = null;
+          if (acctId) {
+            const plist = await stripeObj.payouts.list({ limit: 100 }, { stripeAccount: acctId });
+            for (const po of plist.data) {
+              if (po.metadata?.batch_id === batchId) {
+                foundPayoutId = po.id;
+                break;
+              }
+            }
+          }
+
+          const bWrite = adminDb.batch();
+          const nowIso = new Date().toISOString();
+          if (foundPayoutId) {
+            for (const pDoc of batchData.docs) {
+              bWrite.update(pDoc.ref, {
+                payout_status: 'paid_out',
+                payout_id: foundPayoutId,
+                paid_out_at: nowIso
+              });
+            }
+          } else {
+            for (const pDoc of batchData.docs) {
+              bWrite.update(pDoc.ref, {
+                payout_status: 'releasable',
+                payout_last_error: 'Obdelava izplačila prekinjena'
+              });
+            }
+          }
+          await bWrite.commit();
+        } catch (pendingErr: any) {
+          console.error(`[cron] Error processing stuck payout_pending batch ${batchId}:`, pendingErr.message);
+        }
+      }
+    }
+
     // (e) hold alerts (90-day Stripe limit check)
     const holdAlertThreshold = new Date(Date.now() - HOLD_ALERT_DAYS * 24 * 60 * 60 * 1000).toISOString();
     const holdAlertSnap = await safeGetDocs(
@@ -7305,7 +7487,7 @@ app.post("/api/delete-account", async (req, res) => {
 
       const allTxDocs = [...sellerTx.docs, ...buyerTx.docs];
       const blockStatuses = ['HELD_IN_ESCROW', 'SHIPPED', 'DELIVERED', 'DISPUTED'];
-      const blockPayoutStatuses = ['held', 'frozen', 'release_waiting_funds', 'release_failed'];
+      const blockPayoutStatuses = ['held', 'frozen', 'release_waiting_funds', 'release_failed', 'releasable', 'payout_pending'];
 
       for (const txDoc of allTxDocs) {
         const tx = txDoc.data() || {};
