@@ -268,7 +268,7 @@ export const Footer: React.FC<FooterProps> = ({
                                 <CardIcon size={14} />
                             </div>
                             <div className="min-w-0">
-                                <div className="text-[11px] font-bold uppercase tracking-wider text-white truncate">Stripe & Kartice</div>
+                                <div className="text-[11px] font-bold uppercase tracking-wider text-white truncate">Plačila & Kartice</div>
                                 <div className="text-[10px] font-medium text-slate-400 truncate">Visa, Mastercard, Maestro</div>
                             </div>
                         </div>

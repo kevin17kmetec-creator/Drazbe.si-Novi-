@@ -655,44 +655,56 @@ const WonAuctionItem: React.FC<{
           <div className="flex flex-col gap-2 w-full">
             {wonItem.post_auction_status !== 'offered_2nd' && wonItem.post_auction_status !== 'rejected_2nd' && (
               <div className="flex flex-col gap-1.5 w-full">
-                <button
-                  disabled={previewLoading || !preview}
-                  onClick={async () => {
-                    setCheckoutData({
-                      amount: totalAmountToPay,
-                      title: `${t("paymentFor")}: ${wonItem.title[language as keyof typeof wonItem.title] || wonItem.title.SLO}`,
-                      onSuccess: async () => {
-                        setIsCheckoutOpen(false);
-                        toast.success(t("paymentSuccessEmail") || "Plačilo sprejeto. Potrditev lahko traja nekaj sekund.");
-                        fetchAuctions();
-                        if (userData?.id) refreshUserData(userData.id);
-                      },
-                      metadata: {
-                        auction_id: wonItem.id,
-                        buyer_id: userData.id,
-                        seller_id: wonItem.sellerId,
-                        buyer_data: userData,
-                      },
-                    });
-                    setIsCheckoutOpen(true);
-                  }}
-                  className={`px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm transition-all shadow-xl flex items-center justify-center gap-2 ${
-                    previewLoading || !preview
-                      ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
-                      : 'bg-[#0A1128] text-white hover:bg-[#FEBA4F] hover:text-[#0A1128]'
-                  }`}
-                >
-                  {previewLoading ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
-                      <span>Nalaganje izračuna...</span>
-                    </>
-                  ) : (
-                    <>
-                      <CardIcon size={18} /> Plačaj zdaj
-                    </>
-                  )}
-                </button>
+                {wonItem.post_auction_status === 'awaiting_bank_transfer' ? (
+                  <div className="bg-amber-500/10 border border-[#FEBA4F]/20 rounded-2xl p-4 text-left">
+                    <p className="text-[#FEBA4F] text-xs font-black uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                      <ShieldCheck size={14} /> Plačilo v obdelavi
+                    </p>
+                    <p className="text-slate-500 text-xs font-bold leading-normal">
+                      Plačilo z bančnim nakazilom (SEPA) je v obdelavi. Počakajte na potrditev s strani našega plačilnega partnerja.
+                    </p>
+                  </div>
+                ) : (
+                  <button
+                    disabled={previewLoading || !preview}
+                    onClick={async () => {
+                      setCheckoutData({
+                        amount: totalAmountToPay,
+                        title: `${t("paymentFor")}: ${wonItem.title[language as keyof typeof wonItem.title] || wonItem.title.SLO}`,
+                        onSuccess: async () => {
+                          setIsCheckoutOpen(false);
+                          toast.success(t("paymentSuccessEmail") || "Plačilo sprejeto. Potrditev lahko traja nekaj sekund.");
+                          fetchAuctions();
+                          if (userData?.id) refreshUserData(userData.id);
+                        },
+                        metadata: {
+                          auction_id: wonItem.id,
+                          buyer_id: userData.id,
+                          seller_id: wonItem.sellerId,
+                          buyer_data: userData,
+                          payment_deadline: wonItem.payment_deadline
+                        },
+                      });
+                      setIsCheckoutOpen(true);
+                    }}
+                    className={`px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm transition-all shadow-xl flex items-center justify-center gap-2 ${
+                      previewLoading || !preview
+                        ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
+                        : 'bg-[#0A1128] text-white hover:bg-[#FEBA4F] hover:text-[#0A1128]'
+                    }`}
+                  >
+                    {previewLoading ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
+                        <span>Nalaganje izračuna...</span>
+                      </>
+                    ) : (
+                      <>
+                        <CardIcon size={18} /> Plačaj zdaj
+                      </>
+                    )}
+                  </button>
+                )}
                 {!isPaid && !previewLoading && !preview && previewError && (
                   <p className="text-red-500 text-xs font-bold text-center mt-1">
                     Izračuna zneska ni bilo mogoče pridobiti. Osvežite stran.
@@ -2412,7 +2424,9 @@ const MainApp: React.FC = () => {
           .then((res: any) => {
             fetchAuctions();
             if (userData?.id) refreshUserData(userData.id);
-            if (res?.type === 'subscription' || typeParam === 'subscription') {
+            if (res?.awaiting_bank_transfer) {
+              toast.success("Bančno nakazilo uspešno iniciirano! Navodila za plačilo boste prejeli s strani našega plačilnega partnerja.");
+            } else if (res?.type === 'subscription' || typeParam === 'subscription') {
               toast.success("Naročnina je bila uspešno aktivirana!");
             } else {
               toast.success(t("paymentSuccessEmail") || "Plačilo uspešno! Račun in potrdilo sta bila poslana.");
@@ -3562,6 +3576,7 @@ const MainApp: React.FC = () => {
                   seller_id: item.sellerId || item.seller_id,
                   fee_percentage: 10,
                   buyer_data: userData,
+                  payment_deadline: item.payment_deadline
                 },
               });
               setIsCheckoutOpen(true);
@@ -5069,7 +5084,7 @@ const MainApp: React.FC = () => {
         body: JSON.stringify({
           auction_id: item.id,
           amount,
-          accepted_bid_terms: acceptedBidTerms ?? true
+          accepted_bid_terms: acceptedBidTerms === true
         }),
       });
 

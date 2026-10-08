@@ -4,6 +4,7 @@ import { createCheckoutSessionAction, confirmCheckoutSessionAction } from '@/src
 import { auth } from "../../lib/firebase";
 import { Portal } from '../ui/Portal';
 
+// Deutscher Kommentar: Modal-Komponente zur Wahl der Zahlungsmethode (Karte oder Bankueberweisung) und Initiierung des Checkouts
 export const CheckoutModal: React.FC<{
   isOpen: boolean;
   onClose: () => void;
@@ -18,8 +19,21 @@ export const CheckoutModal: React.FC<{
 
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const popupRef = useRef<Window | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<'card' | 'bank_transfer'>('card');
   const pollTimerRef = useRef<any>(null);
+  const popupRef = useRef<Window | null>(null);
+
+  const isSub = metadata?.type === 'subscription';
+  const isAuction = !isSub;
+  const paymentDeadline = metadata?.payment_deadline;
+  
+  const deadlineMs = paymentDeadline ? new Date(paymentDeadline).getTime() : 0;
+  const timeRemaining = deadlineMs - Date.now();
+  const fourDaysInMs = 4 * 24 * 60 * 60 * 1000;
+  const isDeadlineOk = deadlineMs > 0 ? (timeRemaining >= fourDaysInMs) : true;
+
+  // Deutscher Kommentar: Bankueberweisung ist nur fuer Auktionen mit Betrag >= 50 EUR und mindestens 4 Tagen Restzeit verfuegbar
+  const showBankTransferOption = isAuction && amount >= 50.0 && isDeadlineOk;
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -53,7 +67,6 @@ export const CheckoutModal: React.FC<{
     setIsLoading(true);
 
     try {
-      const isSub = metadata?.type === 'subscription';
       const determinedPlan = metadata?.planId || metadata?.tier || (isSub ? (title.toLowerCase().includes('pro') ? 'pro' : 'basic') : undefined);
       const callbackUrl = typeof window !== 'undefined' 
         ? `${window.location.origin}/stripe-callback.html${isSub ? '?type=subscription' : ''}` 
@@ -63,6 +76,7 @@ export const CheckoutModal: React.FC<{
         amount,
         title,
         ...(metadata || {}),
+        payment_method: paymentMethod,
         ...(determinedPlan ? { 
           planId: determinedPlan, 
           package_id: String(determinedPlan).toUpperCase(), 
@@ -99,10 +113,51 @@ export const CheckoutModal: React.FC<{
             <p className="text-4xl font-black text-[#FEBA4F]">€{amount.toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
           </div>
 
+          {showBankTransferOption && (
+            <div className="mb-6">
+              <p className="text-xs font-black uppercase tracking-wider text-[#0A1128] mb-3 text-center">Način plačila</p>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setPaymentMethod('card')}
+                  className={`p-4 rounded-2xl border-2 text-left transition-all flex flex-col justify-between cursor-pointer ${
+                    paymentMethod === 'card'
+                      ? 'border-[#FEBA4F] bg-amber-50/40 text-[#0A1128]'
+                      : 'border-slate-100 bg-white hover:border-slate-200 text-slate-600'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <CardIcon size={18} className={paymentMethod === 'card' ? 'text-[#FEBA4F]' : 'text-slate-400'} />
+                    <span className="text-sm font-black uppercase tracking-tight">Kartica</span>
+                  </div>
+                  <span className="text-[11px] font-medium leading-tight text-slate-500">Takojšnje plačilo in potrditev</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setPaymentMethod('bank_transfer')}
+                  className={`p-4 rounded-2xl border-2 text-left transition-all flex flex-col justify-between cursor-pointer ${
+                    paymentMethod === 'bank_transfer'
+                      ? 'border-[#FEBA4F] bg-amber-50/40 text-[#0A1128]'
+                      : 'border-slate-100 bg-white hover:border-slate-200 text-slate-600'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <ShieldCheck size={18} className={paymentMethod === 'bank_transfer' ? 'text-[#FEBA4F]' : 'text-slate-400'} />
+                    <span className="text-sm font-black uppercase tracking-tight text-nowrap">Nakazilo</span>
+                  </div>
+                  <span className="text-[11px] font-medium leading-tight text-slate-500">SEPA nakazilo (e-banka, UPN nalog)</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="bg-blue-50/70 border border-blue-100 rounded-2xl p-4 mb-6 text-center">
             <p className="text-blue-900 text-xs font-bold leading-relaxed flex items-center justify-center gap-2">
               <ShieldCheck size={16} className="text-blue-600 shrink-0" />
-              Varno spletno plačilo prek našega plačilnega partnerja.
+              {paymentMethod === 'bank_transfer' 
+                ? 'Varne podatke za bančno nakazilo bo posredoval naš plačilni partner.' 
+                : 'Varno spletno plačilo prek našega plačilnega partnerja.'}
             </p>
           </div>
 
@@ -127,4 +182,3 @@ export const CheckoutModal: React.FC<{
     </Portal>
   );
 };
-

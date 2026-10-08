@@ -1020,14 +1020,42 @@ async function recordAmlSpend({
  * 5. If limit > 10,000 EUR and buyer.identity_verified !== true, throws 400 error
  * 6. Sets/updates the reservation doc for `${buyerId}_${auctionId}` with status 'active'
  */
+// Deutscher Kommentar: Hilfsfunktion zur Addition von Arbeitstagen (ohne Wochenende)
+function addWorkingDays(startDate: Date, days: number): Date {
+  let result = new Date(startDate);
+  let addedDays = 0;
+  while (addedDays < days) {
+    result.setDate(result.getDate() + 1);
+    const day = result.getDay();
+    if (day !== 0 && day !== 6) { // 0 = Sunday, 6 = Saturday
+      addedDays++;
+    }
+  }
+  return result;
+}
+
+/**
+ * Reserves an AML amount in Firestore to prevent race conditions during payment initialization.
+ * Runs in a single Firestore transaction:
+ * 1. Reads buyer doc
+ * 2. Reads all active reservations for this buyer
+ * 3. Filters out the current auction's reservation and expired reservations
+ * 4. Sums active unexpired reservations + current purchase amount + current year spend
+ * 5. If limit > 10,000 EUR and buyer.identity_verified !== true, throws 400 error
+ * 6. Sets/updates the reservation doc for `${buyerId}_${auctionId}` with status 'active'
+ */
 async function reserveAmlAmount({
   buyerId,
   auctionId,
-  amountEur
+  amountEur,
+  paymentMethod,
+  bankTransferDeadlineAt
 }: {
   buyerId: string;
   auctionId: string;
   amountEur: number;
+  paymentMethod?: string;
+  bankTransferDeadlineAt?: string;
 }): Promise<{ reservationId: string; expiresAt: string }> {
   if (!buyerId || !auctionId || amountEur <= 0) {
     return { reservationId: `${buyerId}_${auctionId}`, expiresAt: '' };
@@ -1035,7 +1063,7 @@ async function reserveAmlAmount({
 
   const reservationId = `${buyerId}_${auctionId}`;
   const now = new Date();
-  const expiresAt = new Date(now.getTime() + 30 * 60 * 1000).toISOString();
+  const expiresAt = bankTransferDeadlineAt || new Date(now.getTime() + 30 * 60 * 1000).toISOString();
   const createdAt = now.toISOString();
 
   const currentYearStr = new Intl.DateTimeFormat('en-US', {
@@ -1092,7 +1120,7 @@ async function reserveAmlAmount({
     }
 
     const reservationRef = adminDb.collection('aml_reservations').doc(reservationId);
-    t.set(reservationRef, {
+    const reservationData: any = {
       buyer_id: buyerId,
       auction_id: auctionId,
       amount_eur: amountEur,
@@ -1100,7 +1128,14 @@ async function reserveAmlAmount({
       status: 'active',
       expires_at: expiresAt,
       created_at: createdAt
-    }, { merge: true });
+    };
+    if (paymentMethod) {
+      reservationData.payment_method = paymentMethod;
+    }
+    if (bankTransferDeadlineAt) {
+      reservationData.bank_transfer_deadline_at = bankTransferDeadlineAt;
+    }
+    t.set(reservationRef, reservationData, { merge: true });
   });
 
   return { reservationId, expiresAt };
@@ -2193,8 +2228,12 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
     return;
   }
 
-  if (event.type === 'payment_intent.succeeded' || event.type === 'checkout.session.completed') {
-    const isSession = event.type === 'checkout.session.completed';
+  if (
+    event.type === 'payment_intent.succeeded' || 
+    event.type === 'checkout.session.completed' || 
+    event.type === 'checkout.session.async_payment_succeeded'
+  ) {
+    const isSession = event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded';
     const sessionObj = isSession ? (event.data.object as Stripe.Checkout.Session) : null;
     const paymentIntent = !isSession ? (event.data.object as Stripe.PaymentIntent) : null;
 
@@ -2202,10 +2241,23 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
     const paymentId = isSession 
       ? (typeof sessionObj?.payment_intent === 'string' ? sessionObj.payment_intent : sessionObj?.payment_intent?.id || sessionObj!.id)
       : paymentIntent!.id;
-    console.log('Payment event succeeded:', event.type, paymentId);
+    console.log('Payment event succeeded/completed:', event.type, paymentId);
 
     try {
       const { type, purpose, auction_id, buyer_id, seller_id, fee_percentage, user_id, package_id } = rawMetadata;
+
+      // Deutscher Kommentar: Wenn Bankueberweisung noch unbezahlt ist (aus checkout.session.completed), kein finalizing ausloesen, sondern Status vermerken
+      if (isSession && rawMetadata.payment_method === 'bank_transfer' && sessionObj?.payment_status === 'unpaid') {
+        console.log(`[webhook] Bank transfer checkout session completed (unpaid). Session ID: ${sessionObj.id}. Awaiting payment.`);
+        if (auction_id) {
+          await adminDb.collection('auctions').doc(auction_id).set({
+            post_auction_status: 'awaiting_bank_transfer',
+            bank_transfer_session_id: sessionObj.id
+          }, { merge: true });
+        }
+        res.json({ received: true });
+        return;
+      }
 
       // Handle Test Wallet Funding from Stripe PaymentIntent
       if (purpose === 'test_wallet_funding' || type === 'test_wallet_funding') {
@@ -2405,6 +2457,23 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
           release_reason: 'checkout_session_expired'
         }, { merge: true });
         console.log(`[webhook] Released AML reservation ${reservationId} due to checkout.session.expired`);
+
+        // Deutscher Kommentar: Wenn die SEPA Bankueberweisung abgelaufen ist, Status zuruecksetzen
+        if (metadata.payment_method === 'bank_transfer') {
+          const auctionDoc = await adminDb.collection('auctions').doc(auction_id).get();
+          if (auctionDoc.exists) {
+            const auctionData = auctionDoc.data() || {};
+            let restoreStatus = 'awaiting_payment_1st';
+            if (auctionData.second_winner_id === buyer_id) {
+              restoreStatus = 'awaiting_payment_2nd';
+            }
+            await adminDb.collection('auctions').doc(auction_id).set({
+              post_auction_status: restoreStatus,
+              bank_transfer_session_id: null
+            }, { merge: true });
+            console.log(`[webhook] Bank transfer expired for auction ${auction_id}. Restored post_auction_status to ${restoreStatus}`);
+          }
+        }
       } else if (sessionId) {
         const qSnap = await adminDb.collection('aml_reservations')
           .where('stripe_session_id', '==', sessionId)
@@ -2424,6 +2493,44 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
       }
     } catch (err: any) {
       console.error('[webhook] Error releasing AML reservation for checkout.session.expired:', err.message);
+    }
+  } else if (event.type === 'checkout.session.async_payment_failed') {
+    const session = event.data.object as Stripe.Checkout.Session;
+    const metadata = session?.metadata || {};
+    const { auction_id, buyer_id } = metadata;
+
+    try {
+      if (buyer_id && auction_id) {
+        // Deutscher Kommentar: AML-Reservierung freigeben
+        const reservationId = `${buyer_id}_${auction_id}`;
+        await adminDb.collection('aml_reservations').doc(reservationId).set({
+          status: 'released',
+          released_at: new Date().toISOString(),
+          release_reason: 'async_payment_failed'
+        }, { merge: true });
+        console.log(`[webhook] Released AML reservation ${reservationId} due to async_payment_failed`);
+
+        // Deutscher Kommentar: Auktionsstatus fuer die jeweilige Zahlungsrunde wiederherstellen
+        const auctionDoc = await adminDb.collection('auctions').doc(auction_id).get();
+        if (auctionDoc.exists) {
+          const auctionData = auctionDoc.data() || {};
+          let restoreStatus = 'awaiting_payment_1st';
+          if (auctionData.second_winner_id === buyer_id) {
+            restoreStatus = 'awaiting_payment_2nd';
+          }
+          await adminDb.collection('auctions').doc(auction_id).set({
+            post_auction_status: restoreStatus,
+            bank_transfer_session_id: null
+          }, { merge: true });
+          console.log(`[webhook] Bank transfer failed for auction ${auction_id}. Restored post_auction_status to ${restoreStatus}`);
+        }
+      }
+      res.json({ received: true });
+      return;
+    } catch (err: any) {
+      console.error('[webhook] Error handling checkout.session.async_payment_failed:', err.message);
+      res.status(500).json({ error: err.message });
+      return;
     }
   } else if (event.type === 'payment_intent.payment_failed' || event.type === 'payment_intent.canceled') {
     const paymentIntent = event.data.object as Stripe.PaymentIntent;
@@ -3074,7 +3181,7 @@ app.post("/api/create-checkout-session", async (req, res) => {
   }
 
   try {
-    const { currency = "eur", auction_id, auctionId, return_url, type = "auction", package_id, planId, tier } = req.body || {};
+    const { currency = "eur", auction_id, auctionId, return_url, type = "auction", package_id, planId, tier, payment_method = "card" } = req.body || {};
     const stripe = getStripe();
 
     const effectiveAuctionId = auction_id || auctionId;
@@ -3179,6 +3286,29 @@ app.post("/api/create-checkout-session", async (req, res) => {
         throw payoutErr;
       }
 
+      const isBankTransfer = (payment_method === 'bank_transfer');
+      if (isBankTransfer) {
+        if (finalAmountCents < 5000) {
+          return res.status(400).json({ error: "Bančno nakazilo ni na voljo za to plačilo." });
+        }
+        const paymentDeadlineMs = auction.payment_deadline ? new Date(auction.payment_deadline).getTime() : 0;
+        const timeRemaining = paymentDeadlineMs - Date.now();
+        const fourDaysInMs = 4 * 24 * 60 * 60 * 1000;
+        if (timeRemaining < fourDaysInMs) {
+          return res.status(400).json({ error: "Bančno nakazilo ni na voljo za to plačilo." });
+        }
+      }
+
+      let bankTransferDeadlineStr: string | undefined = undefined;
+      if (isBankTransfer) {
+        const now = new Date();
+        const threeWorkingDays = addWorkingDays(now, 3);
+        const deadlineMs = auction.payment_deadline ? new Date(auction.payment_deadline).getTime() : 0;
+        const limitDate = deadlineMs > 0 ? new Date(deadlineMs) : threeWorkingDays;
+        const chosenDate = threeWorkingDays < limitDate ? threeWorkingDays : limitDate;
+        bankTransferDeadlineStr = chosenDate.toISOString();
+      }
+
       reservationId = `${userId}_${effectiveAuctionId}`;
       reservationCreated = false;
 
@@ -3186,12 +3316,17 @@ app.post("/api/create-checkout-session", async (req, res) => {
         await reserveAmlAmount({
           buyerId: userId,
           auctionId: effectiveAuctionId,
-          amountEur: finalAmountCents / 100
+          amountEur: finalAmountCents / 100,
+          paymentMethod: isBankTransfer ? 'bank_transfer' : undefined,
+          bankTransferDeadlineAt: bankTransferDeadlineStr
         });
         reservationCreated = true;
       } catch (amlErr: any) {
         return res.status(amlErr.statusCode || 400).json({ error: amlErr.message });
       }
+
+      (req as any)._bankTransferDeadlineStr = bankTransferDeadlineStr;
+      (req as any)._isBankTransfer = isBankTransfer;
 
       (req as any)._sellerAccountId = sellerAccountId;
       (req as any)._buyerTotals = buyerTotals;
@@ -3207,7 +3342,8 @@ app.post("/api/create-checkout-session", async (req, res) => {
         vat_cents: String(buyerTotals.vatCents),
         vat_rate: String(buyerTotals.vatRate),
         reverse_charge: buyerTotals.isReverseCharge ? '1' : '0',
-        tier: buyerTotals.tier
+        tier: buyerTotals.tier,
+        ...(isBankTransfer ? { payment_method: 'bank_transfer' } : {})
       };
 
       const lineItems: any[] = [];
@@ -3303,8 +3439,11 @@ app.post("/api/create-checkout-session", async (req, res) => {
       ? `${safeBaseUrl}${safeBaseUrl.includes('?') ? '&' : '?'}payment=cancel`
       : `${safeBaseUrl}${safeBaseUrl.includes('?') ? '&' : '?'}payment=cancel`;
 
+    const isBankTransfer = (req as any)._isBankTransfer === true;
+    const bankTransferDeadlineStr = (req as any)._bankTransferDeadlineStr;
+
     const sessionParams: Stripe.Checkout.SessionCreateParams = {
-      payment_method_types: ['card'],
+      payment_method_types: isBankTransfer ? ['customer_balance'] : ['card'],
       line_items: (type === 'auction' && (req as any)._auctionLineItems && (req as any)._auctionLineItems.length > 0)
         ? (req as any)._auctionLineItems
         : [{
@@ -3328,10 +3467,24 @@ app.post("/api/create-checkout-session", async (req, res) => {
         ...(type === 'subscription' ? { setup_future_usage: 'off_session' } : {})
       },
       mode: 'payment',
-      expires_at: Math.floor(Date.now() / 1000) + 1800,
+      expires_at: isBankTransfer ? Math.floor(Date.now() / 1000) + 24 * 3600 : Math.floor(Date.now() / 1000) + 1800,
       success_url: successUrl,
       cancel_url: cancelUrl,
     };
+
+    if (isBankTransfer) {
+      sessionParams.payment_method_options = {
+        customer_balance: {
+          funding_type: 'bank_transfer',
+          bank_transfer: {
+            type: 'eu_bank_transfer',
+            eu_bank_transfer: {
+              country: 'DE'
+            }
+          }
+        }
+      };
+    }
 
     if (effectiveBuyerId) {
       sessionParams.client_reference_id = effectiveBuyerId;
@@ -3339,11 +3492,13 @@ app.post("/api/create-checkout-session", async (req, res) => {
 
     if (stripeCustomerId) {
       sessionParams.customer = stripeCustomerId;
-      sessionParams.customer_update = {
-        address: 'auto',
-        name: 'auto',
-        shipping: 'auto',
-      };
+      if (!isBankTransfer) {
+        sessionParams.customer_update = {
+          address: 'auto',
+          name: 'auto',
+          shipping: 'auto',
+        };
+      }
     } else if (buyer?.email) {
       sessionParams.customer_email = buyer.email;
     }
@@ -3373,6 +3528,19 @@ app.post("/api/create-checkout-session", async (req, res) => {
         }, { merge: true });
       } catch (rErr: any) {
         console.error('Error updating reservation with stripe_session_id:', rErr.message);
+      }
+    }
+
+    if (isBankTransfer) {
+      try {
+        await adminDb.collection('auctions').doc(effectiveAuctionId).set({
+          post_auction_status: 'awaiting_bank_transfer',
+          bank_transfer_session_id: session.id,
+          bank_transfer_deadline_at: bankTransferDeadlineStr
+        }, { merge: true });
+        console.log(`[Checkout] Auction ${effectiveAuctionId} updated to awaiting_bank_transfer with session ${session.id} and deadline ${bankTransferDeadlineStr}`);
+      } catch (aucErr: any) {
+        console.error('Error updating auction for bank transfer:', aucErr.message);
       }
     }
 
@@ -3414,6 +3582,7 @@ app.post("/api/confirm-checkout-session", async (req, res) => {
     }
 
     if (session) {
+      const isBankTransfer = session.metadata?.payment_method === 'bank_transfer';
       const isPaid = session.payment_status === 'paid' || session.status === 'complete';
       if (!isPaid) {
         return res.status(400).json({ error: 'Payment not completed for this session', status: session.status });
@@ -3432,6 +3601,16 @@ app.post("/api/confirm-checkout-session", async (req, res) => {
       const effectiveAuctionId = metadata.auction_id || auctionId;
       const effectiveBuyerId = userId;
       let effectiveSellerId = metadata.seller_id;
+
+      // Deutscher Kommentar: Wenn es eine Bankueberweisung ist und noch nicht vollstaendig bezahlt wurde
+      if (isBankTransfer && session.payment_status !== 'paid') {
+        return res.json({ 
+          success: true, 
+          paid: false, 
+          awaiting_bank_transfer: true, 
+          auction_id: effectiveAuctionId 
+        });
+      }
 
       const isSub = type === 'subscription' || session.amount_total === 2000 || session.amount_total === 5000 || (metadata.planId || '').length > 0;
       if (isSub) {

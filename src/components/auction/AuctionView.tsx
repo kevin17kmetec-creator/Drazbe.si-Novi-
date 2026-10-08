@@ -421,24 +421,53 @@ export default function AuctionView({
                       </div>
                       
                       {isWinner ? (
-                        <>
-                          <p className="text-slate-300 font-bold mb-6">
-                            {t('winnerNotice') || 'Čestitamo, zmagali ste! Prosimo, dokončajte plačilo.'}
-                          </p>
-                          <button 
-                            onClick={handleCheckout}
-                            disabled={loading || isPaid}
-                            className="w-full bg-[#FEBA4F] text-[#0A1128] px-8 py-4 rounded-xl font-black uppercase tracking-widest hover:bg-white transition-all shadow-xl flex items-center justify-center gap-2 disabled:opacity-50 mb-3"
-                          >
-                            <Lock size={18} /> {loading ? '...' : (t('payNow') || 'Plačaj zdaj')}
-                          </button>
-                        </>
+                        currentAuction.post_auction_status === 'awaiting_bank_transfer' ? (
+                          <div className="bg-amber-500/10 border border-[#FEBA4F]/20 rounded-2xl p-6 mb-3 text-left">
+                            <h4 className="text-lg font-black text-[#FEBA4F] uppercase tracking-tight mb-2 flex items-center gap-2">
+                              <ShieldCheck size={20} />
+                              Plačilo z nakazilom
+                            </h4>
+                            <p className="text-slate-300 text-sm font-bold mb-4">
+                              Izbrali ste plačilo z bančnim nakazilom (SEPA). Navodila za plačilo boste prejeli na vaš e-poštni naslov s strani našega plačilnega partnerja.
+                            </p>
+                            {currentAuction.bank_transfer_deadline_at && (
+                              <div className="text-xs text-slate-400 font-bold">
+                                Rok za prejem nakazila: <span className="text-[#FEBA4F]">{new Date(currentAuction.bank_transfer_deadline_at).toLocaleString('sl-SI', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <>
+                            <p className="text-slate-300 font-bold mb-6">
+                              {t('winnerNotice') || 'Čestitamo, zmagali ste! Prosimo, dokončajte plačilo.'}
+                            </p>
+                            <button 
+                              onClick={handleCheckout}
+                              disabled={loading || isPaid}
+                              className="w-full bg-[#FEBA4F] text-[#0A1128] px-8 py-4 rounded-xl font-black uppercase tracking-widest hover:bg-white transition-all shadow-xl flex items-center justify-center gap-2 disabled:opacity-50 mb-3"
+                            >
+                              <Lock size={18} /> {loading ? '...' : (t('payNow') || 'Plačaj zdaj')}
+                            </button>
+                          </>
+                        )
                       ) : isSeller ? (
-                        <>
-                          <p className="text-slate-300 font-bold mb-4">
-                            {t('sellerWinnerNotice') || 'Zmagovalec je bil obveščen in preusmerjen na plačilo.'}
-                          </p>
-                        </>
+                        currentAuction.post_auction_status === 'awaiting_bank_transfer' ? (
+                          <div className="bg-amber-500/10 border border-[#FEBA4F]/20 rounded-2xl p-6 mb-3 text-left">
+                            <h4 className="text-lg font-black text-[#FEBA4F] uppercase tracking-tight mb-2 flex items-center gap-2">
+                              <ShieldCheck size={20} />
+                              Plačilo v obdelavi
+                            </h4>
+                            <p className="text-slate-300 text-sm font-bold">
+                              Kupec je izbral plačilo z bančnim nakazilom. Čakamo na potrditev prejema sredstev s strani našega plačilnega partnerja (to lahko traja do 3 delovne dni). Ko bo plačilo potrjeno, vas bomo nemudoma obvestili.
+                            </p>
+                          </div>
+                        ) : (
+                          <>
+                            <p className="text-slate-300 font-bold mb-4">
+                              {t('sellerWinnerNotice') || 'Zmagovalec je bil obveščen in preusmerjen na plačilo.'}
+                            </p>
+                          </>
+                        )
                       ) : (
                         <p className="text-slate-300 font-bold">
                           {t('notWinnerNotice') || 'Dražba se je končala. Niste zmagovalec.'}

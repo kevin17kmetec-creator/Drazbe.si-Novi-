@@ -3159,7 +3159,7 @@ var translations = {
     legalTerms: "Splo\u0161ni pogoji uporabe",
     legalPrivacy: "Varstvo osebnih podatkov (GDPR)",
     legalHow: "Navodila za sodelovanje",
-    termsText: "POGOJI UPORABE SPLETNE PLATFORME DRA\u017DBENIK.SI\nVerzija 2026-10-v2\n\n1. SPLO\u0160NE DOLO\u010CBE\n1.1 Platformo dra\u017Ebenik.si (v nadaljevanju: platforma) upravlja dru\u017Eba Dizain d.o.o., Karantanska ulica 28, 2000 Maribor, ID za DDV SI57008060, mati\u010Dna \u0161tevilka [VSTAVITE], e-po\u0161ta [VSTAVITE E-NASLOV PODPORE] (v nadaljevanju: upravljavec).\n1.2 Ti pogoji urejajo uporabo platforme in razmerja med upravljavcem, prodajalci in kupci. Z registracijo in uporabo platforme uporabnik potrjuje, da je pogoje prebral in jih sprejema.\n1.3 Uporabnik mora biti star najmanj 18 let in poslovno sposoben. Podjetja in samostojni podjetniki nastopajo kot podjetja (poslovni uporabniki), vsi drugi kot zasebne osebe.\n\n2. VLOGA PLATFORME\n2.1 Platforma je spletna tr\u017Enica, ki omogo\u010Da objavo dra\u017Eb, oddajo ponudb in sklepanje kupoprodajnih pogodb med prodajalcem in kupcem.\n2.2 Kupoprodajna pogodba se sklene neposredno med prodajalcem in kupcem v trenutku, ko dra\u017Eba uspe\u0161no zaklju\u010Di. Upravljavec ni prodajalec, kupec ali lastnik predmetov in ni stranka kupoprodajne pogodbe.\n2.3 Upravljavec ne preverja pravilnosti, popolnosti in zakonitosti opisov predmetov in ne jam\u010Di za lastnosti ali pravno stanje predmetov. Za predmet, njegov opis, lastnosti in zakonitost odgovarja prodajalec.\n2.4 Platforma prikazuje pri vsakem prodajalcu, ali nastopa kot podjetje ali kot zasebna oseba. Pravice potro\u0161nika (to\u010Dka 11) veljajo samo pri nakupu od podjetja.\n\n3. REGISTRACIJA IN RA\u010CUN\n3.1 Uporabnik mora navesti resni\u010Dne in popolne podatke ter jih posodabljati. Za sodelovanje pri dra\u017Ebah mora potrditi e-po\u0161tni naslov in izpolniti profil.\n3.2 Uporabnik odgovarja za varovanje svojih prijavnih podatkov in za vse dejavnosti na svojem ra\u010Dunu.\n3.3 Upravljavec lahko zaradi varnosti, prepre\u010Devanja goljufij ali zakonskih obveznosti zahteva dodatno preverjanje identitete, zlasti ko skupni nakupi uporabnika v koledarskem letu prese\u017Eejo 5.000 EUR.\n3.4 Upravljavec lahko za\u010Dasno omeji ali ukine ra\u010Dun, ki kr\u0161i te pogoje ali zakonodajo. O razlogih uporabnika obvesti, razen \u010De zakon to prepoveduje.\n\n4. DRA\u017DBE IN PONUDBE\n4.1 Vsaka oddana ponudba je zavezujo\u010Da. Ponudbe ni mogo\u010De umakniti ali preklicati.\n4.2 Dra\u017Eba se zaklju\u010Di ob izteku objavljenega \u010Dasa. Zmaga ponudnik z najvi\u0161jo veljavno ponudbo. \u010Ce zmagovalec ne pla\u010Da v roku, lahko prodajalec ponudi nakup drugemu najvi\u0161jemu ponudniku po njegovi ponudbi.\n4.3 Prodajalec ne sme sodelovati pri dra\u017Ebi lastnih predmetov niti jih ponujati prek drugih ra\u010Dunov za zvi\u0161anje cene.\n4.4 Prepovedani so predmeti, katerih promet je po zakonu prepovedan ali omejen, ponarejeni predmeti, predmeti, ki kr\u0161ijo pravice tretjih, in drugi predmeti, ki jih upravljavec ozna\u010Di kot prepovedane. Upravljavec lahko oglas odstrani.\n\n5. PRODAJALCI\n5.1 Prodajalec lahko objavlja dra\u017Ebe, ko ima potrjen e-po\u0161tni naslov, izpolnjen profil in urejena izpla\u010Dila pri ponudniku pla\u010Dil Stripe (to\u010Dka 7).\n5.2 Prodajalec potrjuje, da bo ponujal samo predmete in storitve, ki so skladni z veljavno zakonodajo, da je njegov opis resni\u010Den in da je predmet njegova last ali ga lahko prodaja.\n5.3 Prodajalec je dol\u017Ean predmet po zaklju\u010Dku dra\u017Ebe in prejetem pla\u010Dilu odposlati ali predati kupcu skladno z objavljenim na\u010Dinom predaje.\n5.4 Prodajalec, ki nastopa kot podjetje, odgovarja za izpolnjevanje svojih zakonskih obveznosti (informacije potro\u0161nikom, pravica do odstopa, jam\u010Devanje za skladnost blaga, dav\u010Dne obveznosti).\n5.5 Zaradi zakonskih obveznosti (zlasti Akta o digitalnih storitvah) upravljavec od prodajalcev zbira podatke o identiteti, naslovu, kontaktu, pla\u010Dilnem ra\u010Dunu in vpisu v register ter lahko zahteva dokazila.\n\n6. PROVIZIJA IN DDV\n6.1 Kupec poleg cene, dose\u017Eene na dra\u017Ebi, pla\u010Da provizijo platforme in DDV na provizijo. Prodajalec prejme polno ceno, dose\u017Eeno na dra\u017Ebi.\n6.2 Vi\u0161ina provizije je odvisna od naro\u010Dni\u0161kega paketa kupca v trenutku pla\u010Dila in od cene predmeta, v skladu s cenikom na platformi. Provizija in DDV sta prikazana pred oddajo ponudbe in pred pla\u010Dilom.\n6.3 DDV na provizijo se obra\u010Duna po veljavnih predpisih. Za kupce iz Slovenije in zasebne osebe iz dr\u017Eav EU se obra\u010Duna DDV po stopnji 22 %. Za podjetja iz druge dr\u017Eave EU z veljavno identifikacijsko \u0161tevilko za DDV (preverjeno v sistemu VIES) se uporabi obrnjena dav\u010Dna obveznost. Za kupce izven EU se DDV ne obra\u010Duna.\n6.4 Provizija ne more biti ni\u017Eja od minimalne provizije 1,00 EUR. Provizija je prihodek upravljavca. Za provizijo upravljavec kupcu izda ra\u010Dun.\n\n7. PLA\u010CILO IN IZPLA\u010CILO PRODAJALCU\n7.1 Pla\u010Dila obdeluje ponudnik pla\u010Dilnih storitev Stripe. Za uporabo Stripe veljajo njegovi pogoji. Upravljavec ne ponuja pla\u010Dilnih storitev in ne vodi pla\u010Dilnih ra\u010Dunov uporabnikov.\n7.2 Kupec pla\u010Da skupni znesek (cena predmeta, provizija in DDV na provizijo) s kartico prek Stripe v roku, ki je naveden ob zmagi. Nepla\u010Dilo je kr\u0161itev pogojev (to\u010Dka 10).\n7.3 Cena predmeta se ob pla\u010Dilu knji\u017Ei na prodajal\u010Dev ra\u010Dun pri Stripe. Provizija z DDV pripade upravljavcu.\n7.4 Do potrditve prejema predmeta se izpla\u010Dilo prodajalcu zadr\u017Ei. Sredstva se sprostijo prodajalcu takoj, ko (a) kupec potrdi prejem na platformi, ali (b) prodajalec vnese prevzemno PIN kodo kupca pri osebnem prevzemu, ali (c) pote\u010De rok iz to\u010Dke 7.5 in kupec ni vlo\u017Eil prito\u017Ebe.\n7.5 \u010Ce kupec prejema ne potrdi, se izpla\u010Dilo samodejno sprosti: pri odpremi po po\u0161ti 7 dni po odpremi (pri po\u0161iljkah v tujino 14 dni), pri osebnem prevzemu 7 dni po pla\u010Dilu, razen \u010De kupec v tem roku vlo\u017Ei prito\u017Ebo. Ob potrditvi prejema ali vnosu prevzemne kode se izpla\u010Dilo sprosti takoj brez dodatnega \u010Dakanja.\n7.6 \u010Ce kupec v tem roku vlo\u017Ei prito\u017Ebo, se izpla\u010Dilo zadr\u017Ei do razre\u0161itve spora. Rok za izpla\u010Dilo, ki ga omogo\u010Da Stripe, ne more presegati 90 dni od pla\u010Dila; upravljavec se zato obvezuje spor razre\u0161iti pred tem rokom.\n7.7 Spro\u0161\u010Dena sredstva prodajalec izpla\u010Da na svoj ban\u010Dni ra\u010Dun na zahtevo v nastavitvah (najmanj 10 EUR, najve\u010D ena zahteva na 24 ur). Sredstva, ki jih prodajalec ne zahteva 30 dni od sprostitve, se samodejno izpla\u010Dajo na njegov ban\u010Dni ra\u010Dun. Stro\u0161ke izpla\u010Dil nosi upravljavec, prodajalec prejme celoten znesek vrednosti predmeta.\n7.8 \u010Ce prodajalec predmeta v 7 dneh po pla\u010Dilu ne odpo\u0161lje, se naro\u010Dilo samodejno prekli\u010De in kupcu se vrne celoten znesek, vklju\u010Dno s provizijo in DDV.\n\n8. PREVZEM, DOSTAVA IN POTRDITEV PREJEMA\n8.1 Na\u010Din predaje (osebni prevzem ali po\u0161iljanje) dolo\u010Di prodajalec pri objavi dra\u017Ebe.\n8.2 Kupec je dol\u017Ean prejem predmeta potrditi na platformi. Pri osebnem prevzemu kupec prodajalcu poka\u017Ee prevzemno kodo \u0161ele po pregledu predmeta; z razkritjem kode potrjuje prejem.\n8.3 \u010Ce predmet ni skladen z opisom, mora kupec prito\u017Ebo vlo\u017Eiti na platformi v roku, ki velja za zadr\u017Eanje izpla\u010Dila (to\u010Dka 7.5).\n8.4 S potrditvijo prejema na platformi ali z razkritjem prevzemne kode prodajalcu kupec izjavlja, da je predmet pregledal, da je skladen z opisom in vsemi podatki prodajalca ter da ga sprejema. S potrditvijo je poslovanje na platformi med kupcem in prodajalcem zaklju\u010Deno, izpla\u010Dilo prodajalcu se sprosti takoj in prito\u017Eba prek platforme po potrditvi ni ve\u010D mogo\u010Da. Enako velja za osebni prevzem in za po\u0161iljanje po po\u0161ti. Kupec zato prejem potrdi \u0161ele po pregledu predmeta. Zakonske pravice potro\u0161nika po to\u010Dki 11 (pri nakupu od podjetja) s tem niso omejene.\n\n9. SPORI IN POVRA\u010CILA\n9.1 Kupec in prodajalec se najprej poskusita dogovoriti sama prek sporo\u010Dil na platformi.\n9.2 \u010Ce dogovor ni mogo\u010D, lahko vsaka stran odpre spor. Upravljavec lahko na podlagi predlo\u017Eenih dokazov odlo\u010Di, da se izpla\u010Dilo sprosti prodajalcu ali da se znesek vrne kupcu. Odlo\u010Ditev ne izklju\u010Duje pravice strank do sodnega varstva.\n9.3 \u010Ce je kupcu znesek vrnjen, se vrne tudi provizija in DDV, upravljavec pa izda dobropis.\n\n10. NEPLA\u010CILO IN KR\u0160ITVE\n10.1 Nepla\u010Dilo kupnine je huda kr\u0161itev pogojev. Uporabnik dobi opomin. Po tretjem opominu lahko upravljavec ra\u010Dun blokira.\n10.2 Upravljavec lahko za\u010Dasno ali trajno ukine ra\u010Dun, ki kr\u0161i pogoje, ali zadr\u017Ei izpla\u010Dila, \u010De obstaja utemeljen sum goljufije ali kr\u0161itve zakona. Uporabnik ima pravico do prito\u017Ebe na naslov podpore (to\u010Dka 16.2).\n\n11. PRAVICE POTRO\u0160NIKA\n11.1 Kadar prodajalec nastopa kot podjetje in kupec kot potro\u0161nik, veljajo zakonske pravice potro\u0161nika, zlasti pravica do informacij, jam\u010Devanje za skladnost blaga in pravica do odstopa od pogodbe v 14 dneh po prejemu blaga, razen v primerih, ki jih dolo\u010Da zakon.\n11.2 Kadar prodajalec nastopa kot zasebna oseba, pravice potro\u0161nika ne veljajo. Kupec kupuje predmet kot opisan. Prodajalec odgovarja za skladnost z opisom in za napake, ki jih je zamol\u010Dal, po splo\u0161nih dolo\u010Dbah Obligacijskega zakonika.\n11.3 Za izvajanje pravice do odstopa in jam\u010Devanja je odgovoren prodajalec.\n\n12. RA\u010CUNI IN DOKUMENTI\n12.1 Prodajalec poobla\u0161\u010Da upravljavca, da v njegovem imenu in za njegov ra\u010Dun izda ra\u010Dun ali potrdilo za prodan predmet, skladno s statusom prodajalca (zasebna oseba ali podjetje, zavezanec za DDV ali ne). Prodajalec odgovarja za pravilnost svojih podatkov.\n12.2 Pri prodaji med zasebnimi osebami se izda potrdilo o nakupu brez DDV. Ra\u010Dun za provizijo upravljavec izda kupcu.\n12.3 Ra\u010Duni in potrdila so uporabnikom na voljo na platformi in jih prejmejo po e-po\u0161ti.\n\n13. DAV\u010CNE IN ZAKONSKE OBVEZNOSTI\n13.1 Upravljavec je kot operater platforme dol\u017Ean poro\u010Dati Finan\u010Dni upravi RS o prodajalcih in njihovih prejemkih (direktiva DAC7), \u010De prodajalec v koledarskem letu opravi 30 ali ve\u010D prodaj ali njegovi prejemki prese\u017Eejo 2.000 EUR. Prodajalec je dol\u017Ean na poziv predlo\u017Eiti zahtevane podatke, vklju\u010Dno z dav\u010Dno \u0161tevilko.\n13.2 Prodajalec odgovarja za pla\u010Dilo davkov od svojih prihodkov.\n13.3 \u010Ce uporabnik ne predlo\u017Ei zahtevanih podatkov, lahko upravljavec zadr\u017Ei objavo novih dra\u017Eb in izpla\u010Dila.\n\n14. OSEBNI PODATKI\n14.1 Upravljavec obdeluje osebne podatke v skladu s Politiko zasebnosti. Podatke, potrebne za pla\u010Dilo in preverjanje identitete, obdeluje tudi Stripe kot samostojni upravljavec.\n14.2 Kupec in prodajalec za izvedbo posla vidita nujne podatke druge strani (ime, naslov za dostavo).\n\n15. ODGOVORNOST\n15.1 Upravljavec odgovarja za \u0161kodo samo v primerih, ki jih dolo\u010Da zakon. Upravljavec ne odgovarja za izpade Stripe, bank in drugih tretjih oseb, za vsebino oglasov, za dejanja uporabnikov in za nedosegljivost platforme zaradi vzdr\u017Eevanja ali vi\u0161je sile.\n15.2 Omejitev odgovornosti ne velja za naklep, hudo malomarnost in odgovornost, ki je po zakonu ni mogo\u010De izklju\u010Diti, \u0161e posebej ne v razmerju do potro\u0161nikov.\n\n16. VSEBINE, PRIJAVE IN PRITO\u017DBE\n16.1 Nezakonito vsebino ali sumljiv oglas lahko vsakdo prijavi na naslov [VSTAVITE E-NASLOV PODPORE] ali prek obrazca na platformi. Prijavo obravnavamo \u010Dim prej. \u010Ce oglas odstranimo ali ra\u010Dun omejimo, uporabnika obvestimo o razlogu in mo\u017Enosti prito\u017Ebe.\n16.2 Prito\u017Ebo zoper odlo\u010Ditev upravljavca lahko uporabnik vlo\u017Ei na naslov [VSTAVITE E-NASLOV PODPORE] v 30 dneh po prejemu odlo\u010Ditve. Odgovorimo v razumnem roku.\n\n17. SPREMEMBE POGOJEV\n17.1 Upravljavec lahko pogoje spremeni. O bistvenih spremembah uporabnike obvesti vnaprej. Za nadaljnjo uporabo platforme mora uporabnik novo razli\u010Dico sprejeti. Za dra\u017Ebe, ki so se za\u010Dele pred spremembo, veljajo pogoji, ki so veljali ob za\u010Detku dra\u017Ebe.\n\n18. KON\u010CNE DOLO\u010CBE\n18.1 Za razmerja po teh pogojih velja pravo Republike Slovenije. Za spore z uporabniki, ki niso potro\u0161niki, je pristojno stvarno pristojno sodi\u0161\u010De v Mariboru. Za potro\u0161nike veljajo pravila o pristojnosti po zakonu.\n18.2 \u010Ce je posamezna dolo\u010Dba neveljavna, ostale dolo\u010Dbe veljajo naprej.\n18.3 Veljavna je slovenska razli\u010Dica pogojev.",
+    termsText: "POGOJI UPORABE SPLETNE PLATFORME DRA\u017DBENIK.SI\nVerzija 2026-10-v2\n\n1. SPLO\u0160NE DOLO\u010CBE\n1.1 Platformo dra\u017Ebenik.si (v nadaljevanju: platforma) upravlja dru\u017Eba Dizain d.o.o., Karantanska ulica 28, 2000 Maribor, ID za DDV SI57008060, mati\u010Dna \u0161tevilka [VSTAVITE], e-po\u0161ta [VSTAVITE E-NASLOV PODPORE] (v nadaljevanju: upravljavec).\n1.2 Ti pogoji urejajo uporabo platforme in razmerja med upravljavcem, prodajalci in kupci. Z registracijo in uporabo platforme uporabnik potrjuje, da je pogoje prebral in jih sprejema.\n1.3 Uporabnik mora biti star najmanj 18 let in poslovno sposoben. Podjetja in samostojni podjetniki nastopajo kot podjetja (poslovni uporabniki), vsi drugi kot zasebne osebe.\n\n2. VLOGA PLATFORME\n2.1 Platforma je spletna tr\u017Enica, ki omogo\u010Da objavo dra\u017Eb, oddajo ponudb in sklepanje kupoprodajnih pogodb med prodajalcem in kupcem.\n2.2 Kupoprodajna pogodba se sklene neposredno med prodajalcem in kupcem v trenutku, ko dra\u017Eba uspe\u0161no zaklju\u010Di. Upravljavec ni prodajalec, kupec ali lastnik predmetov in ni stranka kupoprodajne pogodbe.\n2.3 Upravljavec ne preverja pravilnosti, popolnosti in zakonitosti opisov predmetov in ne jam\u010Di za lastnosti ali pravno stanje predmetov. Za predmet, njegov opis, lastnosti in zakonitost odgovarja prodajalec.\n2.4 Platforma prikazuje pri vsakem prodajalcu, ali nastopa kot podjetje ali kot zasebna oseba. Pravice potro\u0161nika (to\u010Dka 11) veljajo samo pri nakupu od podjetja.\n\n3. REGISTRACIJA IN RA\u010CUN\n3.1 Uporabnik mora navesti resni\u010Dne in popolne podatke ter jih posodabljati. Za sodelovanje pri dra\u017Ebah mora potrditi e-po\u0161tni naslov in izpolniti profil.\n3.2 Uporabnik odgovarja za varovanje svojih prijavnih podatkov in za vse dejavnosti na svojem ra\u010Dunu.\n3.3 Upravljavec lahko zaradi varnosti, prepre\u010Devanja goljufij ali zakonskih obveznosti zahteva dodatno preverjanje identitete, zlasti ko skupni nakupi uporabnika v koledarskem letu prese\u017Eejo 5.000 EUR.\n3.4 Upravljavec lahko za\u010Dasno omeji ali ukine ra\u010Dun, ki kr\u0161i te pogoje ali zakonodajo. O razlogih uporabnika obvesti, razen \u010De zakon to prepoveduje.\n\n4. DRA\u017DBE IN PONUDBE\n4.1 Vsaka oddana ponudba je zavezujo\u010Da. Ponudbe ni mogo\u010De umakniti ali preklicati.\n4.2 Dra\u017Eba se zaklju\u010Di ob izteku objavljenega \u010Dasa. Zmaga ponudnik z najvi\u0161jo veljavno ponudbo. \u010Ce zmagovalec ne pla\u010Da v roku, lahko prodajalec ponudi nakup drugemu najvi\u0161jemu ponudniku po njegovi ponudbi.\n4.3 Prodajalec ne sme sodelovati pri dra\u017Ebi lastnih predmetov niti jih ponujati prek drugih ra\u010Dunov za zvi\u0161anje cene.\n4.4 Prepovedani so predmeti, katerih promet je po zakonu prepovedan ali omejen, ponarejeni predmeti, predmeti, ki kr\u0161ijo pravice tretjih, in drugi predmeti, ki jih upravljavec ozna\u010Di kot prepovedane. Upravljavec lahko oglas odstrani.\n\n5. PRODAJALCI\n5.1 Prodajalec lahko objavlja dra\u017Ebe, ko ima potrjen e-po\u0161tni naslov, izpolnjen profil in urejena izpla\u010Dila pri ponudniku pla\u010Dil (to\u010Dka 7).\n5.2 Prodajalec potrjuje, da bo ponujal samo predmete in storitve, ki so skladni z veljavno zakonodajo, da je njegov opis resni\u010Den in da je predmet njegova last ali ga lahko prodaja.\n5.3 Prodajalec je dol\u017Ean predmet po zaklju\u010Dku dra\u017Ebe in prejetem pla\u010Dilu odposlati ali predati kupcu skladno z objavljenim na\u010Dinom predaje.\n5.4 Prodajalec, ki nastopa kot podjetje, odgovarja za izpolnjevanje svojih zakonskih obveznosti (informacije potro\u0161nikom, pravica do odstopa, jam\u010Devanje za skladnost blaga, dav\u010Dne obveznosti).\n5.5 Zaradi zakonskih obveznosti (zlasti Akta o digitalnih storitvah) upravljavec od prodajalcev zbira podatke o identiteti, naslovu, kontaktu, pla\u010Dilnem ra\u010Dunu in vpisu v register ter lahko zahteva dokazila.\n\n6. PROVIZIJA IN DDV\n6.1 Kupec poleg cene, dose\u017Eene na dra\u017Ebi, pla\u010Da provizijo platforme in DDV na provizijo. Prodajalec prejme polno ceno, dose\u017Eeno na dra\u017Ebi.\n6.2 Vi\u0161ina provizije je odvisna od naro\u010Dni\u0161kega paketa kupca v trenutku pla\u010Dila in od cene predmeta, v skladu s cenikom na platformi. Provizija in DDV sta prikazana pred oddajo ponudbe in pred pla\u010Dilom.\n6.3 DDV na provizijo se obra\u010Duna po veljavnih predpisih. Za kupce iz Slovenije in zasebne osebe iz dr\u017Eav EU se obra\u010Duna DDV po stopnji 22 %. Za podjetja iz druge dr\u017Eave EU z veljavno identifikacijsko \u0161tevilko za DDV (preverjeno v sistemu VIES) se uporabi obrnjena dav\u010Dna obveznost. Za kupce izven EU se DDV ne obra\u010Duna.\n6.4 Provizija ne more biti ni\u017Eja od minimalne provizije 1,00 EUR. Provizija je prihodek upravljavca. Za provizijo upravljavec kupcu izda ra\u010Dun.\n\n7. PLA\u010CILO IN IZPLA\u010CILO PRODAJALCU\n7.1 Pla\u010Dila obdeluje ponudnik pla\u010Dilnih storitev - pla\u010Dilni partner. Za uporabo veljajo njegovi pogoji. Upravljavec ne ponuja pla\u010Dilnih storitev in ne vodi pla\u010Dilnih ra\u010Dunov uporabnikov.\n7.2 Kupec pla\u010Da skupni znesek (cena predmeta, provizija in DDV na provizijo) s kartico ali ban\u010Dnim nakazilom prek pla\u010Dilnega partnerja v roku, ki je naveden ob zmagi. Nepla\u010Dilo je kr\u0161itev pogojev (to\u010Dka 10).\n7.3 Cena predmeta se ob pla\u010Dilu knji\u017Ei na prodajal\u010Dev ra\u010Dun pri pla\u010Dilnem partnerju. Provizija z DDV pripade upravljavcu.\n7.4 Do potrditve prejema predmeta se izpla\u010Dilo prodajalcu zadr\u017Ei. Sredstva se sprostijo prodajalcu takoj, ko (a) kupec potrdi prejem na platformi, ali (b) prodajalec vnese prevzemno PIN kodo kupca pri osebnem prevzemu, ali (c) pote\u010De rok iz to\u010Dke 7.5 in kupec ni vlo\u017Eil prito\u017Ebe.\n7.5 \u010Ce kupec prejema ne potrdi, se izpla\u010Dilo samodejno sprosti: pri odpremi po po\u0161ti 7 dni po odpremi (pri po\u0161iljkah v tujino 14 dni), pri osebnem prevzemu 7 dni po pla\u010Dilu, razen \u010De kupec v tem roku vlo\u017Ei prito\u017Ebo. Ob potrditvi prejema ali vnosu prevzemne kode se izpla\u010Dilo sprosti takoj brez dodatnega \u010Dakanja.\n7.6 \u010Ce kupec v tem roku vlo\u017Ei prito\u017Ebo, se izpla\u010Dilo zadr\u017Ei do razre\u0161itve spora. Rok za izpla\u010Dilo, ki ga omogo\u010Da pla\u010Dilni partner, ne more presegati 90 dni od pla\u010Dila; upravljavec se zato obvezuje spor razre\u0161iti pred tem rokom.\n7.7 Spro\u0161\u010Dena sredstva prodajalec izpla\u010Da na svoj ban\u010Dni ra\u010Dun na zahtevo v nastavitvah (najmanj 10 EUR, najve\u010D ena zahteva na 24 ur). Sredstva, ki jih prodajalec ne zahteva 30 dni od sprostitve, se samodejno izpla\u010Dajo na njegov ban\u010Dni ra\u010Dun. Stro\u0161ke izpla\u010Dil nosi upravljavec, prodajalec prejme celoten znesek vrednosti predmeta.\n7.8 \u010Ce prodajalec predmeta v 7 dneh po pla\u010Dilu ne odpo\u0161lje, se naro\u010Dilo samodejno prekli\u010De in kupcu se vrne celoten znesek, vklju\u010Dno s provizijo in DDV.\n\n8. PREVZEM, DOSTAVA IN POTRDITEV PREJEMA\n8.1 Na\u010Din predaje (osebni prevzem ali po\u0161iljanje) dolo\u010Di prodajalec pri objavi dra\u017Ebe.\n8.2 Kupec je dol\u017Ean prejem predmeta potrditi na platformi. Pri osebnem prevzemu kupec prodajalcu poka\u017Ee prevzemno kodo \u0161ele po pregledu predmeta; z razkritjem kode potrjuje prejem.\n8.3 \u010Ce predmet ni skladen z opisom, mora kupec prito\u017Ebo vlo\u017Eiti na platformi v roku, ki velja za zadr\u017Eanje izpla\u010Dila (to\u010Dka 7.5).\n8.4 S potrditvijo prejema na platformi ali z razkritjem prevzemne kode prodajalcu kupec izjavlja, da je predmet pregledal, da je skladen z opisom in vsemi podatki prodajalca ter da ga sprejema. S potrditvijo je poslovanje na platformi med kupcem in prodajalcem zaklju\u010Deno, izpla\u010Dilo prodajalcu se sprosti takoj in prito\u017Eba prek platforme po potrditvi ni ve\u010D mogo\u010Da. Enako velja za osebni prevzem in za po\u0161iljanje po po\u0161ti. Kupec zato prejem potrdi \u0161ele po pregledu predmeta. Zakonske pravice potro\u0161nika po to\u010Dki 11 (pri nakupu od podjetja) s tem niso omejene.\n\n9. SPORI IN POVRA\u010CILA\n9.1 Kupec in prodajalec se najprej poskusita dogovoriti sama prek sporo\u010Dil na platformi.\n9.2 \u010Ce dogovor ni mogo\u010D, lahko vsaka stran odpre spor. Upravljavec lahko na podlagi predlo\u017Eenih dokazov odlo\u010Di, da se izpla\u010Dilo sprosti prodajalcu ali da se znesek vrne kupcu. Odlo\u010Ditev ne izklju\u010Duje pravice strank do sodnega varstva.\n9.3 \u010Ce je kupcu znesek vrnjen, se vrne tudi provizija in DDV, upravljavec pa izda dobropis.\n\n10. NEPLA\u010CILO IN KR\u0160ITVE\n10.1 Nepla\u010Dilo kupnine je huda kr\u0161itev pogojev. Uporabnik dobi opomin. Po tretjem opominu lahko upravljavec ra\u010Dun blokira.\n10.2 Upravljavec lahko za\u010Dasno ali trajno ukine ra\u010Dun, ki kr\u0161i pogoje, ali zadr\u017Ei izpla\u010Dila, \u010De obstaja utemeljen sum goljufije ali kr\u0161itve zakona. Uporabnik ima pravico do prito\u017Ebe na naslov podpore (to\u010Dka 16.2).\n\n11. PRAVICE POTRO\u0160NIKA\n11.1 Kadar prodajalec nastopa kot podjetje in kupec kot potro\u0161nik, veljajo zakonske pravice potro\u0161nika, zlasti pravica do informacij, jam\u010Devanje za skladnost blaga in pravica do odstopa od pogodbe v 14 dneh po prejemu blaga, razen v primerih, ki jih dolo\u010Da zakon.\n11.2 Kadar prodajalec nastopa kot zasebna oseba, pravice potro\u0161nika ne veljajo. Kupec kupuje predmet kot opisan. Prodajalec odgovarja za skladnost z opisom in za napake, ki jih je zamol\u010Dal, po splo\u0161nih dolo\u010Dben Obligacijskega zakonika.\n11.3 Za izvajanje pravice do odstopa in jam\u010Devanja je odgovoren prodajalec.\n\n12. RA\u010CUNI IN DOKUMENTI\n12.1 Prodajalec poobla\u0161\u010Da upravljavca, da v njegovem imenu in za njegov ra\u010Dun izda ra\u010Dun ali potrdilo za prodan predmet, skladno s statusom prodajalca (zasebna oseba ali podjetje, zavezanec za DDV ali ne). Prodajalec odgovarja za pravilnost svojih podatkov.\n12.2 Pri prodaji med zasebnimi osebami se izda potrdilo o nakupu brez DDV. Ra\u010Dun za provizijo upravljavec izda kupcu.\n12.3 Ra\u010Duni in potrdila so uporabnikom na voljo na platformi in jih prejmejo po e-po\u0161ti.\n\n13. DAV\u010CNE IN ZAKONSKE OBVEZNOSTI\n13.1 Upravljavec je kot operater platforme dol\u017Ean poro\u010Dati Finan\u010Dni upravi RS o prodajalcih in njihovih prejemkih (direktiva DAC7), \u010De prodajalec v koledarskem letu opravi 30 ali ve\u010D prodaj ali njegovi prejemki prese\u017Eejo 2.000 EUR. Prodajalec je dol\u017Ean na poziv predlo\u017Eiti zahtevane podatke, vklju\u010Dno z dav\u010Dno \u0161tevilko.\n13.2 Prodajalec odgovarja za pla\u010Dilo davkov od svojih prihodkov.\n13.3 \u010Ce uporabnik ne predlo\u017Ei zahtevanih podatkov, lahko upravljavec zadr\u017Ei objavo novih dra\u017Eb in izpla\u010Dila.\n\n14. OSEBNI PODATKI\n14.1 Upravljavec obdeluje osebne podatke v skladu s Politiko zasebnosti. Podatke, potrebne za pla\u010Dilo in preverjanje identitete, obdeluje tudi pla\u010Dilni partner kot samostojni upravljavec.\n14.2 Kupec in prodajalec za izvedbo posla vidita nujne podatke druge strani (ime, naslov za dostavo).\n\n15. ODGOVORNOST\n15.1 Upravljavec odgovarja za \u0161kodo samo v primerih, ki jih dolo\u010Da zakon. Upravljavec ne odgovarja za izpade pla\u010Dilnega partnerja, bank in drugih tretjih oseb, za vsebino oglasov, za dejanja uporabnikov in za nedosegljivost platforme zaradi vzdr\u017Eevanja ali vi\u0161je sile.\n15.2 Omejitev odgovornosti ne velja za naklep, hudo malomarnost in odgovornost, ki je po zakonu ni mogo\u010De izklju\u010Diti, \u0161e posebej ne v razmerju do potro\u0161nikov.\n\n16. VSEBINE, PRIJAVE IN PRITO\u017DBE\n16.1 Nezakonito vsebino ali sumljiv oglas lahko vsakdo prijavi na naslov [VSTAVITE E-NASLOV PODPORE] ali prek obrazca na platformi. Prijavo obravnavamo \u010Dim prej. \u010Ce oglas odstranimo ali ra\u010Dun omejimo, uporabnika obvestimo o razlogu in mo\u017Enosti prito\u017Ebe.\n16.2 Prito\u017Ebo zoper odlo\u010Ditev upravljavca lahko uporabnik vlo\u017Ei na naslov [VSTAVITE E-NASLOV PODPORE] v 30 dneh po prejemu odlo\u010Ditve. Odgovorimo v razumnem roku.\n\n17. SPREMEMBE POGOJEV\n17.1 Upravljavec lahko pogoje spremeni. O bistvenih spremembah uporabnike obvesti vnaprej. Za nadaljnjo uporabo platforme mora uporabnik novo razli\u010Dico sprejeti. Za dra\u017Ebe, ki so se za\u010Dele pred spremembo, veljajo pogoji, ki so veljali ob za\u010Detku dra\u017Ebe.\n\n18. KON\u010CNE DOLO\u010CBE\n18.1 Za razmerja po teh pogojih velja pravo Republike Slovenije. Za spore z uporabniki, ki niso potro\u0161niki, je pristojno stvarno pristojno sodi\u0161\u010De v Mariboru. Za potro\u0161nike veljajo pravila o pristojnosti po zakonu.\n18.2 \u010Ce je posamezna dolo\u010Dba neveljavna, ostale dolo\u010Dbe veljajo naprej.\n18.3 Veljavna je slovenska razli\u010Dica pogojev.",
     privacyText: "Skladno z uredbo GDPR va\u0161e podatke varujemo z najvi\u0161jimi varnostnimi standardi.\nPodatki se uporabljajo strogo izklju\u010Dno za namene izvedbe dra\u017Eb, varnega in legitimnega povezovanja kupcev ter prodajalcev in verifikacije identitete uporabnikov za prepre\u010Devanje zlorab.\n\nPlatforma lahko va\u0161e nujne kontaktne in identifikacijske podatke posreduje zgolj nasprotni stranki po uspe\u0161no zaklju\u010Deni dra\u017Ebi izrecno za namen izpeljave nakupa oziroma sklenitve pravnega posla in organizacije prevzema.\nVa\u0161i osebni podatki v nobenem drugem primeru ne bodo posredovani nepoobla\u0161\u010Denim tretjim osebam brez va\u0161e izrecne osebne privolitve ali zahteve sodi\u0161\u010Da.\n\nZa prepre\u010Devanje zlorab hranimo zgo\u0161\u010Deno (nepovratno \u0161ifrirano) vrednost dav\u010Dne \u0161tevilke. \u010Ce je ra\u010Dun blokiran zaradi ponavljajo\u010Dih se nepla\u010Danih dra\u017Eb, to vrednost hranimo tudi po izbrisu ra\u010Duna, in sicer na podlagi zakonitega interesa (\u010Dlen 6(1)(f) GDPR) najve\u010D 5 let od blokade.",
     howText: "dra\u017Ebenik.si je spletni sistem digitalnih dra\u017Eb v realnem \u010Dasu.\nZa sodelovanje morate uspe\u0161no:\n1. Registrirati uporabni\u0161ki ra\u010Dun,\n2. Opraviti verifikacijo (z oddajo identifikacijskega dokumenta in osnovnih podatkov).\n\nSistem in pravila dra\u017Eenja:\n\u2022 Vsak uporabnik lahko dra\u017Ei za katerikoli predmet.\n\u2022 Vsako prebitje ponudbe (novo oddana vi\u0161ja ponudba) v zadnjih 60 sekundah pred koncem dra\u017Ebe \u010Dasovno omejitev PONASTAVI NAZAJ NA 60 SEKUND, kar prepre\u010Di zlorabe in zagotovi enake mo\u017Enosti vsem dra\u017Eiteljem.\n\u2022 Zmagovalec je tisti z najvi\u0161jo ponudbo ob dejanskem izteku \u010Dasa dra\u017Ebe.",
     individual: "Fizi\u010Dna oseba",
@@ -5059,17 +5059,31 @@ async function recordAmlSpend({
     return await adminDb.runTransaction(runWithTx);
   }
 }
+function addWorkingDays(startDate, days) {
+  let result = new Date(startDate);
+  let addedDays = 0;
+  while (addedDays < days) {
+    result.setDate(result.getDate() + 1);
+    const day = result.getDay();
+    if (day !== 0 && day !== 6) {
+      addedDays++;
+    }
+  }
+  return result;
+}
 async function reserveAmlAmount({
   buyerId,
   auctionId,
-  amountEur
+  amountEur,
+  paymentMethod,
+  bankTransferDeadlineAt
 }) {
   if (!buyerId || !auctionId || amountEur <= 0) {
     return { reservationId: `${buyerId}_${auctionId}`, expiresAt: "" };
   }
   const reservationId = `${buyerId}_${auctionId}`;
   const now = /* @__PURE__ */ new Date();
-  const expiresAt = new Date(now.getTime() + 30 * 60 * 1e3).toISOString();
+  const expiresAt = bankTransferDeadlineAt || new Date(now.getTime() + 30 * 60 * 1e3).toISOString();
   const createdAt = now.toISOString();
   const currentYearStr = new Intl.DateTimeFormat("en-US", {
     timeZone: "Europe/Ljubljana",
@@ -5113,7 +5127,7 @@ async function reserveAmlAmount({
       }
     }
     const reservationRef = adminDb.collection("aml_reservations").doc(reservationId);
-    t.set(reservationRef, {
+    const reservationData = {
       buyer_id: buyerId,
       auction_id: auctionId,
       amount_eur: amountEur,
@@ -5121,7 +5135,14 @@ async function reserveAmlAmount({
       status: "active",
       expires_at: expiresAt,
       created_at: createdAt
-    }, { merge: true });
+    };
+    if (paymentMethod) {
+      reservationData.payment_method = paymentMethod;
+    }
+    if (bankTransferDeadlineAt) {
+      reservationData.bank_transfer_deadline_at = bankTransferDeadlineAt;
+    }
+    t.set(reservationRef, reservationData, { merge: true });
   });
   return { reservationId, expiresAt };
 }
@@ -6045,15 +6066,26 @@ app.post("/api/webhook", import_express.default.raw({ type: "application/json" }
     res.status(400).send(`Webhook Error: Invalid signature`);
     return;
   }
-  if (event.type === "payment_intent.succeeded" || event.type === "checkout.session.completed") {
-    const isSession = event.type === "checkout.session.completed";
+  if (event.type === "payment_intent.succeeded" || event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
+    const isSession = event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded";
     const sessionObj = isSession ? event.data.object : null;
     const paymentIntent = !isSession ? event.data.object : null;
     const rawMetadata = isSession ? sessionObj?.metadata || {} : paymentIntent?.metadata || {};
     const paymentId = isSession ? typeof sessionObj?.payment_intent === "string" ? sessionObj.payment_intent : sessionObj?.payment_intent?.id || sessionObj.id : paymentIntent.id;
-    console.log("Payment event succeeded:", event.type, paymentId);
+    console.log("Payment event succeeded/completed:", event.type, paymentId);
     try {
       const { type, purpose, auction_id, buyer_id, seller_id, fee_percentage, user_id, package_id } = rawMetadata;
+      if (isSession && rawMetadata.payment_method === "bank_transfer" && sessionObj?.payment_status === "unpaid") {
+        console.log(`[webhook] Bank transfer checkout session completed (unpaid). Session ID: ${sessionObj.id}. Awaiting payment.`);
+        if (auction_id) {
+          await adminDb.collection("auctions").doc(auction_id).set({
+            post_auction_status: "awaiting_bank_transfer",
+            bank_transfer_session_id: sessionObj.id
+          }, { merge: true });
+        }
+        res.json({ received: true });
+        return;
+      }
       if (purpose === "test_wallet_funding" || type === "test_wallet_funding") {
         const targetUserId = user_id || buyer_id;
         const amountCents = isSession ? sessionObj?.amount_total || 0 : paymentIntent?.amount || 0;
@@ -6224,6 +6256,21 @@ app.post("/api/webhook", import_express.default.raw({ type: "application/json" }
           release_reason: "checkout_session_expired"
         }, { merge: true });
         console.log(`[webhook] Released AML reservation ${reservationId} due to checkout.session.expired`);
+        if (metadata.payment_method === "bank_transfer") {
+          const auctionDoc = await adminDb.collection("auctions").doc(auction_id).get();
+          if (auctionDoc.exists) {
+            const auctionData = auctionDoc.data() || {};
+            let restoreStatus = "awaiting_payment_1st";
+            if (auctionData.second_winner_id === buyer_id) {
+              restoreStatus = "awaiting_payment_2nd";
+            }
+            await adminDb.collection("auctions").doc(auction_id).set({
+              post_auction_status: restoreStatus,
+              bank_transfer_session_id: null
+            }, { merge: true });
+            console.log(`[webhook] Bank transfer expired for auction ${auction_id}. Restored post_auction_status to ${restoreStatus}`);
+          }
+        }
       } else if (sessionId) {
         const qSnap = await adminDb.collection("aml_reservations").where("stripe_session_id", "==", sessionId).where("status", "==", "active").limit(5).get();
         for (const doc of qSnap.docs) {
@@ -6239,6 +6286,40 @@ app.post("/api/webhook", import_express.default.raw({ type: "application/json" }
       }
     } catch (err) {
       console.error("[webhook] Error releasing AML reservation for checkout.session.expired:", err.message);
+    }
+  } else if (event.type === "checkout.session.async_payment_failed") {
+    const session = event.data.object;
+    const metadata = session?.metadata || {};
+    const { auction_id, buyer_id } = metadata;
+    try {
+      if (buyer_id && auction_id) {
+        const reservationId = `${buyer_id}_${auction_id}`;
+        await adminDb.collection("aml_reservations").doc(reservationId).set({
+          status: "released",
+          released_at: (/* @__PURE__ */ new Date()).toISOString(),
+          release_reason: "async_payment_failed"
+        }, { merge: true });
+        console.log(`[webhook] Released AML reservation ${reservationId} due to async_payment_failed`);
+        const auctionDoc = await adminDb.collection("auctions").doc(auction_id).get();
+        if (auctionDoc.exists) {
+          const auctionData = auctionDoc.data() || {};
+          let restoreStatus = "awaiting_payment_1st";
+          if (auctionData.second_winner_id === buyer_id) {
+            restoreStatus = "awaiting_payment_2nd";
+          }
+          await adminDb.collection("auctions").doc(auction_id).set({
+            post_auction_status: restoreStatus,
+            bank_transfer_session_id: null
+          }, { merge: true });
+          console.log(`[webhook] Bank transfer failed for auction ${auction_id}. Restored post_auction_status to ${restoreStatus}`);
+        }
+      }
+      res.json({ received: true });
+      return;
+    } catch (err) {
+      console.error("[webhook] Error handling checkout.session.async_payment_failed:", err.message);
+      res.status(500).json({ error: err.message });
+      return;
     }
   } else if (event.type === "payment_intent.payment_failed" || event.type === "payment_intent.canceled") {
     const paymentIntent = event.data.object;
@@ -6775,7 +6856,7 @@ app.post("/api/create-checkout-session", async (req, res) => {
     }
   }
   try {
-    const { currency = "eur", auction_id, auctionId, return_url, type = "auction", package_id, planId, tier } = req.body || {};
+    const { currency = "eur", auction_id, auctionId, return_url, type = "auction", package_id, planId, tier, payment_method = "card" } = req.body || {};
     const stripe = getStripe();
     const effectiveAuctionId = auction_id || auctionId;
     if (effectiveAuctionId) {
@@ -6862,18 +6943,43 @@ app.post("/api/create-checkout-session", async (req, res) => {
         }
         throw payoutErr;
       }
+      const isBankTransfer2 = payment_method === "bank_transfer";
+      if (isBankTransfer2) {
+        if (finalAmountCents < 5e3) {
+          return res.status(400).json({ error: "Ban\u010Dno nakazilo ni na voljo za to pla\u010Dilo." });
+        }
+        const paymentDeadlineMs = auction.payment_deadline ? new Date(auction.payment_deadline).getTime() : 0;
+        const timeRemaining = paymentDeadlineMs - Date.now();
+        const fourDaysInMs = 4 * 24 * 60 * 60 * 1e3;
+        if (timeRemaining < fourDaysInMs) {
+          return res.status(400).json({ error: "Ban\u010Dno nakazilo ni na voljo za to pla\u010Dilo." });
+        }
+      }
+      let bankTransferDeadlineStr2 = void 0;
+      if (isBankTransfer2) {
+        const now = /* @__PURE__ */ new Date();
+        const threeWorkingDays = addWorkingDays(now, 3);
+        const deadlineMs = auction.payment_deadline ? new Date(auction.payment_deadline).getTime() : 0;
+        const limitDate = deadlineMs > 0 ? new Date(deadlineMs) : threeWorkingDays;
+        const chosenDate = threeWorkingDays < limitDate ? threeWorkingDays : limitDate;
+        bankTransferDeadlineStr2 = chosenDate.toISOString();
+      }
       reservationId = `${userId}_${effectiveAuctionId}`;
       reservationCreated = false;
       try {
         await reserveAmlAmount({
           buyerId: userId,
           auctionId: effectiveAuctionId,
-          amountEur: finalAmountCents / 100
+          amountEur: finalAmountCents / 100,
+          paymentMethod: isBankTransfer2 ? "bank_transfer" : void 0,
+          bankTransferDeadlineAt: bankTransferDeadlineStr2
         });
         reservationCreated = true;
       } catch (amlErr) {
         return res.status(amlErr.statusCode || 400).json({ error: amlErr.message });
       }
+      req._bankTransferDeadlineStr = bankTransferDeadlineStr2;
+      req._isBankTransfer = isBankTransfer2;
       req._sellerAccountId = sellerAccountId;
       req._buyerTotals = buyerTotals;
       req._auctionId = effectiveAuctionId;
@@ -6887,7 +6993,8 @@ app.post("/api/create-checkout-session", async (req, res) => {
         vat_cents: String(buyerTotals.vatCents),
         vat_rate: String(buyerTotals.vatRate),
         reverse_charge: buyerTotals.isReverseCharge ? "1" : "0",
-        tier: buyerTotals.tier
+        tier: buyerTotals.tier,
+        ...isBankTransfer2 ? { payment_method: "bank_transfer" } : {}
       };
       const lineItems = [];
       if (buyerTotals.itemPriceCents > 0) {
@@ -6966,8 +7073,10 @@ app.post("/api/create-checkout-session", async (req, res) => {
     }
     const successUrl = safeBaseUrl.includes("/stripe-callback.html") ? `${safeBaseUrl}${safeBaseUrl.includes("?") ? "&" : "?"}payment=success&type=${type}&session_id={CHECKOUT_SESSION_ID}` : `${safeBaseUrl}${safeBaseUrl.includes("?") ? "&" : "?"}payment=success&type=${type}&session_id={CHECKOUT_SESSION_ID}`;
     const cancelUrl = safeBaseUrl.includes("/stripe-callback.html") ? `${safeBaseUrl}${safeBaseUrl.includes("?") ? "&" : "?"}payment=cancel` : `${safeBaseUrl}${safeBaseUrl.includes("?") ? "&" : "?"}payment=cancel`;
+    const isBankTransfer = req._isBankTransfer === true;
+    const bankTransferDeadlineStr = req._bankTransferDeadlineStr;
     const sessionParams = {
-      payment_method_types: ["card"],
+      payment_method_types: isBankTransfer ? ["customer_balance"] : ["card"],
       line_items: type === "auction" && req._auctionLineItems && req._auctionLineItems.length > 0 ? req._auctionLineItems : [{
         price_data: {
           currency,
@@ -6989,20 +7098,35 @@ app.post("/api/create-checkout-session", async (req, res) => {
         ...type === "subscription" ? { setup_future_usage: "off_session" } : {}
       },
       mode: "payment",
-      expires_at: Math.floor(Date.now() / 1e3) + 1800,
+      expires_at: isBankTransfer ? Math.floor(Date.now() / 1e3) + 24 * 3600 : Math.floor(Date.now() / 1e3) + 1800,
       success_url: successUrl,
       cancel_url: cancelUrl
     };
+    if (isBankTransfer) {
+      sessionParams.payment_method_options = {
+        customer_balance: {
+          funding_type: "bank_transfer",
+          bank_transfer: {
+            type: "eu_bank_transfer",
+            eu_bank_transfer: {
+              country: "DE"
+            }
+          }
+        }
+      };
+    }
     if (effectiveBuyerId) {
       sessionParams.client_reference_id = effectiveBuyerId;
     }
     if (stripeCustomerId) {
       sessionParams.customer = stripeCustomerId;
-      sessionParams.customer_update = {
-        address: "auto",
-        name: "auto",
-        shipping: "auto"
-      };
+      if (!isBankTransfer) {
+        sessionParams.customer_update = {
+          address: "auto",
+          name: "auto",
+          shipping: "auto"
+        };
+      }
     } else if (buyer?.email) {
       sessionParams.customer_email = buyer.email;
     }
@@ -7030,6 +7154,18 @@ app.post("/api/create-checkout-session", async (req, res) => {
         }, { merge: true });
       } catch (rErr) {
         console.error("Error updating reservation with stripe_session_id:", rErr.message);
+      }
+    }
+    if (isBankTransfer) {
+      try {
+        await adminDb.collection("auctions").doc(effectiveAuctionId).set({
+          post_auction_status: "awaiting_bank_transfer",
+          bank_transfer_session_id: session.id,
+          bank_transfer_deadline_at: bankTransferDeadlineStr
+        }, { merge: true });
+        console.log(`[Checkout] Auction ${effectiveAuctionId} updated to awaiting_bank_transfer with session ${session.id} and deadline ${bankTransferDeadlineStr}`);
+      } catch (aucErr) {
+        console.error("Error updating auction for bank transfer:", aucErr.message);
       }
     }
     res.json({ url: session.url, sessionId: session.id });
@@ -7063,6 +7199,7 @@ app.post("/api/confirm-checkout-session", async (req, res) => {
       }
     }
     if (session) {
+      const isBankTransfer = session.metadata?.payment_method === "bank_transfer";
       const isPaid = session.payment_status === "paid" || session.status === "complete";
       if (!isPaid) {
         return res.status(400).json({ error: "Payment not completed for this session", status: session.status });
@@ -7077,6 +7214,14 @@ app.post("/api/confirm-checkout-session", async (req, res) => {
       const effectiveAuctionId = metadata.auction_id || auctionId;
       const effectiveBuyerId = userId;
       let effectiveSellerId = metadata.seller_id;
+      if (isBankTransfer && session.payment_status !== "paid") {
+        return res.json({
+          success: true,
+          paid: false,
+          awaiting_bank_transfer: true,
+          auction_id: effectiveAuctionId
+        });
+      }
       const isSub = type === "subscription" || session.amount_total === 2e3 || session.amount_total === 5e3 || (metadata.planId || "").length > 0;
       if (isSub) {
         let targetUserId = userId;
