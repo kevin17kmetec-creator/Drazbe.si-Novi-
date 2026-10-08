@@ -98,6 +98,9 @@ export interface AuctionItem {
   package_id?: string;
   createdAt?: string | number | Date;
   created_at?: string | number | Date;
+  bank_transfer_used?: boolean;
+  payment_deadline?: string;
+  end_time?: string;
 }
 
 export interface AuctionPackage {

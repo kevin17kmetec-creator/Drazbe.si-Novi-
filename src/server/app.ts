@@ -1023,7 +1023,7 @@ async function recordAmlSpend({
  */
 
 // Deutscher Kommentar: Storniert eine schwebende Bankueberweisung, gibt das AML-Limit frei und setzt den Status zurueck
-async function cancelAuctionBankTransfer(auctionId: string, auctionData: any, mode: 'failed' | 'switch_to_card' = 'failed') {
+export async function cancelAuctionBankTransfer(auctionId: string, auctionData: any, mode: 'failed' | 'switch_to_card' = 'failed') {
   const stripe = getStripe();
   const sessionId = auctionData.bank_transfer_session_id;
   const buyerId = auctionData.winner_id || auctionData.winnerId || auctionData.second_winner_id || auctionData.secondWinnerId;
@@ -2534,12 +2534,11 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
 
         // Deutscher Kommentar: Wenn die SEPA Bankueberweisung abgelaufen ist, Bankueberweisungsdaten zuruecksetzen
         if (metadata.payment_method === 'bank_transfer') {
-          await adminDb.collection('auctions').doc(auction_id).set({
-            bank_transfer_pending: false,
-            bank_transfer_session_id: null,
-            bank_transfer_deadline_at: null
-          }, { merge: true });
-          console.log(`[webhook] Bank transfer expired for auction ${auction_id}. Cleared bank transfer fields.`);
+          const auctionDoc = await adminDb.collection('auctions').doc(auction_id).get();
+          if (auctionDoc.exists) {
+            await cancelAuctionBankTransfer(auction_id, auctionDoc.data(), 'failed');
+            console.log(`[webhook] Bank transfer expired for auction ${auction_id}. Shared logic applied.`);
+          }
         }
       } else if (sessionId) {
         const qSnap = await adminDb.collection('aml_reservations')
@@ -2784,8 +2783,13 @@ const handleCronCheck = async (req: express.Request, res: express.Response) => {
   if (!requireCronSecret(req, res)) return;
   try {
     console.log('[CRON] Executing auction check...');
-    const results = await processAuctionCrons();
-    res.json(results);
+    const auctionResults = await processAuctionCrons();
+    console.log('[CRON] Executing bank transfer reconciliation (daily fallback)...');
+    const reconcileResults = await reconcileBankTransfers();
+    res.json({
+      auctions: auctionResults,
+      reconciliation: reconcileResults
+    });
   } catch (e: any) {
     console.error('[CRON ERROR]', e);
     res.status(500).json({ error: e.message || 'Internal server error in cron' });
@@ -2796,6 +2800,64 @@ app.get("/api/cron/check-auctions", handleCronCheck);
 app.post("/api/cron/check-auctions", handleCronCheck);
 app.get("/api/cron-auctions", handleCronCheck);
 app.post("/api/cron-auctions", handleCronCheck);
+
+// Deutscher Kommentar: Hilfsfunktion zur Abgleichung schwebender Bankueberweisungen mit Stripe-Sessions
+const reconcileBankTransfers = async () => {
+  const stripe = getStripe();
+  const snapshot = await adminDb.collection('auctions')
+    .where('bank_transfer_pending', '==', true)
+    .get();
+
+  let processed = 0;
+  let markedPaid = 0;
+  let cancelled = 0;
+
+  for (const doc of snapshot.docs) {
+    const auctionData = doc.data();
+    const sessionId = auctionData.bank_transfer_session_id;
+    if (!sessionId) continue;
+
+    try {
+      const session = await stripe.checkout.sessions.retrieve(sessionId, { expand: ['payment_intent'] });
+      if (session.payment_status === 'paid') {
+        // Deutscher Kommentar: Zahlung eingegangen, Auktion finalisieren
+        const piId = typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id;
+        await finalizeAuctionPayment({
+          auctionId: doc.id,
+          buyerId: auctionData.winner_id || auctionData.winnerId || auctionData.second_winner_id || auctionData.secondWinnerId,
+          sellerId: auctionData.seller_id || auctionData.sellerId,
+          amountTotalCents: session.amount_total || 0,
+          paymentRef: piId || session.id,
+          stripeSessionId: session.id
+        });
+        markedPaid++;
+        console.log(`[Reconcile] Auction ${doc.id} marked as paid via bank transfer.`);
+      } else if (session.status === 'expired') {
+        // Deutscher Kommentar: Session abgelaufen, schwebenden Status zuruecksetzen
+        await cancelAuctionBankTransfer(doc.id, auctionData, 'failed');
+        cancelled++;
+        console.log(`[Reconcile] Auction ${doc.id} bank transfer session expired.`);
+      }
+      processed++;
+    } catch (err: any) {
+      console.error(`[Reconcile] Error processing auction ${doc.id}:`, err.message);
+    }
+  }
+
+  return { processed, markedPaid, cancelled };
+};
+
+app.get("/api/cron/reconcile-bank-transfers", async (req, res) => {
+  if (!requireCronSecret(req, res)) return;
+  try {
+    console.log('[CRON] Executing bank transfer reconciliation...');
+    const results = await reconcileBankTransfers();
+    res.json(results);
+  } catch (e: any) {
+    console.error('[RECONCILE ERROR]', e);
+    res.status(500).json({ error: e.message || 'Internal server error in reconciliation' });
+  }
+});
 
 // Dedicated endpoint for placing bids with instant outbid email triggers
 app.post("/api/place-bid", async (req, res) => {
@@ -3364,7 +3426,10 @@ app.post("/api/create-checkout-session", async (req, res) => {
 
       if (isBankTransfer) {
         const paymentDeadlineMs = resolvePaymentDeadlineMs(auction);
-        const alreadyUsed = (auction.bank_transfer_used_by || []).includes(userId);
+        // Deutscher Kommentar: bank_transfer_used_by wird jetzt aus auctions_private gelesen
+        const privDoc = await adminDb.collection('auctions_private').doc(effectiveAuctionId).get();
+        const privData = privDoc.exists ? privDoc.data() || {} : {};
+        const alreadyUsed = (privData.bank_transfer_used_by || []).includes(userId);
         if (!isBankTransferAvailable({ amountCents: finalAmountCents, paymentDeadlineMs, nowMs: Date.now(), alreadyUsed })) {
           let reason = 'min_amount';
           if (alreadyUsed) reason = 'already_used';
@@ -3609,9 +3674,14 @@ app.post("/api/create-checkout-session", async (req, res) => {
           bank_transfer_pending: true,
           bank_transfer_session_id: session.id,
           bank_transfer_deadline_at: bankTransferDeadlineStr,
+        }, { merge: true });
+        
+        // Deutscher Kommentar: bank_transfer_used_by in private Dokument verschieben
+        await adminDb.collection('auctions_private').doc(effectiveAuctionId).set({
           bank_transfer_used_by: FieldValue.arrayUnion(userId)
         }, { merge: true });
-        console.log(`[Checkout] Auction ${effectiveAuctionId} updated to bank_transfer_pending: true with session ${session.id}, deadline ${bankTransferDeadlineStr} and added user ${userId} to bank_transfer_used_by`);
+
+        console.log(`[Checkout] Auction ${effectiveAuctionId} updated to bank_transfer_pending: true and added user ${userId} to auctions_private/bank_transfer_used_by`);
       } catch (aucErr: any) {
         console.error('Error updating auction for bank transfer:', aucErr.message);
       }
@@ -8632,6 +8702,45 @@ app.post("/api/auctions/archive", async (req, res) => {
   } catch (error: any) {
     console.error("[ARCHIVE AUCTION ERROR]", error);
     res.status(500).json({ error: error.message || "Napaka pri arhiviranju dražbe." });
+  }
+});
+
+// Deutscher Kommentar: API zur Abfrage, ob der aktuelle Benutzer bereits eine Bankueberweisung fuer eine Liste von Auktionen verwendet hat
+app.get("/api/user/bank-transfer-states", async (req, res) => {
+  let userId: string;
+  try {
+    userId = await authenticateFirebaseUser(req);
+  } catch (authErr: any) {
+    return res.status(401).json({ error: authErr.message || 'Unauthorized' });
+  }
+
+  try {
+    const { ids } = req.query;
+    if (!ids || typeof ids !== 'string') {
+      return res.json({});
+    }
+
+    const auctionIds = ids.split(',').filter(Boolean);
+    if (auctionIds.length === 0) {
+      return res.json({});
+    }
+
+    const results: Record<string, boolean> = {};
+    const promises = auctionIds.map(async (id) => {
+      const privSnap = await adminDb.collection('auctions_private').doc(id).get();
+      if (privSnap.exists) {
+        const data = privSnap.data() || {};
+        results[id] = (data.bank_transfer_used_by || []).includes(userId);
+      } else {
+        results[id] = false;
+      }
+    });
+
+    await Promise.all(promises);
+    res.json(results);
+  } catch (error: any) {
+    console.error('Error fetching bank transfer states:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 

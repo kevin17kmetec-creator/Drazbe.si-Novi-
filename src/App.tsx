@@ -682,7 +682,9 @@ const WonAuctionItem: React.FC<{
                           buyer_id: userData.id,
                           seller_id: wonItem.sellerId,
                           buyer_data: userData,
-                          payment_deadline: wonItem.payment_deadline
+                          payment_deadline: wonItem.payment_deadline,
+                          endTime: wonItem.endTime || wonItem.end_time,
+                          bank_transfer_used: wonItem.bank_transfer_used
                         },
                       });
                       setIsCheckoutOpen(true);
@@ -972,6 +974,7 @@ const MainApp: React.FC = () => {
     reserved_cents: 0,
   });
   const [myBidsMap, setMyBidsMap] = useState<Map<string, number>>(new Map());
+  const [bankTransferUsedMap, setBankTransferUsedMap] = useState<Record<string, boolean>>({});
   const bidAuctionIds = useMemo(() => {
     if (!userData?.id) return [];
     return Array.from(myBidsMap.keys());
@@ -2140,6 +2143,30 @@ const MainApp: React.FC = () => {
     return () => unsubBids();
   }, [user]);
 
+  // Private stream: bank_transfer_used boolean fetching from API
+  useEffect(() => {
+    const fetchBTStates = async () => {
+      if (!user || rawAuctions.length === 0) {
+        if (!user) setBankTransferUsedMap({});
+        return;
+      }
+      // IDs sammeln, fuer die wir den Status pruefen muessen
+      const ids = rawAuctions.map(a => a.id).join(',');
+      if (!ids) return;
+      try {
+        const headers = await getAuthHeaders();
+        const res = await fetch(`/api/user/bank-transfer-states?ids=${ids}`, { headers });
+        if (res.ok) {
+          const data = await res.json();
+          setBankTransferUsedMap(data);
+        }
+      } catch (err) {
+        console.error('Error fetching bank transfer states:', err);
+      }
+    };
+    fetchBTStates();
+  }, [user, rawAuctions.length]);
+
   const listenerMapsRef = useRef<{
     a: Map<string, any>;
     b: Map<string, any>;
@@ -2151,6 +2178,29 @@ const MainApp: React.FC = () => {
     c: new Map(),
     d: new Map(),
   });
+
+  const mergeAndSetAuctions = useCallback(() => {
+    const mergedMap = new Map<string, any>();
+    // Merging maps: later maps override earlier ones by document id (A -> B -> C -> D)
+    listenerMapsRef.current.a.forEach((val, id) => mergedMap.set(id, val));
+    listenerMapsRef.current.b.forEach((val, id) => mergedMap.set(id, val));
+    listenerMapsRef.current.c.forEach((val, id) => mergedMap.set(id, val));
+    listenerMapsRef.current.d.forEach((val, id) => mergedMap.set(id, val));
+    
+    const auctionsArray = Array.from(mergedMap.values()).map(auc => {
+      // Deutscher Kommentar: bank_transfer_used wird jetzt aus dem bankTransferUsedMap geladen (server-side check)
+      return {
+        ...auc,
+        bank_transfer_used: bankTransferUsedMap[auc.id] || false
+      };
+    });
+
+    setRawAuctions(auctionsArray);
+  }, [bankTransferUsedMap]);
+
+  useEffect(() => {
+    mergeAndSetAuctions();
+  }, [bankTransferUsedMap, mergeAndSetAuctions]);
 
   // Stream: Auctions (Listener A always/guests, B/C/D for user's won/sold/second-chance)
   useEffect(() => {
@@ -2164,26 +2214,6 @@ const MainApp: React.FC = () => {
       d: new Map(),
     };
 
-    const mergeAndSet = () => {
-      const mergedMap = new Map<string, any>();
-      // Merging maps: later maps override earlier ones by document id (A -> B -> C -> D)
-      listenerMapsRef.current.a.forEach((val, id) => mergedMap.set(id, val));
-      listenerMapsRef.current.b.forEach((val, id) => mergedMap.set(id, val));
-      listenerMapsRef.current.c.forEach((val, id) => mergedMap.set(id, val));
-      listenerMapsRef.current.d.forEach((val, id) => mergedMap.set(id, val));
-      
-      const auctionsArray = Array.from(mergedMap.values()).map(auc => {
-        // Deutscher Kommentar: bank_transfer_used_by Array in Boolean umwandeln und Array aus dem State entfernen
-        const { bank_transfer_used_by, ...rest } = auc;
-        return {
-          ...rest,
-          bank_transfer_used: Array.isArray(bank_transfer_used_by) ? bank_transfer_used_by.includes(uid) : false
-        };
-      });
-
-      setRawAuctions(auctionsArray);
-    };
-
     // Listener A (always, also for guests): active auctions
     const qA = query(collection(db, "auctions"), where("status", "==", "active"));
     const unsubA = registerSnapshotListener(
@@ -2195,7 +2225,7 @@ const MainApp: React.FC = () => {
             mapA.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
           });
           listenerMapsRef.current.a = mapA;
-          mergeAndSet();
+          mergeAndSetAuctions();
         },
         (error) => {
           console.error("Auctions listener A error:", error);
@@ -2216,7 +2246,7 @@ const MainApp: React.FC = () => {
               mapB.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
             });
             listenerMapsRef.current.b = mapB;
-            mergeAndSet();
+            mergeAndSetAuctions();
           },
           (error) => {
             console.error("Auctions listener B error:", error);
@@ -2236,7 +2266,7 @@ const MainApp: React.FC = () => {
               mapC.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
             });
             listenerMapsRef.current.c = mapC;
-            mergeAndSet();
+            mergeAndSetAuctions();
           },
           (error) => {
             console.error("Auctions listener C error:", error);
@@ -2256,7 +2286,7 @@ const MainApp: React.FC = () => {
               mapD.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
             });
             listenerMapsRef.current.d = mapD;
-            mergeAndSet();
+            mergeAndSetAuctions();
           },
           (error) => {
             console.error("Auctions listener D error:", error);
@@ -2269,7 +2299,7 @@ const MainApp: React.FC = () => {
     return () => {
       unsubs.forEach((unsub) => unsub());
     };
-  }, [user?.uid]);
+  }, [user?.uid, mergeAndSetAuctions]);
 
   // Ended auctions user bid on that are not active or won/sold
   useEffect(() => {
@@ -3589,7 +3619,8 @@ const MainApp: React.FC = () => {
                   bank_transfer_used: item.bank_transfer_used,
                   fee_percentage: 10,
                   buyer_data: userData,
-                  payment_deadline: item.payment_deadline
+                  payment_deadline: item.payment_deadline,
+                  endTime: item.endTime || item.end_time
                 },
               });
               setIsCheckoutOpen(true);
@@ -4538,6 +4569,9 @@ const MainApp: React.FC = () => {
                 seller_id: auction.sellerId || (auction as any).seller_id,
                 fee_percentage: fee * 100,
                 buyer_data: userData,
+                payment_deadline: auction.payment_deadline,
+                endTime: auction.endTime || auction.end_time,
+                bank_transfer_used: auction.bank_transfer_used
               },
             });
             setIsCheckoutOpen(true);

@@ -3,6 +3,7 @@ import { X, Clock, Lock, CreditCard as CardIcon, ShieldCheck, AlertCircle } from
 import { createCheckoutSessionAction, confirmCheckoutSessionAction } from '@/src/actions/index';
 import { auth } from "../../lib/firebase";
 import { Portal } from '../ui/Portal';
+import { isBankTransferAvailable, resolvePaymentDeadlineMs } from '@/src/lib/bankTransfer';
 
 // Deutscher Kommentar: Modal-Komponente zur Wahl der Zahlungsmethode (Karte oder Bankueberweisung) und Initiierung des Checkouts
 export const CheckoutModal: React.FC<{
@@ -15,27 +16,37 @@ export const CheckoutModal: React.FC<{
   onSuccess: () => void;
   metadata?: any;
 }> = ({ isOpen, onClose, amount, title, t, language, onSuccess, metadata }) => {
-  if (!isOpen) return null;
-
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<'card' | 'bank_transfer'>('card');
   const pollTimerRef = useRef<any>(null);
   const popupRef = useRef<Window | null>(null);
 
+  useEffect(() => {
+    if (isOpen) {
+      setIsLoading(false);
+      setErrorMessage(null);
+      setPaymentMethod('card');
+    }
+  }, [isOpen]);
+
   const isSub = metadata?.type === 'subscription';
   const isAuction = !isSub;
-  const paymentDeadline = metadata?.payment_deadline;
   
-  const deadlineMs = paymentDeadline ? new Date(paymentDeadline).getTime() : 0;
-  const timeRemaining = deadlineMs - Date.now();
-  const fourDaysInMs = 4 * 24 * 60 * 60 * 1000;
-  const isDeadlineOk = deadlineMs > 0 ? (timeRemaining >= fourDaysInMs) : true;
-
-  // Deutscher Kommentar: Bankueberweisung ist nur fuer Auktionen mit Betrag >= 50 EUR und mindestens 4 Tagen Restzeit verfuegbar. Zudem nur ein Versuch pro Nutzer.
-  const showBankTransferOption = isAuction && amount >= 50.0 && isDeadlineOk && !metadata?.bank_transfer_used;
+  const paymentDeadlineMs = resolvePaymentDeadlineMs({
+      payment_deadline: metadata?.payment_deadline,
+      endTime: metadata?.endTime || metadata?.end_time
+  });
+  
+  const showBankTransferOption = isAuction && isBankTransferAvailable({
+      amountCents: Math.round(amount * 100),
+      paymentDeadlineMs,
+      nowMs: Date.now(),
+      alreadyUsed: !!metadata?.bank_transfer_used
+  });
 
   useEffect(() => {
+    if (!isOpen) return;
     const handleMessage = (event: MessageEvent) => {
       if (event.data && event.data.type === 'STRIPE_POPUP_CALLBACK') {
         const { status, action, sessionId } = event.data;
@@ -60,7 +71,9 @@ export const CheckoutModal: React.FC<{
       window.removeEventListener('message', handleMessage);
       if (pollTimerRef.current) clearInterval(pollTimerRef.current);
     };
-  }, [onSuccess, onClose]);
+  }, [onSuccess, onClose, isOpen]);
+
+  if (!isOpen) return null;
 
   const handlePay = async () => {
     setErrorMessage(null);
