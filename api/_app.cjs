@@ -467,19 +467,21 @@ function getEffectiveTier(userData, nowMs = Date.now()) {
   }
   return tier;
 }
+var FIXED_PLATFORM_FEE_CENTS = 30;
+var MIN_PLATFORM_FEE_CENTS = 100;
 function calculatePlatformFeeCents(itemPriceCents, tier) {
   if (!itemPriceCents || itemPriceCents <= 0) return 0;
   let b1Bp = 800;
   let b2Bp = 500;
   let b3Bp = 400;
   if (tier === "PRO") {
-    b1Bp = 300;
-    b2Bp = 250;
-    b3Bp = 200;
+    b1Bp = 400;
+    b2Bp = 350;
+    b3Bp = 300;
   } else if (tier === "BASIC") {
-    b1Bp = 650;
-    b2Bp = 400;
-    b3Bp = 320;
+    b1Bp = 700;
+    b2Bp = 450;
+    b3Bp = 350;
   }
   let totalFeeCents = 0;
   let remaining = itemPriceCents;
@@ -494,12 +496,8 @@ function calculatePlatformFeeCents(itemPriceCents, tier) {
   if (remaining > 0) {
     totalFeeCents += remaining * b3Bp / 1e4;
   }
-  let feeCents = Math.round(totalFeeCents);
-  const minFeeCents = Math.round(itemPriceCents * 0.02);
-  if (feeCents < minFeeCents) {
-    feeCents = minFeeCents;
-  }
-  return feeCents;
+  const feeWithFixed = Math.round(totalFeeCents) + FIXED_PLATFORM_FEE_CENTS;
+  return Math.max(feeWithFixed, MIN_PLATFORM_FEE_CENTS);
 }
 function getCommissionVat(countryCode, isBusiness, hasValidVatId) {
   const cc = (countryCode || "SI").trim().toUpperCase();
@@ -515,19 +513,17 @@ function getCommissionVat(countryCode, isBusiness, hasValidVatId) {
   }
   return { vatRate: 22, isReverseCharge: false };
 }
-var MIN_PLATFORM_FEE_CENTS = 70;
 function calculateTotals(params) {
   const { itemPriceCents, tier, countryCode, isBusiness, hasValidVatId } = params;
-  const bracketFee = calculatePlatformFeeCents(itemPriceCents, tier);
+  const feeCents = calculatePlatformFeeCents(itemPriceCents, tier);
   const { vatRate, isReverseCharge } = getCommissionVat(countryCode, isBusiness, hasValidVatId);
-  const feeCents = Math.max(bracketFee, MIN_PLATFORM_FEE_CENTS);
   const vatCents = Math.round(feeCents * vatRate / 100);
   const totalCents = itemPriceCents + feeCents + vatCents;
-  const feePercent = itemPriceCents > 0 ? Math.round(bracketFee / itemPriceCents * 1e4) / 100 : 0;
-  const feeIsMinimum = bracketFee < MIN_PLATFORM_FEE_CENTS;
+  const feePercent = itemPriceCents > 0 ? Math.round(feeCents / itemPriceCents * 1e4) / 100 : 0;
+  const feeIsMinimum = feeCents <= MIN_PLATFORM_FEE_CENTS;
   return {
     itemPriceCents,
-    bracketFeeCents: bracketFee,
+    bracketFeeCents: feeCents,
     feeCents,
     vatRate,
     vatCents,
@@ -842,7 +838,7 @@ var AuctionEmailTemplate = ({
       badgeBg = "#10B981";
       badgeColor = "#FFFFFF";
       headline = "Kupec je potrdil prejem!";
-      subheadline = `Kupec je potrdil prejem predmeta "${auctionTitle}". Izpla\u010Dilo na va\u0161 ra\u010Dun za izpla\u010Dila je bilo spro\u017Eeno.`;
+      subheadline = `Kupec je potrdil prejem predmeta "${auctionTitle}". Sredstva so spro\u0161\u010Dena in na voljo za izpla\u010Dilo v nastavitvah (Pla\u010Dila in izpla\u010Dila).`;
       ctaText = "Status naro\u010Dila";
       ctaUrl = auctionUrl || "https://drazbe.eu";
       priceLabel = "Znesek izpla\u010Dila:";

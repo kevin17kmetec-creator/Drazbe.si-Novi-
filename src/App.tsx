@@ -528,7 +528,7 @@ const WonAuctionItem: React.FC<{
             </div>
             {preview?.feeIsMinimum && (
               <p className="text-[10px] text-slate-400 -mt-1">
-                Uporabljena je minimalna provizija 0,70 €.
+                Uporabljena je minimalna provizija 1,00 €.
               </p>
             )}
             <div className="flex justify-between">

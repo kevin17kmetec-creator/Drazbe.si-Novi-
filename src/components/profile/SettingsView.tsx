@@ -1407,7 +1407,7 @@ export const SettingsView: React.FC<{
                         <CreditCard size={18} className="text-[#FEBA4F]"/> Moja izplačila
                       </h3>
                       <p className="text-slate-500 font-bold text-xs mb-3 leading-relaxed">
-                        Denar od kupca je že na vašem računu pri našem plačilnem partnerju in ga mi ne hranimo. Na bančni račun se izplača po potrditvi prejema.
+                        Sredstva se sprostijo, ko kupec potrdi prejem, izplačate pa jih, ko želite.
                       </p>
                       
                       <PayoutsList />
