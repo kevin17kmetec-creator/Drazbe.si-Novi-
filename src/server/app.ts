@@ -1012,7 +1012,7 @@ async function recordAmlSpend({
   }
 }
 
-
+/**
  * Reserves an AML amount in Firestore to prevent race conditions during payment initialization.
  * Runs in a single Firestore transaction:
  * 1. Reads buyer doc
