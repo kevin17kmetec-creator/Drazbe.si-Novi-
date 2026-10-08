@@ -427,6 +427,10 @@ export const CreateAuctionForm: React.FC<{
         const errors: {
             title?: boolean;
             description?: boolean;
+            category?: boolean;
+            condition?: boolean;
+            region?: boolean;
+            city?: boolean;
             images?: boolean;
             startingPrice?: boolean;
             shipping_cost?: boolean;
@@ -434,6 +438,10 @@ export const CreateAuctionForm: React.FC<{
 
         if (!formData.title || !formData.title.trim()) errors.title = true;
         if (!formData.description || !formData.description.trim()) errors.description = true;
+        if (!formData.category || !formData.category.trim()) errors.category = true;
+        if (!formData.condition || !formData.condition.trim()) errors.condition = true;
+        if (!formData.region || !formData.region.trim()) errors.region = true;
+        if (!formData.location || !formData.location.trim() || (formData.location === 'Drugo' && (!customLocation || !customLocation.trim()))) errors.city = true;
         if (existingImages.length + imageFiles.length < 3) errors.images = true;
         
         const startingPriceNum = parseInt(formData.startingPrice);
@@ -447,8 +455,8 @@ export const CreateAuctionForm: React.FC<{
 
         if (Object.keys(errors).length > 0) {
             setInvalidFields(errors);
-            if (errors.title || errors.description) {
-                toast.error(t('enterAllData'));
+            if (errors.title || errors.description || errors.category || errors.condition || errors.region || errors.city) {
+                toast.error("Izberite kategorijo, stanje predmeta, regijo in vnesite mesto.");
             } else if (errors.images) {
                 toast.error(t('minImagesError'));
             } else if (errors.startingPrice) {
@@ -760,26 +768,26 @@ export const CreateAuctionForm: React.FC<{
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                         <div className="space-y-4">
-                            {/* Kategorie ist optional (hat Standardwert 'Ostalo') */}
                             <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">
-                                {t('category')} <span className="normal-case font-bold text-slate-400">{t('optionalLabel') || "(neobvezno)"}</span>
+                                {t('category')} <span className="text-red-500">*</span>
                             </label>
-                            <select value={formData.category} className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl py-4 px-6 font-bold text-lg text-[#0A1128] focus:ring-0 focus:border-[#FEBA4F] transition-all outline-none appearance-none cursor-pointer shadow-inner" onChange={e => setFormData({...formData, category: e.target.value as Category, specifications: {} })}>
+                            <select value={formData.category} className={`w-full bg-slate-50 border-2 ${invalidFields.category ? 'border-red-500 bg-red-50/20' : 'border-slate-200 focus:border-[#FEBA4F]'} rounded-2xl py-4 px-6 font-bold text-lg text-[#0A1128] focus:ring-0 transition-all outline-none appearance-none cursor-pointer shadow-inner`} onChange={e => { setFormData({...formData, category: e.target.value as Category, specifications: {} }); if (invalidFields.category) setInvalidFields(prev => ({ ...prev, category: false })); }}>
                                 {Object.values(Category).map(c => <option key={c} value={c}>{getCategoryTranslation(c, t)}</option>)}
                             </select>
+                            {invalidFields.category && <p className="text-red-500 text-xs font-bold mt-1 ml-2">Izberite kategorijo.</p>}
                         </div>
                         <div className="space-y-4">
-                            {/* Artikelzustand ist optional (hat Standardwert 'Rabljeno') */}
                             <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">
-                                {t('itemCondition')} <span className="normal-case font-bold text-slate-400">{t('optionalLabel') || "(neobvezno)"}</span>
+                                {t('itemCondition')} <span className="text-red-500">*</span>
                             </label>
-                            <select value={formData.condition} className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl py-4 px-6 font-bold text-lg text-[#0A1128] focus:ring-0 focus:border-[#FEBA4F] transition-all outline-none appearance-none cursor-pointer shadow-inner" onChange={e => setFormData({...formData, condition: e.target.value})}>
+                            <select value={formData.condition} className={`w-full bg-slate-50 border-2 ${invalidFields.condition ? 'border-red-500 bg-red-50/20' : 'border-slate-200 focus:border-[#FEBA4F]'} rounded-2xl py-4 px-6 font-bold text-lg text-[#0A1128] focus:ring-0 transition-all outline-none appearance-none cursor-pointer shadow-inner`} onChange={e => { setFormData({...formData, condition: e.target.value}); if (invalidFields.condition) setInvalidFields(prev => ({ ...prev, condition: false })); }}>
                                 <option value="Novo">{t('cond_new')}</option>
                                 <option value="Kot novo">{t('cond_likeNew')}</option>
                                 <option value="Rabljeno">{t('cond_used')}</option>
                                 <option value="Potrebno obnove">{t('cond_needsFix')}</option>
                                 <option value="Za dele">{t('cond_parts')}</option>
                             </select>
+                            {invalidFields.condition && <p className="text-red-500 text-xs font-bold mt-1 ml-2">Izberite stanje.</p>}
                         </div>
                     </div>
 
@@ -791,31 +799,31 @@ export const CreateAuctionForm: React.FC<{
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                         <div className="space-y-4">
-                            {/* Region ist optional (hat Standardwert 'Osrednjeslovenska') */}
                             <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">
-                                {t('region')} <span className="normal-case font-bold text-slate-400">{t('optionalLabel') || "(neobvezno)"}</span>
+                                {t('region')} <span className="text-red-500">*</span>
                             </label>
-                            <select value={formData.region} className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl py-4 px-6 font-bold text-lg text-[#0A1128] focus:ring-0 focus:border-[#FEBA4F] transition-all outline-none appearance-none cursor-pointer shadow-inner" onChange={e => setFormData({...formData, region: e.target.value as Region})}>
+                            <select value={formData.region} className={`w-full bg-slate-50 border-2 ${invalidFields.region ? 'border-red-500 bg-red-50/20' : 'border-slate-200 focus:border-[#FEBA4F]'} rounded-2xl py-4 px-6 font-bold text-lg text-[#0A1128] focus:ring-0 transition-all outline-none appearance-none cursor-pointer shadow-inner`} onChange={e => { setFormData({...formData, region: e.target.value as Region}); if (invalidFields.region) setInvalidFields(prev => ({ ...prev, region: false })); }}>
                                 {Object.values(Region).map(r => <option key={r} value={r}>{r}</option>)}
                             </select>
+                            {invalidFields.region && <p className="text-red-500 text-xs font-bold mt-1 ml-2">Izberite regijo.</p>}
                         </div>
                         <div className="space-y-4">
-                            {/* Stadt/Ort ist optional (hat Standardwert) */}
                             <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">
-                                {t('city')} <span className="normal-case font-bold text-slate-400">{t('optionalLabel') || "(neobvezno)"}</span>
+                                {t('city')} <span className="text-red-500">*</span>
                             </label>
-                            <select value={formData.location} className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl py-4 px-6 font-bold text-lg text-[#0A1128] focus:ring-0 focus:border-[#FEBA4F] transition-all outline-none appearance-none cursor-pointer shadow-inner" onChange={e => setFormData({...formData, location: e.target.value})}>
+                            <select value={formData.location} className={`w-full bg-slate-50 border-2 ${invalidFields.city ? 'border-red-500 bg-red-50/20' : 'border-slate-200 focus:border-[#FEBA4F]'} rounded-2xl py-4 px-6 font-bold text-lg text-[#0A1128] focus:ring-0 transition-all outline-none appearance-none cursor-pointer shadow-inner`} onChange={e => { setFormData({...formData, location: e.target.value}); if (invalidFields.city) setInvalidFields(prev => ({ ...prev, city: false })); }}>
                                 {getLocationsForRegion(formData.region).map(loc => <option key={loc} value={loc}>{loc}</option>)}
                             </select>
                             {formData.location === 'Drugo' && (
                                 <input
                                     type="text"
-                                    placeholder="Vnesite ime mesta ali vasi (neobvezno)"
+                                    placeholder="Vnesite ime mesta ali vasi"
                                     value={customLocation}
-                                    onChange={(e) => setCustomLocation(e.target.value)}
-                                    className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl py-3.5 px-4 sm:px-5 font-semibold text-sm sm:text-base placeholder:text-xs sm:placeholder:text-sm text-[#0A1128] focus:ring-0 focus:border-[#FEBA4F] transition-all outline-none shadow-inner mt-2.5"
+                                    onChange={(e) => { setCustomLocation(e.target.value); if (invalidFields.city) setInvalidFields(prev => ({ ...prev, city: false })); }}
+                                    className={`w-full bg-slate-50 border-2 ${invalidFields.city ? 'border-red-500 bg-red-50/20' : 'border-slate-200 focus:border-[#FEBA4F]'} rounded-2xl py-3.5 px-4 sm:px-5 font-semibold text-sm sm:text-base placeholder:text-xs sm:placeholder:text-sm text-[#0A1128] focus:ring-0 transition-all outline-none shadow-inner mt-2.5`}
                                 />
                             )}
+                            {invalidFields.city && <p className="text-red-500 text-xs font-bold mt-1 ml-2">Vnesite mesto.</p>}
                         </div>
                     </div>
 

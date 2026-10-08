@@ -2714,7 +2714,8 @@ const MainApp: React.FC = () => {
       }
 
       toast.success("Zbirka je uspešno objavljena!");
-      setActiveView("grid");
+      navigateTo("grid", {}, { scrollToTop: true });
+      requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "instant" }));
       setCreateMode("choice");
       fetchAuctions();
     } catch (e: any) {
@@ -2825,7 +2826,8 @@ const MainApp: React.FC = () => {
       }
 
       if (publishSuccess) {
-        setActiveView("grid");
+        navigateTo("grid", {}, { scrollToTop: true });
+        requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "instant" }));
         toast.success(t("auctionPublished"));
         fetchAuctions(); // Refresh the list from DB
       }

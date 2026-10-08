@@ -88,6 +88,7 @@ async function recordTermsAcceptance(params: {
     console.error("Fehler beim Speichern des AGB-Nachweises:", err);
   }
 }
+import { isBankTransferAvailable, resolvePaymentDeadlineMs, addWorkingDays } from '../lib/bankTransfer';
 import { PLATFORM_COMPANY } from '../lib/platformCompany';
 import { claimIdentityLock, releaseIdentityLock, markIdentityBlocked, normalizeTaxId, lockKey } from './identityLock';
 // Benachrichtigungs- und Anwesenheitshelfer
@@ -1072,14 +1073,39 @@ async function cancelAuctionBankTransfer(auctionId: string, auctionData: any) {
     }
   }
 
-  // Deutscher Kommentar: Datenbankfelder zuruecksetzen
+  // Deutscher Kommentar: Datenbankfelder zuruecksetzen und finale Chance setzen
   try {
+    const newDeadline = new Date(Math.max(new Date(auctionData.payment_deadline || 0).getTime(), Date.now() + 24 * 60 * 60 * 1000)).toISOString();
     await adminDb.collection('auctions').doc(auctionId).set({
       bank_transfer_pending: false,
       bank_transfer_session_id: null,
-      bank_transfer_deadline_at: null
+      bank_transfer_deadline_at: null,
+      bank_transfer_final_chance: true,
+      payment_deadline: newDeadline
     }, { merge: true });
-    console.log(`[CancelBankTransfer] Auction ${auctionId} bank transfer fields cleared.`);
+    console.log(`[CancelBankTransfer] Auction ${auctionId} bank transfer fields cleared, final chance enabled.`);
+    
+    // E-Mail an Kaeufer senden
+    const buyerSnap = await adminDb.collection('users').doc(buyerId).get();
+    const buyerData = buyerSnap.exists ? buyerSnap.data() || {} : {};
+    if (buyerData.email) {
+      const resendClient = new Resend(process.env.RESEND_API_KEY);
+      await resendClient.emails.send({
+        from: process.env.EMAIL_FROM || 'dražbenik.si <obvestila@drazbenik.si>',
+        to: buyerData.email,
+        subject: 'Nakazilo ni bilo izvedeno - drazbe.si',
+        html: `
+          <div style="font-family: sans-serif; line-height: 1.5; color: #1E293B;">
+            <h2 style="color: #EF4444;">Nakazilo ni bilo izvedeno</h2>
+            <p>Spoštovani,</p>
+            <p>obveščamo vas, da nakazilo za dražbo <strong>${auctionData.title || 'Dražba'}</strong> ni bilo izvedeno.</p>
+            <p>Za plačilo imate še eno priložnost: plačajte s kartico do <strong>${new Date(newDeadline).toLocaleString('sl-SI')}</strong>. Če plačila ne opravite, veljajo običajna pravila za zamudnike.</p>
+            <p>Lep pozdrav,<br/>Ekipa drazbe.si</p>
+          </div>
+        `
+      });
+      console.log(`[CancelBankTransfer] Sent final chance email to ${buyerData.email}`);
+    }
   } catch (dbErr: any) {
     console.error(`[CancelBankTransfer] Error resetting auction fields: ${dbErr.message}`);
   }
@@ -2547,50 +2573,10 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
     const { auction_id, buyer_id } = metadata;
 
     try {
-      if (buyer_id && auction_id) {
-        // Deutscher Kommentar: AML-Reservierung freigeben
-        const reservationId = `${buyer_id}_${auction_id}`;
-        await adminDb.collection('aml_reservations').doc(reservationId).set({
-          status: 'released',
-          released_at: new Date().toISOString(),
-          release_reason: 'async_payment_failed'
-        }, { merge: true });
-        console.log(`[webhook] Released AML reservation ${reservationId} due to async_payment_failed`);
-
-        // Deutscher Kommentar: Bankueberweisungsdaten zuruecksetzen
+      if (auction_id) {
         const auctionDoc = await adminDb.collection('auctions').doc(auction_id).get();
-        const auctionData = auctionDoc.exists ? auctionDoc.data() || {} : {};
-        await adminDb.collection('auctions').doc(auction_id).set({
-          bank_transfer_pending: false,
-          bank_transfer_session_id: null,
-          bank_transfer_deadline_at: null
-        }, { merge: true });
-        console.log(`[webhook] Bank transfer failed for auction ${auction_id}. Cleared bank transfer fields.`);
-
-        // Deutscher Kommentar: E-Mail an Kaeufer senden: Plaetzerung der Zahlung fehlgeschlagen
-        const buyerDoc = await adminDb.collection('users').doc(buyer_id).get();
-        const buyerData = buyerDoc.exists ? buyerDoc.data() || {} : {};
-        if (buyerData.email) {
-          try {
-            const resendClient = new Resend(process.env.RESEND_API_KEY);
-            await resendClient.emails.send({
-              from: process.env.EMAIL_FROM || 'dražbenik.si <obvestila@drazbenik.si>',
-              to: buyerData.email,
-              subject: 'Plačilo z bančnim nakazilom ni uspelo - drazbe.si',
-              html: `
-                <div style="font-family: sans-serif; line-height: 1.5; color: #1E293B;">
-                  <h2 style="color: #EF4444;">Plačilo z bančnim nakazilom ni uspelo</h2>
-                  <p>Spoštovani,</p>
-                  <p>obveščamo vas, da plačilo z bančnim nakazilom za dražbo <strong>${auctionData.title || 'Dražba'}</strong> ni uspelo.</p>
-                  <p>Dražbo lahko še vedno plačate s plačilno kartico do izteka plačilnega roka.</p>
-                  <p>Lep pozdrav,<br/>Ekipa drazbe.si</p>
-                </div>
-              `
-            });
-            console.log(`[webhook] Sent async payment failure email to ${buyerData.email}`);
-          } catch (emErr: any) {
-            console.error('[webhook] Error sending async payment failure email:', emErr.message);
-          }
+        if (auctionDoc.exists) {
+            await cancelAuctionBankTransfer(auction_id, auctionDoc.data());
         }
       }
       res.json({ received: true });
@@ -3383,14 +3369,14 @@ app.post("/api/create-checkout-session", async (req, res) => {
       }
 
       if (isBankTransfer) {
-        if (finalAmountCents < 5000) {
-          return res.status(400).json({ error: "Bančno nakazilo ni na voljo za to plačilo." });
-        }
-        const paymentDeadlineMs = auction.payment_deadline ? new Date(auction.payment_deadline).getTime() : 0;
-        const timeRemaining = paymentDeadlineMs - Date.now();
-        const fourDaysInMs = 4 * 24 * 60 * 60 * 1000;
-        if (timeRemaining < fourDaysInMs) {
-          return res.status(400).json({ error: "Bančno nakazilo ni na voljo za to plačilo." });
+        const paymentDeadlineMs = resolvePaymentDeadlineMs(auction);
+        const alreadyUsed = (auction.bank_transfer_used_by || []).includes(userId);
+        if (!isBankTransferAvailable({ amountCents: finalAmountCents, paymentDeadlineMs, nowMs: Date.now(), alreadyUsed })) {
+          let reason = 'min_amount';
+          if (alreadyUsed) reason = 'already_used';
+          else if (paymentDeadlineMs <= Date.now()) reason = 'deadline_passed';
+          console.warn(`[Checkout] Bank transfer unavailable for auction ${effectiveAuctionId}: ${reason}`);
+          return res.status(400).json({ error: "Bančno nakazilo ni na voljo za to plačilo.", reason });
         }
       }
 
@@ -3398,10 +3384,7 @@ app.post("/api/create-checkout-session", async (req, res) => {
       if (isBankTransfer) {
         const now = new Date();
         const threeWorkingDays = addWorkingDays(now, 3);
-        const deadlineMs = auction.payment_deadline ? new Date(auction.payment_deadline).getTime() : 0;
-        const limitDate = deadlineMs > 0 ? new Date(deadlineMs) : threeWorkingDays;
-        const chosenDate = threeWorkingDays < limitDate ? threeWorkingDays : limitDate;
-        bankTransferDeadlineStr = chosenDate.toISOString();
+        bankTransferDeadlineStr = threeWorkingDays.toISOString();
       }
 
       reservationId = `${userId}_${effectiveAuctionId}`;
@@ -5601,6 +5584,15 @@ app.post("/api/auctions/create", async (req, res) => {
     };
 
     if (itemData) {
+      if (!itemData.id) {
+          if (!itemData.category || !itemData.category.trim() ||
+              !itemData.condition || !itemData.condition.trim() ||
+              !itemData.region || !itemData.region.trim() ||
+              !itemData.location || !itemData.location.trim()) {
+              return res.status(400).json({ error: "Izberite kategorijo, stanje predmeta, regijo in vnesite mesto." });
+          }
+      }
+
       if (itemData.title) itemData.title = sanitizeString(itemData.title);
       if (itemData.description) itemData.description = sanitizeString(itemData.description);
       if (itemData.category) itemData.category = sanitizeString(itemData.category);
