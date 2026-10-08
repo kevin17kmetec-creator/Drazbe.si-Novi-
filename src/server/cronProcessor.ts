@@ -440,11 +440,10 @@ export async function processAuctionCrons(): Promise<CronRunResult> {
     try {
       expiredBankTransfersSnap = await adminDb.collection('auctions')
         .where('bank_transfer_pending', '==', true)
-        .where('bank_transfer_deadline_at', '<=', nowIso)
         .limit(100)
         .get();
     } catch (e: any) {
-      console.warn('[CRON] Failed to fetch expired bank transfer auctions:', e.message);
+      console.error('[CRON] Failed to fetch expired bank transfer auctions:', e.message);
       expiredBankTransfersSnap = { empty: true, docs: [] } as any;
     }
 
@@ -457,8 +456,11 @@ export async function processAuctionCrons(): Promise<CronRunResult> {
     };
 
     for (const auctionDoc of expiredBankTransfersSnap.docs) {
-      const auctionId = auctionDoc.id;
       const auctionData = auctionDoc.data() || {};
+      const deadline = auctionData.bank_transfer_deadline_at ? new Date(auctionData.bank_transfer_deadline_at).getTime() : 0;
+      if (deadline > now.getTime()) continue;
+
+      const auctionId = auctionDoc.id;
       const sessionId = auctionData.bank_transfer_session_id;
       const buyerId = auctionData.winner_id || auctionData.winnerId || auctionData.second_winner_id || auctionData.secondWinnerId;
 
@@ -543,17 +545,19 @@ export async function processAuctionCrons(): Promise<CronRunResult> {
     try {
       expiredPaymentSnap = await adminDb.collection('auctions')
         .where('post_auction_status', '==', 'awaiting_payment_1st')
-        .where('payment_deadline', '<=', nowIso)
         .limit(100)
         .get();
     } catch (e: any) {
-      console.warn('[CRON] Failed to fetch expired payment auctions:', e.message);
+      console.error('[CRON] Failed to fetch expired payment auctions:', e.message);
       expiredPaymentSnap = { empty: true, docs: [] } as any;
     }
 
     for (const auctionDoc of expiredPaymentSnap.docs) {
       const data = auctionDoc.data();
       if (data.payment_status === 'paid') continue;
+      
+      const deadline = data.payment_deadline ? new Date(data.payment_deadline).getTime() : 0;
+      if (deadline > now.getTime()) continue;
 
       if (data.bank_transfer_pending === true) {
         const btDeadline = data.bank_transfer_deadline_at ? new Date(data.bank_transfer_deadline_at).getTime() : 0;
@@ -562,11 +566,6 @@ export async function processAuctionCrons(): Promise<CronRunResult> {
           continue;
         }
       }
-
-      const deadlineStr = data.payment_deadline;
-      if (!deadlineStr) continue;
-
-      const deadline = new Date(deadlineStr).getTime();
 
       if (deadline <= now.getTime()) {
         const auctionId = auctionDoc.id;

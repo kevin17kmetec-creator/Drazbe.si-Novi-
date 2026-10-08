@@ -3667,9 +3667,24 @@ app.post("/api/checkout/cancel-bank-transfer", async (req, res) => {
     }
 
     const auctionData = auctionDoc.data() || {};
-    const buyerId = auctionData.winner_id || auctionData.winnerId || auctionData.second_winner_id || auctionData.secondWinnerId;
+    const winnerId = auctionData.winner_id || auctionData.winnerId;
+    const secondWinnerId = auctionData.second_winner_id || auctionData.secondWinnerId;
 
-    if (buyerId !== userId) {
+    let authorized = (userId === winnerId || userId === secondWinnerId);
+
+    if (authorized && auctionData.bank_transfer_session_id) {
+      try {
+        const stripe = getStripe();
+        const sess = await stripe.checkout.sessions.retrieve(auctionData.bank_transfer_session_id);
+        if (sess.metadata && sess.metadata.buyer_id) {
+          authorized = (sess.metadata.buyer_id === userId);
+        }
+      } catch (e) {
+        // Deutscher Kommentar: Fallback auf Winner-Check, wenn Stripe-Session nicht geladen werden konnte
+      }
+    }
+
+    if (!authorized) {
       return res.status(403).json({ error: 'Te dražbe ne morete upravljati.' });
     }
 
