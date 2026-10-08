@@ -4,7 +4,7 @@ import { CheckCircle2, AlertCircle, AlertTriangle, ShieldCheck, Building2, Info 
 import { TERMS_VERSION } from '../../lib/termsVersion';
 import { getAuthHeaders } from '../../lib/authFetch';
 import { toast } from 'sonner';
-import { getStripeConnectInstance, setStripeConnectScope } from '../../lib/stripeConnect';
+import { getStripeConnectInstance, resetStripeConnectInstance } from '../../lib/stripeConnect';
 
 interface PayoutSetupViewProps {
   userData: any;
@@ -45,6 +45,26 @@ export const PayoutSetupView: React.FC<PayoutSetupViewProps> = ({
   const isProfileComplete = userData?.profile_completed === true;
   const isTermsAccepted = Boolean(userData?.seller_terms_accepted_at);
   const requiresRegNumber = isBusiness && !hasRegNumber;
+  const publishableKey = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || '';
+
+  // Kommentar auf Deutsch: Event-Listener für Stripe-Verbindungsfehler
+  useEffect(() => {
+    const handleError = (e: any) => {
+      const { scope, code, message } = e.detail;
+      if (scope === 'onboarding') {
+        setStripeError({ message, code });
+      }
+    };
+    window.addEventListener('connect-fetch-error', handleError);
+    return () => window.removeEventListener('connect-fetch-error', handleError);
+  }, []);
+
+  // Protokollieren, wenn der Key fehlt
+  useEffect(() => {
+    if (!publishableKey || !publishableKey.startsWith('pk_')) {
+      console.error("Stripe-Fehler: VITE_STRIPE_PUBLISHABLE_KEY ist leer oder ungueltig.");
+    }
+  }, [publishableKey]);
 
   // Stripe connect instance initialized only when all preconditions are met
   const stripeConnectInstance = useMemo(() => {
@@ -52,8 +72,7 @@ export const PayoutSetupView: React.FC<PayoutSetupViewProps> = ({
       return null;
     }
     
-    setStripeConnectScope('onboarding');
-    return getStripeConnectInstance();
+    return getStripeConnectInstance('onboarding');
   }, [isProfileComplete, isTermsAccepted, requiresRegNumber, stripeRefreshKey]);
 
   // Sicherheits-Timer: Wenn Stripe Connect nicht innerhalb von 15 Sekunden geladen wird
@@ -185,7 +204,7 @@ export const PayoutSetupView: React.FC<PayoutSetupViewProps> = ({
             <div>
               <div className="font-black text-base uppercase tracking-tight">Izplačila so urejena</div>
               <div className="text-xs text-emerald-700 font-bold mt-0.5">
-                Vaš račun pri Stripe je pripravljen za sprejemanje izplačil.
+                Vaš račun za prejemanje izplačil je pripravljen.
               </div>
             </div>
           </div>
@@ -285,7 +304,7 @@ export const PayoutSetupView: React.FC<PayoutSetupViewProps> = ({
                 <h3 className="font-black uppercase tracking-wider text-sm">Matična številka podjetja</h3>
               </div>
               <p className="text-xs font-bold text-slate-600">
-                Za registracijo poslovnega računa pri Stripe vnesite matično številko vašega podjetja.
+                Za registracijo poslovnega računa vnesite matično številko vašega podjetja.
               </p>
               <div className="flex gap-3">
                 <input
@@ -315,11 +334,6 @@ export const PayoutSetupView: React.FC<PayoutSetupViewProps> = ({
                   <p className="text-red-800 font-bold text-sm">
                     Sistem za izplačila ni pravilno nastavljen. Kontaktirajte podporo.
                   </p>
-                  {/* Fehler in Konsole protokollieren */}
-                  {(() => {
-                    console.error("Stripe-Fehler: VITE_STRIPE_PUBLISHABLE_KEY ist leer oder ungueltig.");
-                    return null;
-                  })()}
                 </div>
               ) : stripeError ? (
                 <div className="p-8 text-center bg-red-50 rounded-2xl border border-red-200 my-4 animate-in">
@@ -348,9 +362,10 @@ export const PayoutSetupView: React.FC<PayoutSetupViewProps> = ({
                     )}
                     <button
                       type="button"
-                      onClick={() => {
+                      onClick={async () => {
                         setStripeError(false);
                         setStripeLoaded(false);
+                        await resetStripeConnectInstance('onboarding');
                         setStripeRefreshKey(prev => prev + 1);
                       }}
                       className="bg-slate-200 text-[#0A1128] px-6 py-3 rounded-2xl text-xs font-black uppercase hover:bg-slate-300 transition-all"
@@ -397,7 +412,7 @@ export const PayoutSetupView: React.FC<PayoutSetupViewProps> = ({
         <ul className="space-y-2 text-xs font-bold text-slate-600">
           <li className="flex items-start gap-2">
             <span className="text-[#FEBA4F] font-black">•</span>
-            <span>Denar od kupca gre neposredno na vaš račun pri Stripe, mi ga ne hranimo.</span>
+            <span>Denar od kupca gre neposredno na vaš račun pri našem plačilnem partnerju, mi ga ne hranimo.</span>
           </li>
           <li className="flex items-start gap-2">
             <span className="text-[#FEBA4F] font-black">•</span>
@@ -405,7 +420,7 @@ export const PayoutSetupView: React.FC<PayoutSetupViewProps> = ({
           </li>
           <li className="flex items-start gap-2">
             <span className="text-[#FEBA4F] font-black">•</span>
-            <span>Podatke za preverjanje identitete obdeluje Stripe, ne mi.</span>
+            <span>Podatke za preverjanje identitete obdeluje naš plačilni partner, ne mi.</span>
           </li>
         </ul>
       </div>

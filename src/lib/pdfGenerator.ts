@@ -1027,7 +1027,7 @@ export async function generateSubscriptionInvoicePDF(
 
     footY += 16;
     doc.fontSize(7).fillColor(colorLight).text(
-      'Dokument je bil izdan elektronsko s strani platforme dražbenik.si / drazbe.si in je pravno veljaven brez podpisa in žiga. Za morebitna vprašanja glede naročnine se obrnite na podpora@drazbe.si.',
+      'Dokument je bil izdan elektronsko s strani platforme dražbenik.si / drazbe.si in je pravno veljaven brez podpisa in žiga. Za morebitna vprašanja glede naročnine se obrnite na [VSTAVITE E-NASLOV PODPORE].',
       40,
       footY,
       { width: 515 }

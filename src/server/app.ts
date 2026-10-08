@@ -3219,14 +3219,30 @@ app.post("/api/stripe-account-session", async (req, res) => {
     const accountId = await ensureSellerStripeAccount(userId, userData);
     const stripe = getStripe();
 
+    const scope = req.body?.scope === 'manage' ? 'manage' : 'onboarding';
+
+    // Wenn Management angefordert wird, muss das Onboarding abgeschlossen sein
+    if (scope === 'manage') {
+      if (userData.stripe_onboarding_complete !== true) {
+        return res.status(403).json({ error: "Onboarding erforderlich", code: 'ONBOARDING_REQUIRED' });
+      }
+    }
+
+    const components: any = {
+      account_onboarding: { enabled: true, features: { external_account_collection: true } }
+    };
+
+    if (scope === 'manage') {
+      components.account_management = { enabled: true, features: { external_account_collection: true } };
+      components.notification_banner = { enabled: true, features: { external_account_collection: true } };
+      // Payouts konfigurieren, ohne dass der Nutzer Auszahlungen selbst ausloesen kann
+      components.payouts = { enabled: true, features: { instant_payouts: false, standard_payouts: false, edit_payout_schedule: false } };
+    }
+
+    // Stripe Session fuer Onboarding oder Management erstellen
     const accountSession = await stripe.accountSessions.create({
       account: accountId,
-      components: {
-        account_onboarding: {
-          enabled: true,
-          features: { external_account_collection: true }
-        },
-      },
+      components,
     });
 
     return res.status(200).json({ client_secret: accountSession.client_secret });
@@ -6810,7 +6826,7 @@ app.post("/api/delete-account", async (req, res) => {
 
         for (const aDoc of allWonAuctions) {
           const aData = aDoc.data() || {};
-          if (aData.status !== 'cancelled' && aData.payment_status !== 'paid' && aData.post_auction_status !== 'paid') {
+          if (aData.status !== 'cancelled' && aData.payment_status !== 'paid' && aData.post_auction_status !== 'paid' && aData.unpaid_strike_applied !== true) {
             hasObligations = true;
             break;
           }
@@ -6818,6 +6834,7 @@ app.post("/api/delete-account", async (req, res) => {
       }
     } catch (obligationErr: any) {
       console.error("Napaka pri preverjanju odprtih obveznosti:", obligationErr);
+      return res.status(500).json({ error: "Preverjanje obveznosti ni uspelo. Poskusite znova." });
     }
 
     if (hasObligations) {
@@ -7784,6 +7801,7 @@ app.post("/api/profile/update", async (req, res) => {
     }
 
     // Identitaets-Sperre verarbeiten (nur wenn eine Steuernummer vorhanden ist)
+    const SUPPORT_EMAIL_PLACEHOLDER = '[VSTAVITE E-NASLOV PODPORE]';
     if (taxId) {
       const oldTaxId = currentData.tax_id || currentData.tax_number || currentData.taxNumber || currentData.taxId;
       const oldCountry = currentData.country || currentData.country_code || currentData.countryCode || 'SI';
@@ -7795,12 +7813,12 @@ app.post("/api/profile/update", async (req, res) => {
           if (lockRes.error === 'IDENTITY_BLOCKED') {
             return res.status(409).json({ 
               error: "IDENTITY_BLOCKED",
-              message: "Verifikacije ni mogoče dokončati. Kontaktirajte podporo: podpora@drazbe.si."
+              message: `Verifikacije ni mogoče dokončati. Kontaktirajte podporo: ${SUPPORT_EMAIL_PLACEHOLDER}.`
             });
           } else {
             return res.status(409).json({ 
               error: "TAX_ID_IN_USE",
-              message: "Ta davčna številka je že povezana z drugim računom. Če je to vaša številka, nas kontaktirajte: podpora@drazbe.si."
+              message: `Ta davčna številka je že povezana z drugim računom. Če je to vaša številka, nas kontaktirajte: ${SUPPORT_EMAIL_PLACEHOLDER}.`
             });
           }
         }
@@ -8513,7 +8531,7 @@ app.post("/api/admin/identity-lock/release", async (req, res) => {
 
     const lockSnap = await lockRef.get();
     if (!lockSnap.exists) {
-      return res.status(404).json({ error: "Sperre fuer diese Steuernummer nicht gefunden." });
+      return res.status(404).json({ error: "Zapora za to davčno številko ni bila najdena." });
     }
 
     const lockData = lockSnap.data() || {};

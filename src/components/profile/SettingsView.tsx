@@ -10,7 +10,7 @@ import { signOut, GoogleAuthProvider, linkWithPopup, unlink } from "firebase/aut
 import { friendlyError } from '../../lib/friendlyError';
 import { Portal } from '../ui/Portal';
 import { ConnectComponentsProvider, ConnectAccountManagement, ConnectPayouts, ConnectNotificationBanner } from '@stripe/react-connect-js';
-import { getStripeConnectInstance, setStripeConnectScope } from '../../lib/stripeConnect';
+import { getStripeConnectInstance, resetStripeConnectInstance } from '../../lib/stripeConnect';
 
 const COUNTRIES = [
   { code: 'AT', name: 'Avstrija / Austria' },
@@ -142,25 +142,53 @@ const PayoutsList: React.FC = () => {
 
 // Verkaeufer-Dashboard mit Stripe Connect Komponenten
 const SellerDashboard: React.FC = () => {
-  const [stripeError, setStripeError] = useState<any>(null);
+  const [stripeError, setStripeError] = useState<{message: string; code: string} | null>(null);
   const [stripeLoaded, setStripeLoaded] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
+  useEffect(() => {
+    const handleError = (e: any) => {
+      const { scope, code, message } = e.detail;
+      if (scope === 'manage') setStripeError({ message, code });
+    };
+    window.addEventListener('connect-fetch-error', handleError);
+    return () => window.removeEventListener('connect-fetch-error', handleError);
+  }, []);
+
   const stripeConnectInstance = useMemo(() => {
-    setStripeConnectScope('manage');
-    return getStripeConnectInstance();
+    return getStripeConnectInstance('manage');
   }, [refreshKey]);
 
-  if (!stripeConnectInstance) return null;
+  useEffect(() => {
+    if (stripeConnectInstance && !stripeLoaded && !stripeError) {
+      const timer = setTimeout(() => {
+        setStripeError({ message: "Nalaganje Stripe obrazca je trajalo preveč časa.", code: "TIMEOUT" });
+      }, 15005);
+      return () => clearTimeout(timer);
+    }
+  }, [stripeLoaded, stripeError, stripeConnectInstance, refreshKey]);
+
+  if (!stripeConnectInstance) {
+    return (
+      <div className="p-8 text-center bg-red-50 rounded-2xl border border-red-200">
+        <p className="text-red-800 font-bold text-sm">Sistem za izplačila ni pravilno nastavljen. Kontaktirajte podporo.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8 animate-in">
       {stripeError && (
         <div className="p-8 text-center bg-red-50 rounded-2xl border border-red-200 my-4 animate-in">
           <AlertCircle className="mx-auto text-red-500 mb-2" size={36} />
-          <p className="text-red-800 font-bold text-sm mb-4">{stripeError}</p>
+          <p className="text-red-800 font-bold text-sm mb-4">{stripeError.message}</p>
           <button
-            onClick={() => setRefreshKey(prev => prev + 1)}
+            onClick={async () => {
+              setStripeError(null);
+              setStripeLoaded(false);
+              await resetStripeConnectInstance('manage');
+              setRefreshKey(prev => prev + 1);
+            }}
             className="bg-slate-200 text-[#0A1128] px-6 py-3 rounded-2xl text-xs font-black uppercase hover:bg-slate-300 transition-all"
           >
             Poskusi znova
@@ -174,19 +202,29 @@ const SellerDashboard: React.FC = () => {
             onLoaderStart={() => setStripeLoaded(true)}
             onLoadError={(err) => {
               console.error("Banner load error:", err);
-              setStripeError("Napaka pri nalaganju obvestil.");
+              setStripeError({ message: "Napaka pri nalaganju obvestil.", code: "BANNER_ERROR" });
             }}
           />
         </div>
 
         <div className="bg-white p-6 rounded-3xl border-2 border-slate-100 shadow-sm">
           <h3 className="text-lg font-black text-[#0A1128] uppercase mb-4">Podatki in bančni račun</h3>
-          <ConnectAccountManagement />
+          <ConnectAccountManagement 
+            onLoadError={(err) => {
+              console.error("Management load error:", err);
+              setStripeError({ message: "Napaka pri nalaganju upravljanja računa.", code: "MANAGE_ERROR" });
+            }}
+          />
         </div>
 
         <div className="bg-white p-6 rounded-3xl border-2 border-slate-100 shadow-sm">
           <h3 className="text-lg font-black text-[#0A1128] uppercase mb-4">Izplačila</h3>
-          <ConnectPayouts />
+          <ConnectPayouts 
+             onLoadError={(err) => {
+              console.error("Payouts load error:", err);
+              setStripeError({ message: "Napaka pri nalaganju izplačil.", code: "PAYOUT_ERROR" });
+            }}
+          />
         </div>
       </ConnectComponentsProvider>
     </div>
@@ -1293,7 +1331,7 @@ export const SettingsView: React.FC<{
                         <CreditCard size={20} className="text-[#FEBA4F]"/> Moja izplačila
                       </h3>
                       <p className="text-slate-500 font-bold text-sm mb-6 leading-relaxed">
-                        Denar od kupca je že na vašem računu pri Stripe in ga mi ne hranimo. Na bančni račun se izplača po potrditvi prejema.
+                        Denar od kupca je že na vašem računu pri našem plačilnem partnerju in ga mi ne hranimo. Na bančni račun se izplača po potrditvi prejema.
                       </p>
                       
                       <PayoutsList />
@@ -1322,7 +1360,7 @@ export const SettingsView: React.FC<{
                               <SellerDashboard />
                             ) : (
                               <p className="text-xs text-slate-400 font-bold">
-                                V Stripe urejate bančni račun, podatke o nakazilih in izpise.
+                                V nastavitvah urejate bančni račun, podatke o nakazilih in izpise.
                               </p>
                             )}
                           </div>

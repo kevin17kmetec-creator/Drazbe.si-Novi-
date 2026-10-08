@@ -1,26 +1,21 @@
 import { loadConnectAndInitialize } from '@stripe/connect-js';
 import { getAuthHeaders } from './authFetch';
 
-// Kommentar auf Deutsch: Speichert die aktuelle Ansicht (onboarding oder manage)
-let currentScope: 'onboarding' | 'manage' = 'onboarding';
-let stripeConnectInstance: any = null;
+// Kommentar auf Deutsch: Instanzen pro Anwendungsbereich (onboarding oder manage)
+const instances: { onboarding?: any; manage?: any } = {};
 
-export function setStripeConnectScope(scope: 'onboarding' | 'manage') {
-  currentScope = scope;
-}
-
-export function getStripeConnectInstance() {
+export function getStripeConnectInstance(scope: 'onboarding' | 'manage') {
   const publishableKey = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || '';
   if (!publishableKey || !publishableKey.startsWith('pk_')) {
     return null;
   }
 
-  if (stripeConnectInstance) {
-    return stripeConnectInstance;
+  if (instances[scope]) {
+    return instances[scope];
   }
 
-  // Kommentar auf Deutsch: Erstellt die einzige Instanz fuer die Stripe Connect-Komponenten
-  stripeConnectInstance = loadConnectAndInitialize({
+  // Kommentar auf Deutsch: Initialisiert eine Instanz für den angegebenen Bereich
+  instances[scope] = loadConnectAndInitialize({
     publishableKey: publishableKey,
     fetchClientSecret: async () => {
       try {
@@ -31,12 +26,22 @@ export function getStripeConnectInstance() {
             'Content-Type': 'application/json',
             ...headers
           },
-          body: JSON.stringify({ scope: currentScope })
+          body: JSON.stringify({ scope })
         });
+
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.error || 'Error creating account session');
+          const msg = errData.error || 'Fehler beim Erstellen der Account-Session';
+          const e: any = new Error(msg);
+          e.code = errData.code;
+          
+          // Kommentar auf Deutsch: Fehlerereignis für die UI auslösen
+          window.dispatchEvent(new CustomEvent('connect-fetch-error', { 
+            detail: { scope, code: e.code, message: msg } 
+          }));
+          throw e;
         }
+
         const data = await res.json();
         return data.client_secret;
       } catch (err: any) {
@@ -56,16 +61,21 @@ export function getStripeConnectInstance() {
     }
   });
 
-  return stripeConnectInstance;
+  return instances[scope];
 }
 
-export function logoutStripeConnect() {
-  if (stripeConnectInstance) {
+export async function resetStripeConnectInstance(scope: 'onboarding' | 'manage') {
+  if (instances[scope]) {
     try {
-      stripeConnectInstance.logout();
+      await instances[scope].logout();
     } catch (e) {
-      console.warn("Error during Stripe Connect logout:", e);
+      console.warn(`Error during Stripe Connect logout for ${scope}:`, e);
     }
-    stripeConnectInstance = null;
+    instances[scope] = null;
   }
+}
+
+export async function logoutStripeConnect() {
+  await resetStripeConnectInstance('onboarding');
+  await resetStripeConnectInstance('manage');
 }

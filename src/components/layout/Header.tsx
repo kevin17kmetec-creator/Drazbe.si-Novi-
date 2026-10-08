@@ -141,8 +141,8 @@ export const Header: React.FC<{
   return (
     <header className="bg-[#0A1128] text-white shadow-2xl border-b border-white/10 sticky top-0 md:relative z-[500]">
       {showTermsUpdateBar && (
-        <div className="animate-flash-terms bg-black text-white px-6 py-3 flex flex-col sm:flex-row items-center justify-center gap-4 animate-in fade-in slide-in-from-top duration-500">
-          {/* Leiste fuer aktualisierte Bedingungen blinkt 3-mal rot und schwarz beim Laden */}
+        <div className="bg-[#FEBA4F] text-[#0A1128] px-6 py-3 flex flex-col sm:flex-row items-center justify-center gap-4 animate-in fade-in slide-in-from-top duration-500">
+          {/* Leiste fuer aktualisierte Bedingungen beim Laden */}
           <p className="text-sm font-black uppercase tracking-tight text-center sm:text-left">
             Pogoje uporabe smo posodobili. Prosimo, preberite in potrdite jih za nadaljevanje.
           </p>
