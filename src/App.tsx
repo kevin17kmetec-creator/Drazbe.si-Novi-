@@ -33,6 +33,7 @@ import { TermsUpdateView } from "@/src/components/auth/TermsUpdateView";
 import { MarkShippedModal } from "@/src/components/modals/MarkShippedModal";
 import { PaymentTimeline } from "@/src/components/orders/PaymentTimeline";
 import { TERMS_VERSION } from "./lib/termsVersion";
+import { getSellerSetupStep } from "./lib/sellerSetup";
 import { checkUserInvoiceData } from "./lib/invoiceDataCheck";
 import { getAuthHeaders } from "./lib/authFetch";
 import { friendlyError } from "./lib/friendlyError";
@@ -130,6 +131,7 @@ import { ChatProvider } from "./context/ChatContext";
 import { collection, onSnapshot, setDoc, doc, getDocs, getDoc, updateDoc, addDoc, deleteDoc, query, where } from "firebase/firestore";
 import { db, auth, storage, safeSignOut, cleanupAllListeners, registerSnapshotListener, isRegisteringAuth } from "./lib/firebase";
 import { onAuthStateChanged, updatePassword } from "firebase/auth";
+import { logoutStripeConnect } from "./lib/stripeConnect";
 
 
 // --- CONFIGURATION ---
@@ -1639,10 +1641,13 @@ const MainApp: React.FC = () => {
   }>({ isOpen: false, auctionId: "", sellerId: "" });
   // Status fuer Lade- und Erfolgsanimation der Empfangsbestaetigung
   const [receiptConfirmState, setReceiptConfirmState] = useState<'idle' | 'loading' | 'success'>('idle');
+  // Ladezustand fuer die API-Anfrage der Empfangsbestaetigung
+  const [receiptConfirmLoading, setReceiptConfirmLoading] = useState<boolean>(false);
 
   useEffect(() => {
     if (receiptConfirmModal.isOpen) {
       setReceiptConfirmState('idle');
+      setReceiptConfirmLoading(false);
     }
   }, [receiptConfirmModal.isOpen]);
   const [timelineModalAuctionId, setTimelineModalAuctionId] = useState<string | null>(null);
@@ -2822,6 +2827,7 @@ const MainApp: React.FC = () => {
     setActiveView("grid");
 
     try {
+      logoutStripeConnect();
       cleanupAllListeners();
       await safeSignOut(auth);
       toast.success(t("loggedOut"));
@@ -3006,10 +3012,10 @@ const MainApp: React.FC = () => {
 
         const resData = await res.json();
         if (res.status === 409) {
-          throw new Error(resData.error || "To uporabniško ime je že zasedeno.");
+          throw new Error(resData.message || resData.error || "To uporabniško ime je že zasedeno.");
         }
         if (!res.ok) {
-          throw new Error(resData.error || "Napaka pri shranjevanju profila.");
+          throw new Error(resData.message || resData.error || "Napaka pri shranjevanju profila.");
         }
 
         setUserData((prev) => ({
@@ -3232,30 +3238,146 @@ const MainApp: React.FC = () => {
             onAcceptTerms={() => navigateTo("acceptTerms")}
           />
         );
-      } else if (!userData.stripe_onboarding_complete) {
-        content = (
-          <div className="max-w-3xl mx-auto py-32 px-6 flex flex-col items-center text-center animate-in">
-            <div className="bg-red-50 text-red-500 w-24 h-24 rounded-full flex items-center justify-center mb-8 border-4 border-red-100">
-              <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
-            </div>
-            <h1 className="text-4xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">
-              {t("cannotPublish")}
-            </h1>
-            <p className="text-lg text-slate-500 mb-8 max-w-xl font-medium">
-              {t("connectBankAccountDesc")}
-            </p>
-            <button
-              onClick={() => {
-                  navigateTo("settings", { settingsTab: "stripe" });
-              }}
-              className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-colors shadow-xl"
-            >
-              {t("editPayouts")}
-            </button>
-          </div>
-        );
       } else {
-        if (createMode === "choice") {
+        const setupStep = getSellerSetupStep(userData);
+        if (setupStep !== 'done') {
+          // Hilfsfunktion zur Darstellung des Schritt-Trackers
+          const renderStepTracker = (currentStep: string) => {
+            const steps = [
+              { key: 'email', label: '1. Potrditev e-pošte' },
+              { key: 'profile', label: '2. Verifikacija' },
+              { key: 'payouts', label: '3. Izplačila' }
+            ];
+            
+            // Bestimmt den Index des aktiven Schritts
+            let activeIdx = 0;
+            if (currentStep === 'profile' || currentStep === 'terms') activeIdx = 1;
+            else if (currentStep === 'payouts') activeIdx = 2;
+
+            return (
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-8 mb-12 p-6 bg-slate-50 border border-slate-100 rounded-3xl w-full max-w-xl mx-auto">
+                {steps.map((s, idx) => {
+                  const isCompleted = idx < activeIdx;
+                  const isActive = idx === activeIdx;
+                  return (
+                    <div key={s.key} className="flex items-center gap-2">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${
+                        isCompleted ? 'bg-emerald-100 text-emerald-600' :
+                        isActive ? 'bg-[#0A1128] text-white border-2 border-[#FEBA4F]' : 'bg-slate-100 text-slate-400'
+                      }`}>
+                        {isCompleted ? '✓' : idx + 1}
+                      </div>
+                      <span className={`text-xs font-black uppercase tracking-wider ${
+                        isCompleted ? 'text-emerald-600' :
+                        isActive ? 'text-[#0A1128]' : 'text-slate-400'
+                      }`}>
+                        {s.label}
+                      </span>
+                      {idx < 2 && <span className="hidden sm:inline text-slate-300">→</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          };
+
+          let setupContent = null;
+
+          if (setupStep === 'email') {
+            setupContent = (
+              <div className="max-w-3xl mx-auto flex flex-col items-center text-center">
+                <div className="bg-blue-50 text-blue-500 w-24 h-24 rounded-full flex items-center justify-center mb-8 border-4 border-blue-100">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
+                </div>
+                <h1 className="text-4xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">Potrdite e-poštni naslov</h1>
+                <p className="text-lg text-slate-500 mb-8 max-w-xl font-medium">Pred objavo prve dražbe morate potrditi svoj e-poštni naslov s klikom na povezavo, ki smo vam jo poslali.</p>
+                <button
+                  onClick={async () => {
+                    try {
+                      const email = userData?.email || auth.currentUser?.email || "";
+                      const displayName = (userData?.first_name || "").toString() || undefined;
+                      const res = await sendEmailVerificationAction(email, displayName, auth.currentUser?.uid);
+                      if (res.success) {
+                        toast.success("Potrditveno e-pošto smo poslali.");
+                      } else {
+                        toast.error(friendlyError(res.error, "Napaka pri pošiljanju potrditvene e-pošte."));
+                      }
+                    } catch (err: any) {
+                      toast.error(friendlyError(err, "Napaka pri pošiljanju potrditvene e-pošte."));
+                    }
+                  }}
+                  className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-colors shadow-xl"
+                >
+                  Pošlji potrditveno e-pošto
+                </button>
+              </div>
+            );
+          } else if (setupStep === 'profile') {
+            setupContent = (
+              <div className="max-w-3xl mx-auto flex flex-col items-center text-center">
+                <div className="bg-amber-50 text-amber-500 w-24 h-24 rounded-full flex items-center justify-center mb-8 border-4 border-amber-100">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                </div>
+                <h1 className="text-4xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">Najprej opravite verifikacijo</h1>
+                <p className="text-lg text-slate-500 mb-8 max-w-xl font-medium">Pred urejanjem izplačil in objavo dražbe morate najprej vnesti svoje osebne podatke in opraviti verifikacijo.</p>
+                <button
+                  onClick={() => {
+                    setSettingsTab('personal');
+                    navigateTo("settings", { settingsTab: 'personal' });
+                  }}
+                  className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-colors shadow-xl"
+                >
+                  Opravi verifikacijo
+                </button>
+              </div>
+            );
+          } else if (setupStep === 'terms') {
+            setupContent = (
+              <div className="max-w-3xl mx-auto flex flex-col items-center text-center">
+                <div className="bg-indigo-50 text-indigo-500 w-24 h-24 rounded-full flex items-center justify-center mb-8 border-4 border-indigo-100 animate-pulse">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                </div>
+                <h1 className="text-4xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">Sprejmite posodobljene pogoje</h1>
+                <p className="text-lg text-slate-500 mb-8 max-w-xl font-medium">Pogoje uporabe smo posodobili. Za nadaljevanje in objavo dražbe jih morate prebrati in potrditi.</p>
+                <button
+                  onClick={() => {
+                    navigateTo("acceptTerms");
+                  }}
+                  className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-colors shadow-xl"
+                >
+                  Preberi in potrdi pogoje
+                </button>
+              </div>
+            );
+          } else if (setupStep === 'payouts') {
+            setupContent = (
+              <div className="max-w-3xl mx-auto flex flex-col items-center text-center">
+                <div className="bg-red-50 text-red-500 w-24 h-24 rounded-full flex items-center justify-center mb-8 border-4 border-red-100">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                </div>
+                <h1 className="text-4xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">{t("cannotPublish")}</h1>
+                <p className="text-lg text-slate-500 mb-8 max-w-xl font-medium">{t("connectBankAccountDesc")}</p>
+                <button
+                  onClick={() => {
+                    setSettingsTab('stripe');
+                    navigateTo("settings", { settingsTab: "stripe" });
+                  }}
+                  className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-colors shadow-xl"
+                >
+                  {t("editPayouts")}
+                </button>
+              </div>
+            );
+          }
+
+          content = (
+            <div className="max-w-4xl mx-auto py-16 px-6 animate-in">
+              {renderStepTracker(setupStep)}
+              {setupContent}
+            </div>
+          );
+        } else {
+          if (createMode === "choice") {
           content = (
             <div className="max-w-5xl mx-auto p-4 md:p-8 animate-in fade-in">
               <h1 className="text-3xl font-black mb-8 text-center text-[#0A1128]">Kaj želite ustvariti?</h1>
@@ -3381,6 +3503,7 @@ const MainApp: React.FC = () => {
             />
           );
         }
+        }
       }
       break;
     case "detail":
@@ -3489,7 +3612,7 @@ const MainApp: React.FC = () => {
                   });
                   const resData = await res.json();
                   if (!res.ok) {
-                    return { data: null, error: new Error(resData.error || "Napaka pri shranjevanju podatkov.") };
+                    return { data: null, error: new Error(resData.message || resData.error || "Napaka pri shranjevanju podatkov.") };
                   }
                   return { data: { id: userId, ...updatePayload, profile_completed: resData.profile_completed }, error: null };
                 } catch(e) { return { data: null, error: e }; }
@@ -5124,18 +5247,22 @@ const MainApp: React.FC = () => {
   };
 
   async function handleReceiptConfirmSubmit() {
-    if (receiptConfirmState === 'loading' || receiptConfirmState === 'success') return;
+    // Verhindert mehrfaches Absenden, wenn bereits geladen oder erfolgreich
+    if (receiptConfirmLoading || receiptConfirmState === 'success') return;
     setReceiptConfirmState('loading');
+    setReceiptConfirmLoading(true);
     try {
       const token = await auth.currentUser?.getIdToken();
       if (!token) {
         setReceiptConfirmState('idle');
+        setReceiptConfirmLoading(false);
         toast.error("Niste prijavljeni.");
         return;
       }
       const res = await confirmReceiptAction({ auction_id: receiptConfirmModal.auctionId }, token);
       if (res.success) {
         setReceiptConfirmState('success');
+        setReceiptConfirmLoading(false);
         setTimeout(() => {
           setReceiptConfirmModal({ isOpen: false, auctionId: "", sellerId: "" });
           setReceiptConfirmState('idle');
@@ -5143,10 +5270,12 @@ const MainApp: React.FC = () => {
         }, 1500);
       } else {
         setReceiptConfirmState('idle');
+        setReceiptConfirmLoading(false);
         toast.error(friendlyError(res.error, "Napaka pri potrditvi prejema."));
       }
     } catch (e) {
       setReceiptConfirmState('idle');
+      setReceiptConfirmLoading(false);
       toast.error(friendlyError(e, "Napaka pri potrditvi prejema."));
     }
   };
@@ -5549,7 +5678,8 @@ const MainApp: React.FC = () => {
             <div 
               className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-6 animate-in"
               onClick={() => {
-                if (receiptConfirmState === 'idle') {
+                // Schließen des Modals nur erlauben, wenn kein Ladevorgang läuft
+                if (receiptConfirmState === 'idle' && !receiptConfirmLoading) {
                   setReceiptConfirmModal({ isOpen: false, auctionId: "", sellerId: "" });
                 }
               }}
@@ -5558,7 +5688,7 @@ const MainApp: React.FC = () => {
                 className="bg-white w-full max-w-md rounded-[3rem] p-10 shadow-2xl relative text-center"
                 onClick={(e) => e.stopPropagation()}
               >
-                {receiptConfirmState !== 'loading' && receiptConfirmState !== 'success' && (
+                {receiptConfirmState !== 'loading' && receiptConfirmState !== 'success' && !receiptConfirmLoading && (
                   <button
                     onClick={() =>
                       setReceiptConfirmModal({
@@ -5587,10 +5717,10 @@ const MainApp: React.FC = () => {
                   <div className="flex flex-col gap-3">
                     <button
                       onClick={handleReceiptConfirmSubmit}
-                      disabled={receiptConfirmState === 'loading'}
+                      disabled={receiptConfirmLoading}
                       className="w-full bg-[#0A1128] text-white py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                     >
-                      {receiptConfirmState === 'loading' ? (
+                      {receiptConfirmLoading ? (
                         <>
                           <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                           <span>Potrjujem...</span>
@@ -5607,7 +5737,7 @@ const MainApp: React.FC = () => {
                           sellerId: "",
                         })
                       }
-                      disabled={receiptConfirmState === 'loading'}
+                      disabled={receiptConfirmLoading}
                       className="w-full bg-slate-100 text-slate-600 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-slate-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       Prekliči

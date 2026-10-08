@@ -1,6 +1,7 @@
 import { adminDb, isDocSnapshotExists, getDocSnapshotData, FieldValue } from '../lib/firebase-admin';
 import { syncPublicProfile } from './publicProfile';
 import { createNotification, isUserOnline } from './notifications';
+import { markIdentityBlocked } from './identityLock';
 import {
   sendEndingSoonNotification,
   sendAuctionWonNotification,
@@ -463,6 +464,7 @@ export async function processAuctionCrons(): Promise<CronRunResult> {
             const userRef = adminDb.collection('users').doc(winnerId);
             const auctionRef = adminDb.collection('auctions').doc(auctionId);
 
+            let strikesReachedThree = false;
             await adminDb.runTransaction(async (transaction) => {
               const auctionSnap = await transaction.get(auctionRef);
               if (!auctionSnap.exists) return;
@@ -482,11 +484,20 @@ export async function processAuctionCrons(): Promise<CronRunResult> {
               };
               if (newStrikes >= 3) {
                 userUpdates.isBlocked = true;
+                strikesReachedThree = true;
               }
 
               transaction.update(userRef, userUpdates);
               transaction.update(auctionRef, { unpaid_strike_applied: true });
             });
+
+            if (strikesReachedThree) {
+              try {
+                await markIdentityBlocked(winnerId);
+              } catch (blockErr) {
+                console.error("Fehler beim Blockieren der Identität im Cron-Prozessor:", blockErr);
+              }
+            }
 
             await syncPublicProfile(winnerId);
           } catch (strikeErr: any) {}

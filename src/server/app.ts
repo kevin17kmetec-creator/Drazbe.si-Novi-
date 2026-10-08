@@ -52,6 +52,7 @@ import {
 import { syncPublicProfile } from './publicProfile';
 import { TERMS_VERSION } from '../lib/termsVersion';
 import { PLATFORM_COMPANY } from '../lib/platformCompany';
+import { claimIdentityLock, releaseIdentityLock, markIdentityBlocked, normalizeTaxId, lockKey } from './identityLock';
 // Benachrichtigungs- und Anwesenheitshelfer
 import { createNotification, isUserOnline } from './notifications';
 
@@ -6769,6 +6770,76 @@ app.post("/api/delete-account", async (req, res) => {
       return res.status(401).json({ error: "Niste prijavljeni." });
     }
 
+    // Preveri odprte obveznosti uporabnika (kot kupec ali prodajalec)
+    let hasObligations = false;
+    try {
+      const sellerTx = await adminDb.collection('transactions')
+        .where('seller_id', '==', authUid)
+        .get();
+      const buyerTx = await adminDb.collection('transactions')
+        .where('buyer_id', '==', authUid)
+        .get();
+
+      const allTxDocs = [...sellerTx.docs, ...buyerTx.docs];
+      const blockStatuses = ['HELD_IN_ESCROW', 'SHIPPED', 'DELIVERED', 'DISPUTED'];
+      const blockPayoutStatuses = ['held', 'frozen', 'release_waiting_funds', 'release_failed'];
+
+      for (const txDoc of allTxDocs) {
+        const tx = txDoc.data() || {};
+        const status = (tx.status || '').toUpperCase();
+        const payoutStatus = (tx.payout_status || '').toLowerCase();
+
+        if (blockStatuses.includes(status)) {
+          hasObligations = true;
+          break;
+        }
+        if (blockPayoutStatuses.includes(payoutStatus)) {
+          hasObligations = true;
+          break;
+        }
+      }
+
+      if (!hasObligations) {
+        const wonAuctions = await adminDb.collection('auctions')
+          .where('winner_id', '==', authUid)
+          .get();
+        const wonAuctionsCamel = await adminDb.collection('auctions')
+          .where('winnerId', '==', authUid)
+          .get();
+        const allWonAuctions = [...wonAuctions.docs, ...wonAuctionsCamel.docs];
+
+        for (const aDoc of allWonAuctions) {
+          const aData = aDoc.data() || {};
+          if (aData.status !== 'cancelled' && aData.payment_status !== 'paid' && aData.post_auction_status !== 'paid') {
+            hasObligations = true;
+            break;
+          }
+        }
+      }
+    } catch (obligationErr: any) {
+      console.error("Napaka pri preverjanju odprtih obveznosti:", obligationErr);
+    }
+
+    if (hasObligations) {
+      return res.status(409).json({ 
+        error: "OBLIGATIONS_PENDING",
+        message: "Računa ni mogoče izbrisati, dokler imate odprta naročila, spore ali neplačane dražbe." 
+      });
+    }
+
+    // Identitaets-Sperre aufheben beim Loeschen des Accounts (nur wenn nicht blockiert)
+    try {
+      const userDoc = await adminDb.collection('users').doc(authUid).get();
+      const userData = userDoc.data() || {};
+      const taxId = userData.tax_id || userData.tax_number || userData.taxNumber || userData.taxId;
+      const country = userData.country || userData.country_code || userData.countryCode || 'SI';
+      if (taxId) {
+        await releaseIdentityLock(authUid, taxId, country);
+      }
+    } catch (err) {
+      console.error("[delete-account] Fehler beim Freigeben des Identity Locks:", err);
+    }
+
     console.log(`[delete-account] Začenjam brisanje profila in podatkov za uporabnika: ${authUid}`);
 
     // 1. Preglej dražbe, kjer je uporabnik prodajalec
@@ -6881,6 +6952,23 @@ app.post("/api/delete-account", async (req, res) => {
     // Da kupec ob ogledu svojih zmaganih dražb ne doživi sesutja ali praznih podatkov,
     // se osebni podatki v celoti pobrišejo in zamenjajo z anonimiziranim zapisom
     // "Uporabnik je bil izbrisan":
+    try {
+      const userSnap = await adminDb.collection('users').doc(authUid).get();
+      if (userSnap.exists) {
+        const userData = userSnap.data() || {};
+        const isBlocked = userData.isBlocked === true || userData.is_blocked === true;
+        if (!isBlocked) {
+          const taxId = userData.tax_id || userData.tax_number || userData.taxNumber || userData.taxId;
+          const country = userData.country || userData.country_code || userData.countryCode || 'SI';
+          if (taxId) {
+            await releaseIdentityLock(authUid, taxId, country);
+          }
+        }
+      }
+    } catch (releaseErr) {
+      console.error("Fehler beim Freigeben des Identity Locks bei der Kontoloeschung:", releaseErr);
+    }
+
     await adminDb.collection('users').doc(authUid).set({
       id: authUid,
       is_deleted: true,
@@ -7525,6 +7613,9 @@ app.post("/api/profile/update", async (req, res) => {
 
     const body = req.body || {};
 
+    const currentUserDoc = await adminDb.collection('users').doc(uid).get();
+    const currentData = currentUserDoc.data() || {};
+
     const cleanStr = (val: any, maxLen = 200) => {
       if (typeof val !== 'string') return '';
       const trimmed = val.trim();
@@ -7589,8 +7680,6 @@ app.post("/api/profile/update", async (req, res) => {
 
       const lowerNewUsername = validatedUsername.toLowerCase();
 
-      const currentUserDoc = await adminDb.collection('users').doc(uid).get();
-      const currentData = currentUserDoc.data() || {};
       const oldUsername = (currentData.username || currentData.userName || '').trim();
       const lowerOldUsername = oldUsername.toLowerCase();
 
@@ -7694,6 +7783,35 @@ app.post("/api/profile/update", async (req, res) => {
       updatePayload.emailNotifications = emailNotifs;
     }
 
+    // Identitaets-Sperre verarbeiten (nur wenn eine Steuernummer vorhanden ist)
+    if (taxId) {
+      const oldTaxId = currentData.tax_id || currentData.tax_number || currentData.taxNumber || currentData.taxId;
+      const oldCountry = currentData.country || currentData.country_code || currentData.countryCode || 'SI';
+
+      // Wenn die Steuernummer neu ist oder sich geaendert hat
+      if (!oldTaxId || taxId !== oldTaxId || country !== oldCountry) {
+        const lockRes = await claimIdentityLock(uid, taxId, country);
+        if (!lockRes.success) {
+          if (lockRes.error === 'IDENTITY_BLOCKED') {
+            return res.status(409).json({ 
+              error: "IDENTITY_BLOCKED",
+              message: "Verifikacije ni mogoče dokončati. Kontaktirajte podporo: podpora@drazbe.si."
+            });
+          } else {
+            return res.status(409).json({ 
+              error: "TAX_ID_IN_USE",
+              message: "Ta davčna številka je že povezana z drugim računom. Če je to vaša številka, nas kontaktirajte: podpora@drazbe.si."
+            });
+          }
+        }
+
+        // Wenn die Sperre erfolgreich erworben wurde und es eine alte gab, loeschen wir die alte
+        if (oldTaxId) {
+          await releaseIdentityLock(uid, oldTaxId, oldCountry);
+        }
+      }
+    }
+
     await adminDb.collection('users').doc(uid).set(updatePayload, { merge: true });
 
     await syncPublicProfile(uid);
@@ -7715,10 +7833,29 @@ app.post("/api/accept-terms", async (req, res) => {
   catch (authErr: any) { return res.status(401).json({ error: authErr.message || 'Unauthorized' }); }
   const { terms_version } = req.body;
   if (terms_version !== TERMS_VERSION) return res.status(400).json({ error: "Invalid terms version" });
-  await adminDb.collection('users').doc(uid).set({
-    terms_version,
-    terms_accepted_at: new Date().toISOString()
-  }, { merge: true });
+  
+  const userRef = adminDb.collection('users').doc(uid);
+  const userDoc = await userRef.get();
+  const now = new Date().toISOString();
+
+  // Falls das Dokument noch nicht existiert, Standardwerte setzen
+  if (!userDoc.exists) {
+    await userRef.set({
+      id: uid,
+      terms_version,
+      terms_accepted_at: now,
+      created_at: now,
+      profile_completed: false,
+      identity_verified: false,
+      subscription_tier: 'FREE',
+      subscription: 'FREE'
+    });
+  } else {
+    await userRef.set({
+      terms_version,
+      terms_accepted_at: now
+    }, { merge: true });
+  }
   return res.json({ success: true });
 });
 
@@ -8342,6 +8479,67 @@ app.post("/api/admin/orders/:id/resolve-dispute", async (req, res) => {
     return res.json({ success: true, message: "Streitfall erfolgreich gelöst." });
   } catch (err: any) {
     console.error('Error resolving dispute:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/identity-lock/release
+app.post("/api/admin/identity-lock/release", async (req, res) => {
+  let uid: string;
+  try {
+    uid = await authenticateFirebaseUser(req);
+  } catch (authErr: any) {
+    return res.status(401).json({ error: authErr.message || 'Unauthorized' });
+  }
+
+  const adminUids = (process.env.ADMIN_UIDS || 'admin,owner').split(',').map(s => s.trim()).filter(Boolean);
+  if (!adminUids.includes(uid) && uid !== 'admin' && uid !== 'owner') {
+    return res.status(403).json({ error: "Nimate administratorskih pravic." });
+  }
+
+  try {
+    const { taxId, country } = req.body || {};
+    if (!taxId) {
+      return res.status(400).json({ error: "Manjka davčna številka." });
+    }
+
+    const normalized = normalizeTaxId(taxId, country || 'SI');
+    if (!normalized) {
+      return res.status(400).json({ error: "Neveljavna davčna številka." });
+    }
+
+    const docId = lockKey(normalized);
+    const lockRef = adminDb.collection('identity_locks').doc(docId);
+
+    const lockSnap = await lockRef.get();
+    if (!lockSnap.exists) {
+      return res.status(404).json({ error: "Sperre fuer diese Steuernummer nicht gefunden." });
+    }
+
+    const lockData = lockSnap.data() || {};
+
+    await lockRef.delete();
+
+    // Audit-Log schreiben, falls erwuenscht (z. B. in admin_logs Collection)
+    try {
+      await adminDb.collection('admin_logs').add({
+        action: 'RELEASE_IDENTITY_LOCK',
+        admin_uid: uid,
+        timestamp: new Date().toISOString(),
+        details: {
+          tax_id_normalized: normalized,
+          lock_id: docId,
+          previous_uid: lockData.uid,
+          was_blocked: lockData.blocked || false
+        }
+      });
+    } catch (logErr) {
+      console.warn("Fehler beim Schreiben des Audit-Logs:", logErr);
+    }
+
+    return res.json({ success: true, message: "Zapora davčne številke uspešno izbrisana." });
+  } catch (err: any) {
+    console.error('Error in /api/admin/identity-lock/release:', err);
     return res.status(500).json({ error: err.message });
   }
 });

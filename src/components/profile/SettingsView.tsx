@@ -9,6 +9,8 @@ import { auth } from "../../lib/firebase";
 import { signOut, GoogleAuthProvider, linkWithPopup, unlink } from "firebase/auth";
 import { friendlyError } from '../../lib/friendlyError';
 import { Portal } from '../ui/Portal';
+import { ConnectComponentsProvider, ConnectAccountManagement, ConnectPayouts, ConnectNotificationBanner } from '@stripe/react-connect-js';
+import { getStripeConnectInstance, setStripeConnectScope } from '../../lib/stripeConnect';
 
 const COUNTRIES = [
   { code: 'AT', name: 'Avstrija / Austria' },
@@ -137,6 +139,59 @@ const PayoutsList: React.FC = () => {
   );
 };
 
+
+// Verkaeufer-Dashboard mit Stripe Connect Komponenten
+const SellerDashboard: React.FC = () => {
+  const [stripeError, setStripeError] = useState<any>(null);
+  const [stripeLoaded, setStripeLoaded] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  const stripeConnectInstance = useMemo(() => {
+    setStripeConnectScope('manage');
+    return getStripeConnectInstance();
+  }, [refreshKey]);
+
+  if (!stripeConnectInstance) return null;
+
+  return (
+    <div className="space-y-8 animate-in">
+      {stripeError && (
+        <div className="p-8 text-center bg-red-50 rounded-2xl border border-red-200 my-4 animate-in">
+          <AlertCircle className="mx-auto text-red-500 mb-2" size={36} />
+          <p className="text-red-800 font-bold text-sm mb-4">{stripeError}</p>
+          <button
+            onClick={() => setRefreshKey(prev => prev + 1)}
+            className="bg-slate-200 text-[#0A1128] px-6 py-3 rounded-2xl text-xs font-black uppercase hover:bg-slate-300 transition-all"
+          >
+            Poskusi znova
+          </button>
+        </div>
+      )}
+
+      <ConnectComponentsProvider connectInstance={stripeConnectInstance}>
+        <div className="bg-white p-6 rounded-3xl border-2 border-slate-100 shadow-sm">
+          <ConnectNotificationBanner 
+            onLoaderStart={() => setStripeLoaded(true)}
+            onLoadError={(err) => {
+              console.error("Banner load error:", err);
+              setStripeError("Napaka pri nalaganju obvestil.");
+            }}
+          />
+        </div>
+
+        <div className="bg-white p-6 rounded-3xl border-2 border-slate-100 shadow-sm">
+          <h3 className="text-lg font-black text-[#0A1128] uppercase mb-4">Podatki in bančni račun</h3>
+          <ConnectAccountManagement />
+        </div>
+
+        <div className="bg-white p-6 rounded-3xl border-2 border-slate-100 shadow-sm">
+          <h3 className="text-lg font-black text-[#0A1128] uppercase mb-4">Izplačila</h3>
+          <ConnectPayouts />
+        </div>
+      </ConnectComponentsProvider>
+    </div>
+  );
+};
 
 // Verkaeuferguthaben Komponente mit Stripe Saldo und Transaktionsguthaben
 const SellerBalance: React.FC = () => {
@@ -279,6 +334,7 @@ const SellerBalance: React.FC = () => {
           </span>
         </div>
 
+        {/* Kontokarte fuer Auszahlungen im Transit zur Bank */}
         <div className="bg-white p-4 rounded-2xl border border-blue-100 bg-blue-50/30">
           <span className="block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">
             Na poti do banke
@@ -358,40 +414,17 @@ export const SettingsView: React.FC<{
   const [authProvidersRefresh, setAuthProvidersRefresh] = useState(0);
   const [isLinkingGoogle, setIsLinkingGoogle] = useState(false);
   const [isUnlinkingGoogle, setIsUnlinkingGoogle] = useState(false);
-  const [isOpeningDashboard, setIsOpeningDashboard] = useState(false);
   const [showPayoutSetup, setShowPayoutSetup] = useState(false);
 
-  // Stripe-Dashboard in einem neuen Tab oeffnen, ohne die aktuelle Seite zu verlassen
-  const handleOpenStripeDashboard = async () => {
-    setIsOpeningDashboard(true);
-    const win = window.open('', '_blank');
-    try {
-      const token = await auth.currentUser?.getIdToken();
-      const res = await fetch('/api/stripe-dashboard-link', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      const data = await res.json();
-      if (res.ok && data.url) {
-        if (win) {
-          win.opener = null;
-          win.location.href = data.url;
-        } else {
-          toast.info("Brskalnik je blokiral novo okno. Dovolite pojavna okna za to stran.");
-        }
-      } else {
-        win?.close();
-        toast.error(friendlyError(data.error, 'Napaka pri dostopu do Stripe nadzorne plošče.'));
-      }
-    } catch (err) {
-      win?.close();
-      toast.error(friendlyError(err, 'Napaka pri povezovanju s Stripe.'));
-    } finally {
-      setIsOpeningDashboard(false);
+  // Automatische Scroll-Funktion zum Verifizierungsabschnitt, falls nötig
+  useEffect(() => {
+    if (activeTab === 'personal') {
+      const timer = setTimeout(() => {
+        document.getElementById('verification-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
+      return () => clearTimeout(timer);
     }
-  };
+  }, [activeTab]);
 
   const providerData = auth.currentUser?.providerData || [];
   const hasPasswordProvider = providerData.some(p => p.providerId === 'password');
@@ -1117,7 +1150,7 @@ export const SettingsView: React.FC<{
             )}
 
             {activeTab === 'personal' && (
-              <div className="animate-in fade-in slide-in-from-right-4">
+              <div id="verification-section" className="animate-in fade-in slide-in-from-right-4">
                 {!isProfileCompleted ? (
                     <div className="text-center py-20 bg-slate-50 rounded-[2rem] border-2 border-dashed border-slate-200">
                         <div className="w-20 h-20 bg-red-100 rounded-full flex flex-col items-center justify-center mx-auto mb-6 text-red-500">
@@ -1226,98 +1259,117 @@ export const SettingsView: React.FC<{
 
             {activeTab === 'stripe' && (
               <div className="animate-in fade-in slide-in-from-right-4">
-                {/* Stanje sredstev Verkaeufer-Block */}
-                <SellerBalance />
-
-                <div className="mb-8">
-                  <h3 className="text-xl font-black uppercase tracking-tighter text-[#0A1128] mb-2 flex items-center gap-2">
-                    <CreditCard size={20} className="text-[#FEBA4F]"/> Moja izplačila
-                  </h3>
-                  <p className="text-slate-500 font-bold text-sm mb-6 leading-relaxed">
-                    Denar od kupca je že na vašem računu pri Stripe in ga mi ne hranimo. Na bančni račun se izplača po potrditvi prejema.
-                  </p>
-                  
-                  <PayoutsList />
-                </div>
-                
-                <div className="mb-6">
-                    <h3 className="text-xl font-black uppercase tracking-tighter text-[#0A1128] mb-2 flex items-center gap-2">
-                        <CreditCard size={20} className="text-[#FEBA4F]"/> {t('stripeBankConnection')}
+                {user?.profile_completed !== true ? (
+                  <div className="bg-slate-50 border-2 border-slate-200 rounded-3xl p-8 text-center">
+                    <div className="bg-amber-100 text-[#0A1128] border-2 border-[#FEBA4F]/30 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6">
+                      <AlertCircle size={32} className="text-[#FEBA4F]" />
+                    </div>
+                    <h3 className="text-xl font-black text-[#0A1128] uppercase tracking-tighter mb-2">
+                      Zahtevana je verifikacija profila
                     </h3>
-                    <p className="text-slate-400 font-bold text-sm mb-6">{t('stripeBankConnectionDesc')}</p>
-                </div>
+                    <p className="text-slate-500 font-bold text-sm mb-6 max-w-md mx-auto">
+                      Za urejanje izplačil morate najprej vnesti osebne podatke in opraviti verifikacijo profila.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('personal');
+                        setTimeout(() => {
+                          document.getElementById('verification-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }, 100);
+                      }}
+                      className="bg-[#0A1128] text-white px-6 py-3.5 rounded-2xl font-black uppercase tracking-wider text-xs hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-md inline-flex items-center gap-2"
+                    >
+                      Opravi verifikacijo
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    {/* Stanje sredstev Verkaeufer-Block */}
+                    <SellerBalance />
 
-                <div className="bg-slate-50 border-2 border-slate-200 rounded-3xl p-6 mb-6">
-                  {user?.stripe_onboarding_complete ? (
-                    <>
-                      <div className="flex items-center gap-3 text-emerald-800 font-bold mb-4">
-                        <CheckCircle2 size={24} className="text-emerald-600 shrink-0" />
-                        <div>
-                          <div className="font-black text-base uppercase tracking-tight">Izplačila so urejena</div>
-                          <div className="text-xs text-slate-500 font-bold mt-0.5">Vaš račun je pripravljen za prejemanje izplačil.</div>
-                        </div>
-                      </div>
+                    <div className="mb-8">
+                      <h3 className="text-xl font-black uppercase tracking-tighter text-[#0A1128] mb-2 flex items-center gap-2">
+                        <CreditCard size={20} className="text-[#FEBA4F]"/> Moja izplačila
+                      </h3>
+                      <p className="text-slate-500 font-bold text-sm mb-6 leading-relaxed">
+                        Denar od kupca je že na vašem računu pri Stripe in ga mi ne hranimo. Na bančni račun se izplača po potrditvi prejema.
+                      </p>
+                      
+                      <PayoutsList />
+                    </div>
+                    
+                    <div className="mb-6">
+                        <h3 className="text-xl font-black uppercase tracking-tighter text-[#0A1128] mb-2 flex items-center gap-2">
+                            <CreditCard size={20} className="text-[#FEBA4F]"/> {t('stripeBankConnection')}
+                        </h3>
+                        <p className="text-slate-400 font-bold text-sm mb-6">{t('stripeBankConnectionDesc')}</p>
+                    </div>
 
-                      <div className="flex flex-col gap-2 items-start">
-                        <button
-                          type="button"
-                          onClick={handleOpenStripeDashboard}
-                          disabled={isOpeningDashboard}
-                          className="bg-[#0A1128] text-white px-6 py-3.5 rounded-2xl font-black uppercase tracking-wider text-xs hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-md flex items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
-                        >
-                          {isOpeningDashboard ? (
-                            <>
-                              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                              <span>Nalaganje...</span>
-                            </>
-                          ) : (
-                            <>
-                              <CreditCard size={18} />
-                              <span>Odpri Stripe nadzorno ploščo</span>
-                            </>
+                    <div className="bg-slate-50 border-2 border-slate-200 rounded-3xl p-6 mb-6">
+                      {user?.stripe_onboarding_complete ? (
+                        <>
+                          <div className="flex items-center gap-3 text-emerald-800 font-bold mb-4">
+                            <CheckCircle2 size={24} className="text-emerald-600 shrink-0" />
+                            <div>
+                              <div className="font-black text-base uppercase tracking-tight">Izplačila so urejena</div>
+                              <div className="text-xs text-slate-500 font-bold mt-0.5">Vaš račun je pripravljen za prejemanje izplačil.</div>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-col gap-2 items-start">
+                            {userData?.stripe_onboarding_complete ? (
+                              <SellerDashboard />
+                            ) : (
+                              <p className="text-xs text-slate-400 font-bold">
+                                V Stripe urejate bančni račun, podatke o nakazilih in izpise.
+                              </p>
+                            )}
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="flex items-center gap-3 text-amber-800 font-bold mb-4">
+                            <AlertCircle size={24} className="text-amber-600 shrink-0" />
+                            <div>
+                              <div className="font-black text-base uppercase tracking-tight">Izplačila še niso urejena</div>
+                              <div className="text-xs text-slate-500 font-bold mt-0.5">Za prodajo na platformi morate urediti račun za izplačila.</div>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => setShowPayoutSetup(prev => !prev)}
+                            className="bg-[#0A1128] text-white px-6 py-3.5 rounded-2xl font-black uppercase tracking-wider text-xs hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-md flex items-center gap-2"
+                          >
+                            <CreditCard size={18} />
+                            <span>{showPayoutSetup ? "Skrij urejanje izplačil" : "Uredi izplačila"}</span>
+                          </button>
+
+                          {showPayoutSetup && (
+                            <div className="mt-6 border-t-2 border-slate-200 pt-6">
+                              /* Callbacks fuer Rechtliches und Auktionserstellung im Profil verknuepfen */
+                              <PayoutSetupView
+                                userData={user}
+                                onRefreshUserData={onRefreshUser}
+                                onNavigateToSettingsProfile={() => {
+                                  setActiveTab('personal');
+                                  setTimeout(() => {
+                                    document.getElementById('verification-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                  }, 100);
+                                }}
+                                onNavigateToCreateAuction={() => onNavigateToCreateAuction?.()}
+                                onOpenTermsModal={() => onOpenLegal?.('terms')}
+                                t={t}
+                                language={language}
+                              />
+                            </div>
                           )}
-                        </button>
-                        <p className="text-xs text-slate-400 font-bold">
-                          V Stripe urejate bančni račun, podatke o nakazilih in izpise.
-                        </p>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="flex items-center gap-3 text-amber-800 font-bold mb-4">
-                        <AlertCircle size={24} className="text-amber-600 shrink-0" />
-                        <div>
-                          <div className="font-black text-base uppercase tracking-tight">Izplačila še niso urejena</div>
-                          <div className="text-xs text-slate-500 font-bold mt-0.5">Za prodajo na platformi morate urediti račun za izplačila.</div>
-                        </div>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => setShowPayoutSetup(prev => !prev)}
-                        className="bg-[#0A1128] text-white px-6 py-3.5 rounded-2xl font-black uppercase tracking-wider text-xs hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-md flex items-center gap-2"
-                      >
-                        <CreditCard size={18} />
-                        <span>{showPayoutSetup ? "Skrij urejanje izplačil" : "Uredi izplačila"}</span>
-                      </button>
-
-                      {showPayoutSetup && (
-                        <div className="mt-6 border-t-2 border-slate-200 pt-6">
-                          /* Callbacks fuer Rechtliches und Auktionserstellung im Profil verknuepfen */
-                          <PayoutSetupView
-                            userData={user}
-                            onRefreshUserData={onRefreshUser}
-                            onNavigateToSettingsProfile={() => setActiveTab('profile')}
-                            onNavigateToCreateAuction={() => onNavigateToCreateAuction?.()}
-                            onOpenTermsModal={() => onOpenLegal?.('terms')}
-                            t={t}
-                            language={language}
-                          />
-                        </div>
+                        </>
                       )}
-                    </>
-                  )}
-                </div>
+                    </div>
+                  </>
+                )}
               </div>
             )}
 

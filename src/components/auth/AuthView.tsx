@@ -519,7 +519,7 @@ export const AuthView: React.FC<{
                 onChange={(e) => setAcceptTerms(e.target.checked)}
               />
               <label htmlFor="acceptTerms" className="text-xs font-bold text-slate-500 cursor-pointer">
-                Sprejemam <button type="button" onClick={() => onLegal?.('terms')} className="text-[#0A1128] underline hover:text-[#FEBA4F]">Pogoje uporabe</button> in <button type="button" onClick={() => onLegal?.('privacy')} className="text-[#0A1128] underline hover:text-[#FEBA4F]">Politiko zasebnosti</button>.
+                Strinjam se s <button type="button" onClick={() => onLegal?.('terms')} className="text-[#0A1128] underline hover:text-[#FEBA4F]">Pogoji uporabe</button> in <button type="button" onClick={() => onLegal?.('privacy')} className="text-[#0A1128] underline hover:text-[#FEBA4F]">Politiko zasebnosti</button>.
               </label>
             </div>
           )}

@@ -132,13 +132,17 @@ export const Header: React.FC<{
     return counts;
   }, [auctions]);
 
-  // Leiste für aktualisierte Bedingungen nur anzeigen, wenn Ladevorgang abgeschlossen ist
-  const showTermsUpdateBar = isTermsBarReady && isLoggedIn && userData && userData.terms_version !== TERMS_VERSION;
+  // Leiste für aktualisierte Bedingungen nur anzeigen, wenn ein registrierter Benutzer die alten Bedingungen akzeptiert hat
+  const showTermsUpdateBar = isTermsBarReady && isLoggedIn && userData && (
+    (typeof userData.terms_version === 'string' && userData.terms_version.length > 0 && userData.terms_version !== TERMS_VERSION) ||
+    ((!userData.terms_version) && userData.terms_accepted_at)
+  );
 
   return (
     <header className="bg-[#0A1128] text-white shadow-2xl border-b border-white/10 sticky top-0 md:relative z-[500]">
       {showTermsUpdateBar && (
-        <div className="bg-[#FEBA4F] text-[#0A1128] px-6 py-3 flex flex-col sm:flex-row items-center justify-center gap-4 animate-in fade-in slide-in-from-top duration-500">
+        <div className="animate-flash-terms bg-black text-white px-6 py-3 flex flex-col sm:flex-row items-center justify-center gap-4 animate-in fade-in slide-in-from-top duration-500">
+          {/* Leiste fuer aktualisierte Bedingungen blinkt 3-mal rot und schwarz beim Laden */}
           <p className="text-sm font-black uppercase tracking-tight text-center sm:text-left">
             Pogoje uporabe smo posodobili. Prosimo, preberite in potrdite jih za nadaljevanje.
           </p>
