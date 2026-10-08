@@ -89,6 +89,7 @@ async function recordTermsAcceptance(params: {
   }
 }
 import { isBankTransferAvailable, resolvePaymentDeadlineMs, addWorkingDays } from '../lib/bankTransfer';
+import { cancelAuctionBankTransfer } from './bankTransferCancel';
 import { PLATFORM_COMPANY } from '../lib/platformCompany';
 import { claimIdentityLock, releaseIdentityLock, markIdentityBlocked, normalizeTaxId, lockKey } from './identityLock';
 // Benachrichtigungs- und Anwesenheitshelfer
@@ -1022,95 +1023,7 @@ async function recordAmlSpend({
  * 6. Sets/updates the reservation doc for `${buyerId}_${auctionId}` with status 'active'
  */
 
-// Deutscher Kommentar: Storniert eine schwebende Bankueberweisung, gibt das AML-Limit frei und setzt den Status zurueck
-export async function cancelAuctionBankTransfer(auctionId: string, auctionData: any, mode: 'failed' | 'switch_to_card' = 'failed') {
-  // Deutscher Kommentar: Nur fortfahren, wenn noch eine Bankueberweisung schwebend ist (verhindert doppelte Ausfuehrung)
-  if (auctionData.bank_transfer_pending === false) {
-    return;
-  }
 
-  const stripe = getStripe();
-  const sessionId = auctionData.bank_transfer_session_id;
-  const buyerId = auctionData.winner_id || auctionData.winnerId || auctionData.second_winner_id || auctionData.secondWinnerId;
-
-  if (sessionId) {
-    try {
-      const sess = await stripe.checkout.sessions.retrieve(sessionId, { expand: ['payment_intent'] });
-      const piId = typeof sess.payment_intent === 'string' ? sess.payment_intent : sess.payment_intent?.id;
-      if (piId) {
-        await stripe.paymentIntents.cancel(piId);
-        console.log(`[CancelBankTransfer] Cancelled PaymentIntent ${piId} for session ${sessionId}`);
-      } else {
-        await stripe.checkout.sessions.expire(sessionId);
-        console.log(`[CancelBankTransfer] Expired checkout session ${sessionId}`);
-      }
-    } catch (err: any) {
-      // Deutscher Kommentar: Fehler ignorieren, falls bereits storniert oder abgelaufen
-      console.warn(`[CancelBankTransfer] Warn: session cancel failed for ${sessionId}: ${err.message}`);
-    }
-  }
-
-  // Deutscher Kommentar: AML-Reservierung freigeben
-  if (buyerId) {
-    try {
-      const reservationId = `${buyerId}_${auctionId}`;
-      await adminDb.collection('aml_reservations').doc(reservationId).set({
-        status: 'released',
-        released_at: new Date().toISOString(),
-        release_reason: mode === 'switch_to_card' ? 'switch_to_card' : 'bank_transfer_cancelled'
-      }, { merge: true });
-      console.log(`[CancelBankTransfer] Released AML reservation ${reservationId}`);
-    } catch (rErr: any) {
-      console.error(`[CancelBankTransfer] Error releasing aml reservation: ${rErr.message}`);
-    }
-  }
-
-  // Deutscher Kommentar: Datenbankfelder zuruecksetzen und finale Chance setzen
-  try {
-    const nowMs = Date.now();
-    const currentDeadlineMs = new Date(auctionData.payment_deadline || 0).getTime();
-    const minDeadlineMs = nowMs + 24 * 60 * 60 * 1000;
-    const newDeadline = new Date(Math.max(currentDeadlineMs, minDeadlineMs)).toISOString();
-
-    await adminDb.collection('auctions').doc(auctionId).set({
-      bank_transfer_pending: false,
-      bank_transfer_session_id: null,
-      bank_transfer_deadline_at: null,
-      bank_transfer_final_chance: true,
-      payment_deadline: newDeadline
-    }, { merge: true });
-    console.log(`[CancelBankTransfer] Auction ${auctionId} bank transfer fields cleared (mode: ${mode}), final chance enabled.`);
-    
-    // Deutscher Kommentar: E-Mail nur senden, wenn mode 'failed' ist
-    if (mode === 'failed' && buyerId) {
-      const buyerSnap = await adminDb.collection('users').doc(buyerId).get();
-      const buyerData = buyerSnap.exists ? buyerSnap.data() || {} : {};
-      if (buyerData.email) {
-        const resendClient = new Resend(process.env.RESEND_API_KEY);
-        const auctionTitle = auctionData.title?.SLO || auctionData.title || 'Dražba';
-        await resendClient.emails.send({
-          from: process.env.EMAIL_FROM || 'dražbenik.si <obvestila@drazbenik.si>',
-          to: buyerData.email,
-          subject: 'Nakazilo ni bilo izvedeno - drazbe.si',
-          html: `
-            <div style="font-family: sans-serif; line-height: 1.5; color: #1E293B;">
-              <h2 style="color: #EF4444;">Nakazilo ni bilo izvedeno</h2>
-              <p>Spoštovani,</p>
-              <p>obveščamo vas, da nakazilo za dražbo <strong>${auctionTitle}</strong> ni bilo izvedeno.</p>
-              <p>Za plačilo imate še eno priložnost: plačajte s kartico do <strong>${new Date(newDeadline).toLocaleString('sl-SI')}</strong>. Če plačila ne opravite, veljajo običajna pravila za zamudnike.</p>
-              <p>Lep pozdrav,<br/>Ekipa drazbe.si</p>
-            </div>
-          `
-        });
-        console.log(`[CancelBankTransfer] Sent final chance email to ${buyerData.email}`);
-      }
-    }
-  } catch (dbErr: any) {
-    console.error(`[CancelBankTransfer] Error resetting auction fields: ${dbErr.message}`);
-  }
-}
-
-/**
  * Reserves an AML amount in Firestore to prevent race conditions during payment initialization.
  * Runs in a single Firestore transaction:
  * 1. Reads buyer doc

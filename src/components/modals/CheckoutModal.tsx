@@ -19,6 +19,7 @@ export const CheckoutModal: React.FC<{
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<'card' | 'bank_transfer'>('card');
+    const [bankTransferBlocked, setBankTransferBlocked] = useState(false);
   const pollTimerRef = useRef<any>(null);
   const popupRef = useRef<Window | null>(null);
 
@@ -27,6 +28,7 @@ export const CheckoutModal: React.FC<{
       setIsLoading(false);
       setErrorMessage(null);
       setPaymentMethod('card');
+            setBankTransferBlocked(false);
     }
   }, [isOpen]);
 
@@ -38,7 +40,7 @@ export const CheckoutModal: React.FC<{
       endTime: metadata?.endTime || metadata?.end_time
   });
   
-  const showBankTransferOption = isAuction && isBankTransferAvailable({
+  const showBankTransferOption = isAuction && !bankTransferBlocked && isBankTransferAvailable({
       amountCents: Math.round(amount * 100),
       paymentDeadlineMs,
       nowMs: Date.now(),
@@ -109,6 +111,11 @@ export const CheckoutModal: React.FC<{
     } catch (err: any) {
       setIsLoading(false);
       setErrorMessage(err.message || "Napaka pri preusmeritvi na plačilo");
+      // Deutscher Kommentar: Bei abgelehnter Bankueberweisung auf Karte zurueckschalten und Option ausblenden
+      if (paymentMethod === 'bank_transfer') {
+        setPaymentMethod('card');
+        setBankTransferBlocked(true);
+      }
     }
   };
 
@@ -159,9 +166,12 @@ export const CheckoutModal: React.FC<{
                     <ShieldCheck size={18} className={paymentMethod === 'bank_transfer' ? 'text-[#FEBA4F]' : 'text-slate-400'} />
                     <span className="text-sm font-black uppercase tracking-tight text-nowrap">Nakazilo</span>
                   </div>
-                  <span className="text-[11px] font-medium leading-tight text-slate-500">SEPA nakazilo (e-banka, UPN nalog)</span>
+                  <span className="text-[11px] font-medium leading-tight text-slate-500">Bančno nakazilo (SEPA)</span>
                 </button>
               </div>
+                      <p className="mt-3 text-[11px] font-medium leading-snug text-slate-500 text-center">
+          Po potrditvi imate za nakazilo do 3 delovne dni. Nakazilo lahko izberete samo enkrat; če ne uspe, imate še eno priložnost za plačilo s kartico.
+        </p>
             </div>
           )}
 

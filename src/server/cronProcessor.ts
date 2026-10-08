@@ -1,5 +1,5 @@
 import { adminDb, isDocSnapshotExists, getDocSnapshotData, FieldValue } from '../lib/firebase-admin';
-import { cancelAuctionBankTransfer } from './app';
+import { cancelAuctionBankTransfer } from './bankTransferCancel';
 import { syncPublicProfile } from './publicProfile';
 import { createNotification, isUserOnline } from './notifications';
 import { markIdentityBlocked } from './identityLock';

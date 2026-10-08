@@ -655,6 +655,13 @@ const WonAuctionItem: React.FC<{
           <div className="flex flex-col gap-2 w-full">
             {wonItem.post_auction_status !== 'offered_2nd' && wonItem.post_auction_status !== 'rejected_2nd' && (
               <div className="flex flex-col gap-1.5 w-full">
+                {wonItem.bank_transfer_final_chance === true && wonItem.bank_transfer_pending !== true && (
+                  <div className="bg-red-50 border border-red-200 rounded-2xl p-3 text-left">
+                    <p className="text-red-600 text-xs font-black uppercase tracking-wider">
+                      Zadnja priložnost: plačilo s kartico do {new Date(wonItem.payment_deadline).toLocaleString('sl-SI', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                  </div>
+                )}
                 {wonItem.bank_transfer_pending === true ? (
                   <div className="bg-amber-500/10 border border-[#FEBA4F]/20 rounded-2xl p-4 text-left">
                     <p className="text-[#FEBA4F] text-xs font-black uppercase tracking-wider mb-1 flex items-center gap-1.5">
