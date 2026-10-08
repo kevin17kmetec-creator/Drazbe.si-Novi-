@@ -2165,7 +2165,7 @@ const MainApp: React.FC = () => {
       }
     };
     fetchBTStates();
-  }, [user, rawAuctions.length]);
+  }, [user, rawAuctions.length, rawAuctions.map(a => a.id).join(',')]);
 
   const listenerMapsRef = useRef<{
     a: Map<string, any>;

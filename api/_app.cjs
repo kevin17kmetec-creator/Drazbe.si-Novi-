@@ -5123,6 +5123,9 @@ async function recordAmlSpend({
   }
 }
 async function cancelAuctionBankTransfer(auctionId, auctionData, mode = "failed") {
+  if (auctionData.bank_transfer_pending === false) {
+    return;
+  }
   const stripe = getStripe();
   const sessionId = auctionData.bank_transfer_session_id;
   const buyerId = auctionData.winner_id || auctionData.winnerId || auctionData.second_winner_id || auctionData.secondWinnerId;

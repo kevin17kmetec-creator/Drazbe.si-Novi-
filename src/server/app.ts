@@ -1024,6 +1024,11 @@ async function recordAmlSpend({
 
 // Deutscher Kommentar: Storniert eine schwebende Bankueberweisung, gibt das AML-Limit frei und setzt den Status zurueck
 export async function cancelAuctionBankTransfer(auctionId: string, auctionData: any, mode: 'failed' | 'switch_to_card' = 'failed') {
+  // Deutscher Kommentar: Nur fortfahren, wenn noch eine Bankueberweisung schwebend ist (verhindert doppelte Ausfuehrung)
+  if (auctionData.bank_transfer_pending === false) {
+    return;
+  }
+
   const stripe = getStripe();
   const sessionId = auctionData.bank_transfer_session_id;
   const buyerId = auctionData.winner_id || auctionData.winnerId || auctionData.second_winner_id || auctionData.secondWinnerId;
