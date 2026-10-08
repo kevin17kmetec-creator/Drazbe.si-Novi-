@@ -1012,17 +1012,6 @@ async function recordAmlSpend({
   }
 }
 
-/**
- * Reserves an AML amount in Firestore to prevent race conditions during payment initialization.
- * Runs in a single Firestore transaction:
- * 1. Reads buyer doc
- * 2. Reads all active reservations for this buyer
- * 3. Filters out the current auction's reservation and expired reservations
- * 4. Sums active unexpired reservations + current purchase amount + current year spend
- * 5. If limit > 10,000 EUR and buyer.identity_verified !== true, throws 400 error
- * 6. Sets/updates the reservation doc for `${buyerId}_${auctionId}` with status 'active'
- */
-
 
  * Reserves an AML amount in Firestore to prevent race conditions during payment initialization.
  * Runs in a single Firestore transaction:
