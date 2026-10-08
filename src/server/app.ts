@@ -1002,7 +1002,7 @@ app.use((req, res, next) => {
   if (process.env.NODE_ENV === "production") {
     // Only apply in production to prevent breaking the AI Studio live preview iframe
     res.setHeader("X-Frame-Options", "DENY");
-    res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.google.com/recaptcha/ https://www.gstatic.com/recaptcha/ https://js.stripe.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://*.googleapis.com https://www.google.com/recaptcha/ https://api.stripe.com ws: wss:; frame-src 'self' https://www.google.com/recaptcha/ https://js.stripe.com; img-src 'self' data: https: blob:;");
+    res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.google.com/recaptcha/ https://www.gstatic.com/recaptcha/ https://js.stripe.com https://connect-js.stripe.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://*.googleapis.com https://www.google.com/recaptcha/ https://api.stripe.com ws: wss:; frame-src 'self' https://www.google.com/recaptcha/ https://js.stripe.com https://connect-js.stripe.com https://hooks.stripe.com; img-src 'self' data: https: blob: https://*.stripe.com;");
   }
   next();
 });
@@ -6842,19 +6842,6 @@ app.post("/api/delete-account", async (req, res) => {
         error: "OBLIGATIONS_PENDING",
         message: "Računa ni mogoče izbrisati, dokler imate odprta naročila, spore ali neplačane dražbe." 
       });
-    }
-
-    // Identitaets-Sperre aufheben beim Loeschen des Accounts (nur wenn nicht blockiert)
-    try {
-      const userDoc = await adminDb.collection('users').doc(authUid).get();
-      const userData = userDoc.data() || {};
-      const taxId = userData.tax_id || userData.tax_number || userData.taxNumber || userData.taxId;
-      const country = userData.country || userData.country_code || userData.countryCode || 'SI';
-      if (taxId) {
-        await releaseIdentityLock(authUid, taxId, country);
-      }
-    } catch (err) {
-      console.error("[delete-account] Fehler beim Freigeben des Identity Locks:", err);
     }
 
     console.log(`[delete-account] Začenjam brisanje profila in podatkov za uporabnika: ${authUid}`);

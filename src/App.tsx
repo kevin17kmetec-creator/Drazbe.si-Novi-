@@ -2351,7 +2351,7 @@ const MainApp: React.FC = () => {
         const { status, action, sessionId } = event.data;
         if (status === 'success') {
           if (action === 'stripe_connect') {
-            toast.success("Stripe račun je bil uspešno povezan!");
+            toast.success("Račun za izplačila je bil uspešno povezan!");
             if (userData?.id) {
               await refreshUserData(userData.id);
             }
@@ -2423,7 +2423,7 @@ const MainApp: React.FC = () => {
     } else if (stripeParam === 'success') {
       const cleanUrl = window.location.pathname;
       window.history.replaceState({}, document.title, cleanUrl);
-      toast.success("Stripe račun je bil uspešno povezan!");
+      toast.success("Račun za izplačila je bil uspešno povezan!");
       if (userData?.id) refreshUserData(userData.id);
     }
   }, [userData]);
@@ -2444,7 +2444,7 @@ const MainApp: React.FC = () => {
         if (res?.data?.already_active) {
           toast.info(`Vaša naročnina (${res.data.subscription_tier}) je že aktivna.`);
         } else {
-          toast.info("Ni bilo najdenih novih neobdelanih plačil na Stripe.");
+          toast.info("Ni bilo najdenih novih neobdelanih plačil.");
         }
       }
     } catch (e) {

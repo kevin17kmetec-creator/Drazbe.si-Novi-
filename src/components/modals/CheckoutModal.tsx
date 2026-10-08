@@ -102,7 +102,7 @@ export const CheckoutModal: React.FC<{
           <div className="bg-blue-50/70 border border-blue-100 rounded-2xl p-4 mb-6 text-center">
             <p className="text-blue-900 text-xs font-bold leading-relaxed flex items-center justify-center gap-2">
               <ShieldCheck size={16} className="text-blue-600 shrink-0" />
-              Varno spletno plačilo preko sistema Stripe.
+              Varno spletno plačilo prek našega plačilnega partnerja.
             </p>
           </div>
 

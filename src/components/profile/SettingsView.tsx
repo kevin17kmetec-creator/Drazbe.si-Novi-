@@ -162,7 +162,9 @@ const SellerDashboard: React.FC = () => {
   useEffect(() => {
     if (stripeConnectInstance && !stripeLoaded && !stripeError) {
       const timer = setTimeout(() => {
-        setStripeError({ message: "Nalaganje Stripe obrazca je trajalo preveč časa.", code: "TIMEOUT" });
+        if (!stripeLoaded) {
+          setStripeError({ message: "Nalaganje obrazca je trajalo preveč časa. Poskusite znova.", code: "TIMEOUT" });
+        }
       }, 15005);
       return () => clearTimeout(timer);
     }
@@ -210,6 +212,7 @@ const SellerDashboard: React.FC = () => {
         <div className="bg-white p-6 rounded-3xl border-2 border-slate-100 shadow-sm">
           <h3 className="text-lg font-black text-[#0A1128] uppercase mb-4">Podatki in bančni račun</h3>
           <ConnectAccountManagement 
+            onLoaderStart={() => setStripeLoaded(true)}
             onLoadError={(err) => {
               console.error("Management load error:", err);
               setStripeError({ message: "Napaka pri nalaganju upravljanja računa.", code: "MANAGE_ERROR" });
@@ -220,6 +223,7 @@ const SellerDashboard: React.FC = () => {
         <div className="bg-white p-6 rounded-3xl border-2 border-slate-100 shadow-sm">
           <h3 className="text-lg font-black text-[#0A1128] uppercase mb-4">Izplačila</h3>
           <ConnectPayouts 
+             onLoaderStart={() => setStripeLoaded(true)}
              onLoadError={(err) => {
               console.error("Payouts load error:", err);
               setStripeError({ message: "Napaka pri nalaganju izplačil.", code: "PAYOUT_ERROR" });
@@ -365,7 +369,7 @@ const SellerBalance: React.FC = () => {
 
         <div className="bg-white p-4 rounded-2xl border border-slate-200">
           <span className="block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">
-            V obdelavi pri Stripe
+            V obdelavi pri plačilnem partnerju
           </span>
           <span className="block text-lg font-black text-[#0A1128]">
             {formatEur(balance.pendingCents)}
@@ -1356,7 +1360,7 @@ export const SettingsView: React.FC<{
                           </div>
 
                           <div className="flex flex-col gap-2 items-start">
-                            {userData?.stripe_onboarding_complete ? (
+                            {user?.stripe_onboarding_complete ? (
                               <SellerDashboard />
                             ) : (
                               <p className="text-xs text-slate-400 font-bold">

@@ -80,7 +80,7 @@ export const PayoutSetupView: React.FC<PayoutSetupViewProps> = ({
     if (isTermsAccepted && !requiresRegNumber && isProfileComplete && !stripeLoaded && !stripeError && stripeConnectInstance) {
       const timer = setTimeout(() => {
         setStripeError({
-          message: "Nalaganje Stripe obrazca je trajalo preveč časa. Prosimo, poskusite znova.",
+          message: "Nalaganje obrazca je trajalo preveč časa. Poskusite znova.",
           code: "TIMEOUT"
         });
       }, 15005);
