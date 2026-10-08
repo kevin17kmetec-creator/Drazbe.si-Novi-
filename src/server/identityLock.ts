@@ -44,7 +44,6 @@ export async function claimIdentityLock(
 
   const docId = lockKey(normalized);
   const lockRef = adminDb.collection('identity_locks').doc(docId);
-  const userRef = adminDb.collection('users').doc(uid);
 
   try {
     return await adminDb.runTransaction(async (transaction) => {
@@ -67,44 +66,32 @@ export async function claimIdentityLock(
         return { success: true };
       }
 
-      // Wenn die Sperre blockiert ist, verweigern
+      // Če je zapora blokirana, zavrni
       if (lockData.blocked === true) {
         return { success: false, error: 'IDENTITY_BLOCKED' };
       }
 
-      // Wenn die Sperre einem anderen Benutzer gehoert, pruefen wir dessen Verifizierungsstatus
+      // Če zapora pripada drugemu uporabniku: pravilo "Prvi obdrži"
+      // Prvi uporabnik obdrži zaporo, drugi uporabnik je ne more prevzeti ali ponastaviti njegovega profila.
       const otherUid = lockData.uid;
       const otherUserRef = adminDb.collection('users').doc(otherUid);
       const otherUserSnap = await transaction.get(otherUserRef);
-      const otherUserData = otherUserSnap.exists ? otherUserSnap.data() || {} : {};
 
-      const isOtherVerified = otherUserData.identity_verified === true || otherUserData.stripe_onboarding_complete === true;
-
-      if (!isOtherVerified) {
-        // Unbestaetigte Besetzung -> Sperre auf den neuen Benutzer uebertragen
+      if (!otherUserSnap.exists) {
+        // Prejšnji uporabnik ne obstaja več v bazi -> prevzemi osirotelo zaporo
         transaction.set(lockRef, {
           uid,
           created_at: new Date().toISOString(),
           blocked: false
         });
-
-        // Profil des alten Benutzers zuruecksetzen
-        transaction.update(otherUserRef, {
-          profile_completed: false,
-          tax_id: '',
-          tax_number: '',
-          taxNumber: '',
-          taxId: ''
-        });
-
         return { success: true };
-      } else {
-        // Steuernummer ist bereits von einem verifizierten Benutzer belegt
-        return { success: false, error: 'TAX_ID_IN_USE' };
       }
+
+      // Prejšnji uporabnik obstaja -> prvi uporabnik obdrži zaporo
+      return { success: false, error: 'TAX_ID_IN_USE' };
     });
   } catch (err: any) {
-    console.error("Fehler beim Claiming des Identity Locks:", err);
+    console.error("Napaka pri uveljavljanju zapore identitete:", err);
     throw err;
   }
 }

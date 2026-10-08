@@ -35,7 +35,7 @@ __export(app_exports, {
 });
 module.exports = __toCommonJS(app_exports);
 var import_express = __toESM(require("express"), 1);
-var import_crypto = __toESM(require("crypto"), 1);
+var import_crypto2 = __toESM(require("crypto"), 1);
 var import_redis = require("@upstash/redis");
 var import_ratelimit = require("@upstash/ratelimit");
 
@@ -1470,6 +1470,150 @@ async function syncPublicProfile(uid) {
   }
 }
 
+// src/server/notifications.ts
+async function createNotification(params) {
+  if (!params.userId) return null;
+  try {
+    const docRef = await adminDb.collection("notifications").add({
+      user_id: params.userId,
+      type: params.type,
+      auction_id: params.auctionId,
+      auction_title: params.auctionTitle || "",
+      image_url: params.imageUrl || "",
+      price: params.price || 0,
+      read: false,
+      created_at: (/* @__PURE__ */ new Date()).toISOString()
+    });
+    return docRef.id;
+  } catch (err) {
+    console.error("[createNotification] Error creating notification:", err?.message || err);
+    return null;
+  }
+}
+async function isUserOnline(userId) {
+  if (!userId) return false;
+  try {
+    const userDoc = await adminDb.collection("users").doc(userId).get();
+    if (!userDoc.exists) return false;
+    const userData = userDoc.data();
+    const lastSeen = userData?.last_seen_at;
+    if (!lastSeen) return false;
+    const lastSeenTime = typeof lastSeen === "number" ? lastSeen : new Date(lastSeen).getTime();
+    if (isNaN(lastSeenTime)) return false;
+    return Date.now() - lastSeenTime < 9e4;
+  } catch (err) {
+    console.error("[isUserOnline] Error checking presence:", err?.message || err);
+    return false;
+  }
+}
+
+// src/server/identityLock.ts
+var import_crypto = __toESM(require("crypto"), 1);
+function normalizeTaxId(taxId, country = "SI") {
+  if (!taxId) return null;
+  const digits = taxId.replace(/\D/g, "");
+  if (!digits) return null;
+  const countryKey = (country || "SI").toUpperCase();
+  return `${countryKey}:${digits}`;
+}
+function lockKey(normalizedTaxId) {
+  const secret = process.env.IDENTITY_LOCK_SECRET || "";
+  return import_crypto.default.createHmac("sha256", secret).update(normalizedTaxId).digest("hex");
+}
+async function claimIdentityLock(uid, taxId, country = "SI") {
+  const secret = process.env.IDENTITY_LOCK_SECRET;
+  if (!secret) {
+    console.error("IDENTITY_LOCK_SECRET ist nicht gesetzt. Sperre wird uebersprungen (fail-open).");
+    return { success: true };
+  }
+  const normalized = normalizeTaxId(taxId, country);
+  if (!normalized) {
+    return { success: true };
+  }
+  const docId = lockKey(normalized);
+  const lockRef = adminDb.collection("identity_locks").doc(docId);
+  const userRef = adminDb.collection("users").doc(uid);
+  try {
+    return await adminDb.runTransaction(async (transaction) => {
+      const lockSnap = await transaction.get(lockRef);
+      if (!lockSnap.exists) {
+        transaction.set(lockRef, {
+          uid,
+          created_at: (/* @__PURE__ */ new Date()).toISOString(),
+          blocked: false
+        });
+        return { success: true };
+      }
+      const lockData = lockSnap.data() || {};
+      if (lockData.uid === uid) {
+        return { success: true };
+      }
+      if (lockData.blocked === true) {
+        return { success: false, error: "IDENTITY_BLOCKED" };
+      }
+      const otherUid = lockData.uid;
+      const otherUserRef = adminDb.collection("users").doc(otherUid);
+      const otherUserSnap = await transaction.get(otherUserRef);
+      if (!otherUserSnap.exists) {
+        transaction.set(lockRef, {
+          uid,
+          created_at: (/* @__PURE__ */ new Date()).toISOString(),
+          blocked: false
+        });
+        return { success: true };
+      }
+      return { success: false, error: "TAX_ID_IN_USE" };
+    });
+  } catch (err) {
+    console.error("Napaka pri uveljavljanju zapore identitete:", err);
+    throw err;
+  }
+}
+async function releaseIdentityLock(uid, taxId, country = "SI") {
+  const secret = process.env.IDENTITY_LOCK_SECRET;
+  if (!secret) return;
+  const normalized = normalizeTaxId(taxId, country);
+  if (!normalized) return;
+  const docId = lockKey(normalized);
+  const lockRef = adminDb.collection("identity_locks").doc(docId);
+  try {
+    await adminDb.runTransaction(async (transaction) => {
+      const lockSnap = await transaction.get(lockRef);
+      if (lockSnap.exists) {
+        const lockData = lockSnap.data() || {};
+        if (lockData.uid === uid && lockData.blocked !== true) {
+          transaction.delete(lockRef);
+        }
+      }
+    });
+  } catch (err) {
+    console.error("Fehler beim Loeschen des Identity Locks:", err);
+  }
+}
+async function markIdentityBlocked(uid, reason = "unpaid_strikes") {
+  const secret = process.env.IDENTITY_LOCK_SECRET;
+  if (!secret) return;
+  try {
+    const userSnap = await adminDb.collection("users").doc(uid).get();
+    if (!userSnap.exists) return;
+    const userData = userSnap.data() || {};
+    const taxId = userData.tax_id || userData.tax_number || userData.taxNumber || userData.taxId;
+    const country = userData.country || userData.country_code || userData.countryCode || "SI";
+    if (!taxId) return;
+    const normalized = normalizeTaxId(taxId, country);
+    if (!normalized) return;
+    const docId = lockKey(normalized);
+    await adminDb.collection("identity_locks").doc(docId).set({
+      uid,
+      blocked: true,
+      blocked_at: (/* @__PURE__ */ new Date()).toISOString(),
+      blocked_reason: reason
+    }, { merge: true });
+  } catch (err) {
+    console.error("Fehler beim Markieren des Identity Locks als blockiert:", err);
+  }
+}
+
 // src/server/emailService.ts
 var import_react = __toESM(require("react"), 1);
 var import_resend = require("resend");
@@ -1704,24 +1848,71 @@ async function finalizeAuction(auctionId) {
   if (finalizedData && finalizedData.finalized) {
     if (finalizedData.winnerId) {
       try {
-        const winnerSnap = await adminDb.collection("users").doc(finalizedData.winnerId).get();
-        if (isDocSnapshotExists(winnerSnap)) {
-          const winnerData = getDocSnapshotData(winnerSnap) || {};
-          if (winnerData.email) {
-            const pd = finalizedData.paymentDeadline;
-            await sendAuctionWonNotification({
-              toEmail: winnerData.email,
-              recipientName: winnerData.first_name || winnerData.name || "Zmagovalec",
-              auctionId,
-              auctionTitle: finalizedData.title,
-              auctionImageUrl: finalizedData.imageUrl,
-              winningPrice: finalizedData.finalPrice,
-              paymentDeadlineFormatted: pd ? "48 ur (do " + new Date(pd).toLocaleDateString("sl-SI", { day: "2-digit", month: "2-digit" }) + " ob " + new Date(pd).toLocaleTimeString("sl-SI", { hour: "2-digit", minute: "2-digit" }) + ")" : "48 ur"
-            });
+        await createNotification({
+          userId: finalizedData.winnerId,
+          type: "won",
+          auctionId,
+          auctionTitle: finalizedData.title,
+          imageUrl: finalizedData.imageUrl,
+          price: finalizedData.finalPrice
+        });
+        const winnerOnline = await isUserOnline(finalizedData.winnerId);
+        if (!winnerOnline) {
+          const winnerSnap = await adminDb.collection("users").doc(finalizedData.winnerId).get();
+          if (isDocSnapshotExists(winnerSnap)) {
+            const winnerData = getDocSnapshotData(winnerSnap) || {};
+            if (winnerData.email) {
+              const pd = finalizedData.paymentDeadline;
+              await sendAuctionWonNotification({
+                toEmail: winnerData.email,
+                recipientName: winnerData.first_name || winnerData.name || "Zmagovalec",
+                auctionId,
+                auctionTitle: finalizedData.title,
+                auctionImageUrl: finalizedData.imageUrl,
+                winningPrice: finalizedData.finalPrice,
+                paymentDeadlineFormatted: pd ? "48 ur (do " + new Date(pd).toLocaleDateString("sl-SI", { day: "2-digit", month: "2-digit" }) + " ob " + new Date(pd).toLocaleTimeString("sl-SI", { hour: "2-digit", minute: "2-digit" }) + ")" : "48 ur"
+              });
+            }
           }
         }
       } catch (winErr) {
         console.error(`[finalizeAuction] Error notifying winner ${finalizedData.winnerId}:`, winErr.message);
+      }
+      try {
+        const otherBidders = /* @__PURE__ */ new Set();
+        const privSnap = await adminDb.collection("auctions_private").doc(auctionId).get();
+        if (isDocSnapshotExists(privSnap)) {
+          const privData = getDocSnapshotData(privSnap) || {};
+          const bidderIds = privData.bidder_ids || [];
+          for (const bId of bidderIds) {
+            if (bId && bId !== finalizedData.winnerId && bId !== finalizedData.sellerId) {
+              otherBidders.add(bId);
+            }
+          }
+          const topBids = privData.top_bids || [];
+          for (const item of topBids) {
+            const bId = item.user_id || item.userId;
+            if (bId && bId !== finalizedData.winnerId && bId !== finalizedData.sellerId) {
+              otherBidders.add(bId);
+            }
+          }
+        }
+        for (const loserId of otherBidders) {
+          try {
+            await createNotification({
+              userId: loserId,
+              type: "lost",
+              auctionId,
+              auctionTitle: finalizedData.title,
+              imageUrl: finalizedData.imageUrl,
+              price: finalizedData.finalPrice
+            });
+          } catch (lostErr) {
+            console.error(`[finalizeAuction] Error notifying loser ${loserId}:`, lostErr.message);
+          }
+        }
+      } catch (loserErr) {
+        console.error(`[finalizeAuction] Error processing losers:`, loserErr.message);
       }
     }
   }
@@ -1791,21 +1982,32 @@ async function processAuctionCrons() {
         let sentCount = 0;
         for (const userId of userIdsToNotify) {
           try {
-            const userSnap = await adminDb.collection("users").doc(userId).get();
-            if (isDocSnapshotExists(userSnap)) {
-              const udata = getDocSnapshotData(userSnap) || {};
-              if (udata.email) {
-                const minutesLeft = Math.max(1, Math.round(diffMs / 6e4));
-                await sendEndingSoonNotification({
-                  toEmail: udata.email,
-                  recipientName: udata.first_name || udata.name || "Uporabnik",
-                  auctionId,
-                  auctionTitle: title,
-                  auctionImageUrl: imageUrl,
-                  currentPrice,
-                  endTimeFormatted: `${minutesLeft} min`
-                });
-                sentCount++;
+            await createNotification({
+              userId,
+              type: "ending_soon",
+              auctionId,
+              auctionTitle: title,
+              imageUrl,
+              price: currentPrice
+            });
+            const online = await isUserOnline(userId);
+            if (!online) {
+              const userSnap = await adminDb.collection("users").doc(userId).get();
+              if (isDocSnapshotExists(userSnap)) {
+                const udata = getDocSnapshotData(userSnap) || {};
+                if (udata.email) {
+                  const minutesLeft = Math.max(1, Math.round(diffMs / 6e4));
+                  await sendEndingSoonNotification({
+                    toEmail: udata.email,
+                    recipientName: udata.first_name || udata.name || "Uporabnik",
+                    auctionId,
+                    auctionTitle: title,
+                    auctionImageUrl: imageUrl,
+                    currentPrice,
+                    endTimeFormatted: `${minutesLeft} min`
+                  });
+                  sentCount++;
+                }
               }
             }
           } catch (userErr) {
@@ -1913,6 +2115,7 @@ async function processAuctionCrons() {
           try {
             const userRef = adminDb.collection("users").doc(winnerId);
             const auctionRef = adminDb.collection("auctions").doc(auctionId);
+            let strikesReachedThree = false;
             await adminDb.runTransaction(async (transaction) => {
               const auctionSnap = await transaction.get(auctionRef);
               if (!auctionSnap.exists) return;
@@ -1930,10 +2133,18 @@ async function processAuctionCrons() {
               };
               if (newStrikes >= 3) {
                 userUpdates.isBlocked = true;
+                strikesReachedThree = true;
               }
               transaction.update(userRef, userUpdates);
               transaction.update(auctionRef, { unpaid_strike_applied: true });
             });
+            if (strikesReachedThree) {
+              try {
+                await markIdentityBlocked(winnerId);
+              } catch (blockErr) {
+                console.error("Fehler beim Blockieren der Identit\xE4t im Cron-Prozessor:", blockErr);
+              }
+            }
             await syncPublicProfile(winnerId);
           } catch (strikeErr) {
           }
@@ -3877,7 +4088,7 @@ async function completeTransactionAndPayout(txRef, txId, reason) {
   }
 }
 function generatePickupPin() {
-  return String((0, import_crypto.randomInt)(0, 1e6)).padStart(6, "0");
+  return String((0, import_crypto2.randomInt)(0, 1e6)).padStart(6, "0");
 }
 async function getOrCreatePickupPin(txId) {
   const secretRef = adminDb.collection("transaction_secrets").doc(txId);
@@ -4561,7 +4772,7 @@ function requireCronSecret(req, res) {
   const token = authHeader.substring(7);
   const tokenBuf = Buffer.from(token, "utf8");
   const secretBuf = Buffer.from(cronSecret, "utf8");
-  if (tokenBuf.length !== secretBuf.length || !import_crypto.default.timingSafeEqual(tokenBuf, secretBuf)) {
+  if (tokenBuf.length !== secretBuf.length || !import_crypto2.default.timingSafeEqual(tokenBuf, secretBuf)) {
     res.status(401).json({ error: "Unauthorized" });
     return false;
   }
@@ -4755,22 +4966,33 @@ app.post("/api/place-bid", async (req, res) => {
     if (outbidUserToNotify) {
       (async () => {
         try {
-          const prevUserDoc = await safeGetDoc(adminDb.collection("users").doc(outbidUserToNotify.userId));
-          if (prevUserDoc.exists()) {
-            const prevUserData = prevUserDoc.data();
-            if (prevUserData.email) {
-              await sendOutbidNotification({
-                toEmail: prevUserData.email,
-                recipientName: prevUserData.first_name || prevUserData.name || "Uporabnik",
-                auctionId: auction_id,
-                auctionTitle: outbidUserToNotify.auctionTitle,
-                auctionImageUrl: outbidUserToNotify.auctionImageUrl,
-                newPrice: outbidUserToNotify.newPrice
-              });
+          await createNotification({
+            userId: outbidUserToNotify.userId,
+            type: "outbid",
+            auctionId: auction_id,
+            auctionTitle: outbidUserToNotify.auctionTitle,
+            imageUrl: outbidUserToNotify.auctionImageUrl,
+            price: outbidUserToNotify.newPrice
+          });
+          const online = await isUserOnline(outbidUserToNotify.userId);
+          if (!online) {
+            const prevUserDoc = await safeGetDoc(adminDb.collection("users").doc(outbidUserToNotify.userId));
+            if (prevUserDoc.exists()) {
+              const prevUserData = prevUserDoc.data();
+              if (prevUserData.email) {
+                await sendOutbidNotification({
+                  toEmail: prevUserData.email,
+                  recipientName: prevUserData.first_name || prevUserData.name || "Uporabnik",
+                  auctionId: auction_id,
+                  auctionTitle: outbidUserToNotify.auctionTitle,
+                  auctionImageUrl: outbidUserToNotify.auctionImageUrl,
+                  newPrice: outbidUserToNotify.newPrice
+                });
+              }
             }
           }
         } catch (emailErr) {
-          console.error("[OUTBID EMAIL ERROR]", emailErr.message);
+          console.error("[OUTBID NOTIFICATION ERROR]", emailErr.message);
         }
       })();
     }
@@ -5586,6 +5808,118 @@ app.get("/api/seller/payouts", async (req, res) => {
   } catch (err) {
     console.error("Error fetching seller payouts:", err);
     return res.status(500).json({ error: err.message });
+  }
+});
+app.get("/api/seller/balance", async (req, res) => {
+  let uid;
+  try {
+    uid = await authenticateFirebaseUser(req);
+  } catch (authErr) {
+    return res.status(401).json({ error: authErr.message || "Unauthorized" });
+  }
+  try {
+    const userSnap = await safeGetDoc(adminDb.collection("users").doc(uid));
+    const user = userSnap.data() || {};
+    const accountId = user.stripe_account_id || user.stripeAccountId;
+    if (!accountId) {
+      res.setHeader("Cache-Control", "no-store");
+      return res.json({
+        success: true,
+        hasAccount: false,
+        onboardingComplete: Boolean(user.stripe_onboarding_complete)
+      });
+    }
+    let availableCents = 0;
+    let pendingCents = 0;
+    let inTransitCents = 0;
+    let stripeError = false;
+    try {
+      const stripe = getStripe();
+      const balance = await stripe.balance.retrieve({}, { stripeAccount: accountId });
+      if (balance && balance.available) {
+        const eurAvail = balance.available.find((b) => b.currency?.toLowerCase() === "eur");
+        if (eurAvail) availableCents = eurAvail.amount || 0;
+      }
+      if (balance && balance.pending) {
+        const eurPend = balance.pending.find((b) => b.currency?.toLowerCase() === "eur");
+        if (eurPend) pendingCents = eurPend.amount || 0;
+      }
+      try {
+        const payoutsList = await stripe.payouts.list({ limit: 20 }, { stripeAccount: accountId });
+        if (payoutsList && payoutsList.data) {
+          for (const p of payoutsList.data) {
+            if (p.currency?.toLowerCase() === "eur" && (p.status === "pending" || p.status === "in_transit")) {
+              inTransitCents += p.amount || 0;
+            }
+          }
+        }
+      } catch (payoutsErr) {
+        console.warn("Stripe payouts list error:", payoutsErr);
+      }
+    } catch (stripeErr) {
+      console.error("Stripe balance retrieve error:", stripeErr);
+      stripeError = true;
+    }
+    let escrowCents = 0;
+    let paidOutCents = 0;
+    let paidOutCount = 0;
+    try {
+      const txSnap = await adminDb.collection("transactions").where("seller_id", "==", uid).limit(500).get();
+      for (const doc of txSnap.docs) {
+        const data = doc.data() || {};
+        const status = (data.status || "").toUpperCase();
+        if (status === "REFUNDED" || status === "CANCELLED") continue;
+        const netCents = data.seller_net_cents || (data.item_price ? Math.round(data.item_price * 100) : 0);
+        const payoutStatus = data.payout_status || "held";
+        if (payoutStatus === "paid_out") {
+          paidOutCents += netCents;
+          paidOutCount++;
+        } else if (["held", "frozen", "release_waiting_funds", "release_failed"].includes(payoutStatus)) {
+          escrowCents += netCents;
+        }
+      }
+    } catch (txErr) {
+      console.error("Transactions balance query error:", txErr);
+    }
+    res.setHeader("Cache-Control", "no-store");
+    return res.json({
+      success: true,
+      hasAccount: true,
+      availableCents,
+      pendingCents,
+      inTransitCents,
+      escrowCents,
+      paidOutCents,
+      paidOutCount,
+      currency: "eur",
+      onboardingComplete: Boolean(user.stripe_onboarding_complete),
+      stripeError
+    });
+  } catch (err) {
+    console.error("Error fetching seller balance:", err);
+    return res.status(500).json({ error: err.message || "Server error" });
+  }
+});
+app.post("/api/stripe-dashboard-link", async (req, res) => {
+  let uid;
+  try {
+    uid = await authenticateFirebaseUser(req);
+  } catch (authErr) {
+    return res.status(401).json({ error: authErr.message || "Unauthorized" });
+  }
+  try {
+    const userSnap = await safeGetDoc(adminDb.collection("users").doc(uid));
+    const user = userSnap.data() || {};
+    const accountId = user.stripe_account_id || user.stripeAccountId;
+    if (!accountId || !user.stripe_onboarding_complete) {
+      return res.status(400).json({ error: "Izpla\u010Dila \u0161e niso urejena." });
+    }
+    const stripe = getStripe();
+    const link = await stripe.accounts.createLoginLink(accountId);
+    return res.json({ success: true, url: link.url });
+  } catch (error) {
+    console.error("Stripe Dashboard Link Error:", error);
+    return res.status(500).json({ error: error.message || "Napaka pri ustvarjanju povezave do nadzorne plo\u0161\u010De." });
   }
 });
 app.post("/api/create-subscription-checkout", async (req, res) => {
@@ -6935,7 +7269,7 @@ app.post("/api/orders/:id/verify-pickup-pin", async (req, res) => {
     }
     const a = Buffer.from(pin);
     const b = Buffer.from(String(secret.pickup_pin));
-    const ok = a.length === b.length && (0, import_crypto.timingSafeEqual)(a, b);
+    const ok = a.length === b.length && (0, import_crypto2.timingSafeEqual)(a, b);
     if (!ok) {
       const failed = (secret.failed_attempts || 0) + 1;
       const update = { failed_attempts: failed };
@@ -7448,7 +7782,7 @@ app.post("/api/auth/send-verification", async (req, res) => {
     if (!allowedToSend) {
       return res.json({ success: true });
     }
-    const token = import_crypto.default.randomBytes(32).toString("hex");
+    const token = import_crypto2.default.randomBytes(32).toString("hex");
     const now = /* @__PURE__ */ new Date();
     const expiresAt = Date.now() + 48 * 60 * 60 * 1e3;
     await adminDb.collection("email_verifications").doc(token).set({
@@ -7949,6 +8283,70 @@ app.get("/api/orders/payment-status", async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+app.get("/api/notifications", async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  let uid;
+  try {
+    uid = await authenticateFirebaseUser(req);
+  } catch (authErr) {
+    return res.status(401).json({ error: authErr.message || "Unauthorized" });
+  }
+  try {
+    const userRef = adminDb.collection("users").doc(uid);
+    const userDoc = await userRef.get();
+    const lastSeen = userDoc.exists ? userDoc.data()?.last_seen_at : null;
+    const lastSeenTime = lastSeen ? typeof lastSeen === "number" ? lastSeen : new Date(lastSeen).getTime() : 0;
+    if (!lastSeenTime || Date.now() - lastSeenTime > 45e3) {
+      await userRef.set({ last_seen_at: (/* @__PURE__ */ new Date()).toISOString() }, { merge: true });
+    }
+    const sixtyDaysAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1e3).toISOString();
+    const snap = await adminDb.collection("notifications").where("user_id", "==", uid).limit(100).get();
+    const notifications = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() })).filter((item) => item.created_at >= sixtyDaysAgo).sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()).slice(0, 30);
+    return res.json({ notifications });
+  } catch (err) {
+    console.error("[GET /api/notifications] Error:", err?.message || err);
+    return res.status(500).json({ error: err.message || "Internal server error" });
+  }
+});
+app.post("/api/notifications/mark-read", async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  let uid;
+  try {
+    uid = await authenticateFirebaseUser(req);
+  } catch (authErr) {
+    return res.status(401).json({ error: authErr.message || "Unauthorized" });
+  }
+  try {
+    const { id, all } = req.body || {};
+    if (all === true) {
+      const snap = await adminDb.collection("notifications").where("user_id", "==", uid).get();
+      const batch = adminDb.batch();
+      let count = 0;
+      snap.docs.forEach((doc) => {
+        if (doc.data()?.read !== true) {
+          batch.update(doc.ref, { read: true });
+          count++;
+        }
+      });
+      if (count > 0) {
+        await batch.commit();
+      }
+      return res.json({ success: true, marked: count });
+    }
+    if (id && typeof id === "string") {
+      const docRef = adminDb.collection("notifications").doc(id);
+      const docSnap = await docRef.get();
+      if (docSnap.exists && docSnap.data()?.user_id === uid) {
+        await docRef.update({ read: true });
+      }
+      return res.json({ success: true });
+    }
+    return res.status(400).json({ error: "Missing id or all flag" });
+  } catch (err) {
+    console.error("[POST /api/notifications/mark-read] Error:", err?.message || err);
+    return res.status(500).json({ error: err.message || "Internal server error" });
+  }
+});
 app.post("/api/reviews/submit", async (req, res) => {
   let buyerId;
   try {
@@ -8233,6 +8631,58 @@ app.post("/api/delete-account", async (req, res) => {
     if (!authUid) {
       return res.status(401).json({ error: "Niste prijavljeni." });
     }
+    let hasObligations = false;
+    try {
+      const sellerTx = await adminDb.collection("transactions").where("seller_id", "==", authUid).get();
+      const buyerTx = await adminDb.collection("transactions").where("buyer_id", "==", authUid).get();
+      const allTxDocs = [...sellerTx.docs, ...buyerTx.docs];
+      const blockStatuses = ["HELD_IN_ESCROW", "SHIPPED", "DELIVERED", "DISPUTED"];
+      const blockPayoutStatuses = ["held", "frozen", "release_waiting_funds", "release_failed"];
+      for (const txDoc of allTxDocs) {
+        const tx = txDoc.data() || {};
+        const status = (tx.status || "").toUpperCase();
+        const payoutStatus = (tx.payout_status || "").toLowerCase();
+        if (blockStatuses.includes(status)) {
+          hasObligations = true;
+          break;
+        }
+        if (blockPayoutStatuses.includes(payoutStatus)) {
+          hasObligations = true;
+          break;
+        }
+      }
+      if (!hasObligations) {
+        const wonAuctions = await adminDb.collection("auctions").where("winner_id", "==", authUid).get();
+        const wonAuctionsCamel = await adminDb.collection("auctions").where("winnerId", "==", authUid).get();
+        const allWonAuctions = [...wonAuctions.docs, ...wonAuctionsCamel.docs];
+        for (const aDoc of allWonAuctions) {
+          const aData = aDoc.data() || {};
+          if (aData.status !== "cancelled" && aData.payment_status !== "paid" && aData.post_auction_status !== "paid") {
+            hasObligations = true;
+            break;
+          }
+        }
+      }
+    } catch (obligationErr) {
+      console.error("Napaka pri preverjanju odprtih obveznosti:", obligationErr);
+    }
+    if (hasObligations) {
+      return res.status(409).json({
+        error: "OBLIGATIONS_PENDING",
+        message: "Ra\u010Duna ni mogo\u010De izbrisati, dokler imate odprta naro\u010Dila, spore ali nepla\u010Dane dra\u017Ebe."
+      });
+    }
+    try {
+      const userDoc = await adminDb.collection("users").doc(authUid).get();
+      const userData = userDoc.data() || {};
+      const taxId = userData.tax_id || userData.tax_number || userData.taxNumber || userData.taxId;
+      const country = userData.country || userData.country_code || userData.countryCode || "SI";
+      if (taxId) {
+        await releaseIdentityLock(authUid, taxId, country);
+      }
+    } catch (err) {
+      console.error("[delete-account] Fehler beim Freigeben des Identity Locks:", err);
+    }
     console.log(`[delete-account] Za\u010Denjam brisanje profila in podatkov za uporabnika: ${authUid}`);
     const sellerAuctions = await adminDb.collection("auctions").where("seller_id", "==", authUid).get();
     let batch = adminDb.batch();
@@ -8312,6 +8762,22 @@ app.post("/api/delete-account", async (req, res) => {
         await sBatch.commit();
       }
     } catch (sErr) {
+    }
+    try {
+      const userSnap = await adminDb.collection("users").doc(authUid).get();
+      if (userSnap.exists) {
+        const userData = userSnap.data() || {};
+        const isBlocked = userData.isBlocked === true || userData.is_blocked === true;
+        if (!isBlocked) {
+          const taxId = userData.tax_id || userData.tax_number || userData.taxNumber || userData.taxId;
+          const country = userData.country || userData.country_code || userData.countryCode || "SI";
+          if (taxId) {
+            await releaseIdentityLock(authUid, taxId, country);
+          }
+        }
+      }
+    } catch (releaseErr) {
+      console.error("Fehler beim Freigeben des Identity Locks bei der Kontoloeschung:", releaseErr);
     }
     await adminDb.collection("users").doc(authUid).set({
       id: authUid,
@@ -8850,6 +9316,8 @@ app.post("/api/profile/update", async (req, res) => {
       return res.status(401).json({ error: authErr.message || "Unauthorized" });
     }
     const body = req.body || {};
+    const currentUserDoc = await adminDb.collection("users").doc(uid).get();
+    const currentData = currentUserDoc.data() || {};
     const cleanStr = (val, maxLen = 200) => {
       if (typeof val !== "string") return "";
       const trimmed = val.trim();
@@ -8907,8 +9375,6 @@ app.post("/api/profile/update", async (req, res) => {
         return res.status(400).json({ error: "Uporabni\u0161ko ime lahko vsebuje le \u010Drke, \u0161tevilke, piko, pod\u010Drtaj in vezaj (3-30 znakov)." });
       }
       const lowerNewUsername = validatedUsername.toLowerCase();
-      const currentUserDoc = await adminDb.collection("users").doc(uid).get();
-      const currentData = currentUserDoc.data() || {};
       const oldUsername = (currentData.username || currentData.userName || "").trim();
       const lowerOldUsername = oldUsername.toLowerCase();
       if (lowerNewUsername !== lowerOldUsername) {
@@ -9003,6 +9469,29 @@ app.post("/api/profile/update", async (req, res) => {
       updatePayload.email_notifications = emailNotifs;
       updatePayload.emailNotifications = emailNotifs;
     }
+    if (taxId) {
+      const oldTaxId = currentData.tax_id || currentData.tax_number || currentData.taxNumber || currentData.taxId;
+      const oldCountry = currentData.country || currentData.country_code || currentData.countryCode || "SI";
+      if (!oldTaxId || taxId !== oldTaxId || country !== oldCountry) {
+        const lockRes = await claimIdentityLock(uid, taxId, country);
+        if (!lockRes.success) {
+          if (lockRes.error === "IDENTITY_BLOCKED") {
+            return res.status(409).json({
+              error: "IDENTITY_BLOCKED",
+              message: "Verifikacije ni mogo\u010De dokon\u010Dati. Kontaktirajte podporo: podpora@drazbe.si."
+            });
+          } else {
+            return res.status(409).json({
+              error: "TAX_ID_IN_USE",
+              message: "Ta dav\u010Dna \u0161tevilka je \u017Ee povezana z drugim ra\u010Dunom. \u010Ce je to va\u0161a \u0161tevilka, nas kontaktirajte: podpora@drazbe.si."
+            });
+          }
+        }
+        if (oldTaxId) {
+          await releaseIdentityLock(uid, oldTaxId, oldCountry);
+        }
+      }
+    }
     await adminDb.collection("users").doc(uid).set(updatePayload, { merge: true });
     await syncPublicProfile(uid);
     return res.json({
@@ -9024,10 +9513,26 @@ app.post("/api/accept-terms", async (req, res) => {
   }
   const { terms_version } = req.body;
   if (terms_version !== TERMS_VERSION) return res.status(400).json({ error: "Invalid terms version" });
-  await adminDb.collection("users").doc(uid).set({
-    terms_version,
-    terms_accepted_at: (/* @__PURE__ */ new Date()).toISOString()
-  }, { merge: true });
+  const userRef = adminDb.collection("users").doc(uid);
+  const userDoc = await userRef.get();
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  if (!userDoc.exists) {
+    await userRef.set({
+      id: uid,
+      terms_version,
+      terms_accepted_at: now,
+      created_at: now,
+      profile_completed: false,
+      identity_verified: false,
+      subscription_tier: "FREE",
+      subscription: "FREE"
+    });
+  } else {
+    await userRef.set({
+      terms_version,
+      terms_accepted_at: now
+    }, { merge: true });
+  }
   return res.json({ success: true });
 });
 app.post("/api/seller/accept-terms", async (req, res) => {
@@ -9556,6 +10061,55 @@ app.post("/api/admin/orders/:id/resolve-dispute", async (req, res) => {
     return res.json({ success: true, message: "Streitfall erfolgreich gel\xF6st." });
   } catch (err) {
     console.error("Error resolving dispute:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+app.post("/api/admin/identity-lock/release", async (req, res) => {
+  let uid;
+  try {
+    uid = await authenticateFirebaseUser(req);
+  } catch (authErr) {
+    return res.status(401).json({ error: authErr.message || "Unauthorized" });
+  }
+  const adminUids = (process.env.ADMIN_UIDS || "admin,owner").split(",").map((s) => s.trim()).filter(Boolean);
+  if (!adminUids.includes(uid) && uid !== "admin" && uid !== "owner") {
+    return res.status(403).json({ error: "Nimate administratorskih pravic." });
+  }
+  try {
+    const { taxId, country } = req.body || {};
+    if (!taxId) {
+      return res.status(400).json({ error: "Manjka dav\u010Dna \u0161tevilka." });
+    }
+    const normalized = normalizeTaxId(taxId, country || "SI");
+    if (!normalized) {
+      return res.status(400).json({ error: "Neveljavna dav\u010Dna \u0161tevilka." });
+    }
+    const docId = lockKey(normalized);
+    const lockRef = adminDb.collection("identity_locks").doc(docId);
+    const lockSnap = await lockRef.get();
+    if (!lockSnap.exists) {
+      return res.status(404).json({ error: "Sperre fuer diese Steuernummer nicht gefunden." });
+    }
+    const lockData = lockSnap.data() || {};
+    await lockRef.delete();
+    try {
+      await adminDb.collection("admin_logs").add({
+        action: "RELEASE_IDENTITY_LOCK",
+        admin_uid: uid,
+        timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+        details: {
+          tax_id_normalized: normalized,
+          lock_id: docId,
+          previous_uid: lockData.uid,
+          was_blocked: lockData.blocked || false
+        }
+      });
+    } catch (logErr) {
+      console.warn("Fehler beim Schreiben des Audit-Logs:", logErr);
+    }
+    return res.json({ success: true, message: "Zapora dav\u010Dne \u0161tevilke uspe\u0161no izbrisana." });
+  } catch (err) {
+    console.error("Error in /api/admin/identity-lock/release:", err);
     return res.status(500).json({ error: err.message });
   }
 });
