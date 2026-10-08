@@ -241,6 +241,34 @@ export default function AuctionView({
     onCheckout(currentAuction);
   };
 
+  const [cancellingBt, setCancellingBt] = useState(false);
+
+  const handleCancelBankTransfer = async () => {
+    if (!user || !currentAuction?.id) return;
+    setCancellingBt(true);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch('/api/checkout/cancel-bank-transfer', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ auctionId: currentAuction.id })
+      });
+      if (res.ok) {
+        toast.success("Plačilo z bančnim nakazilom je bilo preklicano. Zdaj lahko plačate s kartico.");
+      } else {
+        const data = await res.json();
+        toast.error(data.error || "Napaka pri preklicu nakazila.");
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Napaka pri preklicu.");
+    } finally {
+      setCancellingBt(false);
+    }
+  };
+
   if (!item) return <div className="p-10 text-center font-bold text-slate-500 animate-pulse">{t('loading')}...</div>;
 
   const d = Math.floor(timeLeft / (3600 * 24));
@@ -421,7 +449,7 @@ export default function AuctionView({
                       </div>
                       
                       {isWinner ? (
-                        currentAuction.post_auction_status === 'awaiting_bank_transfer' ? (
+                        currentAuction.bank_transfer_pending === true ? (
                           <div className="bg-amber-500/10 border border-[#FEBA4F]/20 rounded-2xl p-6 mb-3 text-left">
                             <h4 className="text-lg font-black text-[#FEBA4F] uppercase tracking-tight mb-2 flex items-center gap-2">
                               <ShieldCheck size={20} />
@@ -431,10 +459,17 @@ export default function AuctionView({
                               Izbrali ste plačilo z bančnim nakazilom (SEPA). Navodila za plačilo boste prejeli na vaš e-poštni naslov s strani našega plačilnega partnerja.
                             </p>
                             {currentAuction.bank_transfer_deadline_at && (
-                              <div className="text-xs text-slate-400 font-bold">
+                              <div className="text-xs text-slate-400 font-bold mb-4">
                                 Rok za prejem nakazila: <span className="text-[#FEBA4F]">{new Date(currentAuction.bank_transfer_deadline_at).toLocaleString('sl-SI', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                               </div>
                             )}
+                            <button
+                              onClick={handleCancelBankTransfer}
+                              disabled={cancellingBt}
+                              className="w-full text-xs bg-slate-800 hover:bg-slate-700 text-white font-black uppercase tracking-wider py-3 px-4 rounded-xl border border-slate-700 transition-all disabled:opacity-50"
+                            >
+                              {cancellingBt ? 'Prekinjam...' : 'Raje plačam s kartico'}
+                            </button>
                           </div>
                         ) : (
                           <>
@@ -451,7 +486,7 @@ export default function AuctionView({
                           </>
                         )
                       ) : isSeller ? (
-                        currentAuction.post_auction_status === 'awaiting_bank_transfer' ? (
+                        currentAuction.bank_transfer_pending === true ? (
                           <div className="bg-amber-500/10 border border-[#FEBA4F]/20 rounded-2xl p-6 mb-3 text-left">
                             <h4 className="text-lg font-black text-[#FEBA4F] uppercase tracking-tight mb-2 flex items-center gap-2">
                               <ShieldCheck size={20} />

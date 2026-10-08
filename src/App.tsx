@@ -655,7 +655,7 @@ const WonAuctionItem: React.FC<{
           <div className="flex flex-col gap-2 w-full">
             {wonItem.post_auction_status !== 'offered_2nd' && wonItem.post_auction_status !== 'rejected_2nd' && (
               <div className="flex flex-col gap-1.5 w-full">
-                {wonItem.post_auction_status === 'awaiting_bank_transfer' ? (
+                {wonItem.bank_transfer_pending === true ? (
                   <div className="bg-amber-500/10 border border-[#FEBA4F]/20 rounded-2xl p-4 text-left">
                     <p className="text-[#FEBA4F] text-xs font-black uppercase tracking-wider mb-1 flex items-center gap-1.5">
                       <ShieldCheck size={14} /> Plačilo v obdelavi

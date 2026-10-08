@@ -1034,6 +1034,57 @@ function addWorkingDays(startDate: Date, days: number): Date {
   return result;
 }
 
+// Deutscher Kommentar: Storniert eine schwebende Bankueberweisung, gibt das AML-Limit frei und setzt den Status zurueck
+async function cancelAuctionBankTransfer(auctionId: string, auctionData: any) {
+  const stripe = getStripe();
+  const sessionId = auctionData.bank_transfer_session_id;
+  const buyerId = auctionData.winner_id || auctionData.winnerId || auctionData.second_winner_id || auctionData.secondWinnerId;
+
+  if (sessionId) {
+    try {
+      const sess = await stripe.checkout.sessions.retrieve(sessionId, { expand: ['payment_intent'] });
+      const piId = typeof sess.payment_intent === 'string' ? sess.payment_intent : sess.payment_intent?.id;
+      if (piId) {
+        await stripe.paymentIntents.cancel(piId);
+        console.log(`[CancelBankTransfer] Cancelled PaymentIntent ${piId} for session ${sessionId}`);
+      } else {
+        await stripe.checkout.sessions.expire(sessionId);
+        console.log(`[CancelBankTransfer] Expired checkout session ${sessionId}`);
+      }
+    } catch (err: any) {
+      // Deutscher Kommentar: Fehler ignorieren, falls bereits storniert oder abgelaufen
+      console.warn(`[CancelBankTransfer] Warn: session cancel failed for ${sessionId}: ${err.message}`);
+    }
+  }
+
+  // Deutscher Kommentar: AML-Reservierung freigeben
+  if (buyerId) {
+    try {
+      const reservationId = `${buyerId}_${auctionId}`;
+      await adminDb.collection('aml_reservations').doc(reservationId).set({
+        status: 'released',
+        released_at: new Date().toISOString(),
+        release_reason: 'bank_transfer_cancelled'
+      }, { merge: true });
+      console.log(`[CancelBankTransfer] Released AML reservation ${reservationId}`);
+    } catch (rErr: any) {
+      console.error(`[CancelBankTransfer] Error releasing aml reservation: ${rErr.message}`);
+    }
+  }
+
+  // Deutscher Kommentar: Datenbankfelder zuruecksetzen
+  try {
+    await adminDb.collection('auctions').doc(auctionId).set({
+      bank_transfer_pending: false,
+      bank_transfer_session_id: null,
+      bank_transfer_deadline_at: null
+    }, { merge: true });
+    console.log(`[CancelBankTransfer] Auction ${auctionId} bank transfer fields cleared.`);
+  } catch (dbErr: any) {
+    console.error(`[CancelBankTransfer] Error resetting auction fields: ${dbErr.message}`);
+  }
+}
+
 /**
  * Reserves an AML amount in Firestore to prevent race conditions during payment initialization.
  * Runs in a single Firestore transaction:
@@ -1919,7 +1970,10 @@ async function finalizeAuctionPayment(params: {
       status: 'completed',
       payment_status: 'paid',
       post_auction_status: 'paid',
-      paid_at: new Date().toISOString()
+      paid_at: new Date().toISOString(),
+      bank_transfer_pending: false,
+      bank_transfer_session_id: null,
+      bank_transfer_deadline_at: null
     });
 
     await recordSaleCompletion(auctionId, sellerId);
@@ -2251,7 +2305,7 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
         console.log(`[webhook] Bank transfer checkout session completed (unpaid). Session ID: ${sessionObj.id}. Awaiting payment.`);
         if (auction_id) {
           await adminDb.collection('auctions').doc(auction_id).set({
-            post_auction_status: 'awaiting_bank_transfer',
+            bank_transfer_pending: true,
             bank_transfer_session_id: sessionObj.id
           }, { merge: true });
         }
@@ -2458,21 +2512,14 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
         }, { merge: true });
         console.log(`[webhook] Released AML reservation ${reservationId} due to checkout.session.expired`);
 
-        // Deutscher Kommentar: Wenn die SEPA Bankueberweisung abgelaufen ist, Status zuruecksetzen
+        // Deutscher Kommentar: Wenn die SEPA Bankueberweisung abgelaufen ist, Bankueberweisungsdaten zuruecksetzen
         if (metadata.payment_method === 'bank_transfer') {
-          const auctionDoc = await adminDb.collection('auctions').doc(auction_id).get();
-          if (auctionDoc.exists) {
-            const auctionData = auctionDoc.data() || {};
-            let restoreStatus = 'awaiting_payment_1st';
-            if (auctionData.second_winner_id === buyer_id) {
-              restoreStatus = 'awaiting_payment_2nd';
-            }
-            await adminDb.collection('auctions').doc(auction_id).set({
-              post_auction_status: restoreStatus,
-              bank_transfer_session_id: null
-            }, { merge: true });
-            console.log(`[webhook] Bank transfer expired for auction ${auction_id}. Restored post_auction_status to ${restoreStatus}`);
-          }
+          await adminDb.collection('auctions').doc(auction_id).set({
+            bank_transfer_pending: false,
+            bank_transfer_session_id: null,
+            bank_transfer_deadline_at: null
+          }, { merge: true });
+          console.log(`[webhook] Bank transfer expired for auction ${auction_id}. Cleared bank transfer fields.`);
         }
       } else if (sessionId) {
         const qSnap = await adminDb.collection('aml_reservations')
@@ -2510,19 +2557,40 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
         }, { merge: true });
         console.log(`[webhook] Released AML reservation ${reservationId} due to async_payment_failed`);
 
-        // Deutscher Kommentar: Auktionsstatus fuer die jeweilige Zahlungsrunde wiederherstellen
+        // Deutscher Kommentar: Bankueberweisungsdaten zuruecksetzen
         const auctionDoc = await adminDb.collection('auctions').doc(auction_id).get();
-        if (auctionDoc.exists) {
-          const auctionData = auctionDoc.data() || {};
-          let restoreStatus = 'awaiting_payment_1st';
-          if (auctionData.second_winner_id === buyer_id) {
-            restoreStatus = 'awaiting_payment_2nd';
+        const auctionData = auctionDoc.exists ? auctionDoc.data() || {} : {};
+        await adminDb.collection('auctions').doc(auction_id).set({
+          bank_transfer_pending: false,
+          bank_transfer_session_id: null,
+          bank_transfer_deadline_at: null
+        }, { merge: true });
+        console.log(`[webhook] Bank transfer failed for auction ${auction_id}. Cleared bank transfer fields.`);
+
+        // Deutscher Kommentar: E-Mail an Kaeufer senden: Plaetzerung der Zahlung fehlgeschlagen
+        const buyerDoc = await adminDb.collection('users').doc(buyer_id).get();
+        const buyerData = buyerDoc.exists ? buyerDoc.data() || {} : {};
+        if (buyerData.email) {
+          try {
+            const resendClient = new Resend(process.env.RESEND_API_KEY);
+            await resendClient.emails.send({
+              from: process.env.EMAIL_FROM || 'dražbenik.si <obvestila@drazbenik.si>',
+              to: buyerData.email,
+              subject: 'Plačilo z bančnim nakazilom ni uspelo - drazbe.si',
+              html: `
+                <div style="font-family: sans-serif; line-height: 1.5; color: #1E293B;">
+                  <h2 style="color: #EF4444;">Plačilo z bančnim nakazilom ni uspelo</h2>
+                  <p>Spoštovani,</p>
+                  <p>obveščamo vas, da plačilo z bančnim nakazilom za dražbo <strong>${auctionData.title || 'Dražba'}</strong> ni uspelo.</p>
+                  <p>Dražbo lahko še vedno plačate s plačilno kartico do izteka plačilnega roka.</p>
+                  <p>Lep pozdrav,<br/>Ekipa drazbe.si</p>
+                </div>
+              `
+            });
+            console.log(`[webhook] Sent async payment failure email to ${buyerData.email}`);
+          } catch (emErr: any) {
+            console.error('[webhook] Error sending async payment failure email:', emErr.message);
           }
-          await adminDb.collection('auctions').doc(auction_id).set({
-            post_auction_status: restoreStatus,
-            bank_transfer_session_id: null
-          }, { merge: true });
-          console.log(`[webhook] Bank transfer failed for auction ${auction_id}. Restored post_auction_status to ${restoreStatus}`);
         }
       }
       res.json({ received: true });
@@ -3252,6 +3320,34 @@ app.post("/api/create-checkout-session", async (req, res) => {
         return res.status(403).json({ error: "Te dražbe ne morete plačati." });
       }
 
+      // Deutscher Kommentar: Wenn bereits eine Bankueberweisung aktiv ist und die Frist noch laeuft
+      const isBankTransfer = (payment_method === 'bank_transfer');
+      if (isBankTransfer && auction.bank_transfer_pending === true) {
+        const deadline = auction.bank_transfer_deadline_at ? new Date(auction.bank_transfer_deadline_at).getTime() : 0;
+        if (deadline > Date.now() && auction.bank_transfer_session_id) {
+          try {
+            const existingSess = await stripe.checkout.sessions.retrieve(auction.bank_transfer_session_id);
+            if (existingSess && existingSess.status === 'open') {
+              console.log(`[Checkout] Reusing active bank transfer session ${existingSess.id} for auction ${effectiveAuctionId}`);
+              return res.json({ url: existingSess.url, sessionId: existingSess.id });
+            }
+          } catch (err: any) {
+            console.warn(`[Checkout] Error retrieving existing bank transfer session: ${err.message}`);
+          }
+          return res.status(409).json({ error: "Nakazilo je že v teku" });
+        }
+      }
+
+      // Deutscher Kommentar: Wenn Kartenzahlung gewaehlt wurde, aber eine Bankueberweisung aussteht, stornieren wir die alte zuerst
+      if (!isBankTransfer && auction.bank_transfer_pending === true) {
+        console.log(`[Checkout] Card payment requested while bank transfer is pending for auction ${effectiveAuctionId}. Cancelling old bank transfer first.`);
+        await cancelAuctionBankTransfer(effectiveAuctionId, auction);
+        const refreshedAuctionDoc = await safeGetDoc(adminDb.collection('auctions').doc(effectiveAuctionId));
+        if (refreshedAuctionDoc.exists()) {
+          auction = refreshedAuctionDoc.data();
+        }
+      }
+
       if (auction.title) {
         auctionTitle = (typeof auction.title === 'object' ? (auction.title['SLO'] || auction.title['EN']) : auction.title) || "Dražba";
       }
@@ -3286,7 +3382,6 @@ app.post("/api/create-checkout-session", async (req, res) => {
         throw payoutErr;
       }
 
-      const isBankTransfer = (payment_method === 'bank_transfer');
       if (isBankTransfer) {
         if (finalAmountCents < 5000) {
           return res.status(400).json({ error: "Bančno nakazilo ni na voljo za to plačilo." });
@@ -3534,11 +3629,11 @@ app.post("/api/create-checkout-session", async (req, res) => {
     if (isBankTransfer) {
       try {
         await adminDb.collection('auctions').doc(effectiveAuctionId).set({
-          post_auction_status: 'awaiting_bank_transfer',
+          bank_transfer_pending: true,
           bank_transfer_session_id: session.id,
           bank_transfer_deadline_at: bankTransferDeadlineStr
         }, { merge: true });
-        console.log(`[Checkout] Auction ${effectiveAuctionId} updated to awaiting_bank_transfer with session ${session.id} and deadline ${bankTransferDeadlineStr}`);
+        console.log(`[Checkout] Auction ${effectiveAuctionId} updated to bank_transfer_pending: true with session ${session.id} and deadline ${bankTransferDeadlineStr}`);
       } catch (aucErr: any) {
         console.error('Error updating auction for bank transfer:', aucErr.message);
       }
@@ -3548,6 +3643,42 @@ app.post("/api/create-checkout-session", async (req, res) => {
   } catch (error: any) {
     console.error("Stripe Checkout Error:", error);
     res.status(error.statusCode || 500).json({ error: error.message });
+  }
+});
+
+app.post("/api/checkout/cancel-bank-transfer", async (req, res) => {
+  // Deutscher Kommentar: Authentifizierung des Benutzers
+  let userId: string;
+  try {
+    userId = await authenticateFirebaseUser(req);
+  } catch (authErr: any) {
+    return res.status(401).json({ error: authErr.message || 'Unauthorized' });
+  }
+
+  try {
+    const { auctionId } = req.body || {};
+    if (!auctionId) {
+      return res.status(400).json({ error: 'Missing auctionId' });
+    }
+
+    const auctionDoc = await adminDb.collection('auctions').doc(auctionId).get();
+    if (!auctionDoc.exists) {
+      return res.status(404).json({ error: 'Auction not found' });
+    }
+
+    const auctionData = auctionDoc.data() || {};
+    const buyerId = auctionData.winner_id || auctionData.winnerId || auctionData.second_winner_id || auctionData.secondWinnerId;
+
+    if (buyerId !== userId) {
+      return res.status(403).json({ error: 'Te dražbe ne morete upravljati.' });
+    }
+
+    await cancelAuctionBankTransfer(auctionId, auctionData);
+
+    return res.json({ success: true });
+  } catch (error: any) {
+    console.error("Error cancelling bank transfer:", error);
+    return res.status(500).json({ error: error.message });
   }
 });
 
@@ -3583,7 +3714,7 @@ app.post("/api/confirm-checkout-session", async (req, res) => {
 
     if (session) {
       const isBankTransfer = session.metadata?.payment_method === 'bank_transfer';
-      const isPaid = session.payment_status === 'paid' || session.status === 'complete';
+      const isPaid = session.payment_status === 'paid' || session.status === 'complete' || (isBankTransfer && session.status === 'open');
       if (!isPaid) {
         return res.status(400).json({ error: 'Payment not completed for this session', status: session.status });
       }

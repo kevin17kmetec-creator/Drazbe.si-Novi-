@@ -2,6 +2,8 @@ import { adminDb, isDocSnapshotExists, getDocSnapshotData, FieldValue } from '..
 import { syncPublicProfile } from './publicProfile';
 import { createNotification, isUserOnline } from './notifications';
 import { markIdentityBlocked } from './identityLock';
+import Stripe from 'stripe';
+import { Resend } from 'resend';
 import {
   sendEndingSoonNotification,
   sendAuctionWonNotification,
@@ -432,6 +434,109 @@ export async function processAuctionCrons(): Promise<CronRunResult> {
     }
 
     // -------------------------------------------------------------
+    // 3.5. EXPIRED BANK TRANSFER DEADLINE (Bounded Query)
+    // -------------------------------------------------------------
+    let expiredBankTransfersSnap;
+    try {
+      expiredBankTransfersSnap = await adminDb.collection('auctions')
+        .where('bank_transfer_pending', '==', true)
+        .where('bank_transfer_deadline_at', '<=', nowIso)
+        .limit(100)
+        .get();
+    } catch (e: any) {
+      console.warn('[CRON] Failed to fetch expired bank transfer auctions:', e.message);
+      expiredBankTransfersSnap = { empty: true, docs: [] } as any;
+    }
+
+    const getStripeInstance = (): Stripe => {
+      const key = process.env.STRIPE_SECRET_KEY;
+      if (!key) {
+        throw new Error('STRIPE_SECRET_KEY environment variable is required');
+      }
+      return new Stripe(key);
+    };
+
+    for (const auctionDoc of expiredBankTransfersSnap.docs) {
+      const auctionId = auctionDoc.id;
+      const auctionData = auctionDoc.data() || {};
+      const sessionId = auctionData.bank_transfer_session_id;
+      const buyerId = auctionData.winner_id || auctionData.winnerId || auctionData.second_winner_id || auctionData.secondWinnerId;
+
+      console.log(`[CRON] Processing expired bank transfer for auction ${auctionId}, session ${sessionId}`);
+
+      // Stripe-Session/PaymentIntent stornieren
+      if (sessionId) {
+        try {
+          const stripe = getStripeInstance();
+          const sess = await stripe.checkout.sessions.retrieve(sessionId, { expand: ['payment_intent'] });
+          const piId = typeof sess.payment_intent === 'string' ? sess.payment_intent : sess.payment_intent?.id;
+          if (piId) {
+            await stripe.paymentIntents.cancel(piId);
+            console.log(`[CRON] Cancelled PaymentIntent ${piId} for session ${sessionId}`);
+          } else {
+            await stripe.checkout.sessions.expire(sessionId);
+            console.log(`[CRON] Expired checkout session ${sessionId}`);
+          }
+        } catch (err: any) {
+          console.warn(`[CRON] Stripe session/PI cancel failed for ${sessionId}: ${err.message}`);
+        }
+      }
+
+      // AML-Reservierung freigeben
+      if (buyerId) {
+        try {
+          const reservationId = `${buyerId}_${auctionId}`;
+          await adminDb.collection('aml_reservations').doc(reservationId).set({
+            status: 'released',
+            released_at: new Date().toISOString(),
+            release_reason: 'bank_transfer_deadline'
+          }, { merge: true });
+          console.log(`[CRON] Released AML reservation ${reservationId}`);
+        } catch (rErr: any) {
+          console.error(`[CRON] Error releasing aml reservation: ${rErr.message}`);
+        }
+
+        // E-Mail an Kaeufer senden: Bankueberweisung abgelaufen
+        try {
+          const buyerSnap = await adminDb.collection('users').doc(buyerId).get();
+          const buyerData = buyerSnap.exists ? buyerSnap.data() || {} : {};
+          if (buyerData.email) {
+            const resendClient = new Resend(process.env.RESEND_API_KEY);
+            await resendClient.emails.send({
+              from: process.env.EMAIL_FROM || 'dražbenik.si <obvestila@drazbenik.si>',
+              to: buyerData.email,
+              subject: 'Rok za bančno nakazilo je potekel - drazbe.si',
+              html: `
+                <div style="font-family: sans-serif; line-height: 1.5; color: #1E293B;">
+                  <h2 style="color: #EF4444;">Rok za bančno nakazilo je potekel</h2>
+                  <p>Spoštovani,</p>
+                  <p>obveščamo vas, da je rok za prejem bančnega nakazila za dražbo <strong>${auctionData.title || 'Dražba'}</strong> potekel.</p>
+                  <p>Dražbo lahko še vedno plačate s plačilno kartico do izteka plačilnega roka.</p>
+                  <p>Lep pozdrav,<br/>Ekipa drazbe.si</p>
+                </div>
+              `
+            });
+            console.log(`[CRON] Sent bank transfer expired email to ${buyerData.email}`);
+          }
+        } catch (emErr: any) {
+          console.error(`[CRON] Error sending bank transfer expired email: ${emErr.message}`);
+        }
+      }
+
+      // Datenbankfelder zuruecksetzen
+      try {
+        await adminDb.collection('auctions').doc(auctionId).set({
+          bank_transfer_pending: false,
+          bank_transfer_session_id: null,
+          bank_transfer_deadline_at: null
+        }, { merge: true });
+        console.log(`[CRON] Cleared bank transfer fields for auction ${auctionId}`);
+      } catch (dbErr: any) {
+        console.error(`[CRON] Error clearing bank transfer fields: ${dbErr.message}`);
+      }
+    }
+
+    // -------------------------------------------------------------
     // 4. EXPIRED PAYMENT DEADLINE (48h REACHED) -> UNPAID STRIKE (Bounded Query)
     // -------------------------------------------------------------
     let expiredPaymentSnap;
@@ -449,6 +554,14 @@ export async function processAuctionCrons(): Promise<CronRunResult> {
     for (const auctionDoc of expiredPaymentSnap.docs) {
       const data = auctionDoc.data();
       if (data.payment_status === 'paid') continue;
+
+      if (data.bank_transfer_pending === true) {
+        const btDeadline = data.bank_transfer_deadline_at ? new Date(data.bank_transfer_deadline_at).getTime() : 0;
+        if (btDeadline > now.getTime()) {
+          console.log(`[CRON] Skipping expired payment deadline for auction ${auctionDoc.id} because bank transfer is pending and deadline ${data.bank_transfer_deadline_at} is in the future.`);
+          continue;
+        }
+      }
 
       const deadlineStr = data.payment_deadline;
       if (!deadlineStr) continue;
