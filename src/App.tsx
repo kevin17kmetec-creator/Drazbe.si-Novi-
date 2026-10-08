@@ -2171,7 +2171,17 @@ const MainApp: React.FC = () => {
       listenerMapsRef.current.b.forEach((val, id) => mergedMap.set(id, val));
       listenerMapsRef.current.c.forEach((val, id) => mergedMap.set(id, val));
       listenerMapsRef.current.d.forEach((val, id) => mergedMap.set(id, val));
-      setRawAuctions(Array.from(mergedMap.values()));
+      
+      const auctionsArray = Array.from(mergedMap.values()).map(auc => {
+        // Deutscher Kommentar: bank_transfer_used_by Array in Boolean umwandeln und Array aus dem State entfernen
+        const { bank_transfer_used_by, ...rest } = auc;
+        return {
+          ...rest,
+          bank_transfer_used: Array.isArray(bank_transfer_used_by) ? bank_transfer_used_by.includes(uid) : false
+        };
+      });
+
+      setRawAuctions(auctionsArray);
     };
 
     // Listener A (always, also for guests): active auctions
@@ -3576,6 +3586,7 @@ const MainApp: React.FC = () => {
                   auction_id: item.id,
                   buyer_id: userData.id,
                   seller_id: item.sellerId || item.seller_id,
+                  bank_transfer_used: item.bank_transfer_used,
                   fee_percentage: 10,
                   buyer_data: userData,
                   payment_deadline: item.payment_deadline

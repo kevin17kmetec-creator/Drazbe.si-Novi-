@@ -32,8 +32,8 @@ export const CheckoutModal: React.FC<{
   const fourDaysInMs = 4 * 24 * 60 * 60 * 1000;
   const isDeadlineOk = deadlineMs > 0 ? (timeRemaining >= fourDaysInMs) : true;
 
-  // Deutscher Kommentar: Bankueberweisung ist nur fuer Auktionen mit Betrag >= 50 EUR und mindestens 4 Tagen Restzeit verfuegbar
-  const showBankTransferOption = isAuction && amount >= 50.0 && isDeadlineOk;
+  // Deutscher Kommentar: Bankueberweisung ist nur fuer Auktionen mit Betrag >= 50 EUR und mindestens 4 Tagen Restzeit verfuegbar. Zudem nur ein Versuch pro Nutzer.
+  const showBankTransferOption = isAuction && amount >= 50.0 && isDeadlineOk && !metadata?.bank_transfer_used;
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {

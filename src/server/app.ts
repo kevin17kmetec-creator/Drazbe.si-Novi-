@@ -1021,22 +1021,9 @@ async function recordAmlSpend({
  * 5. If limit > 10,000 EUR and buyer.identity_verified !== true, throws 400 error
  * 6. Sets/updates the reservation doc for `${buyerId}_${auctionId}` with status 'active'
  */
-// Deutscher Kommentar: Hilfsfunktion zur Addition von Arbeitstagen (ohne Wochenende)
-function addWorkingDays(startDate: Date, days: number): Date {
-  let result = new Date(startDate);
-  let addedDays = 0;
-  while (addedDays < days) {
-    result.setDate(result.getDate() + 1);
-    const day = result.getDay();
-    if (day !== 0 && day !== 6) { // 0 = Sunday, 6 = Saturday
-      addedDays++;
-    }
-  }
-  return result;
-}
 
 // Deutscher Kommentar: Storniert eine schwebende Bankueberweisung, gibt das AML-Limit frei und setzt den Status zurueck
-async function cancelAuctionBankTransfer(auctionId: string, auctionData: any) {
+async function cancelAuctionBankTransfer(auctionId: string, auctionData: any, mode: 'failed' | 'switch_to_card' = 'failed') {
   const stripe = getStripe();
   const sessionId = auctionData.bank_transfer_session_id;
   const buyerId = auctionData.winner_id || auctionData.winnerId || auctionData.second_winner_id || auctionData.secondWinnerId;
@@ -1065,7 +1052,7 @@ async function cancelAuctionBankTransfer(auctionId: string, auctionData: any) {
       await adminDb.collection('aml_reservations').doc(reservationId).set({
         status: 'released',
         released_at: new Date().toISOString(),
-        release_reason: 'bank_transfer_cancelled'
+        release_reason: mode === 'switch_to_card' ? 'switch_to_card' : 'bank_transfer_cancelled'
       }, { merge: true });
       console.log(`[CancelBankTransfer] Released AML reservation ${reservationId}`);
     } catch (rErr: any) {
@@ -1075,7 +1062,11 @@ async function cancelAuctionBankTransfer(auctionId: string, auctionData: any) {
 
   // Deutscher Kommentar: Datenbankfelder zuruecksetzen und finale Chance setzen
   try {
-    const newDeadline = new Date(Math.max(new Date(auctionData.payment_deadline || 0).getTime(), Date.now() + 24 * 60 * 60 * 1000)).toISOString();
+    const nowMs = Date.now();
+    const currentDeadlineMs = new Date(auctionData.payment_deadline || 0).getTime();
+    const minDeadlineMs = nowMs + 24 * 60 * 60 * 1000;
+    const newDeadline = new Date(Math.max(currentDeadlineMs, minDeadlineMs)).toISOString();
+
     await adminDb.collection('auctions').doc(auctionId).set({
       bank_transfer_pending: false,
       bank_transfer_session_id: null,
@@ -1083,28 +1074,31 @@ async function cancelAuctionBankTransfer(auctionId: string, auctionData: any) {
       bank_transfer_final_chance: true,
       payment_deadline: newDeadline
     }, { merge: true });
-    console.log(`[CancelBankTransfer] Auction ${auctionId} bank transfer fields cleared, final chance enabled.`);
+    console.log(`[CancelBankTransfer] Auction ${auctionId} bank transfer fields cleared (mode: ${mode}), final chance enabled.`);
     
-    // E-Mail an Kaeufer senden
-    const buyerSnap = await adminDb.collection('users').doc(buyerId).get();
-    const buyerData = buyerSnap.exists ? buyerSnap.data() || {} : {};
-    if (buyerData.email) {
-      const resendClient = new Resend(process.env.RESEND_API_KEY);
-      await resendClient.emails.send({
-        from: process.env.EMAIL_FROM || 'dražbenik.si <obvestila@drazbenik.si>',
-        to: buyerData.email,
-        subject: 'Nakazilo ni bilo izvedeno - drazbe.si',
-        html: `
-          <div style="font-family: sans-serif; line-height: 1.5; color: #1E293B;">
-            <h2 style="color: #EF4444;">Nakazilo ni bilo izvedeno</h2>
-            <p>Spoštovani,</p>
-            <p>obveščamo vas, da nakazilo za dražbo <strong>${auctionData.title || 'Dražba'}</strong> ni bilo izvedeno.</p>
-            <p>Za plačilo imate še eno priložnost: plačajte s kartico do <strong>${new Date(newDeadline).toLocaleString('sl-SI')}</strong>. Če plačila ne opravite, veljajo običajna pravila za zamudnike.</p>
-            <p>Lep pozdrav,<br/>Ekipa drazbe.si</p>
-          </div>
-        `
-      });
-      console.log(`[CancelBankTransfer] Sent final chance email to ${buyerData.email}`);
+    // Deutscher Kommentar: E-Mail nur senden, wenn mode 'failed' ist
+    if (mode === 'failed' && buyerId) {
+      const buyerSnap = await adminDb.collection('users').doc(buyerId).get();
+      const buyerData = buyerSnap.exists ? buyerSnap.data() || {} : {};
+      if (buyerData.email) {
+        const resendClient = new Resend(process.env.RESEND_API_KEY);
+        const auctionTitle = auctionData.title?.SLO || auctionData.title || 'Dražba';
+        await resendClient.emails.send({
+          from: process.env.EMAIL_FROM || 'dražbenik.si <obvestila@drazbenik.si>',
+          to: buyerData.email,
+          subject: 'Nakazilo ni bilo izvedeno - drazbe.si',
+          html: `
+            <div style="font-family: sans-serif; line-height: 1.5; color: #1E293B;">
+              <h2 style="color: #EF4444;">Nakazilo ni bilo izvedeno</h2>
+              <p>Spoštovani,</p>
+              <p>obveščamo vas, da nakazilo za dražbo <strong>${auctionTitle}</strong> ni bilo izvedeno.</p>
+              <p>Za plačilo imate še eno priložnost: plačajte s kartico do <strong>${new Date(newDeadline).toLocaleString('sl-SI')}</strong>. Če plačila ne opravite, veljajo običajna pravila za zamudnike.</p>
+              <p>Lep pozdrav,<br/>Ekipa drazbe.si</p>
+            </div>
+          `
+        });
+        console.log(`[CancelBankTransfer] Sent final chance email to ${buyerData.email}`);
+      }
     }
   } catch (dbErr: any) {
     console.error(`[CancelBankTransfer] Error resetting auction fields: ${dbErr.message}`);
@@ -3327,7 +3321,7 @@ app.post("/api/create-checkout-session", async (req, res) => {
       // Deutscher Kommentar: Wenn Kartenzahlung gewaehlt wurde, aber eine Bankueberweisung aussteht, stornieren wir die alte zuerst
       if (!isBankTransfer && auction.bank_transfer_pending === true) {
         console.log(`[Checkout] Card payment requested while bank transfer is pending for auction ${effectiveAuctionId}. Cancelling old bank transfer first.`);
-        await cancelAuctionBankTransfer(effectiveAuctionId, auction);
+        await cancelAuctionBankTransfer(effectiveAuctionId, auction, 'switch_to_card');
         const refreshedAuctionDoc = await safeGetDoc(adminDb.collection('auctions').doc(effectiveAuctionId));
         if (refreshedAuctionDoc.exists()) {
           auction = refreshedAuctionDoc.data();
@@ -3614,9 +3608,10 @@ app.post("/api/create-checkout-session", async (req, res) => {
         await adminDb.collection('auctions').doc(effectiveAuctionId).set({
           bank_transfer_pending: true,
           bank_transfer_session_id: session.id,
-          bank_transfer_deadline_at: bankTransferDeadlineStr
+          bank_transfer_deadline_at: bankTransferDeadlineStr,
+          bank_transfer_used_by: FieldValue.arrayUnion(userId)
         }, { merge: true });
-        console.log(`[Checkout] Auction ${effectiveAuctionId} updated to bank_transfer_pending: true with session ${session.id} and deadline ${bankTransferDeadlineStr}`);
+        console.log(`[Checkout] Auction ${effectiveAuctionId} updated to bank_transfer_pending: true with session ${session.id}, deadline ${bankTransferDeadlineStr} and added user ${userId} to bank_transfer_used_by`);
       } catch (aucErr: any) {
         console.error('Error updating auction for bank transfer:', aucErr.message);
       }
@@ -5693,6 +5688,14 @@ app.post("/api/auctions/create", async (req, res) => {
     }
 
     if (itemData) {
+      const locSlo = (typeof itemData.location === 'object') ? itemData.location?.SLO : itemData.location;
+      if (!itemData.category || !String(itemData.category).trim() ||
+          !itemData.condition || !String(itemData.condition).trim() ||
+          !itemData.region || !String(itemData.region).trim() ||
+          !locSlo || !String(locSlo).trim()) {
+        return res.status(400).json({ error: "Izberite kategorijo, stanje predmeta, regijo in vnesite mesto." });
+      }
+
       if (itemData.end_time) itemData.end_time = new Date(itemData.end_time).toISOString();
       if (itemData.endTime) itemData.endTime = new Date(itemData.endTime).toISOString();
       if (itemData.payment_deadline) itemData.payment_deadline = new Date(itemData.payment_deadline).toISOString();

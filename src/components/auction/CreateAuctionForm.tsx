@@ -150,6 +150,10 @@ export const CreateAuctionForm: React.FC<{
     const [invalidFields, setInvalidFields] = useState<{
         title?: boolean;
         description?: boolean;
+        category?: boolean;
+        condition?: boolean;
+        region?: boolean;
+        city?: boolean;
         images?: boolean;
         startingPrice?: boolean;
         shipping_cost?: boolean;

@@ -698,8 +698,8 @@ async function diagnoseStripeTransferPrerequisites(stripe, user, amountInCents) 
 
 // src/server/app.ts
 var import_cors = __toESM(require("cors"), 1);
-var import_stripe = __toESM(require("stripe"), 1);
-var import_resend2 = require("resend");
+var import_stripe2 = __toESM(require("stripe"), 1);
+var import_resend3 = require("resend");
 var import_render2 = require("@react-email/render");
 var import_react2 = __toESM(require("react"), 1);
 
@@ -1610,6 +1610,10 @@ async function markIdentityBlocked(uid, reason = "unpaid_strikes") {
   }
 }
 
+// src/server/cronProcessor.ts
+var import_stripe = __toESM(require("stripe"), 1);
+var import_resend2 = require("resend");
+
 // src/server/emailService.ts
 var import_react = __toESM(require("react"), 1);
 var import_resend = require("resend");
@@ -2091,19 +2095,111 @@ async function processAuctionCrons() {
         });
       }
     }
+    let expiredBankTransfersSnap;
+    try {
+      expiredBankTransfersSnap = await adminDb.collection("auctions").where("bank_transfer_pending", "==", true).limit(100).get();
+    } catch (e) {
+      console.error("[CRON] Failed to fetch expired bank transfer auctions:", e.message);
+      expiredBankTransfersSnap = { empty: true, docs: [] };
+    }
+    const getStripeInstance = () => {
+      const key = process.env.STRIPE_SECRET_KEY;
+      if (!key) {
+        throw new Error("STRIPE_SECRET_KEY environment variable is required");
+      }
+      return new import_stripe.default(key);
+    };
+    for (const auctionDoc of expiredBankTransfersSnap.docs) {
+      const auctionData = auctionDoc.data() || {};
+      const deadline = auctionData.bank_transfer_deadline_at ? new Date(auctionData.bank_transfer_deadline_at).getTime() : 0;
+      if (deadline > now.getTime()) continue;
+      const auctionId = auctionDoc.id;
+      const sessionId = auctionData.bank_transfer_session_id;
+      const buyerId = auctionData.winner_id || auctionData.winnerId || auctionData.second_winner_id || auctionData.secondWinnerId;
+      console.log(`[CRON] Processing expired bank transfer for auction ${auctionId}, session ${sessionId}`);
+      if (sessionId) {
+        try {
+          const stripe = getStripeInstance();
+          const sess = await stripe.checkout.sessions.retrieve(sessionId, { expand: ["payment_intent"] });
+          const piId = typeof sess.payment_intent === "string" ? sess.payment_intent : sess.payment_intent?.id;
+          if (piId) {
+            await stripe.paymentIntents.cancel(piId);
+            console.log(`[CRON] Cancelled PaymentIntent ${piId} for session ${sessionId}`);
+          } else {
+            await stripe.checkout.sessions.expire(sessionId);
+            console.log(`[CRON] Expired checkout session ${sessionId}`);
+          }
+        } catch (err) {
+          console.warn(`[CRON] Stripe session/PI cancel failed for ${sessionId}: ${err.message}`);
+        }
+      }
+      if (buyerId) {
+        try {
+          const reservationId = `${buyerId}_${auctionId}`;
+          await adminDb.collection("aml_reservations").doc(reservationId).set({
+            status: "released",
+            released_at: (/* @__PURE__ */ new Date()).toISOString(),
+            release_reason: "bank_transfer_deadline"
+          }, { merge: true });
+          console.log(`[CRON] Released AML reservation ${reservationId}`);
+        } catch (rErr) {
+          console.error(`[CRON] Error releasing aml reservation: ${rErr.message}`);
+        }
+        try {
+          const buyerSnap = await adminDb.collection("users").doc(buyerId).get();
+          const buyerData = buyerSnap.exists ? buyerSnap.data() || {} : {};
+          if (buyerData.email) {
+            const resendClient3 = new import_resend2.Resend(process.env.RESEND_API_KEY);
+            await resendClient3.emails.send({
+              from: process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>",
+              to: buyerData.email,
+              subject: "Rok za ban\u010Dno nakazilo je potekel - drazbe.si",
+              html: `
+                <div style="font-family: sans-serif; line-height: 1.5; color: #1E293B;">
+                  <h2 style="color: #EF4444;">Rok za ban\u010Dno nakazilo je potekel</h2>
+                  <p>Spo\u0161tovani,</p>
+                  <p>obve\u0161\u010Damo vas, da je rok za prejem ban\u010Dnega nakazila za dra\u017Ebo <strong>${auctionData.title || "Dra\u017Eba"}</strong> potekel.</p>
+                  <p>Dra\u017Ebo lahko \u0161e vedno pla\u010Date s pla\u010Dilno kartico do izteka pla\u010Dilnega roka.</p>
+                  <p>Lep pozdrav,<br/>Ekipa drazbe.si</p>
+                </div>
+              `
+            });
+            console.log(`[CRON] Sent bank transfer expired email to ${buyerData.email}`);
+          }
+        } catch (emErr) {
+          console.error(`[CRON] Error sending bank transfer expired email: ${emErr.message}`);
+        }
+      }
+      try {
+        await adminDb.collection("auctions").doc(auctionId).set({
+          bank_transfer_pending: false,
+          bank_transfer_session_id: null,
+          bank_transfer_deadline_at: null
+        }, { merge: true });
+        console.log(`[CRON] Cleared bank transfer fields for auction ${auctionId}`);
+      } catch (dbErr) {
+        console.error(`[CRON] Error clearing bank transfer fields: ${dbErr.message}`);
+      }
+    }
     let expiredPaymentSnap;
     try {
-      expiredPaymentSnap = await adminDb.collection("auctions").where("post_auction_status", "==", "awaiting_payment_1st").where("payment_deadline", "<=", nowIso).limit(100).get();
+      expiredPaymentSnap = await adminDb.collection("auctions").where("post_auction_status", "==", "awaiting_payment_1st").limit(100).get();
     } catch (e) {
-      console.warn("[CRON] Failed to fetch expired payment auctions:", e.message);
+      console.error("[CRON] Failed to fetch expired payment auctions:", e.message);
       expiredPaymentSnap = { empty: true, docs: [] };
     }
     for (const auctionDoc of expiredPaymentSnap.docs) {
       const data = auctionDoc.data();
       if (data.payment_status === "paid") continue;
-      const deadlineStr = data.payment_deadline;
-      if (!deadlineStr) continue;
-      const deadline = new Date(deadlineStr).getTime();
+      const deadline = data.payment_deadline ? new Date(data.payment_deadline).getTime() : 0;
+      if (deadline > now.getTime()) continue;
+      if (data.bank_transfer_pending === true) {
+        const btDeadline = data.bank_transfer_deadline_at ? new Date(data.bank_transfer_deadline_at).getTime() : 0;
+        if (btDeadline > now.getTime()) {
+          console.log(`[CRON] Skipping expired payment deadline for auction ${auctionDoc.id} because bank transfer is pending and deadline ${data.bank_transfer_deadline_at} is in the future.`);
+          continue;
+        }
+      }
       if (deadline <= now.getTime()) {
         const auctionId = auctionDoc.id;
         const winnerId = data.winner_id || data.winnerId;
@@ -4293,6 +4389,32 @@ var translations = {
   }
 };
 
+// src/lib/bankTransfer.ts
+var BANK_TRANSFER_MIN_AMOUNT_CENTS = 5e3;
+var FINAL_CHANCE_MIN_MS = 24 * 60 * 60 * 1e3;
+function addWorkingDays(startDate, days) {
+  let result = new Date(startDate);
+  let addedDays = 0;
+  while (addedDays < days) {
+    result.setDate(result.getDate() + 1);
+    const day = result.getDay();
+    if (day !== 0 && day !== 6) {
+      addedDays++;
+    }
+  }
+  return result;
+}
+function resolvePaymentDeadlineMs(source) {
+  if (source?.payment_deadline) return new Date(source.payment_deadline).getTime();
+  const end = source?.endTime || source?.end_time;
+  if (end) return new Date(end).getTime() + 48 * 60 * 60 * 1e3;
+  return 0;
+}
+function isBankTransferAvailable(params) {
+  const { amountCents, paymentDeadlineMs, nowMs, alreadyUsed } = params;
+  return amountCents >= BANK_TRANSFER_MIN_AMOUNT_CENTS && paymentDeadlineMs > nowMs && !alreadyUsed;
+}
+
 // src/server/app.ts
 async function recordTermsAcceptance(params) {
   try {
@@ -4318,7 +4440,7 @@ async function recordTermsAcceptance(params) {
     console.error("Fehler beim Speichern des AGB-Nachweises:", err);
   }
 }
-var resendClient2 = process.env.RESEND_API_KEY ? new import_resend2.Resend(process.env.RESEND_API_KEY) : null;
+var resendClient2 = process.env.RESEND_API_KEY ? new import_resend3.Resend(process.env.RESEND_API_KEY) : null;
 var adminEmailAddress = process.env.ADMIN_EMAIL || "info@drazbenik.si";
 async function safeGetDocs(queryRef) {
   try {
@@ -4813,7 +4935,7 @@ async function createAndSendSubscriptionInvoice(params) {
             </div>
           </div>
         `;
-        const resendClient3 = new import_resend2.Resend(process.env.RESEND_API_KEY);
+        const resendClient3 = new import_resend3.Resend(process.env.RESEND_API_KEY);
         await resendClient3.emails.send({
           from: process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>",
           to: targetEmail,
@@ -4970,7 +5092,7 @@ function getStripe() {
     if (!key) {
       throw new Error("STRIPE_SECRET_KEY environment variable is required");
     }
-    stripeClient = new import_stripe.default(key);
+    stripeClient = new import_stripe2.default(key);
   }
   return stripeClient;
 }
@@ -5059,17 +5181,77 @@ async function recordAmlSpend({
     return await adminDb.runTransaction(runWithTx);
   }
 }
-function addWorkingDays(startDate, days) {
-  let result = new Date(startDate);
-  let addedDays = 0;
-  while (addedDays < days) {
-    result.setDate(result.getDate() + 1);
-    const day = result.getDay();
-    if (day !== 0 && day !== 6) {
-      addedDays++;
+async function cancelAuctionBankTransfer(auctionId, auctionData, mode = "failed") {
+  const stripe = getStripe();
+  const sessionId = auctionData.bank_transfer_session_id;
+  const buyerId = auctionData.winner_id || auctionData.winnerId || auctionData.second_winner_id || auctionData.secondWinnerId;
+  if (sessionId) {
+    try {
+      const sess = await stripe.checkout.sessions.retrieve(sessionId, { expand: ["payment_intent"] });
+      const piId = typeof sess.payment_intent === "string" ? sess.payment_intent : sess.payment_intent?.id;
+      if (piId) {
+        await stripe.paymentIntents.cancel(piId);
+        console.log(`[CancelBankTransfer] Cancelled PaymentIntent ${piId} for session ${sessionId}`);
+      } else {
+        await stripe.checkout.sessions.expire(sessionId);
+        console.log(`[CancelBankTransfer] Expired checkout session ${sessionId}`);
+      }
+    } catch (err) {
+      console.warn(`[CancelBankTransfer] Warn: session cancel failed for ${sessionId}: ${err.message}`);
     }
   }
-  return result;
+  if (buyerId) {
+    try {
+      const reservationId = `${buyerId}_${auctionId}`;
+      await adminDb.collection("aml_reservations").doc(reservationId).set({
+        status: "released",
+        released_at: (/* @__PURE__ */ new Date()).toISOString(),
+        release_reason: mode === "switch_to_card" ? "switch_to_card" : "bank_transfer_cancelled"
+      }, { merge: true });
+      console.log(`[CancelBankTransfer] Released AML reservation ${reservationId}`);
+    } catch (rErr) {
+      console.error(`[CancelBankTransfer] Error releasing aml reservation: ${rErr.message}`);
+    }
+  }
+  try {
+    const nowMs = Date.now();
+    const currentDeadlineMs = new Date(auctionData.payment_deadline || 0).getTime();
+    const minDeadlineMs = nowMs + 24 * 60 * 60 * 1e3;
+    const newDeadline = new Date(Math.max(currentDeadlineMs, minDeadlineMs)).toISOString();
+    await adminDb.collection("auctions").doc(auctionId).set({
+      bank_transfer_pending: false,
+      bank_transfer_session_id: null,
+      bank_transfer_deadline_at: null,
+      bank_transfer_final_chance: true,
+      payment_deadline: newDeadline
+    }, { merge: true });
+    console.log(`[CancelBankTransfer] Auction ${auctionId} bank transfer fields cleared (mode: ${mode}), final chance enabled.`);
+    if (mode === "failed" && buyerId) {
+      const buyerSnap = await adminDb.collection("users").doc(buyerId).get();
+      const buyerData = buyerSnap.exists ? buyerSnap.data() || {} : {};
+      if (buyerData.email) {
+        const resendClient3 = new import_resend3.Resend(process.env.RESEND_API_KEY);
+        const auctionTitle = auctionData.title?.SLO || auctionData.title || "Dra\u017Eba";
+        await resendClient3.emails.send({
+          from: process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>",
+          to: buyerData.email,
+          subject: "Nakazilo ni bilo izvedeno - drazbe.si",
+          html: `
+            <div style="font-family: sans-serif; line-height: 1.5; color: #1E293B;">
+              <h2 style="color: #EF4444;">Nakazilo ni bilo izvedeno</h2>
+              <p>Spo\u0161tovani,</p>
+              <p>obve\u0161\u010Damo vas, da nakazilo za dra\u017Ebo <strong>${auctionTitle}</strong> ni bilo izvedeno.</p>
+              <p>Za pla\u010Dilo imate \u0161e eno prilo\u017Enost: pla\u010Dajte s kartico do <strong>${new Date(newDeadline).toLocaleString("sl-SI")}</strong>. \u010Ce pla\u010Dila ne opravite, veljajo obi\u010Dajna pravila za zamudnike.</p>
+              <p>Lep pozdrav,<br/>Ekipa drazbe.si</p>
+            </div>
+          `
+        });
+        console.log(`[CancelBankTransfer] Sent final chance email to ${buyerData.email}`);
+      }
+    }
+  } catch (dbErr) {
+    console.error(`[CancelBankTransfer] Error resetting auction fields: ${dbErr.message}`);
+  }
 }
 async function reserveAmlAmount({
   buyerId,
@@ -5354,7 +5536,7 @@ async function releaseSellerFunds(txId, reason) {
         const auction = auctionDoc.data();
         const auctionTitleText = auction?.title?.SLO || auction?.title?.EN || "Predmet dra\u017Ebe";
         const netAmt = ((tx.seller_net_cents || 0) / 100).toFixed(2);
-        const resendClient3 = new import_resend2.Resend(process.env.RESEND_API_KEY);
+        const resendClient3 = new import_resend3.Resend(process.env.RESEND_API_KEY);
         await resendClient3.emails.send({
           from: process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>",
           to: seller.email,
@@ -5512,7 +5694,7 @@ async function executeSellerBatchPayout(sellerId, trigger) {
       if (user.email && process.env.RESEND_API_KEY) {
         try {
           const formattedAmount = (totalCents / 100).toFixed(2);
-          const resendClient3 = new import_resend2.Resend(process.env.RESEND_API_KEY);
+          const resendClient3 = new import_resend3.Resend(process.env.RESEND_API_KEY);
           await resendClient3.emails.send({
             from: process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>",
             to: user.email,
@@ -5797,7 +5979,10 @@ async function finalizeAuctionPayment(params) {
       status: "completed",
       payment_status: "paid",
       post_auction_status: "paid",
-      paid_at: (/* @__PURE__ */ new Date()).toISOString()
+      paid_at: (/* @__PURE__ */ new Date()).toISOString(),
+      bank_transfer_pending: false,
+      bank_transfer_session_id: null,
+      bank_transfer_deadline_at: null
     });
     await recordSaleCompletion(auctionId, sellerId);
     try {
@@ -5965,7 +6150,7 @@ async function finalizeAuctionPayment(params) {
             auctionUrl,
             settingsUrl: `${baseAppUrl}/?tab=settings`
           }));
-          const resendClient3 = new import_resend2.Resend(process.env.RESEND_API_KEY);
+          const resendClient3 = new import_resend3.Resend(process.env.RESEND_API_KEY);
           await resendClient3.emails.send({
             from: process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>",
             to: buyer.email,
@@ -5988,7 +6173,7 @@ async function finalizeAuctionPayment(params) {
             settingsUrl: `${baseAppUrl}/?tab=settings`,
             paymentDeadline: `${SHIP_DEADLINE_DAYS} dni`
           }));
-          const resendClient3 = new import_resend2.Resend(process.env.RESEND_API_KEY);
+          const resendClient3 = new import_resend3.Resend(process.env.RESEND_API_KEY);
           await resendClient3.emails.send({
             from: process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>",
             to: seller.email,
@@ -6079,7 +6264,7 @@ app.post("/api/webhook", import_express.default.raw({ type: "application/json" }
         console.log(`[webhook] Bank transfer checkout session completed (unpaid). Session ID: ${sessionObj.id}. Awaiting payment.`);
         if (auction_id) {
           await adminDb.collection("auctions").doc(auction_id).set({
-            post_auction_status: "awaiting_bank_transfer",
+            bank_transfer_pending: true,
             bank_transfer_session_id: sessionObj.id
           }, { merge: true });
         }
@@ -6257,19 +6442,12 @@ app.post("/api/webhook", import_express.default.raw({ type: "application/json" }
         }, { merge: true });
         console.log(`[webhook] Released AML reservation ${reservationId} due to checkout.session.expired`);
         if (metadata.payment_method === "bank_transfer") {
-          const auctionDoc = await adminDb.collection("auctions").doc(auction_id).get();
-          if (auctionDoc.exists) {
-            const auctionData = auctionDoc.data() || {};
-            let restoreStatus = "awaiting_payment_1st";
-            if (auctionData.second_winner_id === buyer_id) {
-              restoreStatus = "awaiting_payment_2nd";
-            }
-            await adminDb.collection("auctions").doc(auction_id).set({
-              post_auction_status: restoreStatus,
-              bank_transfer_session_id: null
-            }, { merge: true });
-            console.log(`[webhook] Bank transfer expired for auction ${auction_id}. Restored post_auction_status to ${restoreStatus}`);
-          }
+          await adminDb.collection("auctions").doc(auction_id).set({
+            bank_transfer_pending: false,
+            bank_transfer_session_id: null,
+            bank_transfer_deadline_at: null
+          }, { merge: true });
+          console.log(`[webhook] Bank transfer expired for auction ${auction_id}. Cleared bank transfer fields.`);
         }
       } else if (sessionId) {
         const qSnap = await adminDb.collection("aml_reservations").where("stripe_session_id", "==", sessionId).where("status", "==", "active").limit(5).get();
@@ -6292,26 +6470,10 @@ app.post("/api/webhook", import_express.default.raw({ type: "application/json" }
     const metadata = session?.metadata || {};
     const { auction_id, buyer_id } = metadata;
     try {
-      if (buyer_id && auction_id) {
-        const reservationId = `${buyer_id}_${auction_id}`;
-        await adminDb.collection("aml_reservations").doc(reservationId).set({
-          status: "released",
-          released_at: (/* @__PURE__ */ new Date()).toISOString(),
-          release_reason: "async_payment_failed"
-        }, { merge: true });
-        console.log(`[webhook] Released AML reservation ${reservationId} due to async_payment_failed`);
+      if (auction_id) {
         const auctionDoc = await adminDb.collection("auctions").doc(auction_id).get();
         if (auctionDoc.exists) {
-          const auctionData = auctionDoc.data() || {};
-          let restoreStatus = "awaiting_payment_1st";
-          if (auctionData.second_winner_id === buyer_id) {
-            restoreStatus = "awaiting_payment_2nd";
-          }
-          await adminDb.collection("auctions").doc(auction_id).set({
-            post_auction_status: restoreStatus,
-            bank_transfer_session_id: null
-          }, { merge: true });
-          console.log(`[webhook] Bank transfer failed for auction ${auction_id}. Restored post_auction_status to ${restoreStatus}`);
+          await cancelAuctionBankTransfer(auction_id, auctionDoc.data());
         }
       }
       res.json({ received: true });
@@ -6385,7 +6547,7 @@ app.post("/api/webhook", import_express.default.raw({ type: "application/json" }
               const uDoc = await safeGetDoc(adminDb.collection("users").doc(sellerIdToNotify));
               const uData = uDoc.data() || {};
               if (uData.email && process.env.RESEND_API_KEY) {
-                const resendClient3 = new import_resend2.Resend(process.env.RESEND_API_KEY);
+                const resendClient3 = new import_resend3.Resend(process.env.RESEND_API_KEY);
                 await resendClient3.emails.send({
                   from: process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>",
                   to: uData.email,
@@ -6914,6 +7076,30 @@ app.post("/api/create-checkout-session", async (req, res) => {
       if (!isCaseA && !isCaseB) {
         return res.status(403).json({ error: "Te dra\u017Ebe ne morete pla\u010Dati." });
       }
+      const isBankTransfer2 = payment_method === "bank_transfer";
+      if (isBankTransfer2 && auction.bank_transfer_pending === true) {
+        const deadline = auction.bank_transfer_deadline_at ? new Date(auction.bank_transfer_deadline_at).getTime() : 0;
+        if (deadline > Date.now() && auction.bank_transfer_session_id) {
+          try {
+            const existingSess = await stripe.checkout.sessions.retrieve(auction.bank_transfer_session_id);
+            if (existingSess && existingSess.status === "open") {
+              console.log(`[Checkout] Reusing active bank transfer session ${existingSess.id} for auction ${effectiveAuctionId}`);
+              return res.json({ url: existingSess.url, sessionId: existingSess.id });
+            }
+          } catch (err) {
+            console.warn(`[Checkout] Error retrieving existing bank transfer session: ${err.message}`);
+          }
+          return res.status(409).json({ error: "Nakazilo je \u017Ee v teku" });
+        }
+      }
+      if (!isBankTransfer2 && auction.bank_transfer_pending === true) {
+        console.log(`[Checkout] Card payment requested while bank transfer is pending for auction ${effectiveAuctionId}. Cancelling old bank transfer first.`);
+        await cancelAuctionBankTransfer(effectiveAuctionId, auction, "switch_to_card");
+        const refreshedAuctionDoc = await safeGetDoc(adminDb.collection("auctions").doc(effectiveAuctionId));
+        if (refreshedAuctionDoc.exists()) {
+          auction = refreshedAuctionDoc.data();
+        }
+      }
       if (auction.title) {
         auctionTitle = (typeof auction.title === "object" ? auction.title["SLO"] || auction.title["EN"] : auction.title) || "Dra\u017Eba";
       }
@@ -6943,26 +7129,22 @@ app.post("/api/create-checkout-session", async (req, res) => {
         }
         throw payoutErr;
       }
-      const isBankTransfer2 = payment_method === "bank_transfer";
       if (isBankTransfer2) {
-        if (finalAmountCents < 5e3) {
-          return res.status(400).json({ error: "Ban\u010Dno nakazilo ni na voljo za to pla\u010Dilo." });
-        }
-        const paymentDeadlineMs = auction.payment_deadline ? new Date(auction.payment_deadline).getTime() : 0;
-        const timeRemaining = paymentDeadlineMs - Date.now();
-        const fourDaysInMs = 4 * 24 * 60 * 60 * 1e3;
-        if (timeRemaining < fourDaysInMs) {
-          return res.status(400).json({ error: "Ban\u010Dno nakazilo ni na voljo za to pla\u010Dilo." });
+        const paymentDeadlineMs = resolvePaymentDeadlineMs(auction);
+        const alreadyUsed = (auction.bank_transfer_used_by || []).includes(userId);
+        if (!isBankTransferAvailable({ amountCents: finalAmountCents, paymentDeadlineMs, nowMs: Date.now(), alreadyUsed })) {
+          let reason = "min_amount";
+          if (alreadyUsed) reason = "already_used";
+          else if (paymentDeadlineMs <= Date.now()) reason = "deadline_passed";
+          console.warn(`[Checkout] Bank transfer unavailable for auction ${effectiveAuctionId}: ${reason}`);
+          return res.status(400).json({ error: "Ban\u010Dno nakazilo ni na voljo za to pla\u010Dilo.", reason });
         }
       }
       let bankTransferDeadlineStr2 = void 0;
       if (isBankTransfer2) {
         const now = /* @__PURE__ */ new Date();
         const threeWorkingDays = addWorkingDays(now, 3);
-        const deadlineMs = auction.payment_deadline ? new Date(auction.payment_deadline).getTime() : 0;
-        const limitDate = deadlineMs > 0 ? new Date(deadlineMs) : threeWorkingDays;
-        const chosenDate = threeWorkingDays < limitDate ? threeWorkingDays : limitDate;
-        bankTransferDeadlineStr2 = chosenDate.toISOString();
+        bankTransferDeadlineStr2 = threeWorkingDays.toISOString();
       }
       reservationId = `${userId}_${effectiveAuctionId}`;
       reservationCreated = false;
@@ -7159,11 +7341,12 @@ app.post("/api/create-checkout-session", async (req, res) => {
     if (isBankTransfer) {
       try {
         await adminDb.collection("auctions").doc(effectiveAuctionId).set({
-          post_auction_status: "awaiting_bank_transfer",
+          bank_transfer_pending: true,
           bank_transfer_session_id: session.id,
-          bank_transfer_deadline_at: bankTransferDeadlineStr
+          bank_transfer_deadline_at: bankTransferDeadlineStr,
+          bank_transfer_used_by: import_firestore.FieldValue.arrayUnion(userId)
         }, { merge: true });
-        console.log(`[Checkout] Auction ${effectiveAuctionId} updated to awaiting_bank_transfer with session ${session.id} and deadline ${bankTransferDeadlineStr}`);
+        console.log(`[Checkout] Auction ${effectiveAuctionId} updated to bank_transfer_pending: true with session ${session.id}, deadline ${bankTransferDeadlineStr} and added user ${userId} to bank_transfer_used_by`);
       } catch (aucErr) {
         console.error("Error updating auction for bank transfer:", aucErr.message);
       }
@@ -7172,6 +7355,46 @@ app.post("/api/create-checkout-session", async (req, res) => {
   } catch (error) {
     console.error("Stripe Checkout Error:", error);
     res.status(error.statusCode || 500).json({ error: error.message });
+  }
+});
+app.post("/api/checkout/cancel-bank-transfer", async (req, res) => {
+  let userId;
+  try {
+    userId = await authenticateFirebaseUser(req);
+  } catch (authErr) {
+    return res.status(401).json({ error: authErr.message || "Unauthorized" });
+  }
+  try {
+    const { auctionId } = req.body || {};
+    if (!auctionId) {
+      return res.status(400).json({ error: "Missing auctionId" });
+    }
+    const auctionDoc = await adminDb.collection("auctions").doc(auctionId).get();
+    if (!auctionDoc.exists) {
+      return res.status(404).json({ error: "Auction not found" });
+    }
+    const auctionData = auctionDoc.data() || {};
+    const winnerId = auctionData.winner_id || auctionData.winnerId;
+    const secondWinnerId = auctionData.second_winner_id || auctionData.secondWinnerId;
+    let authorized = userId === winnerId || userId === secondWinnerId;
+    if (authorized && auctionData.bank_transfer_session_id) {
+      try {
+        const stripe = getStripe();
+        const sess = await stripe.checkout.sessions.retrieve(auctionData.bank_transfer_session_id);
+        if (sess.metadata && sess.metadata.buyer_id) {
+          authorized = sess.metadata.buyer_id === userId;
+        }
+      } catch (e) {
+      }
+    }
+    if (!authorized) {
+      return res.status(403).json({ error: "Te dra\u017Ebe ne morete upravljati." });
+    }
+    await cancelAuctionBankTransfer(auctionId, auctionData);
+    return res.json({ success: true });
+  } catch (error) {
+    console.error("Error cancelling bank transfer:", error);
+    return res.status(500).json({ error: error.message });
   }
 });
 app.post("/api/confirm-checkout-session", async (req, res) => {
@@ -7200,7 +7423,7 @@ app.post("/api/confirm-checkout-session", async (req, res) => {
     }
     if (session) {
       const isBankTransfer = session.metadata?.payment_method === "bank_transfer";
-      const isPaid = session.payment_status === "paid" || session.status === "complete";
+      const isPaid = session.payment_status === "paid" || session.status === "complete" || isBankTransfer && session.status === "open";
       if (!isPaid) {
         return res.status(400).json({ error: "Payment not completed for this session", status: session.status });
       }
@@ -8135,7 +8358,7 @@ app.post("/api/test/send-email", async (req, res) => {
       const attachments = [
         { filename: `racun_${mockTransaction.id}.pdf`, content: invoiceBuffer }
       ];
-      const resendClient3 = new import_resend2.Resend(resendApiKey);
+      const resendClient3 = new import_resend3.Resend(resendApiKey);
       const baseAppUrl = process.env.APP_URL && !process.env.APP_URL.includes("drazbenik.si") ? process.env.APP_URL : "https://drazbe.eu";
       const htmlContent = await (0, import_render2.render)(import_react2.default.createElement(AuctionEmailTemplate, {
         type: "payment_success",
@@ -8793,6 +9016,11 @@ app.post("/api/auctions/create", async (req, res) => {
       return str.replace(/</g, "&lt;").replace(/>/g, "&gt;");
     };
     if (itemData) {
+      if (!itemData.id) {
+        if (!itemData.category || !itemData.category.trim() || !itemData.condition || !itemData.condition.trim() || !itemData.region || !itemData.region.trim() || !itemData.location || !itemData.location.trim()) {
+          return res.status(400).json({ error: "Izberite kategorijo, stanje predmeta, regijo in vnesite mesto." });
+        }
+      }
       if (itemData.title) itemData.title = sanitizeString(itemData.title);
       if (itemData.description) itemData.description = sanitizeString(itemData.description);
       if (itemData.category) itemData.category = sanitizeString(itemData.category);
@@ -8876,6 +9104,10 @@ app.post("/api/auctions/create", async (req, res) => {
       }
     }
     if (itemData) {
+      const locSlo = typeof itemData.location === "object" ? itemData.location?.SLO : itemData.location;
+      if (!itemData.category || !String(itemData.category).trim() || !itemData.condition || !String(itemData.condition).trim() || !itemData.region || !String(itemData.region).trim() || !locSlo || !String(locSlo).trim()) {
+        return res.status(400).json({ error: "Izberite kategorijo, stanje predmeta, regijo in vnesite mesto." });
+      }
       if (itemData.end_time) itemData.end_time = new Date(itemData.end_time).toISOString();
       if (itemData.endTime) itemData.endTime = new Date(itemData.endTime).toISOString();
       if (itemData.payment_deadline) itemData.payment_deadline = new Date(itemData.payment_deadline).toISOString();
@@ -9141,7 +9373,7 @@ app.post("/api/orders/:id/verify-pickup-pin", async (req, res) => {
           auctionUrl,
           settingsUrl: `${baseAppUrl}/?tab=settings`
         }));
-        const resendClient3 = new import_resend2.Resend(process.env.RESEND_API_KEY);
+        const resendClient3 = new import_resend3.Resend(process.env.RESEND_API_KEY);
         await resendClient3.emails.send({
           from: process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>",
           to: seller.email,
@@ -9211,7 +9443,7 @@ app.post("/api/orders/:id/mark-as-shipped", async (req, res) => {
           carrierName: carrier_name,
           trackingNumber: tracking_number
         }));
-        const resendClient3 = new import_resend2.Resend(process.env.RESEND_API_KEY);
+        const resendClient3 = new import_resend3.Resend(process.env.RESEND_API_KEY);
         await resendClient3.emails.send({
           from: process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>",
           to: buyer.email,
@@ -9433,7 +9665,7 @@ var handleProcessEscrowCompletions = async (req, res) => {
             auctionUrl: `${baseAppUrl}/?drazba=${tx.auction_id}`,
             settingsUrl: `${baseAppUrl}/?tab=settings`
           }));
-          const resendClient3 = new import_resend2.Resend(process.env.RESEND_API_KEY);
+          const resendClient3 = new import_resend3.Resend(process.env.RESEND_API_KEY);
           await resendClient3.emails.send({
             from: process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>",
             to: buyer.email,
@@ -9572,7 +9804,7 @@ app.post("/api/auth/send-email-change", async (req, res) => {
       url: `${baseAppUrl}/?tab=settings`
     });
     if (process.env.RESEND_API_KEY) {
-      const resend = new import_resend2.Resend(process.env.RESEND_API_KEY);
+      const resend = new import_resend3.Resend(process.env.RESEND_API_KEY);
       const htmlContent = await (0, import_render2.render)(import_react2.default.createElement(AuthEmailTemplate, {
         type: "verify_email",
         actionUrl,
@@ -9685,7 +9917,7 @@ app.post("/api/auth/send-verification", async (req, res) => {
         actionUrl,
         recipientName: displayName || userRecord.displayName || userEmail.split("@")[0]
       }));
-      const resend = new import_resend2.Resend(apiKey);
+      const resend = new import_resend3.Resend(apiKey);
       const fromEmail = process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>";
       await resend.emails.send({
         from: fromEmail,
@@ -9807,7 +10039,7 @@ app.post("/api/auth/send-password-reset", async (req, res) => {
     }
     if (actionUrl) {
       try {
-        const resend = new import_resend2.Resend(process.env.RESEND_API_KEY);
+        const resend = new import_resend3.Resend(process.env.RESEND_API_KEY);
         const htmlContent = await (0, import_render2.render)(import_react2.default.createElement(AuthEmailTemplate, {
           type: "reset_password",
           actionUrl,
@@ -9845,7 +10077,7 @@ app.post("/api/auth/send-email-changed", async (req, res) => {
     }
     const baseAppUrl = getAppBaseUrl(req);
     if (process.env.RESEND_API_KEY) {
-      const resend = new import_resend2.Resend(process.env.RESEND_API_KEY);
+      const resend = new import_resend3.Resend(process.env.RESEND_API_KEY);
       const htmlContent = await (0, import_render2.render)(import_react2.default.createElement(AuthEmailTemplate, {
         type: "email_changed",
         actionUrl: `${baseAppUrl}/?tab=settings`,
@@ -9879,7 +10111,7 @@ app.post("/api/auth/send-mfa-enrollment", async (req, res) => {
     }
     const baseAppUrl = getAppBaseUrl(req);
     if (process.env.RESEND_API_KEY) {
-      const resend = new import_resend2.Resend(process.env.RESEND_API_KEY);
+      const resend = new import_resend3.Resend(process.env.RESEND_API_KEY);
       const htmlContent = await (0, import_render2.render)(import_react2.default.createElement(AuthEmailTemplate, {
         type: "mfa_enrollment",
         actionUrl: `${baseAppUrl}/?tab=settings`,
@@ -10104,7 +10336,7 @@ app.post("/api/auctions/confirm-receipt", async (req, res) => {
           auctionUrl,
           settingsUrl: `${baseAppUrl}/?tab=settings`
         }));
-        const resendClient3 = new import_resend2.Resend(process.env.RESEND_API_KEY);
+        const resendClient3 = new import_resend3.Resend(process.env.RESEND_API_KEY);
         await resendClient3.emails.send({
           from: process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>",
           to: seller.email,
@@ -11994,7 +12226,7 @@ app.post("/api/admin/orders/:id/resolve-dispute", async (req, res) => {
       return res.status(400).json({ error: "Naro\u010Dilo ni v sporu." });
     }
     const stripe = getStripe();
-    const resendClient3 = new import_resend2.Resend(process.env.RESEND_API_KEY);
+    const resendClient3 = new import_resend3.Resend(process.env.RESEND_API_KEY);
     if (decision === "release_to_seller") {
       await txRef.update({
         payout_status: "releasable",
