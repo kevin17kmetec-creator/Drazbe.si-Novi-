@@ -5556,14 +5556,6 @@ app.post("/api/auctions/create", async (req, res) => {
     };
 
     if (itemData) {
-      if (!itemData.id) {
-          if (!itemData.category || !itemData.category.trim() ||
-              !itemData.condition || !itemData.condition.trim() ||
-              !itemData.region || !itemData.region.trim() ||
-              !itemData.location || !itemData.location.trim()) {
-              return res.status(400).json({ error: "Izberite kategorijo, stanje predmeta, regijo in vnesite mesto." });
-          }
-      }
 
       if (itemData.title) itemData.title = sanitizeString(itemData.title);
       if (itemData.description) itemData.description = sanitizeString(itemData.description);
