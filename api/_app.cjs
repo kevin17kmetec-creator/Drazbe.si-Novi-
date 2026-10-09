@@ -1448,26 +1448,49 @@ async function cancelAuctionBankTransfer(auctionId, _auctionData, mode = "failed
     try {
       const stripe = getStripeClient();
       const sess = await stripe.checkout.sessions.retrieve(sessionId, { expand: ["payment_intent"] });
-      const pi = typeof sess.payment_intent === "object" ? sess.payment_intent : null;
-      const isPaidOrProcessing = sess.payment_status === "paid" || sess.status === "complete" || pi?.status === "succeeded" || pi?.status === "processing";
+      let pi = null;
+      if (typeof sess.payment_intent === "object" && sess.payment_intent !== null) {
+        pi = sess.payment_intent;
+      } else if (typeof sess.payment_intent === "string") {
+        pi = await stripe.paymentIntents.retrieve(sess.payment_intent);
+      }
+      const isPaidOrProcessing = sess.payment_status === "paid" || pi?.status === "succeeded" || pi?.status === "processing";
       if (isPaidOrProcessing) {
         console.warn(`[CancelBankTransfer] Cannot cancel session ${sessionId}: already paid or processing`);
         return { success: false, reason: "already_paid_or_processing" };
       }
-      const piId = typeof sess.payment_intent === "string" ? sess.payment_intent : sess.payment_intent?.id;
-      if (piId) {
-        try {
-          await stripe.paymentIntents.cancel(piId);
-          console.log(`[CancelBankTransfer] Cancelled PaymentIntent ${piId} for session ${sessionId}`);
-        } catch (cErr) {
-          await stripe.checkout.sessions.expire(sessionId);
+      if (pi) {
+        if (pi.status === "requires_action" || pi.status === "requires_payment_method") {
+          try {
+            await stripe.paymentIntents.cancel(pi.id);
+            console.log(`[CancelBankTransfer] Cancelled PaymentIntent ${pi.id} for session ${sessionId}`);
+          } catch (cancelErr) {
+            console.warn(`[CancelBankTransfer] Cancel error for ${pi.id}, re-retrieving PaymentIntent: ${cancelErr.message}`);
+            const reloadedPi = await stripe.paymentIntents.retrieve(pi.id);
+            if (reloadedPi.status === "succeeded" || reloadedPi.status === "processing") {
+              return { success: false, reason: "already_paid_or_processing" };
+            }
+            if (reloadedPi.status === "canceled") {
+            } else {
+              return { success: false, reason: "cancel_failed" };
+            }
+          }
+        } else if (pi.status === "canceled") {
+        } else {
+          return { success: false, reason: "cancel_failed" };
         }
-      } else {
-        await stripe.checkout.sessions.expire(sessionId);
-        console.log(`[CancelBankTransfer] Expired checkout session ${sessionId}`);
+      } else if (sess.status === "open") {
+        try {
+          await stripe.checkout.sessions.expire(sessionId);
+          console.log(`[CancelBankTransfer] Expired checkout session ${sessionId}`);
+        } catch (expireErr) {
+          console.warn(`[CancelBankTransfer] Session expire failed: ${expireErr.message}`);
+          return { success: false, reason: "cancel_failed" };
+        }
       }
     } catch (err) {
-      console.warn(`[CancelBankTransfer] Warn: session cancel failed for ${sessionId}: ${err.message}`);
+      console.warn(`[CancelBankTransfer] Warn: communication failure with payment provider for ${sessionId}: ${err.message}`);
+      return { success: false, reason: "stripe_error" };
     }
   }
   let claimed = null;
@@ -5880,24 +5903,88 @@ async function finalizeAuctionPayment(params) {
     const auctionDoc = await safeGetDoc(adminDb.collection("auctions").doc(auctionId));
     const auction = auctionDoc.data() || {};
     if (auction.payment_status === "paid" || auction.post_auction_status === "paid") {
-      console.warn(`[finalizeAuctionPayment] Auktion ${auctionId} ist bereits bezahlt. Rueckerstattung fuer ${paymentRef}`);
-      try {
-        const stripe = getStripe();
-        let piToRefund = paymentRef.startsWith("pi_") ? paymentRef : "";
-        if (!piToRefund && stripeSessionId) {
+      const stripe = getStripe();
+      let piToRefund = paymentRef.startsWith("pi_") ? paymentRef : "";
+      if (!piToRefund && stripeSessionId) {
+        try {
           const sObj = await stripe.checkout.sessions.retrieve(stripeSessionId);
           piToRefund = typeof sObj.payment_intent === "string" ? sObj.payment_intent : sObj.payment_intent?.id || "";
+        } catch (e) {
         }
-        if (piToRefund) {
-          await stripe.refunds.create({
-            payment_intent: piToRefund,
-            reason: "duplicate",
-            metadata: { auction_id: auctionId, duplicate_of: auction.paid_at || "already_paid" }
-          });
-          console.log(`[finalizeAuctionPayment] Rueckerstattung erfolgreich: ${piToRefund} fuer Auktion ${auctionId}`);
+      }
+      if (!piToRefund && paymentRef.startsWith("cs_")) {
+        try {
+          const sObj = await stripe.checkout.sessions.retrieve(paymentRef);
+          piToRefund = typeof sObj.payment_intent === "string" ? sObj.payment_intent : sObj.payment_intent?.id || "";
+        } catch (e) {
         }
-      } catch (refErr) {
-        console.error(`[finalizeAuctionPayment] Fehler bei automatischer Rueckerstattung der Doppelzahlung:`, refErr.message);
+      }
+      let isDuplicate = false;
+      if (auction.paid_payment_ref) {
+        const differsFromRef = auction.paid_payment_ref !== paymentRef;
+        const differsFromPi = !piToRefund || auction.paid_payment_ref !== piToRefund;
+        if (differsFromRef && differsFromPi) {
+          isDuplicate = true;
+        }
+      } else {
+        const currentTxSnap2 = await safeGetDoc(txDocRef);
+        const currentTxData = currentTxSnap2.data() || {};
+        if (currentTxData.finalized === true) {
+          return { alreadyProcessed: true };
+        }
+        const otherTxSnap = await adminDb.collection("transactions").where("auction_id", "==", auctionId).where("finalized", "==", true).limit(1).get();
+        if (!otherTxSnap.empty) {
+          const otherTx = otherTxSnap.docs[0].data();
+          const otherPi = otherTx.stripe_payment_intent_id;
+          if (otherPi && otherPi !== paymentRef && (!piToRefund || otherPi !== piToRefund)) {
+            isDuplicate = true;
+          }
+        }
+      }
+      if (!isDuplicate) {
+        return { alreadyProcessed: true };
+      }
+      console.warn(`[finalizeAuctionPayment] Auktion ${auctionId} ist bereits bezahlt. Rueckerstattung der Doppelzahlung fuer ${paymentRef}`);
+      let refundResult = null;
+      let refundError = null;
+      if (piToRefund) {
+        try {
+          refundResult = await stripe.refunds.create(
+            {
+              payment_intent: piToRefund,
+              reverse_transfer: true,
+              refund_application_fee: true,
+              reason: "duplicate",
+              metadata: {
+                auction_id: auctionId,
+                duplicate_of: auction.paid_payment_ref || auction.paid_at || "already_paid"
+              }
+            },
+            {
+              idempotencyKey: "dup_refund_" + piToRefund
+            }
+          );
+          console.log(`[finalizeAuctionPayment] Rueckerstattung erfolgreich: ${refundResult.id} fuer Auktion ${auctionId}`);
+        } catch (refErr) {
+          refundError = refErr.message || String(refErr);
+          console.error(`[finalizeAuctionPayment] Fehler bei automatischer Rueckerstattung der Doppelzahlung:`, refundError);
+        }
+      } else {
+        refundError = "Missing payment intent id to refund";
+        console.error(`[finalizeAuctionPayment] Keine PaymentIntent-ID fuer Rueckerstattung gefunden (${paymentRef})`);
+      }
+      try {
+        await adminDb.collection("duplicate_payments").doc(paymentRef).set({
+          auction_id: auctionId,
+          buyer_id: buyerId,
+          payment_ref: paymentRef,
+          ...refundResult?.id ? { refund_id: refundResult.id } : {},
+          ...refundError ? { error: refundError } : {},
+          amount: amountTotalCents / 100,
+          created_at: (/* @__PURE__ */ new Date()).toISOString()
+        });
+      } catch (auditErr) {
+        console.error("[finalizeAuctionPayment] Error creating duplicate_payments audit doc:", auditErr.message);
       }
       await txDocRef.set({
         status: "duplicate_refunded",
@@ -5907,6 +5994,8 @@ async function finalizeAuctionPayment(params) {
         buyer_id: buyerId,
         amount_total: amountTotalCents / 100,
         refunded_at: (/* @__PURE__ */ new Date()).toISOString(),
+        ...refundResult?.id ? { refund_id: refundResult.id } : {},
+        ...refundError ? { refund_error: refundError } : {},
         note: "Dra\u017Eba je \u017Ee bila pla\u010Dana z drugim pla\u010Dilom."
       }, { merge: true });
       try {
@@ -5916,6 +6005,71 @@ async function finalizeAuctionPayment(params) {
           release_reason: "duplicate_payment_refunded"
         }, { merge: true });
       } catch (e) {
+      }
+      const formattedAmount = (amountTotalCents / 100).toFixed(2) + " \u20AC";
+      const auctionTitle = auction.title?.SLO || (typeof auction.title === "string" ? auction.title : auction.title?.EN || "Dra\u017Eba");
+      if (process.env.RESEND_API_KEY && buyer.email && refundResult?.id) {
+        try {
+          const resendClient3 = new import_resend3.Resend(process.env.RESEND_API_KEY);
+          await resendClient3.emails.send({
+            from: process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>",
+            to: buyer.email,
+            subject: "Dvojno pla\u010Dilo je bilo samodejno povrnjeno - drazbe.si",
+            html: `
+              <div style="font-family: sans-serif; line-height: 1.5; color: #1E293B;">
+                <h2 style="color: #0A1128;">Dvojno pla\u010Dilo je bilo samodejno povrnjeno</h2>
+                <p>Spo\u0161tovani,</p>
+                <p>obve\u0161\u010Damo vas, da smo zaznali dvojno pla\u010Dilo za dra\u017Ebo <strong>${auctionTitle}</strong> v znesku <strong>${formattedAmount}</strong>.</p>
+                <p>Znesek bo na va\u0161em ra\u010Dunu v nekaj dneh.</p>
+                <p>Lep pozdrav,<br/>Ekipa drazbe.si</p>
+              </div>
+            `
+          });
+        } catch (mailErr) {
+          console.error("[finalizeAuctionPayment] Error sending buyer refund email:", mailErr.message);
+        }
+      }
+      if (process.env.RESEND_API_KEY && adminEmailAddress) {
+        try {
+          const resendClient3 = new import_resend3.Resend(process.env.RESEND_API_KEY);
+          const originalRef = auction.paid_payment_ref || "Neznano";
+          if (refundResult?.id) {
+            await resendClient3.emails.send({
+              from: process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>",
+              to: adminEmailAddress,
+              subject: `Podvojeno pla\u010Dilo samodejno povrnjeno - dra\u017Eba ${auctionId}`,
+              html: `
+                <div style="font-family: sans-serif; line-height: 1.5; color: #1E293B;">
+                  <h3>Podvojeno pla\u010Dilo je bilo samodejno povrnjeno</h3>
+                  <p><strong>Dra\u017Eba:</strong> ${auctionId}</p>
+                  <p><strong>Prvotno pla\u010Dilo:</strong> ${originalRef}</p>
+                  <p><strong>Podvojeno pla\u010Dilo:</strong> ${paymentRef}</p>
+                  <p><strong>ID vra\u010Dila:</strong> ${refundResult.id}</p>
+                  <p><strong>Znesek:</strong> ${formattedAmount}</p>
+                </div>
+              `
+            });
+          } else if (refundError) {
+            await resendClient3.emails.send({
+              from: process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>",
+              to: adminEmailAddress,
+              subject: `POZOR: Napaka pri vra\u010Dilu podvojenega pla\u010Dila - dra\u017Eba ${auctionId}`,
+              html: `
+                <div style="font-family: sans-serif; line-height: 1.5; color: #1E293B;">
+                  <h3 style="color: #EF4444;">Napaka pri samodejnem vra\u010Dilu podvojenega pla\u010Dila</h3>
+                  <p><strong>Dra\u017Eba:</strong> ${auctionId}</p>
+                  <p><strong>Prvotno pla\u010Dilo:</strong> ${originalRef}</p>
+                  <p><strong>Podvojeno pla\u010Dilo:</strong> ${paymentRef}</p>
+                  <p><strong>Napaka:</strong> ${refundError}</p>
+                  <p><strong>Znesek:</strong> ${formattedAmount}</p>
+                  <p>Potrebno je ro\u010Dno posredovanje.</p>
+                </div>
+              `
+            });
+          }
+        } catch (adminMailErr) {
+          console.error("[finalizeAuctionPayment] Error sending admin duplicate email:", adminMailErr.message);
+        }
       }
       return { alreadyProcessed: true };
     }
@@ -6007,6 +6161,7 @@ async function finalizeAuctionPayment(params) {
       payment_status: "paid",
       post_auction_status: "paid",
       paid_at: (/* @__PURE__ */ new Date()).toISOString(),
+      paid_payment_ref: paymentRef,
       bank_transfer_pending: false,
       bank_transfer_session_id: null,
       bank_transfer_deadline_at: null
@@ -7186,8 +7341,16 @@ app.post("/api/create-checkout-session", async (req, res) => {
       if (!isBankTransfer2 && auction.bank_transfer_pending === true) {
         console.log(`[Checkout] Card payment requested while bank transfer is pending for auction ${effectiveAuctionId}. Cancelling old bank transfer first.`);
         const cancelRes = await cancelAuctionBankTransfer(effectiveAuctionId, auction, "switch_to_card");
-        if (cancelRes && cancelRes.success === false && cancelRes.reason === "already_paid_or_processing") {
-          return res.status(409).json({ error: "Pla\u010Dilo z nakazilom je \u017Ee v obdelavi ali zaklju\u010Deno." });
+        if (cancelRes && cancelRes.success === false) {
+          if (cancelRes.reason === "already_paid_or_processing") {
+            return res.status(409).json({ error: "Pla\u010Dilo z nakazilom je \u017Ee v obdelavi ali zaklju\u010Deno." });
+          }
+          if (cancelRes.reason === "cancel_failed" || cancelRes.reason === "stripe_error") {
+            return res.status(409).json({ error: "Preklic nakazila trenutno ni mogo\u010D. Poskusite znova \u010Dez nekaj minut." });
+          }
+          if (cancelRes.reason !== "not_pending") {
+            return res.status(409).json({ error: "Preklic nakazila trenutno ni mogo\u010D. Poskusite znova \u010Dez nekaj minut." });
+          }
         }
         const refreshedAuctionDoc = await safeGetDoc(adminDb.collection("auctions").doc(effectiveAuctionId));
         if (refreshedAuctionDoc.exists()) {
@@ -7492,8 +7655,14 @@ app.post("/api/checkout/cancel-bank-transfer", async (req, res) => {
       return res.status(403).json({ error: "Te dra\u017Ebe ne morete upravljati." });
     }
     const cancelRes = await cancelAuctionBankTransfer(auctionId, auctionData, "switch_to_card");
-    if (cancelRes && cancelRes.success === false && cancelRes.reason === "already_paid_or_processing") {
-      return res.status(409).json({ error: "Pla\u010Dilo z nakazilom je \u017Ee v obdelavi ali zaklju\u010Deno." });
+    if (cancelRes && cancelRes.success === false) {
+      if (cancelRes.reason === "already_paid_or_processing") {
+        return res.status(409).json({ error: "Pla\u010Dilo z nakazilom je \u017Ee v obdelavi ali zaklju\u010Deno." });
+      }
+      if (cancelRes.reason === "cancel_failed" || cancelRes.reason === "stripe_error") {
+        return res.status(409).json({ error: "Preklic nakazila trenutno ni mogo\u010D. Poskusite znova \u010Dez nekaj minut." });
+      }
+      return res.status(409).json({ error: "Preklic nakazila trenutno ni mogo\u010D. Poskusite znova \u010Dez nekaj minut." });
     }
     return res.json({ success: true });
   } catch (error) {

@@ -1797,26 +1797,101 @@ async function finalizeAuctionPayment(params: {
     const auctionDoc = await safeGetDoc(adminDb.collection('auctions').doc(auctionId));
     const auction = auctionDoc.data() || {};
 
-    // Deutscher Kommentar: Schutz vor Doppelzahlung - wenn Auktion bereits bezahlt wurde, Rueckerstattung der Zweitzahlung veranlassen
+    // Deutscher Kommentar: Schutz vor Doppelzahlung - wenn Auktion bereits bezahlt wurde
     if (auction.payment_status === 'paid' || auction.post_auction_status === 'paid') {
-      console.warn(`[finalizeAuctionPayment] Auktion ${auctionId} ist bereits bezahlt. Rueckerstattung fuer ${paymentRef}`);
-      try {
-        const stripe = getStripe();
-        let piToRefund = paymentRef.startsWith('pi_') ? paymentRef : '';
-        if (!piToRefund && stripeSessionId) {
+      const stripe = getStripe();
+      let piToRefund = paymentRef.startsWith('pi_') ? paymentRef : '';
+      if (!piToRefund && stripeSessionId) {
+        try {
           const sObj = await stripe.checkout.sessions.retrieve(stripeSessionId);
           piToRefund = typeof sObj.payment_intent === 'string' ? sObj.payment_intent : sObj.payment_intent?.id || '';
+        } catch (e) {}
+      }
+      if (!piToRefund && paymentRef.startsWith('cs_')) {
+        try {
+          const sObj = await stripe.checkout.sessions.retrieve(paymentRef);
+          piToRefund = typeof sObj.payment_intent === 'string' ? sObj.payment_intent : sObj.payment_intent?.id || '';
+        } catch (e) {}
+      }
+
+      let isDuplicate = false;
+      if (auction.paid_payment_ref) {
+        // Deutscher Kommentar: Pruefen, ob die Referenz oder die PaymentIntent-ID sich von der bezahlten unterscheidet
+        const differsFromRef = auction.paid_payment_ref !== paymentRef;
+        const differsFromPi = !piToRefund || auction.paid_payment_ref !== piToRefund;
+        if (differsFromRef && differsFromPi) {
+          isDuplicate = true;
         }
-        if (piToRefund) {
-          await stripe.refunds.create({
-            payment_intent: piToRefund,
-            reason: 'duplicate',
-            metadata: { auction_id: auctionId, duplicate_of: auction.paid_at || 'already_paid' }
-          });
-          console.log(`[finalizeAuctionPayment] Rueckerstattung erfolgreich: ${piToRefund} fuer Auktion ${auctionId}`);
+      } else {
+        // Deutscher Kommentar: Fallback fuer fruehere Auktionen ohne paid_payment_ref
+        const currentTxSnap = await safeGetDoc(txDocRef);
+        const currentTxData = currentTxSnap.data() || {};
+        if (currentTxData.finalized === true) {
+          return { alreadyProcessed: true };
         }
-      } catch (refErr: any) {
-        console.error(`[finalizeAuctionPayment] Fehler bei automatischer Rueckerstattung der Doppelzahlung:`, refErr.message);
+        const otherTxSnap = await adminDb.collection('transactions')
+          .where('auction_id', '==', auctionId)
+          .where('finalized', '==', true)
+          .limit(1)
+          .get();
+        if (!otherTxSnap.empty) {
+          const otherTx = otherTxSnap.docs[0].data();
+          const otherPi = otherTx.stripe_payment_intent_id;
+          if (otherPi && otherPi !== paymentRef && (!piToRefund || otherPi !== piToRefund)) {
+            isDuplicate = true;
+          }
+        }
+      }
+
+      if (!isDuplicate) {
+        return { alreadyProcessed: true };
+      }
+
+      console.warn(`[finalizeAuctionPayment] Auktion ${auctionId} ist bereits bezahlt. Rueckerstattung der Doppelzahlung fuer ${paymentRef}`);
+
+      let refundResult: Stripe.Refund | null = null;
+      let refundError: string | null = null;
+
+      if (piToRefund) {
+        try {
+          refundResult = await stripe.refunds.create(
+            {
+              payment_intent: piToRefund,
+              reverse_transfer: true,
+              refund_application_fee: true,
+              reason: 'duplicate',
+              metadata: {
+                auction_id: auctionId,
+                duplicate_of: auction.paid_payment_ref || auction.paid_at || 'already_paid'
+              }
+            },
+            {
+              idempotencyKey: 'dup_refund_' + piToRefund
+            }
+          );
+          console.log(`[finalizeAuctionPayment] Rueckerstattung erfolgreich: ${refundResult.id} fuer Auktion ${auctionId}`);
+        } catch (refErr: any) {
+          refundError = refErr.message || String(refErr);
+          console.error(`[finalizeAuctionPayment] Fehler bei automatischer Rueckerstattung der Doppelzahlung:`, refundError);
+        }
+      } else {
+        refundError = 'Missing payment intent id to refund';
+        console.error(`[finalizeAuctionPayment] Keine PaymentIntent-ID fuer Rueckerstattung gefunden (${paymentRef})`);
+      }
+
+      // Deutscher Kommentar: Audit-Dokument duplicate_payments schreiben
+      try {
+        await adminDb.collection('duplicate_payments').doc(paymentRef).set({
+          auction_id: auctionId,
+          buyer_id: buyerId,
+          payment_ref: paymentRef,
+          ...(refundResult?.id ? { refund_id: refundResult.id } : {}),
+          ...(refundError ? { error: refundError } : {}),
+          amount: amountTotalCents / 100,
+          created_at: new Date().toISOString()
+        });
+      } catch (auditErr: any) {
+        console.error('[finalizeAuctionPayment] Error creating duplicate_payments audit doc:', auditErr.message);
       }
 
       await txDocRef.set({
@@ -1827,6 +1902,8 @@ async function finalizeAuctionPayment(params: {
         buyer_id: buyerId,
         amount_total: amountTotalCents / 100,
         refunded_at: new Date().toISOString(),
+        ...(refundResult?.id ? { refund_id: refundResult.id } : {}),
+        ...(refundError ? { refund_error: refundError } : {}),
         note: 'Dražba je že bila plačana z drugim plačilom.'
       }, { merge: true });
 
@@ -1837,6 +1914,76 @@ async function finalizeAuctionPayment(params: {
           release_reason: 'duplicate_payment_refunded'
         }, { merge: true });
       } catch (e) {}
+
+      const formattedAmount = (amountTotalCents / 100).toFixed(2) + ' €';
+      const auctionTitle = auction.title?.SLO || (typeof auction.title === 'string' ? auction.title : (auction.title?.EN || 'Dražba'));
+
+      // Deutscher Kommentar: E-Mail an den Kaeufer bei automatischer Rueckerstattung
+      if (process.env.RESEND_API_KEY && buyer.email && refundResult?.id) {
+        try {
+          const resendClient = new Resend(process.env.RESEND_API_KEY);
+          await resendClient.emails.send({
+            from: process.env.EMAIL_FROM || 'dražbenik.si <obvestila@drazbenik.si>',
+            to: buyer.email,
+            subject: 'Dvojno plačilo je bilo samodejno povrnjeno - drazbe.si',
+            html: `
+              <div style="font-family: sans-serif; line-height: 1.5; color: #1E293B;">
+                <h2 style="color: #0A1128;">Dvojno plačilo je bilo samodejno povrnjeno</h2>
+                <p>Spoštovani,</p>
+                <p>obveščamo vas, da smo zaznali dvojno plačilo za dražbo <strong>${auctionTitle}</strong> v znesku <strong>${formattedAmount}</strong>.</p>
+                <p>Znesek bo na vašem računu v nekaj dneh.</p>
+                <p>Lep pozdrav,<br/>Ekipa drazbe.si</p>
+              </div>
+            `
+          });
+        } catch (mailErr: any) {
+          console.error('[finalizeAuctionPayment] Error sending buyer refund email:', mailErr.message);
+        }
+      }
+
+      // Deutscher Kommentar: Benachrichtigung an Admin ueber Rueckerstattung oder Fehler
+      if (process.env.RESEND_API_KEY && adminEmailAddress) {
+        try {
+          const resendClient = new Resend(process.env.RESEND_API_KEY);
+          const originalRef = auction.paid_payment_ref || 'Neznano';
+          if (refundResult?.id) {
+            await resendClient.emails.send({
+              from: process.env.EMAIL_FROM || 'dražbenik.si <obvestila@drazbenik.si>',
+              to: adminEmailAddress,
+              subject: `Podvojeno plačilo samodejno povrnjeno - dražba ${auctionId}`,
+              html: `
+                <div style="font-family: sans-serif; line-height: 1.5; color: #1E293B;">
+                  <h3>Podvojeno plačilo je bilo samodejno povrnjeno</h3>
+                  <p><strong>Dražba:</strong> ${auctionId}</p>
+                  <p><strong>Prvotno plačilo:</strong> ${originalRef}</p>
+                  <p><strong>Podvojeno plačilo:</strong> ${paymentRef}</p>
+                  <p><strong>ID vračila:</strong> ${refundResult.id}</p>
+                  <p><strong>Znesek:</strong> ${formattedAmount}</p>
+                </div>
+              `
+            });
+          } else if (refundError) {
+            await resendClient.emails.send({
+              from: process.env.EMAIL_FROM || 'dražbenik.si <obvestila@drazbenik.si>',
+              to: adminEmailAddress,
+              subject: `POZOR: Napaka pri vračilu podvojenega plačila - dražba ${auctionId}`,
+              html: `
+                <div style="font-family: sans-serif; line-height: 1.5; color: #1E293B;">
+                  <h3 style="color: #EF4444;">Napaka pri samodejnem vračilu podvojenega plačila</h3>
+                  <p><strong>Dražba:</strong> ${auctionId}</p>
+                  <p><strong>Prvotno plačilo:</strong> ${originalRef}</p>
+                  <p><strong>Podvojeno plačilo:</strong> ${paymentRef}</p>
+                  <p><strong>Napaka:</strong> ${refundError}</p>
+                  <p><strong>Znesek:</strong> ${formattedAmount}</p>
+                  <p>Potrebno je ročno posredovanje.</p>
+                </div>
+              `
+            });
+          }
+        } catch (adminMailErr: any) {
+          console.error('[finalizeAuctionPayment] Error sending admin duplicate email:', adminMailErr.message);
+        }
+      }
 
       return { alreadyProcessed: true };
     }
@@ -1942,6 +2089,7 @@ async function finalizeAuctionPayment(params: {
       payment_status: 'paid',
       post_auction_status: 'paid',
       paid_at: new Date().toISOString(),
+      paid_payment_ref: paymentRef,
       bank_transfer_pending: false,
       bank_transfer_session_id: null,
       bank_transfer_deadline_at: null
@@ -3348,8 +3496,16 @@ app.post("/api/create-checkout-session", async (req, res) => {
       if (!isBankTransfer && auction.bank_transfer_pending === true) {
         console.log(`[Checkout] Card payment requested while bank transfer is pending for auction ${effectiveAuctionId}. Cancelling old bank transfer first.`);
         const cancelRes = await cancelAuctionBankTransfer(effectiveAuctionId, auction, 'switch_to_card');
-        if (cancelRes && cancelRes.success === false && cancelRes.reason === 'already_paid_or_processing') {
-          return res.status(409).json({ error: "Plačilo z nakazilom je že v obdelavi ali zaključeno." });
+        if (cancelRes && cancelRes.success === false) {
+          if (cancelRes.reason === 'already_paid_or_processing') {
+            return res.status(409).json({ error: "Plačilo z nakazilom je že v obdelavi ali zaključeno." });
+          }
+          if (cancelRes.reason === 'cancel_failed' || cancelRes.reason === 'stripe_error') {
+            return res.status(409).json({ error: "Preklic nakazila trenutno ni mogoč. Poskusite znova čez nekaj minut." });
+          }
+          if (cancelRes.reason !== 'not_pending') {
+            return res.status(409).json({ error: "Preklic nakazila trenutno ni mogoč. Poskusite znova čez nekaj minut." });
+          }
         }
         const refreshedAuctionDoc = await safeGetDoc(adminDb.collection('auctions').doc(effectiveAuctionId));
         if (refreshedAuctionDoc.exists()) {
@@ -3707,8 +3863,14 @@ app.post("/api/checkout/cancel-bank-transfer", async (req, res) => {
     }
 
     const cancelRes = await cancelAuctionBankTransfer(auctionId, auctionData, 'switch_to_card');
-    if (cancelRes && cancelRes.success === false && cancelRes.reason === 'already_paid_or_processing') {
-      return res.status(409).json({ error: "Plačilo z nakazilom je že v obdelavi ali zaključeno." });
+    if (cancelRes && cancelRes.success === false) {
+      if (cancelRes.reason === 'already_paid_or_processing') {
+        return res.status(409).json({ error: "Plačilo z nakazilom je že v obdelavi ali zaključeno." });
+      }
+      if (cancelRes.reason === 'cancel_failed' || cancelRes.reason === 'stripe_error') {
+        return res.status(409).json({ error: "Preklic nakazila trenutno ni mogoč. Poskusite znova čez nekaj minut." });
+      }
+      return res.status(409).json({ error: "Preklic nakazila trenutno ni mogoč. Poskusite znova čez nekaj minut." });
     }
 
     return res.json({ success: true });

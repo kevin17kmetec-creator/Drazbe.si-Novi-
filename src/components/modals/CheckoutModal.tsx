@@ -121,9 +121,32 @@ export const CheckoutModal: React.FC<{
         return;
       }
 
-      // Deutscher Kommentar: Wenn das Popup vom Benutzer geschlossen wurde und keine Zahlung erfolgte
+      // Deutscher Kommentar: Wenn das Popup geschlossen wurde, letzte Pruefung durchfuehren bevor abgebrochen wird
       if (popupRef.current && popupRef.current.closed) {
         stopPolling();
+        try {
+          const finalConfirm = await confirmCheckoutSessionAction({ sessionId });
+          const finalData = (finalConfirm as any)?.data || finalConfirm;
+          if (finalConfirm.success && finalData && !finalData.pending && (finalData.paid || finalData.success)) {
+            closePopup();
+            setIsWaitingForPopup(false);
+            setIsLoading(false);
+            onSuccess();
+            onClose();
+            return;
+          }
+          if (finalData && finalData.pending === true && finalData.payment_method === 'bank_transfer') {
+            closePopup();
+            setIsWaitingForPopup(false);
+            setIsLoading(false);
+            onClose();
+            onSuccess();
+            toast.success("Nakazilo je potrjeno. Navodila za nakazilo odprete na kartici dražbe z gumbom 'Odpri navodila za nakazilo'.");
+            return;
+          }
+        } catch (e) {
+          // Deutscher Kommentar: Fehler bei letzter Pruefung ignorieren
+        }
         setIsWaitingForPopup(false);
         setIsLoading(false);
         setErrorMessage("Plačilo je bilo prekinjeno.");

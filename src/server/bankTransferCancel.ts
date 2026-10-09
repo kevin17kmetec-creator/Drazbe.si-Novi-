@@ -42,10 +42,15 @@ export async function cancelAuctionBankTransfer(
     try {
       const stripe = getStripeClient();
       const sess = await stripe.checkout.sessions.retrieve(sessionId, { expand: ['payment_intent'] });
-      const pi: any = typeof sess.payment_intent === 'object' ? sess.payment_intent : null;
+      let pi: Stripe.PaymentIntent | null = null;
+      if (typeof sess.payment_intent === 'object' && sess.payment_intent !== null) {
+        pi = sess.payment_intent as Stripe.PaymentIntent;
+      } else if (typeof sess.payment_intent === 'string') {
+        pi = await stripe.paymentIntents.retrieve(sess.payment_intent);
+      }
+
       const isPaidOrProcessing =
         sess.payment_status === 'paid' ||
-        sess.status === 'complete' ||
         pi?.status === 'succeeded' ||
         pi?.status === 'processing';
 
@@ -54,21 +59,42 @@ export async function cancelAuctionBankTransfer(
         return { success: false, reason: 'already_paid_or_processing' };
       }
 
-      // Deutscher Kommentar: Wenn noch nicht bezahlt/in Bearbeitung, Session bzw. PaymentIntent stornieren
-      const piId = typeof sess.payment_intent === 'string' ? sess.payment_intent : sess.payment_intent?.id;
-      if (piId) {
-        try {
-          await stripe.paymentIntents.cancel(piId);
-          console.log(`[CancelBankTransfer] Cancelled PaymentIntent ${piId} for session ${sessionId}`);
-        } catch (cErr: any) {
-          await stripe.checkout.sessions.expire(sessionId);
+      // Deutscher Kommentar: Storniere nur PaymentIntents mit status requires_action oder requires_payment_method
+      if (pi) {
+        if (pi.status === 'requires_action' || pi.status === 'requires_payment_method') {
+          try {
+            await stripe.paymentIntents.cancel(pi.id);
+            console.log(`[CancelBankTransfer] Cancelled PaymentIntent ${pi.id} for session ${sessionId}`);
+          } catch (cancelErr: any) {
+            console.warn(`[CancelBankTransfer] Cancel error for ${pi.id}, re-retrieving PaymentIntent: ${cancelErr.message}`);
+            const reloadedPi = await stripe.paymentIntents.retrieve(pi.id);
+            if (reloadedPi.status === 'succeeded' || reloadedPi.status === 'processing') {
+              return { success: false, reason: 'already_paid_or_processing' };
+            }
+            if (reloadedPi.status === 'canceled') {
+              // Deutscher Kommentar: Bereits storniert, fahre mit Transaktion fort
+            } else {
+              return { success: false, reason: 'cancel_failed' };
+            }
+          }
+        } else if (pi.status === 'canceled') {
+          // Deutscher Kommentar: Bereits storniert, fahre mit Transaktion fort
+        } else {
+          return { success: false, reason: 'cancel_failed' };
         }
-      } else {
-        await stripe.checkout.sessions.expire(sessionId);
-        console.log(`[CancelBankTransfer] Expired checkout session ${sessionId}`);
+      } else if (sess.status === 'open') {
+        // Deutscher Kommentar: Nur ablaufen lassen, wenn kein PaymentIntent existiert und Sitzung offen ist
+        try {
+          await stripe.checkout.sessions.expire(sessionId);
+          console.log(`[CancelBankTransfer] Expired checkout session ${sessionId}`);
+        } catch (expireErr: any) {
+          console.warn(`[CancelBankTransfer] Session expire failed: ${expireErr.message}`);
+          return { success: false, reason: 'cancel_failed' };
+        }
       }
     } catch (err: any) {
-      console.warn(`[CancelBankTransfer] Warn: session cancel failed for ${sessionId}: ${err.message}`);
+      console.warn(`[CancelBankTransfer] Warn: communication failure with payment provider for ${sessionId}: ${err.message}`);
+      return { success: false, reason: 'stripe_error' };
     }
   }
 
