@@ -13299,7 +13299,19 @@ app.get("/api/orders/:id/handover-info", async (req, res) => {
     const auctionDoc = await safeGetDoc(adminDb.collection("auctions").doc(txData.auction_id));
     if (!auctionDoc.exists()) return res.status(404).json({ error: "Auction not found" });
     const auctionData = auctionDoc.data();
-    res.json({ title: auctionData.title, imageUrl: auctionData.image_url });
+    let titleStr = "Predmet dra\u017Ebe";
+    if (typeof auctionData.title === "string") {
+      titleStr = auctionData.title;
+    } else if (auctionData.title && typeof auctionData.title === "object") {
+      titleStr = auctionData.title.SLO || auctionData.title.EN || Object.values(auctionData.title).find((v) => typeof v === "string") || "Predmet dra\u017Ebe";
+    }
+    let imageUrl = null;
+    if (auctionData.images && auctionData.images.length > 0) {
+      imageUrl = auctionData.images[0].url || auctionData.images[0];
+    } else if (auctionData.image_url) {
+      imageUrl = auctionData.image_url;
+    }
+    res.json({ title: titleStr, imageUrl });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });

@@ -1818,7 +1818,13 @@ const MainApp: React.FC = () => {
         });
         const data = await res.json();
         if (res.ok) {
-          setPrevzemAuctionTitle(data.title || "");
+          let resolvedTitle = "";
+          if (typeof data.title === 'string') {
+            resolvedTitle = data.title;
+          } else if (data.title && typeof data.title === 'object') {
+            resolvedTitle = data.title.SLO || data.title.EN || Object.values(data.title).find((v: any) => typeof v === 'string') || "Predmet dražbe";
+          }
+          setPrevzemAuctionTitle(resolvedTitle);
           setPrevzemModalOpen(true);
         } else {
           toast.error(data.error || "Napaka pri nalaganju podatkov.");
