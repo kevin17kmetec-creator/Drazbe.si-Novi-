@@ -14,6 +14,8 @@ import { useFeePreview } from "../../lib/useFeePreview";
 import { formatAttributeLabel } from "../../lib/categoryAttributes";
 import { toast } from 'sonner';
 import { WinnerActions } from './WinnerActions';
+import { Portal } from '../ui/Portal';
+import { cancelBankTransferPayment } from '../../lib/bankTransfer';
 
 const TimeBox = ({ value, label }: { value: number, label: string }) => (
   <div className="flex flex-col items-center justify-center bg-white/10 rounded-xl w-14 h-14 md:w-16 md:h-16 border border-white/10">
@@ -42,7 +44,8 @@ export default function AuctionView({
   openReviewModal,
   canLeaveReview,
   onOpenMessages,
-  onOpenInvoice
+  onOpenInvoice,
+  setDeliveryMethodModal
 }: { 
   item: any, 
   onBack: () => void, 
@@ -63,7 +66,8 @@ export default function AuctionView({
   openReviewModal?: (item: any) => void,
   canLeaveReview?: (item: any) => boolean,
   onOpenMessages?: (auctionId: string) => void,
-  onOpenInvoice?: (auction: any) => void
+  onOpenInvoice?: (auction: any) => void,
+  setDeliveryMethodModal?: (data: any) => void
 }) {
   const [auctionData, setAuctionData] = useState<any>(item);
 
@@ -172,11 +176,13 @@ export default function AuctionView({
     };
   }, [endTime, currentAuction?.status, currentAuction?.id]);
 
-  const isWinner = currentUserId && (
+  const isWinner = Boolean(currentUserId && (
     currentAuction.winnerId === currentUserId || 
     currentAuction.winner_id === currentUserId ||
+    currentAuction.second_winner_id === currentUserId ||
+    currentAuction.secondWinnerId === currentUserId ||
     (currentAuction.second_highest_bidder_id === currentUserId && (currentAuction.post_auction_status === 'offered_2nd' || currentAuction.post_auction_status === 'awaiting_payment_2nd'))
-  );
+  ));
   const isSeller = Boolean(currentUserId && (
     currentAuction.sellerId === currentUserId || 
     currentAuction.seller_id === currentUserId ||
@@ -242,6 +248,7 @@ export default function AuctionView({
   };
 
   const [cancellingBt, setCancellingBt] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [openingInstructions, setOpeningInstructions] = useState(false);
 
   // Deutscher Kommentar: Ruft die URL der Zahlungsanweisungen fuer die Bankueberweisung ab und oeffnet diese in neuem Tab
@@ -268,24 +275,20 @@ export default function AuctionView({
     }
   };
 
+  // Deutscher Kommentar: Bricht die anstehende Bankueberweisung ueber die gemeinsame Hilfsfunktion ab
   const handleCancelBankTransfer = async () => {
     if (!user || !currentAuction?.id) return;
     setCancellingBt(true);
     try {
-      const token = await user.getIdToken();
-      const res = await fetch('/api/checkout/cancel-bank-transfer', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ auctionId: currentAuction.id })
+      const res = await cancelBankTransferPayment({
+        auctionId: currentAuction.id,
+        user
       });
-      if (res.ok) {
-        toast.success("Plačilo z bančnim nakazilom je bilo preklicano. Zdaj lahko plačate s kartico.");
+      if (res.success) {
+        setShowCancelConfirm(false);
+        toast.success("Nakazilo je preklicano. Dražbo lahko zdaj plačate s kartico.");
       } else {
-        const data = await res.json();
-        toast.error(data.error || "Napaka pri preklicu nakazila.");
+        toast.error(res.error || "Napaka pri preklicu nakazila.");
       }
     } catch (err: any) {
       toast.error(err.message || "Napaka pri preklicu.");
@@ -459,6 +462,7 @@ export default function AuctionView({
                             canLeaveReview={canLeaveReview}
                             onOpenMessages={onOpenMessages}
                             onOpenInvoice={onOpenInvoice}
+                            onOpenDeliveryChooser={setDeliveryMethodModal ? (auctionId: string) => setDeliveryMethodModal({ isOpen: true, auctionId, deliveryMethod: null }) : undefined}
                           />
                         </div>
                       )}
@@ -507,12 +511,15 @@ export default function AuctionView({
                               )}
                             </button>
                             <button
-                              onClick={handleCancelBankTransfer}
+                              onClick={() => setShowCancelConfirm(true)}
                               disabled={cancellingBt}
                               className="w-full text-xs bg-slate-800 hover:bg-slate-700 text-white font-black uppercase tracking-wider py-3 px-4 rounded-xl border border-slate-700 transition-all disabled:opacity-50 cursor-pointer"
                             >
                               {cancellingBt ? 'Prekinjam...' : 'Raje plačam s kartico'}
                             </button>
+                            <p className="text-[11px] text-slate-400 font-bold leading-snug mt-2.5 text-center">
+                              Če nakazila še niste poslali, ga lahko kadarkoli zamenjate s plačilom s kartico.
+                            </p>
                           </div>
                         ) : (
                           <>
@@ -916,6 +923,50 @@ export default function AuctionView({
         </div>
       </div>
 
+      {showCancelConfirm && (
+        <Portal>
+          <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4">
+            <div 
+              className="absolute inset-0 bg-[#0A1128]/95 backdrop-blur-md" 
+              onClick={() => { if (!cancellingBt) setShowCancelConfirm(false); }} 
+            />
+            <div className="relative bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl text-center z-10 animate-in fade-in zoom-in-95 duration-200">
+              <div className="bg-amber-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-5 text-amber-600">
+                <AlertCircle size={32} />
+              </div>
+              <h3 className="text-xl font-black text-[#0A1128] uppercase tracking-tighter mb-3">
+                Preklic bančnega nakazila
+              </h3>
+              <p className="text-slate-600 font-bold mb-6 text-sm leading-relaxed">
+                Nakazilo bo preklicano. Če ste denar že nakazali, plačila ne preklicujte. Nadaljujem?
+              </p>
+              <div className="flex flex-col gap-2.5">
+                <button
+                  onClick={handleCancelBankTransfer}
+                  disabled={cancellingBt}
+                  className="w-full bg-red-600 hover:bg-red-700 text-white py-3.5 px-4 rounded-2xl font-black uppercase tracking-wider text-xs transition-all disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer shadow-lg"
+                >
+                  {cancellingBt ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      <span>Prekinjam...</span>
+                    </>
+                  ) : (
+                    <span>Prekliči nakazilo</span>
+                  )}
+                </button>
+                <button
+                  onClick={() => setShowCancelConfirm(false)}
+                  disabled={cancellingBt}
+                  className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 py-3.5 px-4 rounded-2xl font-black uppercase tracking-wider text-xs transition-all disabled:opacity-50 cursor-pointer"
+                >
+                  Nazaj
+                </button>
+              </div>
+            </div>
+          </div>
+        </Portal>
+      )}
 
     </div>
   );

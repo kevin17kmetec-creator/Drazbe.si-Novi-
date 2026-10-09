@@ -37,6 +37,7 @@ import { TERMS_VERSION } from "./lib/termsVersion";
 import { getSellerSetupStep } from "./lib/sellerSetup";
 import { checkUserInvoiceData } from "./lib/invoiceDataCheck";
 import { getAuthHeaders } from "./lib/authFetch";
+import { cancelBankTransferPayment } from "./lib/bankTransfer";
 import { friendlyError } from "./lib/friendlyError";
 import { sendEmailVerificationAction } from "@/src/actions/auth-emails";
 import { canLeaveReview } from "./lib/reviewEligibility";
@@ -415,6 +416,7 @@ const WonAuctionItem: React.FC<{
   openReviewModal: (item: any) => void;
   setTimelineModalAuctionId: (id: string | null) => void;
   user: any;
+  setDeliveryMethodModal?: (data: any) => void;
 }> = ({
   wonItem,
   language,
@@ -433,12 +435,36 @@ const WonAuctionItem: React.FC<{
   setReceiptConfirmModal,
   openReviewModal,
   setTimelineModalAuctionId,
-  user
+  user,
+  setDeliveryMethodModal
 }) => {
   const isPaid = wonItem.payment_status === "paid";
   const [pickupPin, setPickupPin] = useState<string | null>(null);
   const [pinLoading, setPinLoading] = useState(false);
   const [openingInstructions, setOpeningInstructions] = useState(false);
+  const [cancellingBt, setCancellingBt] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+
+  // Deutscher Kommentar: Bricht die anstehende Bankueberweisung ueber die gemeinsame Hilfsfunktion ab
+  const handleCancelBankTransfer = async () => {
+    if (!user || !wonItem?.id) return;
+    setCancellingBt(true);
+    try {
+      const res = await cancelBankTransferPayment({ auctionId: wonItem.id, user });
+      if (res.success) {
+        setShowCancelConfirm(false);
+        toast.success("Nakazilo je preklicano. Dražbo lahko zdaj plačate s kartico.");
+        fetchAuctions();
+        if (userData?.id) refreshUserData(userData.id);
+      } else {
+        toast.error(res.error || "Napaka pri preklicu nakazila.");
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Napaka pri preklicu.");
+    } finally {
+      setCancellingBt(false);
+    }
+  };
 
   // Deutscher Kommentar: Ruft die Zahlungsanweisungen fuer die Bankueberweisung des gewonnenen Artikels ab
   const handleOpenBankTransferInstructions = async () => {
@@ -663,6 +689,13 @@ const WonAuctionItem: React.FC<{
               onOpenTimeline={(auctionId) => {
                 setTimelineModalAuctionId(auctionId);
               }}
+              onOpenDeliveryChooser={setDeliveryMethodModal ? (auctionId) => {
+                setDeliveryMethodModal({
+                  isOpen: true,
+                  auctionId,
+                  deliveryMethod: null,
+                });
+              } : undefined}
               layout="card"
             />
           </div>
@@ -714,6 +747,16 @@ const WonAuctionItem: React.FC<{
                         </>
                       )}
                     </button>
+                    <button
+                      onClick={() => setShowCancelConfirm(true)}
+                      disabled={cancellingBt}
+                      className="w-full text-xs bg-slate-800 hover:bg-slate-700 text-white font-black uppercase tracking-wider py-3 px-4 rounded-xl border border-slate-700 transition-all disabled:opacity-50 cursor-pointer mt-2"
+                    >
+                      {cancellingBt ? 'Prekinjam...' : 'Raje plačam s kartico'}
+                    </button>
+                    <p className="text-[11px] text-slate-400 font-bold leading-snug mt-2.5 text-center">
+                      Če nakazila še niste poslali, ga lahko kadarkoli zamenjate s plačilom s kartico.
+                    </p>
                   </div>
                 ) : (
                   <button
@@ -783,6 +826,51 @@ const WonAuctionItem: React.FC<{
           </div>
         )}
       </div>
+
+      {showCancelConfirm && (
+        <Portal>
+          <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4">
+            <div 
+              className="absolute inset-0 bg-[#0A1128]/95 backdrop-blur-md" 
+              onClick={() => { if (!cancellingBt) setShowCancelConfirm(false); }} 
+            />
+            <div className="relative bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl text-center z-10 animate-in fade-in zoom-in-95 duration-200">
+              <div className="bg-amber-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-5 text-amber-600">
+                <AlertCircle size={32} />
+              </div>
+              <h3 className="text-xl font-black text-[#0A1128] uppercase tracking-tighter mb-3">
+                Preklic bančnega nakazila
+              </h3>
+              <p className="text-slate-600 font-bold mb-6 text-sm leading-relaxed">
+                Nakazilo bo preklicano. Če ste denar že nakazali, plačila ne preklicujte. Nadaljujem?
+              </p>
+              <div className="flex flex-col gap-2.5">
+                <button
+                  onClick={handleCancelBankTransfer}
+                  disabled={cancellingBt}
+                  className="w-full bg-red-600 hover:bg-red-700 text-white py-3.5 px-4 rounded-2xl font-black uppercase tracking-wider text-xs transition-all disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer shadow-lg"
+                >
+                  {cancellingBt ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      <span>Prekinjam...</span>
+                    </>
+                  ) : (
+                    <span>Prekliči nakazilo</span>
+                  )}
+                </button>
+                <button
+                  onClick={() => setShowCancelConfirm(false)}
+                  disabled={cancellingBt}
+                  className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 py-3.5 px-4 rounded-2xl font-black uppercase tracking-wider text-xs transition-all disabled:opacity-50 cursor-pointer"
+                >
+                  Nazaj
+                </button>
+              </div>
+            </div>
+          </div>
+        </Portal>
+      )}
     </div>
   );
 };
@@ -853,6 +941,8 @@ const MainApp: React.FC = () => {
         payment_status: isItemPaid ? "paid" : (d.payment_status || "unpaid"),
         post_auction_status: d.post_auction_status,
         paid_at: d.paid_at,
+        delivery_method: d.delivery_method,
+        selected_delivery: d.selected_delivery,
         sellerName: sellerName,
         seller: { 
           id: sellerId, 
@@ -1485,6 +1575,7 @@ const MainApp: React.FC = () => {
                 paid_at: data.paid_at,
                 sellerName: data.sellerName || "",
                 delivery_method: data.delivery_method,
+                selected_delivery: data.selected_delivery,
                 buyer_received: data.buyer_received,
               };
             }
@@ -1942,7 +2033,7 @@ const MainApp: React.FC = () => {
     return auctions
       .filter(
         (a) =>
-          (((a as any).winner_id === userData.id || a.winnerId === userData.id) || 
+          (((a as any).winner_id === userData.id || a.winnerId === userData.id || (a as any).second_winner_id === userData.id || (a as any).secondWinnerId === userData.id) || 
            (a.second_highest_bidder_id === userData.id && (a.post_auction_status === 'offered_2nd' || a.post_auction_status === 'awaiting_payment_2nd'))) &&
           (a.status === "completed" || a.endTime.getTime() <= Date.now()),
       )
@@ -3689,6 +3780,7 @@ const MainApp: React.FC = () => {
               });
             }}
             onOpenInvoice={handleOpenInvoice}
+            setDeliveryMethodModal={setDeliveryMethodModal}
           />
         );
       }
@@ -4013,6 +4105,7 @@ const MainApp: React.FC = () => {
                     openReviewModal={openReviewModal}
                     setTimelineModalAuctionId={setTimelineModalAuctionId}
                     user={user}
+                    setDeliveryMethodModal={setDeliveryMethodModal}
                   />
                 ))
               )}
@@ -5770,7 +5863,7 @@ const MainApp: React.FC = () => {
                   Način predaje
                 </h2>
                 <p className="text-slate-500 font-bold mb-8">
-                  Izberite, na kakšen način boste predmet predali kupcu.
+                  Izberite želeni način predaje ali prevzema predmeta.
                 </p>
                 <div className="grid grid-cols-2 gap-4 mb-8">
                   <button

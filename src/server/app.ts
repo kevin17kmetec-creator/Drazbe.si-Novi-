@@ -2022,7 +2022,21 @@ async function finalizeAuctionPayment(params: {
     const nowIso = new Date().toISOString();
     const holdDeadlineIso = new Date(Date.now() + 75 * 24 * 60 * 60 * 1000).toISOString();
     const sellerStripeAccountId = seller.stripe_account_id || seller.stripeAccountId || '';
-    const deliveryMethod = auction.delivery_method || 'pickup';
+    
+    // Deutscher Kommentar: Liefermethode aus Auktion uebernehmen oder aus delivery_option ableiten
+    let deliveryMethod = auction.delivery_method || auction.selected_delivery || null;
+    let derivedMethod: string | null = null;
+    if (!deliveryMethod) {
+      if (auction.delivery_option === 'pickup_only') {
+        derivedMethod = 'pickup';
+      } else if (auction.delivery_option === 'shipping_only') {
+        derivedMethod = 'post';
+      }
+      if (derivedMethod) {
+        deliveryMethod = derivedMethod;
+      }
+    }
+
     const autoReleaseAtIso = deliveryMethod === 'pickup'
       ? new Date(Date.now() + PICKUP_AUTO_RELEASE_DAYS * 24 * 60 * 60 * 1000).toISOString()
       : null;
@@ -2067,8 +2081,8 @@ async function finalizeAuctionPayment(params: {
       seller_net_cents: itemCents,
       seller_stripe_account_id: sellerStripeAccountId,
       held_since: nowIso,
-      delivery_method: deliveryMethod,
-      ...(deliveryMethod !== 'pickup' ? { shipping_deadline: new Date(Date.now() + SHIP_DEADLINE_DAYS * 24 * 60 * 60 * 1000).toISOString() } : {}),
+      delivery_method: deliveryMethod || null,
+      ...(deliveryMethod === 'post' || deliveryMethod === 'shipping' ? { shipping_deadline: new Date(Date.now() + SHIP_DEADLINE_DAYS * 24 * 60 * 60 * 1000).toISOString() } : {}),
       auto_release_at: autoReleaseAtIso,
       hold_deadline_at: holdDeadlineIso,
       buyer_snapshot: buyerSnapshot,
@@ -2078,13 +2092,13 @@ async function finalizeAuctionPayment(params: {
 
     if (deliveryMethod === 'pickup') {
       try {
-        await getOrCreatePickupPin(`tx_${paymentRef}`);
+        await getOrCreatePickupPin(txDocRef.id);
       } catch (pinErr: any) {
         console.error('[finalizeAuctionPayment] Error creating pickup PIN:', pinErr?.message);
       }
     }
 
-    await adminDb.collection('auctions').doc(auctionId).update({
+    const auctionFinalUpdate: any = {
       status: 'completed',
       payment_status: 'paid',
       post_auction_status: 'paid',
@@ -2093,7 +2107,15 @@ async function finalizeAuctionPayment(params: {
       bank_transfer_pending: false,
       bank_transfer_session_id: null,
       bank_transfer_deadline_at: null
-    });
+    };
+
+    // Deutscher Kommentar: Wenn abgeleitet, delivery_method und selected_delivery auf dem Auktionsdokument speichern
+    if (derivedMethod) {
+      auctionFinalUpdate.delivery_method = derivedMethod;
+      auctionFinalUpdate.selected_delivery = derivedMethod;
+    }
+
+    await adminDb.collection('auctions').doc(auctionId).update(auctionFinalUpdate);
 
     await recordSaleCompletion(auctionId, sellerId);
 
@@ -8754,19 +8776,47 @@ app.post("/api/auctions/set-delivery-method", async (req, res) => {
 
     const data = snap.data() || {};
     const sellerId = data.seller_id || data.sellerId;
-    if (sellerId !== userId) {
-      return res.status(403).json({ error: "Način predaje lahko nastavi le prodajalec te dražbe." });
-    }
+    const winnerId = data.winner_id || data.winnerId;
+    const secondWinnerId = data.second_winner_id || data.secondWinnerId;
 
     const isPaid = data.payment_status === 'paid' || data.post_auction_status === 'paid';
     if (!isPaid) {
       return res.status(400).json({ error: "Način predaje je mogoče nastaviti le za plačane dražbe." });
     }
 
+    const isSeller = (sellerId === userId);
+    const isWinner = (winnerId === userId || secondWinnerId === userId);
+    const currentMethod = data.delivery_method || data.selected_delivery;
+
+    // Deutscher Kommentar: Der Verkaeufer darf immer aendern; der Kaeufer darf nur setzen, solange die Methode noch nicht gewaehlt ist
+    if (!isSeller && (!isWinner || currentMethod)) {
+      return res.status(403).json({ error: "Nimate pravic za nastavitev načina predaje." });
+    }
+
+    const normalizedMethod = delivery_method === 'shipping' ? 'post' : delivery_method;
+
     await docRef.update({
-      delivery_method: delivery_method,
-      selected_delivery: delivery_method,
+      delivery_method: normalizedMethod,
+      selected_delivery: normalizedMethod,
     });
+
+    // Deutscher Kommentar: Transaktionsdatensatz synchronisieren und bei Abholung den Abhol-PIN erstellen
+    try {
+      const qTx = await safeGetDocs(adminDb.collection('transactions').where('auction_id', '==', auction_id).limit(1));
+      if (!qTx.empty) {
+        const txDoc = qTx.docs[0];
+        const updateTx: any = { delivery_method: normalizedMethod };
+        if (normalizedMethod === 'pickup') {
+          updateTx.auto_release_at = new Date(Date.now() + PICKUP_AUTO_RELEASE_DAYS * 24 * 60 * 60 * 1000).toISOString();
+          await getOrCreatePickupPin(txDoc.id);
+        } else if (normalizedMethod === 'post') {
+          updateTx.shipping_deadline = new Date(Date.now() + SHIP_DEADLINE_DAYS * 24 * 60 * 60 * 1000).toISOString();
+        }
+        await txDoc.ref.update(updateTx);
+      }
+    } catch (txErr: any) {
+      console.error('[SET DELIVERY METHOD] Error updating transaction:', txErr?.message);
+    }
 
     res.json({ success: true, message: "Način predaje uspešno nastavljen." });
   } catch (error: any) {

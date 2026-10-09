@@ -15,6 +15,7 @@ export interface WinnerActionsProps {
   layout?: 'card' | 'detail';
   onOpenDetail?: (item: any) => void;
   onOpenTimeline?: (auctionId: string) => void;
+  onOpenDeliveryChooser?: (auctionId: string) => void;
   className?: string;
 }
 
@@ -30,10 +31,15 @@ export const WinnerActions: React.FC<WinnerActionsProps> = ({
   layout = 'detail',
   onOpenDetail,
   onOpenTimeline,
+  onOpenDeliveryChooser,
   className = ""
 }) => {
   const [pickupPin, setPickupPin] = useState<string | null>(null);
   const [pinLoading, setPinLoading] = useState(false);
+
+  // Deutscher Kommentar: Prueft auf Abholung unter Beruecksichtigung von delivery_method und selected_delivery
+  const isPickup = Boolean(wonItem?.delivery_method === "pickup" || wonItem?.selected_delivery === "pickup");
+  const isDeliveryUnset = Boolean(!wonItem?.delivery_method && !wonItem?.selected_delivery);
 
   // Hilfsfunktion zum Abrufen oder Umschalten des Abholcodes
   const togglePickupPin = async () => {
@@ -100,7 +106,7 @@ export const WinnerActions: React.FC<WinnerActionsProps> = ({
 
           {/* Spalte 2: Nachrichten und Empfangsbestaetigung */}
           <div className="flex flex-col gap-3 flex-1 min-w-[140px]">
-            {wonItem.delivery_method === "pickup" ? (
+            {isPickup ? (
               <button
                 type="button"
                 onClick={() => onOpenMessages?.(wonItem.id)}
@@ -112,6 +118,23 @@ export const WinnerActions: React.FC<WinnerActionsProps> = ({
               <div className="h-[42px] hidden sm:block"></div>
             )}
 
+            {isDeliveryUnset && isPaid && (
+              <div className="flex flex-col items-center gap-1.5 p-2 bg-amber-50/80 border border-amber-200 rounded-xl text-center w-full my-1">
+                <span className="text-[11px] font-bold text-amber-800">
+                  Prodajalec še ni izbral načina predaje.
+                </span>
+                {onOpenDeliveryChooser && (
+                  <button
+                    type="button"
+                    onClick={() => onOpenDeliveryChooser(wonItem.id)}
+                    className="text-[10px] font-black uppercase tracking-wider text-[#0A1128] hover:text-[#FEBA4F] underline cursor-pointer"
+                  >
+                    Izberi način predaje
+                  </button>
+                )}
+              </div>
+            )}
+
             <div className="flex flex-col items-center justify-center gap-2 mt-auto w-full">
               {wonItem.buyer_received ? (
                 <div className="text-green-500 font-bold text-[10px] uppercase flex items-center gap-1 w-full justify-center bg-green-50 py-2 rounded-xl border border-green-100 h-[42px]">
@@ -119,7 +142,7 @@ export const WinnerActions: React.FC<WinnerActionsProps> = ({
                 </div>
               ) : (
                 <>
-                  {wonItem.delivery_method === "pickup" && isPaid && (
+                  {isPickup && isPaid && (
                     <button
                       type="button"
                       onClick={togglePickupPin}
@@ -223,7 +246,7 @@ export const WinnerActions: React.FC<WinnerActionsProps> = ({
         )}
 
         {/* Nachrichten-Button (bei persoenlicher Uebergabe) */}
-        {wonItem.delivery_method === "pickup" && onOpenMessages && (
+        {isPickup && onOpenMessages && (
           <button
             type="button"
             onClick={() => onOpenMessages(wonItem.id)}
@@ -233,6 +256,21 @@ export const WinnerActions: React.FC<WinnerActionsProps> = ({
           </button>
         )}
 
+        {isDeliveryUnset && isPaid && (
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-xl text-xs font-bold text-amber-800">
+            <span>Prodajalec še ni izbral načina predaje.</span>
+            {onOpenDeliveryChooser && (
+              <button
+                type="button"
+                onClick={() => onOpenDeliveryChooser(wonItem.id)}
+                className="font-black underline text-[#0A1128] hover:text-[#FEBA4F] cursor-pointer uppercase text-[10px]"
+              >
+                Izberi način predaje
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Empfangsstatus / Abholcode / Empfangsbestaetigung */}
         {wonItem.buyer_received ? (
           <div className="text-green-600 font-bold text-[11px] uppercase flex items-center gap-1.5 px-3 py-2 rounded-xl bg-green-50 border border-green-200 h-[40px]">
@@ -240,7 +278,7 @@ export const WinnerActions: React.FC<WinnerActionsProps> = ({
           </div>
         ) : (
           <>
-            {wonItem.delivery_method === "pickup" && isPaid && (
+            {isPickup && isPaid && (
               <button
                 type="button"
                 onClick={togglePickupPin}
