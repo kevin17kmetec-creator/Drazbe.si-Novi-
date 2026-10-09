@@ -123,7 +123,8 @@ export const CheckoutModal: React.FC<{
     <Portal>
       <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4">
         <div className="absolute inset-0 bg-[#0A1128]/95 backdrop-blur-md" onClick={onClose}></div>
-        <div className="relative bg-white w-full max-w-lg rounded-[3rem] p-10 shadow-2xl animate-in border-4 border-[#FEBA4F]">
+        {/* Deutscher Kommentar: Das Modal erhaelt max-h-[90vh] overflow-y-auto, damit es auf kleinen Bildschirmen scrollbar bleibt und nichts abgeschnitten wird */}
+        <div className="relative bg-white w-full max-w-lg rounded-[3rem] p-6 sm:p-10 shadow-2xl animate-in border-4 border-[#FEBA4F] max-h-[90vh] overflow-y-auto">
           <button type="button" onClick={onClose} className="absolute top-8 right-8 p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400"><X size={24} /></button>
           <h3 className="text-3xl font-black text-[#0A1128] uppercase tracking-tighter mb-2">{t('checkout') || 'PLAČILO'}</h3>
           <p className="text-slate-500 font-bold mb-6">{title}</p>

@@ -3652,6 +3652,61 @@ app.post("/api/checkout/cancel-bank-transfer", async (req, res) => {
   }
 });
 
+// Deutscher Kommentar: Gibt die URL der Zahlungsanweisungen fuer die Bankueberweisung an den Gewinner zurueck
+app.get("/api/checkout/bank-transfer-instructions", async (req, res) => {
+  // Deutscher Kommentar: Authentifizierung des Kaeufers
+  let userId: string;
+  try {
+    userId = await authenticateFirebaseUser(req);
+  } catch (authErr: any) {
+    return res.status(401).json({ error: authErr.message || 'Niste prijavljeni.' });
+  }
+
+  try {
+    const auctionId = (req.query.auction_id || req.query.auctionId) as string;
+    if (!auctionId) {
+      return res.status(400).json({ error: 'Manjka identifikator dražbe.' });
+    }
+
+    const auctionDoc = await adminDb.collection('auctions').doc(auctionId).get();
+    if (!auctionDoc.exists) {
+      return res.status(404).json({ error: 'Dražba ni bila najdena.' });
+    }
+
+    const auctionData = auctionDoc.data() || {};
+    const winnerId = auctionData.winner_id || auctionData.winnerId;
+    const secondWinnerId = auctionData.second_winner_id || auctionData.secondWinnerId;
+
+    // Deutscher Kommentar: Pruefen, ob der Aufrufer Erst- oder Zweitgewinner der Auktion ist
+    const isWinner = (userId === winnerId || userId === secondWinnerId);
+    if (!isWinner) {
+      return res.status(403).json({ error: 'Nimate dovoljenja za ogled teh navodil.' });
+    }
+
+    // Deutscher Kommentar: Pruefen, ob die Bankueberweisung anhaengig ist und eine Sitzungs-ID existiert
+    if (auctionData.bank_transfer_pending !== true || !auctionData.bank_transfer_session_id) {
+      return res.status(404).json({ error: 'Navodila za nakazilo trenutno niso na voljo.' });
+    }
+
+    const stripe = getStripe();
+    const session = await stripe.checkout.sessions.retrieve(auctionData.bank_transfer_session_id, {
+      expand: ['payment_intent']
+    });
+
+    const paymentIntent: any = session.payment_intent;
+    const url = paymentIntent?.next_action?.display_bank_transfer_instructions?.hosted_instructions_url;
+
+    if (!url) {
+      return res.status(404).json({ error: 'Navodila za nakazilo trenutno niso na voljo.' });
+    }
+
+    return res.json({ url });
+  } catch (err: any) {
+    console.error('[bank-transfer-instructions] Error retrieving transfer instructions:', err);
+    return res.status(500).json({ error: 'Napaka pri pridobivanju navodil za nakazilo.' });
+  }
+});
+
 app.post("/api/confirm-checkout-session", async (req, res) => {
   // Nutzer-ID ausschliesslich aus dem verifizierten Token
   let userId: string;

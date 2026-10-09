@@ -3,7 +3,7 @@ import {
   Clock, Lock, CheckCircle2, AlertCircle, Image as ImageIcon,
   ChevronLeft, ChevronRight, Eye, MapPin, Info, Gavel, Truck, Trophy,
   CreditCard, Landmark, Plus, Minus, X, Calendar as CalendarIcon, Phone, Mail, User,
-  MessageSquare, Sparkles, Building2, Package, Tag, ShieldCheck
+  MessageSquare, Sparkles, Building2, Package, Tag, ShieldCheck, ExternalLink
 } from 'lucide-react';
 import { doc, collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import { db, registerSnapshotListener } from "../../lib/firebase";
@@ -242,6 +242,31 @@ export default function AuctionView({
   };
 
   const [cancellingBt, setCancellingBt] = useState(false);
+  const [openingInstructions, setOpeningInstructions] = useState(false);
+
+  // Deutscher Kommentar: Ruft die URL der Zahlungsanweisungen fuer die Bankueberweisung ab und oeffnet diese in neuem Tab
+  const handleOpenBankTransferInstructions = async () => {
+    if (!user || !currentAuction?.id) return;
+    setOpeningInstructions(true);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch(`/api/checkout/bank-transfer-instructions?auction_id=${encodeURIComponent(currentAuction.id)}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      const data = await res.json();
+      if (res.ok && data?.url) {
+        window.open(data.url, '_blank', 'noopener');
+      } else {
+        toast.error(data?.error || "Navodila za nakazilo trenutno niso na voljo.");
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Napaka pri odpiranju navodil.");
+    } finally {
+      setOpeningInstructions(false);
+    }
+  };
 
   const handleCancelBankTransfer = async () => {
     if (!user || !currentAuction?.id) return;
@@ -394,8 +419,9 @@ export default function AuctionView({
 
           <div className="lg:col-span-4 order-2 space-y-6">
             <div className="bg-[#0A1128] text-white border border-white/5 rounded-[2rem] p-5 flex flex-col w-full shadow-2xl relative overflow-hidden">
+              {/* Deutscher Kommentar: Bei beendeter Auktion nimmt der Overlay-Container am normalen Layoutfluss teil (relative w-full), damit die Karte mit dem Inhalt dynamisch waechst */}
               {isEnded && (
-                <div className="absolute inset-0 bg-[#0A1128]/95 backdrop-blur-md z-10 flex flex-col items-center justify-center p-8 text-center">
+                <div className="relative w-full bg-[#0A1128]/95 backdrop-blur-md z-10 flex flex-col items-center justify-center p-4 sm:p-8 text-center">
                   {isPaid ? (
                     <div className="w-full max-w-md bg-green-500/10 border-2 border-green-500/30 rounded-3xl p-6 mb-2 flex flex-col items-center">
                       <div className="w-16 h-16 rounded-full bg-green-500/20 border border-green-500/40 flex items-center justify-center mb-4 text-green-400 shadow-lg shadow-green-500/10">
@@ -456,7 +482,7 @@ export default function AuctionView({
                               Plačilo z nakazilom
                             </h4>
                             <p className="text-slate-300 text-sm font-bold mb-4">
-                              Izbrali ste plačilo z bančnim nakazilom (SEPA). Navodila za plačilo boste prejeli na vaš e-poštni naslov s strani našega plačilnega partnerja.
+                              Izbrali ste plačilo z bančnim nakazilom (SEPA). Znesek nakažite po navodilih, ki jih lahko kadar koli odprete s spodnjim gumbom. Plačilo se potrdi samodejno, ko denar prispe.
                             </p>
                             {currentAuction.bank_transfer_deadline_at && (
                               <div className="text-xs text-slate-400 font-bold mb-4">
@@ -464,9 +490,26 @@ export default function AuctionView({
                               </div>
                             )}
                             <button
+                              onClick={handleOpenBankTransferInstructions}
+                              disabled={openingInstructions}
+                              className="w-full text-xs bg-[#FEBA4F] hover:bg-white text-[#0A1128] font-black uppercase tracking-wider py-3.5 px-4 rounded-xl transition-all shadow-md flex items-center justify-center gap-2 mb-2 disabled:opacity-50 cursor-pointer"
+                            >
+                              {openingInstructions ? (
+                                <>
+                                  <div className="w-4 h-4 border-2 border-[#0A1128] border-t-transparent rounded-full animate-spin" />
+                                  <span>Nalaganje navodil...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <ExternalLink size={15} />
+                                  <span>Odpri navodila za nakazilo</span>
+                                </>
+                              )}
+                            </button>
+                            <button
                               onClick={handleCancelBankTransfer}
                               disabled={cancellingBt}
-                              className="w-full text-xs bg-slate-800 hover:bg-slate-700 text-white font-black uppercase tracking-wider py-3 px-4 rounded-xl border border-slate-700 transition-all disabled:opacity-50"
+                              className="w-full text-xs bg-slate-800 hover:bg-slate-700 text-white font-black uppercase tracking-wider py-3 px-4 rounded-xl border border-slate-700 transition-all disabled:opacity-50 cursor-pointer"
                             >
                               {cancellingBt ? 'Prekinjam...' : 'Raje plačam s kartico'}
                             </button>
@@ -513,105 +556,108 @@ export default function AuctionView({
                 </div>
               )}
 
-              <div className="flex justify-center items-center gap-2 mb-2">
-                <TimeBox value={d} label={t('days')} /> <span className="text-2xl font-black text-slate-500 mb-4">:</span>
-                <TimeBox value={h} label={t('hours')} /> <span className="text-2xl font-black text-slate-500 mb-4">:</span>
-                <TimeBox value={m} label={t('minutes')} /> <span className="text-2xl font-black text-slate-500 mb-4">:</span>
-                <TimeBox value={s} label={t('seconds')} />
-              </div>
-              <p className="text-center text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4">
-                {isValidDate ? `${auctionDate.toLocaleDateString('sl-SI')}, ${auctionDate.toLocaleTimeString('sl-SI', {hour: '2-digit', minute:'2-digit'})} ${t('uhr')}` : t('unknown')}
-              </p>
+              {/* Deutscher Kommentar: Biet- und Zeitelemente bei beendeter Auktion vollstaendig ausblenden, um leeren Raum zu vermeiden */}
+              <div className={isEnded ? "hidden" : "contents"}>
+                <div className="flex justify-center items-center gap-2 mb-2">
+                  <TimeBox value={d} label={t('days')} /> <span className="text-2xl font-black text-slate-500 mb-4">:</span>
+                  <TimeBox value={h} label={t('hours')} /> <span className="text-2xl font-black text-slate-500 mb-4">:</span>
+                  <TimeBox value={m} label={t('minutes')} /> <span className="text-2xl font-black text-slate-500 mb-4">:</span>
+                  <TimeBox value={s} label={t('seconds')} />
+                </div>
+                <p className="text-center text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4">
+                  {isValidDate ? `${auctionDate.toLocaleDateString('sl-SI')}, ${auctionDate.toLocaleTimeString('sl-SI', {hour: '2-digit', minute:'2-digit'})} ${t('uhr')}` : t('unknown')}
+                </p>
 
-              <div className="grid grid-cols-2 gap-y-4 gap-x-4 w-full mb-4">
-                <div className="text-center border-r border-white/10">
-                  <p className="text-2xl font-black text-[#FEBA4F]">{currentAuction.bidCount || currentAuction.bid_count || bidCount || 0}</p>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1">{t('bidCount')}</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-2xl font-black text-white">€ {currentAuction.currentBid || currentAuction.current_price || currentBid || 0}</p>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1">{t('startingPrice')}</p>
-                </div>
-                
-                <div className="text-center border-r border-white/10 pt-4 border-t">
-                  <p className="text-2xl font-black text-green-400">
-                    {isWinner ? `€ ${effectiveMyMax || currentAuction.currentBid || currentAuction.current_price || currentBid || '-'}` : '-'}
-                  </p>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1 flex items-center justify-center gap-1"><Lock size={10}/> {t('myMaxBid')}</p>
-                </div>
-                <div className="text-center pt-4 border-t border-white/10">
-                  <p className="text-4xl font-black text-[#FEBA4F]">€ {currentAuction.currentBid || currentAuction.current_price || currentBid || 0}</p>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1">{t('currentBid')}</p>
-                </div>
-              </div>
-              {!isEnded && !isSeller && (
-              <p className="text-[10px] font-bold text-slate-400 text-center mb-4 leading-relaxed bg-white/5 p-3 rounded-xl">
-                  {isWinner 
-                    ? (t('proxyBidLeadingTip') || 'Ste vodilni ponudnik! Vnesite višji znesek, če želite povišati vašo maksimalno ponudbo.')
-                    : (t('proxyBidTip') || 'Vnesite najvišji znesek, ki ste ga pripravljeni plačati. Vaša maksimalna ponudba ostane skrivnost. Sistem bo samodejno višal ponudbo v vašem imenu.')}
-              </p>
-              )}
-
-              {error && <div className="mb-4 p-3 bg-red-500/10 text-red-400 rounded-xl font-bold text-[10px] uppercase tracking-widest text-center border border-red-500/20">{error}</div>}
-              {bidSuccess && <div className="mb-4 p-3 bg-green-500/10 text-green-400 rounded-xl font-bold text-[10px] uppercase tracking-widest text-center border border-green-500/20">{t('bidSuccessMsg')}</div>}
-
-              {!isEnded && (
-                isSeller ? (
-                  <div className="bg-white/5 border border-white/10 rounded-2xl p-5 text-center my-2 mt-auto">
-                    <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[#FEBA4F] flex items-center justify-center mx-auto mb-2">
-                      <Lock size={18} />
-                    </div>
-                    <p className="text-xs font-black uppercase tracking-widest text-[#FEBA4F] mb-1">
-                      Vaša dražba
-                    </p>
-                    <p className="text-xs font-bold text-slate-400">
-                      Kot avtor dražbe ne morete oddajati ponudb na lasten predmet.
-                    </p>
+                <div className="grid grid-cols-2 gap-y-4 gap-x-4 w-full mb-4">
+                  <div className="text-center border-r border-white/10">
+                    <p className="text-2xl font-black text-[#FEBA4F]">{currentAuction.bidCount || currentAuction.bid_count || bidCount || 0}</p>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1">{t('bidCount')}</p>
                   </div>
-                ) : (
-                  <div className="flex flex-col gap-3 w-full mt-auto">
-                    <div className="relative flex-1">
-                      <button 
-                        onClick={() => handleAdjustBid('down')}
-                        className="absolute left-2 top-2 bottom-2 aspect-square bg-white/10 border border-white/10 rounded-lg flex items-center justify-center hover:border-[#FEBA4F] hover:text-[#FEBA4F] text-slate-400 transition-colors"
-                      >
-                        <Minus size={20} />
-                      </button>
-                      <input 
-                        type="text" 
-                        value={`€ ${bidAmount}`}
-                        readOnly
-                        className="w-full h-14 bg-white/5 border-2 border-white/10 rounded-xl px-14 font-black text-xl text-white outline-none focus:border-[#FEBA4F] text-center transition-colors"
-                      >
-                      </input>
-                      <button 
-                        onClick={() => handleAdjustBid('up')}
-                        className="absolute right-2 top-2 bottom-2 aspect-square bg-white/10 border border-white/10 rounded-lg flex items-center justify-center hover:border-[#FEBA4F] hover:text-[#FEBA4F] text-slate-400 transition-colors"
-                      >
-                        <Plus size={20} />
-                      </button>
+                  <div className="text-center">
+                    <p className="text-2xl font-black text-white">€ {currentAuction.currentBid || currentAuction.current_price || currentBid || 0}</p>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1">{t('startingPrice')}</p>
+                  </div>
+                  
+                  <div className="text-center border-r border-white/10 pt-4 border-t">
+                    <p className="text-2xl font-black text-green-400">
+                      {isWinner ? `€ ${effectiveMyMax || currentAuction.currentBid || currentAuction.current_price || currentBid || '-'}` : '-'}
+                    </p>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1 flex items-center justify-center gap-1"><Lock size={10}/> {t('myMaxBid')}</p>
+                  </div>
+                  <div className="text-center pt-4 border-t border-white/10">
+                    <p className="text-4xl font-black text-[#FEBA4F]">€ {currentAuction.currentBid || currentAuction.current_price || currentBid || 0}</p>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1">{t('currentBid')}</p>
+                  </div>
+                </div>
+                {!isEnded && !isSeller && (
+                <p className="text-[10px] font-bold text-slate-400 text-center mb-4 leading-relaxed bg-white/5 p-3 rounded-xl">
+                    {isWinner 
+                      ? (t('proxyBidLeadingTip') || 'Ste vodilni ponudnik! Vnesite višji znesek, če želite povišati vašo maksimalno ponudbo.')
+                      : (t('proxyBidTip') || 'Vnesite najvišji znesek, ki ste ga pripravljeni plačati. Vaša maksimalna ponudba ostane skrivnost. Sistem bo samodejno višal ponudbo v vašem imenu.')}
+                </p>
+                )}
+
+                {error && <div className="mb-4 p-3 bg-red-500/10 text-red-400 rounded-xl font-bold text-[10px] uppercase tracking-widest text-center border border-red-500/20">{error}</div>}
+                {bidSuccess && <div className="mb-4 p-3 bg-green-500/10 text-green-400 rounded-xl font-bold text-[10px] uppercase tracking-widest text-center border border-green-500/20">{t('bidSuccessMsg')}</div>}
+
+                {!isEnded && (
+                  isSeller ? (
+                    <div className="bg-white/5 border border-white/10 rounded-2xl p-5 text-center my-2 mt-auto">
+                      <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[#FEBA4F] flex items-center justify-center mx-auto mb-2">
+                        <Lock size={18} />
+                      </div>
+                      <p className="text-xs font-black uppercase tracking-widest text-[#FEBA4F] mb-1">
+                        Vaša dražba
+                      </p>
+                      <p className="text-xs font-bold text-slate-400">
+                        Kot avtor dražbe ne morete oddajati ponudb na lasten predmet.
+                      </p>
                     </div>
-                    <button 
-                      onClick={handlePlaceBid}
-                      disabled={loading}
-                      className={`h-14 px-8 rounded-xl font-black uppercase tracking-widest transition-all shadow-lg disabled:opacity-50 w-full flex items-center justify-center gap-2 ${
-                        isVerified && onBidSubmit ? 'bg-[#FEBA4F] text-[#0A1128] hover:bg-white' : 'bg-slate-800 text-slate-500 hover:bg-slate-700'
-                      }`}
-                    >
-                      {loading ? (
-                        <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                      ) : !isVerified || !onBidSubmit ? (
-                        <>
-                          <Lock size={16} />
+                  ) : (
+                    <div className="flex flex-col gap-3 w-full mt-auto">
+                      <div className="relative flex-1">
+                        <button 
+                          onClick={() => handleAdjustBid('down')}
+                          className="absolute left-2 top-2 bottom-2 aspect-square bg-white/10 border border-white/10 rounded-lg flex items-center justify-center hover:border-[#FEBA4F] hover:text-[#FEBA4F] text-slate-400 transition-colors"
+                        >
+                          <Minus size={20} />
+                        </button>
+                        <input 
+                          type="text" 
+                          value={`€ ${bidAmount}`}
+                          readOnly
+                          className="w-full h-14 bg-white/5 border-2 border-white/10 rounded-xl px-14 font-black text-xl text-white outline-none focus:border-[#FEBA4F] text-center transition-colors"
+                        >
+                        </input>
+                        <button 
+                          onClick={() => handleAdjustBid('up')}
+                          className="absolute right-2 top-2 bottom-2 aspect-square bg-white/10 border border-white/10 rounded-lg flex items-center justify-center hover:border-[#FEBA4F] hover:text-[#FEBA4F] text-slate-400 transition-colors"
+                        >
+                          <Plus size={20} />
+                        </button>
+                      </div>
+                      <button 
+                        onClick={handlePlaceBid}
+                        disabled={loading}
+                        className={`h-14 px-8 rounded-xl font-black uppercase tracking-widest transition-all shadow-lg disabled:opacity-50 w-full flex items-center justify-center gap-2 ${
+                          isVerified && onBidSubmit ? 'bg-[#FEBA4F] text-[#0A1128] hover:bg-white' : 'bg-slate-800 text-slate-500 hover:bg-slate-700'
+                        }`}
+                      >
+                        {loading ? (
+                          <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        ) : !isVerified || !onBidSubmit ? (
+                          <>
+                            <Lock size={16} />
+                            <span>{isWinner ? (t('increaseBid') || 'Zvišaj ponudbo') : t('placeBid')}</span>
+                          </>
+                        ) : (
                           <span>{isWinner ? (t('increaseBid') || 'Zvišaj ponudbo') : t('placeBid')}</span>
-                        </>
-                      ) : (
-                        <span>{isWinner ? (t('increaseBid') || 'Zvišaj ponudbo') : t('placeBid')}</span>
-                      )}
-                    </button>
-                  </div>
-                )
-              )}
+                        )}
+                      </button>
+                    </div>
+                  )
+                )}
+              </div>
             </div>
 
             {/* Key Buyer Decision Information: Delivery, Location, Condition */}

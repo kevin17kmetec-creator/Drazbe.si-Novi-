@@ -30,7 +30,6 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 var app_exports = {};
 __export(app_exports, {
   app: () => app,
-  cancelAuctionBankTransfer: () => cancelAuctionBankTransfer,
   default: () => app_default,
   isAdminUser: () => isAdminUser,
   recordSaleCompletion: () => recordSaleCompletion
@@ -699,8 +698,8 @@ async function diagnoseStripeTransferPrerequisites(stripe, user, amountInCents) 
 
 // src/server/app.ts
 var import_cors = __toESM(require("cors"), 1);
-var import_stripe2 = __toESM(require("stripe"), 1);
-var import_resend2 = require("resend");
+var import_stripe3 = __toESM(require("stripe"), 1);
+var import_resend3 = require("resend");
 var import_render2 = require("@react-email/render");
 var import_react2 = __toESM(require("react"), 1);
 
@@ -1418,6 +1417,104 @@ var copyrightText2 = {
 // src/server/app.ts
 var import_genai = require("@google/genai");
 
+// src/server/bankTransferCancel.ts
+var import_stripe = __toESM(require("stripe"), 1);
+var import_resend = require("resend");
+var stripeClient = null;
+function getStripeClient() {
+  if (!stripeClient) {
+    const key = process.env.STRIPE_SECRET_KEY;
+    if (!key) {
+      throw new Error("STRIPE_SECRET_KEY environment variable is required");
+    }
+    stripeClient = new import_stripe.default(key);
+  }
+  return stripeClient;
+}
+async function cancelAuctionBankTransfer(auctionId, _auctionData, mode = "failed") {
+  const auctionRef = adminDb.collection("auctions").doc(auctionId);
+  let claimed = null;
+  let newDeadline = "";
+  try {
+    await adminDb.runTransaction(async (tx) => {
+      const snap = await tx.get(auctionRef);
+      if (!snap.exists) return;
+      const data = snap.data() || {};
+      if (data.bank_transfer_pending !== true) return;
+      const currentDeadlineMs = new Date(data.payment_deadline || 0).getTime();
+      const minDeadlineMs = Date.now() + 24 * 60 * 60 * 1e3;
+      newDeadline = new Date(Math.max(currentDeadlineMs || 0, minDeadlineMs)).toISOString();
+      tx.set(auctionRef, {
+        bank_transfer_pending: false,
+        bank_transfer_session_id: null,
+        bank_transfer_deadline_at: null,
+        bank_transfer_final_chance: true,
+        payment_deadline: newDeadline
+      }, { merge: true });
+      claimed = data;
+    });
+  } catch (txErr) {
+    console.error(`[CancelBankTransfer] Transaction failed for ${auctionId}: ${txErr.message}`);
+    return;
+  }
+  if (!claimed) return;
+  const sessionId = claimed.bank_transfer_session_id;
+  const buyerId = claimed.winner_id || claimed.winnerId || claimed.second_winner_id || claimed.secondWinnerId;
+  if (sessionId) {
+    try {
+      const stripe = getStripeClient();
+      const sess = await stripe.checkout.sessions.retrieve(sessionId, { expand: ["payment_intent"] });
+      const piId = typeof sess.payment_intent === "string" ? sess.payment_intent : sess.payment_intent?.id;
+      if (piId) {
+        await stripe.paymentIntents.cancel(piId);
+        console.log(`[CancelBankTransfer] Cancelled PaymentIntent ${piId} for session ${sessionId}`);
+      } else {
+        await stripe.checkout.sessions.expire(sessionId);
+        console.log(`[CancelBankTransfer] Expired checkout session ${sessionId}`);
+      }
+    } catch (err) {
+      console.warn(`[CancelBankTransfer] Warn: session cancel failed for ${sessionId}: ${err.message}`);
+    }
+  }
+  if (buyerId) {
+    try {
+      await adminDb.collection("aml_reservations").doc(`${buyerId}_${auctionId}`).set({
+        status: "released",
+        released_at: (/* @__PURE__ */ new Date()).toISOString(),
+        release_reason: mode === "switch_to_card" ? "switch_to_card" : "bank_transfer_cancelled"
+      }, { merge: true });
+    } catch (rErr) {
+      console.error(`[CancelBankTransfer] Error releasing aml reservation: ${rErr.message}`);
+    }
+  }
+  if (mode === "failed" && buyerId && process.env.RESEND_API_KEY) {
+    try {
+      const buyerSnap = await adminDb.collection("users").doc(buyerId).get();
+      const buyerData = buyerSnap.exists ? buyerSnap.data() || {} : {};
+      if (buyerData.email) {
+        const resendClient3 = new import_resend.Resend(process.env.RESEND_API_KEY);
+        const auctionTitle = claimed.title?.SLO || (typeof claimed.title === "string" ? claimed.title : "Dra\u017Eba");
+        await resendClient3.emails.send({
+          from: process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>",
+          to: buyerData.email,
+          subject: "Nakazilo ni bilo izvedeno - drazbe.si",
+          html: `
+            <div style="font-family: sans-serif; line-height: 1.5; color: #1E293B;">
+              <h2 style="color: #EF4444;">Nakazilo ni bilo izvedeno</h2>
+              <p>Spo\u0161tovani,</p>
+              <p>obve\u0161\u010Damo vas, da nakazilo za dra\u017Ebo <strong>${auctionTitle}</strong> ni bilo izvedeno.</p>
+              <p>Za pla\u010Dilo imate \u0161e eno prilo\u017Enost: pla\u010Dajte s kartico do <strong>${new Date(newDeadline).toLocaleString("sl-SI")}</strong>. \u010Ce pla\u010Dila ne opravite, veljajo obi\u010Dajna pravila za zamudnike.</p>
+              <p>Lep pozdrav,<br/>Ekipa drazbe.si</p>
+            </div>
+          `
+        });
+      }
+    } catch (mailErr) {
+      console.error(`[CancelBankTransfer] Error sending e-mail: ${mailErr.message}`);
+    }
+  }
+}
+
 // src/server/publicProfile.ts
 async function syncPublicProfile(uid) {
   try {
@@ -1612,11 +1709,11 @@ async function markIdentityBlocked(uid, reason = "unpaid_strikes") {
 }
 
 // src/server/cronProcessor.ts
-var import_stripe = __toESM(require("stripe"), 1);
+var import_stripe2 = __toESM(require("stripe"), 1);
 
 // src/server/emailService.ts
 var import_react = __toESM(require("react"), 1);
-var import_resend = require("resend");
+var import_resend2 = require("resend");
 var import_render = require("@react-email/render");
 var resendClient = null;
 function getResend() {
@@ -1626,7 +1723,7 @@ function getResend() {
     return null;
   }
   if (!resendClient) {
-    resendClient = new import_resend.Resend(apiKey);
+    resendClient = new import_resend2.Resend(apiKey);
   }
   return resendClient;
 }
@@ -2107,7 +2204,7 @@ async function processAuctionCrons() {
       if (!key) {
         throw new Error("STRIPE_SECRET_KEY environment variable is required");
       }
-      return new import_stripe.default(key);
+      return new import_stripe2.default(key);
     };
     for (const auctionDoc of expiredBankTransfersSnap.docs) {
       const auctionData = auctionDoc.data() || {};
@@ -4381,7 +4478,7 @@ async function recordTermsAcceptance(params) {
     console.error("Fehler beim Speichern des AGB-Nachweises:", err);
   }
 }
-var resendClient2 = process.env.RESEND_API_KEY ? new import_resend2.Resend(process.env.RESEND_API_KEY) : null;
+var resendClient2 = process.env.RESEND_API_KEY ? new import_resend3.Resend(process.env.RESEND_API_KEY) : null;
 var adminEmailAddress = process.env.ADMIN_EMAIL || "info@drazbenik.si";
 async function safeGetDocs(queryRef) {
   try {
@@ -4876,7 +4973,7 @@ async function createAndSendSubscriptionInvoice(params) {
             </div>
           </div>
         `;
-        const resendClient3 = new import_resend2.Resend(process.env.RESEND_API_KEY);
+        const resendClient3 = new import_resend3.Resend(process.env.RESEND_API_KEY);
         await resendClient3.emails.send({
           from: process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>",
           to: targetEmail,
@@ -5026,16 +5123,16 @@ async function getOrCreateStripeCustomer(stripe, userId, user) {
   }
   return customerId;
 }
-var stripeClient = null;
+var stripeClient2 = null;
 function getStripe() {
-  if (!stripeClient) {
+  if (!stripeClient2) {
     const key = process.env.STRIPE_SECRET_KEY;
     if (!key) {
       throw new Error("STRIPE_SECRET_KEY environment variable is required");
     }
-    stripeClient = new import_stripe2.default(key);
+    stripeClient2 = new import_stripe3.default(key);
   }
-  return stripeClient;
+  return stripeClient2;
 }
 function getBidIncrement(price) {
   if (price < 50) return 1;
@@ -5120,81 +5217,6 @@ async function recordAmlSpend({
     return await runWithTx(transaction);
   } else {
     return await adminDb.runTransaction(runWithTx);
-  }
-}
-async function cancelAuctionBankTransfer(auctionId, auctionData, mode = "failed") {
-  if (auctionData.bank_transfer_pending === false) {
-    return;
-  }
-  const stripe = getStripe();
-  const sessionId = auctionData.bank_transfer_session_id;
-  const buyerId = auctionData.winner_id || auctionData.winnerId || auctionData.second_winner_id || auctionData.secondWinnerId;
-  if (sessionId) {
-    try {
-      const sess = await stripe.checkout.sessions.retrieve(sessionId, { expand: ["payment_intent"] });
-      const piId = typeof sess.payment_intent === "string" ? sess.payment_intent : sess.payment_intent?.id;
-      if (piId) {
-        await stripe.paymentIntents.cancel(piId);
-        console.log(`[CancelBankTransfer] Cancelled PaymentIntent ${piId} for session ${sessionId}`);
-      } else {
-        await stripe.checkout.sessions.expire(sessionId);
-        console.log(`[CancelBankTransfer] Expired checkout session ${sessionId}`);
-      }
-    } catch (err) {
-      console.warn(`[CancelBankTransfer] Warn: session cancel failed for ${sessionId}: ${err.message}`);
-    }
-  }
-  if (buyerId) {
-    try {
-      const reservationId = `${buyerId}_${auctionId}`;
-      await adminDb.collection("aml_reservations").doc(reservationId).set({
-        status: "released",
-        released_at: (/* @__PURE__ */ new Date()).toISOString(),
-        release_reason: mode === "switch_to_card" ? "switch_to_card" : "bank_transfer_cancelled"
-      }, { merge: true });
-      console.log(`[CancelBankTransfer] Released AML reservation ${reservationId}`);
-    } catch (rErr) {
-      console.error(`[CancelBankTransfer] Error releasing aml reservation: ${rErr.message}`);
-    }
-  }
-  try {
-    const nowMs = Date.now();
-    const currentDeadlineMs = new Date(auctionData.payment_deadline || 0).getTime();
-    const minDeadlineMs = nowMs + 24 * 60 * 60 * 1e3;
-    const newDeadline = new Date(Math.max(currentDeadlineMs, minDeadlineMs)).toISOString();
-    await adminDb.collection("auctions").doc(auctionId).set({
-      bank_transfer_pending: false,
-      bank_transfer_session_id: null,
-      bank_transfer_deadline_at: null,
-      bank_transfer_final_chance: true,
-      payment_deadline: newDeadline
-    }, { merge: true });
-    console.log(`[CancelBankTransfer] Auction ${auctionId} bank transfer fields cleared (mode: ${mode}), final chance enabled.`);
-    if (mode === "failed" && buyerId) {
-      const buyerSnap = await adminDb.collection("users").doc(buyerId).get();
-      const buyerData = buyerSnap.exists ? buyerSnap.data() || {} : {};
-      if (buyerData.email) {
-        const resendClient3 = new import_resend2.Resend(process.env.RESEND_API_KEY);
-        const auctionTitle = auctionData.title?.SLO || auctionData.title || "Dra\u017Eba";
-        await resendClient3.emails.send({
-          from: process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>",
-          to: buyerData.email,
-          subject: "Nakazilo ni bilo izvedeno - drazbe.si",
-          html: `
-            <div style="font-family: sans-serif; line-height: 1.5; color: #1E293B;">
-              <h2 style="color: #EF4444;">Nakazilo ni bilo izvedeno</h2>
-              <p>Spo\u0161tovani,</p>
-              <p>obve\u0161\u010Damo vas, da nakazilo za dra\u017Ebo <strong>${auctionTitle}</strong> ni bilo izvedeno.</p>
-              <p>Za pla\u010Dilo imate \u0161e eno prilo\u017Enost: pla\u010Dajte s kartico do <strong>${new Date(newDeadline).toLocaleString("sl-SI")}</strong>. \u010Ce pla\u010Dila ne opravite, veljajo obi\u010Dajna pravila za zamudnike.</p>
-              <p>Lep pozdrav,<br/>Ekipa drazbe.si</p>
-            </div>
-          `
-        });
-        console.log(`[CancelBankTransfer] Sent final chance email to ${buyerData.email}`);
-      }
-    }
-  } catch (dbErr) {
-    console.error(`[CancelBankTransfer] Error resetting auction fields: ${dbErr.message}`);
   }
 }
 async function reserveAmlAmount({
@@ -5480,7 +5502,7 @@ async function releaseSellerFunds(txId, reason) {
         const auction = auctionDoc.data();
         const auctionTitleText = auction?.title?.SLO || auction?.title?.EN || "Predmet dra\u017Ebe";
         const netAmt = ((tx.seller_net_cents || 0) / 100).toFixed(2);
-        const resendClient3 = new import_resend2.Resend(process.env.RESEND_API_KEY);
+        const resendClient3 = new import_resend3.Resend(process.env.RESEND_API_KEY);
         await resendClient3.emails.send({
           from: process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>",
           to: seller.email,
@@ -5638,7 +5660,7 @@ async function executeSellerBatchPayout(sellerId, trigger) {
       if (user.email && process.env.RESEND_API_KEY) {
         try {
           const formattedAmount = (totalCents / 100).toFixed(2);
-          const resendClient3 = new import_resend2.Resend(process.env.RESEND_API_KEY);
+          const resendClient3 = new import_resend3.Resend(process.env.RESEND_API_KEY);
           await resendClient3.emails.send({
             from: process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>",
             to: user.email,
@@ -6094,7 +6116,7 @@ async function finalizeAuctionPayment(params) {
             auctionUrl,
             settingsUrl: `${baseAppUrl}/?tab=settings`
           }));
-          const resendClient3 = new import_resend2.Resend(process.env.RESEND_API_KEY);
+          const resendClient3 = new import_resend3.Resend(process.env.RESEND_API_KEY);
           await resendClient3.emails.send({
             from: process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>",
             to: buyer.email,
@@ -6117,7 +6139,7 @@ async function finalizeAuctionPayment(params) {
             settingsUrl: `${baseAppUrl}/?tab=settings`,
             paymentDeadline: `${SHIP_DEADLINE_DAYS} dni`
           }));
-          const resendClient3 = new import_resend2.Resend(process.env.RESEND_API_KEY);
+          const resendClient3 = new import_resend3.Resend(process.env.RESEND_API_KEY);
           await resendClient3.emails.send({
             from: process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>",
             to: seller.email,
@@ -6490,7 +6512,7 @@ app.post("/api/webhook", import_express.default.raw({ type: "application/json" }
               const uDoc = await safeGetDoc(adminDb.collection("users").doc(sellerIdToNotify));
               const uData = uDoc.data() || {};
               if (uData.email && process.env.RESEND_API_KEY) {
-                const resendClient3 = new import_resend2.Resend(process.env.RESEND_API_KEY);
+                const resendClient3 = new import_resend3.Resend(process.env.RESEND_API_KEY);
                 await resendClient3.emails.send({
                   from: process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>",
                   to: uData.email,
@@ -7394,6 +7416,47 @@ app.post("/api/checkout/cancel-bank-transfer", async (req, res) => {
   } catch (error) {
     console.error("Error cancelling bank transfer:", error);
     return res.status(500).json({ error: error.message });
+  }
+});
+app.get("/api/checkout/bank-transfer-instructions", async (req, res) => {
+  let userId;
+  try {
+    userId = await authenticateFirebaseUser(req);
+  } catch (authErr) {
+    return res.status(401).json({ error: authErr.message || "Niste prijavljeni." });
+  }
+  try {
+    const auctionId = req.query.auction_id || req.query.auctionId;
+    if (!auctionId) {
+      return res.status(400).json({ error: "Manjka identifikator dra\u017Ebe." });
+    }
+    const auctionDoc = await adminDb.collection("auctions").doc(auctionId).get();
+    if (!auctionDoc.exists) {
+      return res.status(404).json({ error: "Dra\u017Eba ni bila najdena." });
+    }
+    const auctionData = auctionDoc.data() || {};
+    const winnerId = auctionData.winner_id || auctionData.winnerId;
+    const secondWinnerId = auctionData.second_winner_id || auctionData.secondWinnerId;
+    const isWinner = userId === winnerId || userId === secondWinnerId;
+    if (!isWinner) {
+      return res.status(403).json({ error: "Nimate dovoljenja za ogled teh navodil." });
+    }
+    if (auctionData.bank_transfer_pending !== true || !auctionData.bank_transfer_session_id) {
+      return res.status(404).json({ error: "Navodila za nakazilo trenutno niso na voljo." });
+    }
+    const stripe = getStripe();
+    const session = await stripe.checkout.sessions.retrieve(auctionData.bank_transfer_session_id, {
+      expand: ["payment_intent"]
+    });
+    const paymentIntent = session.payment_intent;
+    const url = paymentIntent?.next_action?.display_bank_transfer_instructions?.hosted_instructions_url;
+    if (!url) {
+      return res.status(404).json({ error: "Navodila za nakazilo trenutno niso na voljo." });
+    }
+    return res.json({ url });
+  } catch (err) {
+    console.error("[bank-transfer-instructions] Error retrieving transfer instructions:", err);
+    return res.status(500).json({ error: "Napaka pri pridobivanju navodil za nakazilo." });
   }
 });
 app.post("/api/confirm-checkout-session", async (req, res) => {
@@ -8357,7 +8420,7 @@ app.post("/api/test/send-email", async (req, res) => {
       const attachments = [
         { filename: `racun_${mockTransaction.id}.pdf`, content: invoiceBuffer }
       ];
-      const resendClient3 = new import_resend2.Resend(resendApiKey);
+      const resendClient3 = new import_resend3.Resend(resendApiKey);
       const baseAppUrl = process.env.APP_URL && !process.env.APP_URL.includes("drazbenik.si") ? process.env.APP_URL : "https://drazbe.eu";
       const htmlContent = await (0, import_render2.render)(import_react2.default.createElement(AuctionEmailTemplate, {
         type: "payment_success",
@@ -9015,11 +9078,6 @@ app.post("/api/auctions/create", async (req, res) => {
       return str.replace(/</g, "&lt;").replace(/>/g, "&gt;");
     };
     if (itemData) {
-      if (!itemData.id) {
-        if (!itemData.category || !itemData.category.trim() || !itemData.condition || !itemData.condition.trim() || !itemData.region || !itemData.region.trim() || !itemData.location || !itemData.location.trim()) {
-          return res.status(400).json({ error: "Izberite kategorijo, stanje predmeta, regijo in vnesite mesto." });
-        }
-      }
       if (itemData.title) itemData.title = sanitizeString(itemData.title);
       if (itemData.description) itemData.description = sanitizeString(itemData.description);
       if (itemData.category) itemData.category = sanitizeString(itemData.category);
@@ -9372,7 +9430,7 @@ app.post("/api/orders/:id/verify-pickup-pin", async (req, res) => {
           auctionUrl,
           settingsUrl: `${baseAppUrl}/?tab=settings`
         }));
-        const resendClient3 = new import_resend2.Resend(process.env.RESEND_API_KEY);
+        const resendClient3 = new import_resend3.Resend(process.env.RESEND_API_KEY);
         await resendClient3.emails.send({
           from: process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>",
           to: seller.email,
@@ -9442,7 +9500,7 @@ app.post("/api/orders/:id/mark-as-shipped", async (req, res) => {
           carrierName: carrier_name,
           trackingNumber: tracking_number
         }));
-        const resendClient3 = new import_resend2.Resend(process.env.RESEND_API_KEY);
+        const resendClient3 = new import_resend3.Resend(process.env.RESEND_API_KEY);
         await resendClient3.emails.send({
           from: process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>",
           to: buyer.email,
@@ -9664,7 +9722,7 @@ var handleProcessEscrowCompletions = async (req, res) => {
             auctionUrl: `${baseAppUrl}/?drazba=${tx.auction_id}`,
             settingsUrl: `${baseAppUrl}/?tab=settings`
           }));
-          const resendClient3 = new import_resend2.Resend(process.env.RESEND_API_KEY);
+          const resendClient3 = new import_resend3.Resend(process.env.RESEND_API_KEY);
           await resendClient3.emails.send({
             from: process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>",
             to: buyer.email,
@@ -9803,7 +9861,7 @@ app.post("/api/auth/send-email-change", async (req, res) => {
       url: `${baseAppUrl}/?tab=settings`
     });
     if (process.env.RESEND_API_KEY) {
-      const resend = new import_resend2.Resend(process.env.RESEND_API_KEY);
+      const resend = new import_resend3.Resend(process.env.RESEND_API_KEY);
       const htmlContent = await (0, import_render2.render)(import_react2.default.createElement(AuthEmailTemplate, {
         type: "verify_email",
         actionUrl,
@@ -9916,7 +9974,7 @@ app.post("/api/auth/send-verification", async (req, res) => {
         actionUrl,
         recipientName: displayName || userRecord.displayName || userEmail.split("@")[0]
       }));
-      const resend = new import_resend2.Resend(apiKey);
+      const resend = new import_resend3.Resend(apiKey);
       const fromEmail = process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>";
       await resend.emails.send({
         from: fromEmail,
@@ -10038,7 +10096,7 @@ app.post("/api/auth/send-password-reset", async (req, res) => {
     }
     if (actionUrl) {
       try {
-        const resend = new import_resend2.Resend(process.env.RESEND_API_KEY);
+        const resend = new import_resend3.Resend(process.env.RESEND_API_KEY);
         const htmlContent = await (0, import_render2.render)(import_react2.default.createElement(AuthEmailTemplate, {
           type: "reset_password",
           actionUrl,
@@ -10076,7 +10134,7 @@ app.post("/api/auth/send-email-changed", async (req, res) => {
     }
     const baseAppUrl = getAppBaseUrl(req);
     if (process.env.RESEND_API_KEY) {
-      const resend = new import_resend2.Resend(process.env.RESEND_API_KEY);
+      const resend = new import_resend3.Resend(process.env.RESEND_API_KEY);
       const htmlContent = await (0, import_render2.render)(import_react2.default.createElement(AuthEmailTemplate, {
         type: "email_changed",
         actionUrl: `${baseAppUrl}/?tab=settings`,
@@ -10110,7 +10168,7 @@ app.post("/api/auth/send-mfa-enrollment", async (req, res) => {
     }
     const baseAppUrl = getAppBaseUrl(req);
     if (process.env.RESEND_API_KEY) {
-      const resend = new import_resend2.Resend(process.env.RESEND_API_KEY);
+      const resend = new import_resend3.Resend(process.env.RESEND_API_KEY);
       const htmlContent = await (0, import_render2.render)(import_react2.default.createElement(AuthEmailTemplate, {
         type: "mfa_enrollment",
         actionUrl: `${baseAppUrl}/?tab=settings`,
@@ -10335,7 +10393,7 @@ app.post("/api/auctions/confirm-receipt", async (req, res) => {
           auctionUrl,
           settingsUrl: `${baseAppUrl}/?tab=settings`
         }));
-        const resendClient3 = new import_resend2.Resend(process.env.RESEND_API_KEY);
+        const resendClient3 = new import_resend3.Resend(process.env.RESEND_API_KEY);
         await resendClient3.emails.send({
           from: process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>",
           to: seller.email,
@@ -12258,7 +12316,7 @@ app.post("/api/admin/orders/:id/resolve-dispute", async (req, res) => {
       return res.status(400).json({ error: "Naro\u010Dilo ni v sporu." });
     }
     const stripe = getStripe();
-    const resendClient3 = new import_resend2.Resend(process.env.RESEND_API_KEY);
+    const resendClient3 = new import_resend3.Resend(process.env.RESEND_API_KEY);
     if (decision === "release_to_seller") {
       await txRef.update({
         payout_status: "releasable",
@@ -12840,7 +12898,6 @@ app.use((err, _req, res, _next) => {
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   app,
-  cancelAuctionBankTransfer,
   isAdminUser,
   recordSaleCompletion
 });

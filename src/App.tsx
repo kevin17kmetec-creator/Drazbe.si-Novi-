@@ -98,6 +98,7 @@ import {
   Zap,
   Download,
   CreditCard,
+  ExternalLink,
   AlertOctagon,
   Trash2,
   Filter,
@@ -437,6 +438,32 @@ const WonAuctionItem: React.FC<{
   const isPaid = wonItem.payment_status === "paid";
   const [pickupPin, setPickupPin] = useState<string | null>(null);
   const [pinLoading, setPinLoading] = useState(false);
+  const [openingInstructions, setOpeningInstructions] = useState(false);
+
+  // Deutscher Kommentar: Ruft die Zahlungsanweisungen fuer die Bankueberweisung des gewonnenen Artikels ab
+  const handleOpenBankTransferInstructions = async () => {
+    if (!user || !wonItem?.id) return;
+    setOpeningInstructions(true);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch(`/api/checkout/bank-transfer-instructions?auction_id=${encodeURIComponent(wonItem.id)}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      const data = await res.json();
+      if (res.ok && data?.url) {
+        window.open(data.url, '_blank', 'noopener');
+      } else {
+        toast.error(data?.error || "Navodila za nakazilo trenutno niso na voljo.");
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Napaka pri odpiranju navodil.");
+    } finally {
+      setOpeningInstructions(false);
+    }
+  };
+
   const { data: preview, loading: previewLoading, error: previewError } = useFeePreview({
     auctionId: wonItem.id,
     enabled: !isPaid
@@ -667,9 +694,26 @@ const WonAuctionItem: React.FC<{
                     <p className="text-[#FEBA4F] text-xs font-black uppercase tracking-wider mb-1 flex items-center gap-1.5">
                       <ShieldCheck size={14} /> Plačilo v obdelavi
                     </p>
-                    <p className="text-slate-500 text-xs font-bold leading-normal">
+                    <p className="text-slate-500 text-xs font-bold leading-normal mb-3">
                       Plačilo z bančnim nakazilom (SEPA) je v obdelavi. Počakajte na potrditev s strani našega plačilnega partnerja.
                     </p>
+                    <button
+                      onClick={handleOpenBankTransferInstructions}
+                      disabled={openingInstructions}
+                      className="w-full text-xs bg-[#0A1128] hover:bg-[#FEBA4F] hover:text-[#0A1128] text-white font-black uppercase tracking-wider py-3 px-4 rounded-xl transition-all shadow-md flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
+                    >
+                      {openingInstructions ? (
+                        <>
+                          <div className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                          <span>Nalaganje navodil...</span>
+                        </>
+                      ) : (
+                        <>
+                          <ExternalLink size={14} />
+                          <span>Odpri navodila za nakazilo</span>
+                        </>
+                      )}
+                    </button>
                   </div>
                 ) : (
                   <button
