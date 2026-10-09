@@ -1779,35 +1779,61 @@ const MainApp: React.FC = () => {
   const [prevzemModalOpen, setPrevzemModalOpen] = useState(false);
   const [prevzemLoading, setPrevzemLoading] = useState(false);
   const [prevzemAuctionTitle, setPrevzemAuctionTitle] = useState("");
+  const [prevzemError, setPrevzemError] = useState<string | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const prevzem = params.get('prevzem');
     const tParam = params.get('t');
     if (prevzem && tParam) {
-      setPendingPrevzemQr({ auctionId: prevzem, token: tParam });
+      const data = { auctionId: prevzem, token: tParam };
+      setPendingPrevzemQr(data);
+      try { sessionStorage.setItem('pending_prevzem_qr', JSON.stringify(data)); } catch (e) {}
       const newUrl = window.location.pathname + window.location.hash;
       window.history.replaceState({}, '', newUrl);
+    } else {
+      try {
+        const stored = sessionStorage.getItem('pending_prevzem_qr');
+        if (stored) {
+          setPendingPrevzemQr(JSON.parse(stored));
+        }
+      } catch (e) {}
     }
   }, []);
 
   useEffect(() => {
-    if (pendingPrevzemQr && user) {
-      setPrevzemModalOpen(true);
-      fetch(`/api/auctions/${pendingPrevzemQr.auctionId}`)
-        .then(res => res.json())
-        .then(data => {
-          if (data?.title) {
-            const titleText = typeof data.title === 'string' ? data.title : (data.title[language] || data.title['SLO'] || data.title['EN'] || '');
-            setPrevzemAuctionTitle(titleText);
-          }
-        })
-        .catch(() => {});
-    } else if (pendingPrevzemQr && !user) {
+    if (isAuthLoading || !pendingPrevzemQr) return;
+
+    if (!user) {
       setAuthMode('login');
       navigateTo('login');
+      return;
     }
-  }, [pendingPrevzemQr, user, language]);
+
+    async function loadHandoverInfo() {
+      try {
+        const token = await user.getIdToken();
+        const res = await fetch(`/api/orders/${pendingPrevzemQr!.auctionId}/handover-info`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (res.ok) {
+          setPrevzemAuctionTitle(data.title || "");
+          setPrevzemModalOpen(true);
+        } else {
+          toast.error(data.error || "Napaka pri nalaganju podatkov.");
+          if (res.status === 403) {
+            setPrevzemError(data.error);
+            setPrevzemModalOpen(true);
+          }
+        }
+      } catch (e) {
+        setPrevzemModalOpen(true);
+      }
+    }
+
+    loadHandoverInfo();
+  }, [pendingPrevzemQr, user, isAuthLoading]);
   const [reviewModalData, setReviewModalData] = useState<{
     isOpen: boolean;
     auction: AuctionItem | null;
@@ -3459,6 +3485,13 @@ const MainApp: React.FC = () => {
             setSelectedRegions([]);
             setSelectedCategories([]);
             setSearchQuery("");
+            try {
+                const stored = sessionStorage.getItem('pending_prevzem_qr');
+                if (stored) {
+                    setPendingPrevzemQr(JSON.parse(stored));
+                    sessionStorage.removeItem('pending_prevzem_qr');
+                }
+            } catch (e) {}
             goBack("grid");
           }}
           setIsVerified={setIsVerified}
@@ -6222,55 +6255,74 @@ const MainApp: React.FC = () => {
                     {prevzemAuctionTitle}
                   </p>
                 )}
-                <p className="text-slate-500 font-bold mb-6 text-sm">
-                  Potrdite samo, če ste predmet izročili kupcu.
-                </p>
-                <div className="flex flex-col gap-3">
-                  <button
-                    onClick={async () => {
-                      setPrevzemLoading(true);
-                      try {
-                        const token = await user?.getIdToken();
-                        const res = await fetch(`/api/orders/${pendingPrevzemQr.auctionId}/verify-pickup-qr`, {
-                          method: 'POST',
-                          headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${token}`
-                          },
-                          body: JSON.stringify({ token: pendingPrevzemQr.token })
-                        });
-                        const data = await res.json().catch(() => ({}));
-                        if (res.ok && data?.success) {
-                          toast.success("Predaja potrjena. Izplačilo je sproženo.");
-                          setPrevzemModalOpen(false);
-                          setPendingPrevzemQr(null);
-                          fetchAuctions();
-                          if (userData?.id) refreshUserData(userData.id);
-                        } else {
-                          toast.error(data?.error || "Napaka pri potrditvi predaje.");
+                {prevzemError ? (
+                  <div className="flex flex-col gap-3">
+                    <p className="text-red-500 font-bold mb-6 text-sm">{prevzemError}</p>
+                    <button
+                      onClick={() => {
+                        setPrevzemModalOpen(false);
+                        setPendingPrevzemQr(null);
+                        setPrevzemError(null);
+                        sessionStorage.removeItem('pending_prevzem_qr');
+                      }}
+                      className="w-full bg-[#0A1128] text-white py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all"
+                    >
+                      Zapri
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-3">
+                    <p className="text-slate-500 font-bold mb-6 text-sm">
+                      Potrdite samo, če ste predmet izročili kupcu.
+                    </p>
+                    <button
+                      onClick={async () => {
+                        setPrevzemLoading(true);
+                        try {
+                          const token = await user?.getIdToken();
+                          const res = await fetch(`/api/orders/${pendingPrevzemQr!.auctionId}/verify-pickup-qr`, {
+                            method: 'POST',
+                            headers: {
+                              'Content-Type': 'application/json',
+                              'Authorization': `Bearer ${token}`
+                            },
+                            body: JSON.stringify({ token: pendingPrevzemQr!.token })
+                          });
+                          const data = await res.json().catch(() => ({}));
+                          if (res.ok && data?.success) {
+                            toast.success("Predaja potrjena. Izplačilo je sproženo.");
+                            setPrevzemModalOpen(false);
+                            setPendingPrevzemQr(null);
+                            sessionStorage.removeItem('pending_prevzem_qr');
+                            fetchAuctions();
+                            if (userData?.id) refreshUserData(userData.id);
+                          } else {
+                            toast.error(data?.error || "Napaka pri potrditvi predaje.");
+                          }
+                        } catch (err: any) {
+                          toast.error(err?.message || "Napaka pri potrditvi predaje.");
+                        } finally {
+                          setPrevzemLoading(false);
                         }
-                      } catch (err: any) {
-                        toast.error(err?.message || "Napaka pri potrditvi predaje.");
-                      } finally {
-                        setPrevzemLoading(false);
-                      }
-                    }}
-                    disabled={prevzemLoading}
-                    className="w-full bg-[#0A1128] text-white py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                  >
-                    {prevzemLoading ? "Potrjevanje..." : "Potrdi predajo"}
-                  </button>
-                  <button
-                    onClick={() => {
-                      setPrevzemModalOpen(false);
-                      setPendingPrevzemQr(null);
-                    }}
-                    disabled={prevzemLoading}
-                    className="w-full bg-slate-100 text-slate-600 py-3.5 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-slate-200 transition-all"
-                  >
-                    Prekliči
-                  </button>
-                </div>
+                      }}
+                      disabled={prevzemLoading}
+                      className="w-full bg-[#0A1128] text-white py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    >
+                      {prevzemLoading ? "Potrjevanje..." : "Potrdi predajo"}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setPrevzemModalOpen(false);
+                        setPendingPrevzemQr(null);
+                        sessionStorage.removeItem('pending_prevzem_qr');
+                      }}
+                      disabled={prevzemLoading}
+                      className="w-full bg-slate-100 text-slate-600 py-3.5 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-slate-200 transition-all"
+                    >
+                      Prekliči
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </Portal>

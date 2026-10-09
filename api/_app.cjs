@@ -13273,6 +13273,38 @@ app.get("/api/admin/disputes/evidence", async (req, res) => {
     return res.status(500).json({ error: err.message });
   }
 });
+app.get("/api/orders/:id/handover-info", async (req, res) => {
+  let userId;
+  try {
+    userId = await authenticateFirebaseUser(req);
+  } catch (authErr) {
+    return res.status(401).json({ error: authErr.message || "Unauthorized" });
+  }
+  try {
+    const { id } = req.params;
+    let txRef = adminDb.collection("transactions").doc(id);
+    let txDoc = await safeGetDoc(txRef);
+    if (!txDoc.exists()) {
+      const qSnap = await safeGetDocs(adminDb.collection("transactions").where("auction_id", "==", id).limit(1));
+      if (!qSnap.empty) {
+        txDoc = qSnap.docs[0];
+        txRef = txDoc.ref;
+      }
+    }
+    if (!txDoc.exists()) return res.status(404).json({ error: "Order not found" });
+    const txData = txDoc.data();
+    if (txData.sellerId !== userId && txData.seller_id !== userId) {
+      return res.status(403).json({ error: "Te dra\u017Ebe ne morete potrditi s tem ra\u010Dunom." });
+    }
+    const auctionDoc = await safeGetDoc(adminDb.collection("auctions").doc(txData.auction_id));
+    if (!auctionDoc.exists()) return res.status(404).json({ error: "Auction not found" });
+    const auctionData = auctionDoc.data();
+    res.json({ title: auctionData.title, imageUrl: auctionData.image_url });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
 app.use("/api", (req, res) => {
   res.status(404).json({ error: "API route not found on Vercel backend", url: req.url, originalUrl: req.originalUrl });
 });
