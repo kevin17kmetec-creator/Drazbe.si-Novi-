@@ -1796,6 +1796,50 @@ async function finalizeAuctionPayment(params: {
 
     const auctionDoc = await safeGetDoc(adminDb.collection('auctions').doc(auctionId));
     const auction = auctionDoc.data() || {};
+
+    // Deutscher Kommentar: Schutz vor Doppelzahlung - wenn Auktion bereits bezahlt wurde, Rueckerstattung der Zweitzahlung veranlassen
+    if (auction.payment_status === 'paid' || auction.post_auction_status === 'paid') {
+      console.warn(`[finalizeAuctionPayment] Auktion ${auctionId} ist bereits bezahlt. Rueckerstattung fuer ${paymentRef}`);
+      try {
+        const stripe = getStripe();
+        let piToRefund = paymentRef.startsWith('pi_') ? paymentRef : '';
+        if (!piToRefund && stripeSessionId) {
+          const sObj = await stripe.checkout.sessions.retrieve(stripeSessionId);
+          piToRefund = typeof sObj.payment_intent === 'string' ? sObj.payment_intent : sObj.payment_intent?.id || '';
+        }
+        if (piToRefund) {
+          await stripe.refunds.create({
+            payment_intent: piToRefund,
+            reason: 'duplicate',
+            metadata: { auction_id: auctionId, duplicate_of: auction.paid_at || 'already_paid' }
+          });
+          console.log(`[finalizeAuctionPayment] Rueckerstattung erfolgreich: ${piToRefund} fuer Auktion ${auctionId}`);
+        }
+      } catch (refErr: any) {
+        console.error(`[finalizeAuctionPayment] Fehler bei automatischer Rueckerstattung der Doppelzahlung:`, refErr.message);
+      }
+
+      await txDocRef.set({
+        status: 'duplicate_refunded',
+        finalized: true,
+        duplicate_refunded: true,
+        auction_id: auctionId,
+        buyer_id: buyerId,
+        amount_total: amountTotalCents / 100,
+        refunded_at: new Date().toISOString(),
+        note: 'Dražba je že bila plačana z drugim plačilom.'
+      }, { merge: true });
+
+      try {
+        await adminDb.collection('aml_reservations').doc(`${buyerId}_${auctionId}`).set({
+          status: 'released',
+          released_at: new Date().toISOString(),
+          release_reason: 'duplicate_payment_refunded'
+        }, { merge: true });
+      } catch (e) {}
+
+      return { alreadyProcessed: true };
+    }
     let currentPrice = amountTotalCents / 100;
     if (auction.current_price || auction.currentBid || auction.starting_price) {
       currentPrice = Number(auction.current_price || auction.currentBid || auction.starting_price);
@@ -2231,6 +2275,15 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
       if (isSession && rawMetadata.payment_method === 'bank_transfer' && sessionObj?.payment_status === 'unpaid') {
         console.log(`[webhook] Bank transfer checkout session completed (unpaid). Session ID: ${sessionObj.id}. Awaiting payment.`);
         if (auction_id) {
+          const aDoc = await adminDb.collection('auctions').doc(auction_id).get();
+          if (aDoc.exists && (aDoc.data()?.payment_status === 'paid' || aDoc.data()?.post_auction_status === 'paid')) {
+            console.log(`[webhook] Auktion ${auction_id} ist bereits bezahlt. Bankueberweisungs-Sitzung wird storniert.`);
+            try {
+              await stripe.checkout.sessions.expire(sessionObj.id);
+            } catch (e) {}
+            res.json({ received: true });
+            return;
+          }
           await adminDb.collection('auctions').doc(auction_id).set({
             bank_transfer_pending: true,
             bank_transfer_session_id: sessionObj.id
@@ -3271,6 +3324,10 @@ app.post("/api/create-checkout-session", async (req, res) => {
 
       // Deutscher Kommentar: Wenn bereits eine Bankueberweisung aktiv ist und die Frist noch laeuft
       const isBankTransfer = (payment_method === 'bank_transfer');
+      if (isBankTransfer && auction.bank_transfer_final_chance === true) {
+        return res.status(400).json({ error: "Možnost bančnega nakazila za to dražbo je že potekla. Uporabite plačilo s kartico." });
+      }
+
       if (isBankTransfer && auction.bank_transfer_pending === true) {
         const deadline = auction.bank_transfer_deadline_at ? new Date(auction.bank_transfer_deadline_at).getTime() : 0;
         if (deadline > Date.now() && auction.bank_transfer_session_id) {
@@ -3290,10 +3347,16 @@ app.post("/api/create-checkout-session", async (req, res) => {
       // Deutscher Kommentar: Wenn Kartenzahlung gewaehlt wurde, aber eine Bankueberweisung aussteht, stornieren wir die alte zuerst
       if (!isBankTransfer && auction.bank_transfer_pending === true) {
         console.log(`[Checkout] Card payment requested while bank transfer is pending for auction ${effectiveAuctionId}. Cancelling old bank transfer first.`);
-        await cancelAuctionBankTransfer(effectiveAuctionId, auction, 'switch_to_card');
+        const cancelRes = await cancelAuctionBankTransfer(effectiveAuctionId, auction, 'switch_to_card');
+        if (cancelRes && cancelRes.success === false && cancelRes.reason === 'already_paid_or_processing') {
+          return res.status(409).json({ error: "Plačilo z nakazilom je že v obdelavi ali zaključeno." });
+        }
         const refreshedAuctionDoc = await safeGetDoc(adminDb.collection('auctions').doc(effectiveAuctionId));
         if (refreshedAuctionDoc.exists()) {
           auction = refreshedAuctionDoc.data();
+        }
+        if (auction.payment_status === 'paid' || auction.post_auction_status === 'paid') {
+          return res.status(400).json({ error: "Ta dražba je že plačana." });
         }
       }
 
@@ -3643,7 +3706,10 @@ app.post("/api/checkout/cancel-bank-transfer", async (req, res) => {
       return res.status(403).json({ error: 'Te dražbe ne morete upravljati.' });
     }
 
-    await cancelAuctionBankTransfer(auctionId, auctionData);
+    const cancelRes = await cancelAuctionBankTransfer(auctionId, auctionData, 'switch_to_card');
+    if (cancelRes && cancelRes.success === false && cancelRes.reason === 'already_paid_or_processing') {
+      return res.status(409).json({ error: "Plačilo z nakazilom je že v obdelavi ali zaključeno." });
+    }
 
     return res.json({ success: true });
   } catch (error: any) {
@@ -3763,6 +3829,8 @@ app.post("/api/confirm-checkout-session", async (req, res) => {
         return res.json({ 
           success: true, 
           paid: false, 
+          pending: true,
+          payment_method: 'bank_transfer',
           awaiting_bank_transfer: true, 
           auction_id: effectiveAuctionId 
         });

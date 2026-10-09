@@ -1433,15 +1433,53 @@ function getStripeClient() {
 }
 async function cancelAuctionBankTransfer(auctionId, _auctionData, mode = "failed") {
   const auctionRef = adminDb.collection("auctions").doc(auctionId);
+  const snap = await auctionRef.get();
+  if (!snap.exists) return { success: false, reason: "not_found" };
+  const data = snap.data() || {};
+  if (data.payment_status === "paid" || data.post_auction_status === "paid") {
+    return { success: false, reason: "already_paid" };
+  }
+  if (data.bank_transfer_pending !== true) {
+    return { success: false, reason: "not_pending" };
+  }
+  const sessionId = data.bank_transfer_session_id;
+  const buyerId = data.winner_id || data.winnerId || data.second_winner_id || data.secondWinnerId;
+  if (sessionId) {
+    try {
+      const stripe = getStripeClient();
+      const sess = await stripe.checkout.sessions.retrieve(sessionId, { expand: ["payment_intent"] });
+      const pi = typeof sess.payment_intent === "object" ? sess.payment_intent : null;
+      const isPaidOrProcessing = sess.payment_status === "paid" || sess.status === "complete" || pi?.status === "succeeded" || pi?.status === "processing";
+      if (isPaidOrProcessing) {
+        console.warn(`[CancelBankTransfer] Cannot cancel session ${sessionId}: already paid or processing`);
+        return { success: false, reason: "already_paid_or_processing" };
+      }
+      const piId = typeof sess.payment_intent === "string" ? sess.payment_intent : sess.payment_intent?.id;
+      if (piId) {
+        try {
+          await stripe.paymentIntents.cancel(piId);
+          console.log(`[CancelBankTransfer] Cancelled PaymentIntent ${piId} for session ${sessionId}`);
+        } catch (cErr) {
+          await stripe.checkout.sessions.expire(sessionId);
+        }
+      } else {
+        await stripe.checkout.sessions.expire(sessionId);
+        console.log(`[CancelBankTransfer] Expired checkout session ${sessionId}`);
+      }
+    } catch (err) {
+      console.warn(`[CancelBankTransfer] Warn: session cancel failed for ${sessionId}: ${err.message}`);
+    }
+  }
   let claimed = null;
   let newDeadline = "";
   try {
     await adminDb.runTransaction(async (tx) => {
-      const snap = await tx.get(auctionRef);
-      if (!snap.exists) return;
-      const data = snap.data() || {};
-      if (data.bank_transfer_pending !== true) return;
-      const currentDeadlineMs = new Date(data.payment_deadline || 0).getTime();
+      const txSnap = await tx.get(auctionRef);
+      if (!txSnap.exists) return;
+      const txData = txSnap.data() || {};
+      if (txData.payment_status === "paid" || txData.post_auction_status === "paid") return;
+      if (txData.bank_transfer_pending !== true) return;
+      const currentDeadlineMs = new Date(txData.payment_deadline || 0).getTime();
       const minDeadlineMs = Date.now() + 24 * 60 * 60 * 1e3;
       newDeadline = new Date(Math.max(currentDeadlineMs || 0, minDeadlineMs)).toISOString();
       tx.set(auctionRef, {
@@ -1451,31 +1489,13 @@ async function cancelAuctionBankTransfer(auctionId, _auctionData, mode = "failed
         bank_transfer_final_chance: true,
         payment_deadline: newDeadline
       }, { merge: true });
-      claimed = data;
+      claimed = txData;
     });
   } catch (txErr) {
     console.error(`[CancelBankTransfer] Transaction failed for ${auctionId}: ${txErr.message}`);
-    return;
+    return { success: false, reason: "transaction_failed" };
   }
-  if (!claimed) return;
-  const sessionId = claimed.bank_transfer_session_id;
-  const buyerId = claimed.winner_id || claimed.winnerId || claimed.second_winner_id || claimed.secondWinnerId;
-  if (sessionId) {
-    try {
-      const stripe = getStripeClient();
-      const sess = await stripe.checkout.sessions.retrieve(sessionId, { expand: ["payment_intent"] });
-      const piId = typeof sess.payment_intent === "string" ? sess.payment_intent : sess.payment_intent?.id;
-      if (piId) {
-        await stripe.paymentIntents.cancel(piId);
-        console.log(`[CancelBankTransfer] Cancelled PaymentIntent ${piId} for session ${sessionId}`);
-      } else {
-        await stripe.checkout.sessions.expire(sessionId);
-        console.log(`[CancelBankTransfer] Expired checkout session ${sessionId}`);
-      }
-    } catch (err) {
-      console.warn(`[CancelBankTransfer] Warn: session cancel failed for ${sessionId}: ${err.message}`);
-    }
-  }
+  if (!claimed) return { success: false, reason: "already_claimed_or_paid" };
   if (buyerId) {
     try {
       await adminDb.collection("aml_reservations").doc(`${buyerId}_${auctionId}`).set({
@@ -1513,6 +1533,7 @@ async function cancelAuctionBankTransfer(auctionId, _auctionData, mode = "failed
       console.error(`[CancelBankTransfer] Error sending e-mail: ${mailErr.message}`);
     }
   }
+  return { success: true };
 }
 
 // src/server/publicProfile.ts
@@ -5858,6 +5879,46 @@ async function finalizeAuctionPayment(params) {
     isReverseCharge = meta.reverse_charge === "1" || meta.reverse_charge === true;
     const auctionDoc = await safeGetDoc(adminDb.collection("auctions").doc(auctionId));
     const auction = auctionDoc.data() || {};
+    if (auction.payment_status === "paid" || auction.post_auction_status === "paid") {
+      console.warn(`[finalizeAuctionPayment] Auktion ${auctionId} ist bereits bezahlt. Rueckerstattung fuer ${paymentRef}`);
+      try {
+        const stripe = getStripe();
+        let piToRefund = paymentRef.startsWith("pi_") ? paymentRef : "";
+        if (!piToRefund && stripeSessionId) {
+          const sObj = await stripe.checkout.sessions.retrieve(stripeSessionId);
+          piToRefund = typeof sObj.payment_intent === "string" ? sObj.payment_intent : sObj.payment_intent?.id || "";
+        }
+        if (piToRefund) {
+          await stripe.refunds.create({
+            payment_intent: piToRefund,
+            reason: "duplicate",
+            metadata: { auction_id: auctionId, duplicate_of: auction.paid_at || "already_paid" }
+          });
+          console.log(`[finalizeAuctionPayment] Rueckerstattung erfolgreich: ${piToRefund} fuer Auktion ${auctionId}`);
+        }
+      } catch (refErr) {
+        console.error(`[finalizeAuctionPayment] Fehler bei automatischer Rueckerstattung der Doppelzahlung:`, refErr.message);
+      }
+      await txDocRef.set({
+        status: "duplicate_refunded",
+        finalized: true,
+        duplicate_refunded: true,
+        auction_id: auctionId,
+        buyer_id: buyerId,
+        amount_total: amountTotalCents / 100,
+        refunded_at: (/* @__PURE__ */ new Date()).toISOString(),
+        note: "Dra\u017Eba je \u017Ee bila pla\u010Dana z drugim pla\u010Dilom."
+      }, { merge: true });
+      try {
+        await adminDb.collection("aml_reservations").doc(`${buyerId}_${auctionId}`).set({
+          status: "released",
+          released_at: (/* @__PURE__ */ new Date()).toISOString(),
+          release_reason: "duplicate_payment_refunded"
+        }, { merge: true });
+      } catch (e) {
+      }
+      return { alreadyProcessed: true };
+    }
     let currentPrice = amountTotalCents / 100;
     if (auction.current_price || auction.currentBid || auction.starting_price) {
       currentPrice = Number(auction.current_price || auction.currentBid || auction.starting_price);
@@ -6229,6 +6290,16 @@ app.post("/api/webhook", import_express.default.raw({ type: "application/json" }
       if (isSession && rawMetadata.payment_method === "bank_transfer" && sessionObj?.payment_status === "unpaid") {
         console.log(`[webhook] Bank transfer checkout session completed (unpaid). Session ID: ${sessionObj.id}. Awaiting payment.`);
         if (auction_id) {
+          const aDoc = await adminDb.collection("auctions").doc(auction_id).get();
+          if (aDoc.exists && (aDoc.data()?.payment_status === "paid" || aDoc.data()?.post_auction_status === "paid")) {
+            console.log(`[webhook] Auktion ${auction_id} ist bereits bezahlt. Bankueberweisungs-Sitzung wird storniert.`);
+            try {
+              await stripe.checkout.sessions.expire(sessionObj.id);
+            } catch (e) {
+            }
+            res.json({ received: true });
+            return;
+          }
           await adminDb.collection("auctions").doc(auction_id).set({
             bank_transfer_pending: true,
             bank_transfer_session_id: sessionObj.id
@@ -7094,6 +7165,9 @@ app.post("/api/create-checkout-session", async (req, res) => {
         return res.status(403).json({ error: "Te dra\u017Ebe ne morete pla\u010Dati." });
       }
       const isBankTransfer2 = payment_method === "bank_transfer";
+      if (isBankTransfer2 && auction.bank_transfer_final_chance === true) {
+        return res.status(400).json({ error: "Mo\u017Enost ban\u010Dnega nakazila za to dra\u017Ebo je \u017Ee potekla. Uporabite pla\u010Dilo s kartico." });
+      }
       if (isBankTransfer2 && auction.bank_transfer_pending === true) {
         const deadline = auction.bank_transfer_deadline_at ? new Date(auction.bank_transfer_deadline_at).getTime() : 0;
         if (deadline > Date.now() && auction.bank_transfer_session_id) {
@@ -7111,10 +7185,16 @@ app.post("/api/create-checkout-session", async (req, res) => {
       }
       if (!isBankTransfer2 && auction.bank_transfer_pending === true) {
         console.log(`[Checkout] Card payment requested while bank transfer is pending for auction ${effectiveAuctionId}. Cancelling old bank transfer first.`);
-        await cancelAuctionBankTransfer(effectiveAuctionId, auction, "switch_to_card");
+        const cancelRes = await cancelAuctionBankTransfer(effectiveAuctionId, auction, "switch_to_card");
+        if (cancelRes && cancelRes.success === false && cancelRes.reason === "already_paid_or_processing") {
+          return res.status(409).json({ error: "Pla\u010Dilo z nakazilom je \u017Ee v obdelavi ali zaklju\u010Deno." });
+        }
         const refreshedAuctionDoc = await safeGetDoc(adminDb.collection("auctions").doc(effectiveAuctionId));
         if (refreshedAuctionDoc.exists()) {
           auction = refreshedAuctionDoc.data();
+        }
+        if (auction.payment_status === "paid" || auction.post_auction_status === "paid") {
+          return res.status(400).json({ error: "Ta dra\u017Eba je \u017Ee pla\u010Dana." });
         }
       }
       if (auction.title) {
@@ -7411,7 +7491,10 @@ app.post("/api/checkout/cancel-bank-transfer", async (req, res) => {
     if (!authorized) {
       return res.status(403).json({ error: "Te dra\u017Ebe ne morete upravljati." });
     }
-    await cancelAuctionBankTransfer(auctionId, auctionData);
+    const cancelRes = await cancelAuctionBankTransfer(auctionId, auctionData, "switch_to_card");
+    if (cancelRes && cancelRes.success === false && cancelRes.reason === "already_paid_or_processing") {
+      return res.status(409).json({ error: "Pla\u010Dilo z nakazilom je \u017Ee v obdelavi ali zaklju\u010Deno." });
+    }
     return res.json({ success: true });
   } catch (error) {
     console.error("Error cancelling bank transfer:", error);
@@ -7503,6 +7586,8 @@ app.post("/api/confirm-checkout-session", async (req, res) => {
         return res.json({
           success: true,
           paid: false,
+          pending: true,
+          payment_method: "bank_transfer",
           awaiting_bank_transfer: true,
           auction_id: effectiveAuctionId
         });
