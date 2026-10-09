@@ -1686,23 +1686,88 @@ app.post("/api/seller/request-payout", async (req, res) => {
 });
 
 
-// PIN je Transaktion einmalig anlegen (idempotent), nur serverseitig lesbar
-async function getOrCreatePickupPin(txId: string): Promise<string> {
+// Deutscher Kommentar: Erstellt oder laedt Abhol-PIN und QR-Token idempotent in Transaktionsgeheimnissen
+async function getOrCreatePickupSecrets(txId: string, auctionId: string): Promise<{ pin: string; qrUrl: string }> {
   const secretRef = adminDb.collection('transaction_secrets').doc(txId);
   return adminDb.runTransaction(async (t) => {
     const snap = await t.get(secretRef);
     const existing = snap.exists ? (snap.data() || {}) : null;
-    if (existing && existing.pickup_pin) return String(existing.pickup_pin);
-    const pin = generatePickupPin();
-    t.set(secretRef, {
-      pickup_pin: pin,
-      failed_attempts: 0,
-      lock_count: 0,
-      locked_until: 0,
-      created_at: new Date().toISOString()
-    }, { merge: true });
-    return pin;
+    let pin = existing && existing.pickup_pin ? String(existing.pickup_pin) : generatePickupPin();
+    let qrToken = existing && existing.pickup_qr_token ? String(existing.pickup_qr_token) : crypto.randomBytes(32).toString('base64url');
+    if (!existing || !existing.pickup_pin || !existing.pickup_qr_token) {
+      t.set(secretRef, {
+        pickup_pin: pin,
+        pickup_qr_token: qrToken,
+        failed_attempts: existing?.failed_attempts || 0,
+        lock_count: existing?.lock_count || 0,
+        locked_until: existing?.locked_until || 0,
+        created_at: existing?.created_at || new Date().toISOString()
+      }, { merge: true });
+    }
+    const baseAppUrl = (process.env.APP_URL && !process.env.APP_URL.includes('drazbenik.si')) ? process.env.APP_URL : 'https://drazbe.eu';
+    const qrUrl = `${baseAppUrl}/?prevzem=${auctionId}&t=${qrToken}`;
+    return { pin, qrUrl };
   });
+}
+
+// PIN je Transaktion einmalig anlegen (idempotent), nur serverseitig lesbar
+async function getOrCreatePickupPin(txId: string): Promise<string> {
+  const txDoc = await safeGetDoc(adminDb.collection('transactions').doc(txId));
+  const auctionId = txDoc.exists() ? txDoc.data()?.auction_id : txId;
+  const secrets = await getOrCreatePickupSecrets(txId, auctionId);
+  return secrets.pin;
+}
+
+// Deutscher Kommentar: Schliesst die Abholung ab, transferiert Escrow-Geld und sendet Verkaeufer-Mail
+async function completePickupHandover(txRef: FirebaseFirestore.DocumentReference, txDocId: string, tx: any, source: string) {
+  await completeTransactionAndPayout(txRef, txDocId, source);
+
+  await adminDb.collection('auctions').doc(tx.auction_id).update({
+    buyer_received: true,
+    received_at: new Date().toISOString(),
+    receipt_confirmed_at: new Date().toISOString(),
+    post_auction_status: 'delivered',
+    review_enabled: true
+  });
+
+  await adminDb.collection('transaction_secrets').doc(txDocId).set({
+    pickup_qr_token: null,
+    pickup_pin: null,
+    verified_at: new Date().toISOString()
+  }, { merge: true });
+
+  try {
+    const sellerDoc = await safeGetDoc(adminDb.collection('users').doc(tx.seller_id));
+    const seller = sellerDoc.data();
+    const auctionDoc = await safeGetDoc(adminDb.collection('auctions').doc(tx.auction_id));
+    const auction = auctionDoc.data();
+
+    if (seller?.email && process.env.RESEND_API_KEY) {
+      const auctionTitleText = auction?.title?.SLO || auction?.title?.EN || 'Predmet dražbe';
+      const baseAppUrl = (process.env.APP_URL && !process.env.APP_URL.includes('drazbenik.si')) ? process.env.APP_URL : 'https://drazbe.eu';
+      const auctionUrl = `${baseAppUrl}/?drazba=${tx.auction_id}`;
+      
+      const htmlContent = await render(React.createElement(AuctionEmailTemplate, {
+        type: 'item_delivered_seller',
+        recipientName: seller.first_name || seller.name || 'prodajalec',
+        auctionTitle: auctionTitleText,
+        auctionImageUrl: auction?.images?.[0]?.url || auction?.images?.[0],
+        currentPrice: tx.item_price,
+        auctionUrl,
+        settingsUrl: `${baseAppUrl}/?tab=settings`
+      }));
+
+      const resendClient = new Resend(process.env.RESEND_API_KEY);
+      await resendClient.emails.send({
+        from: process.env.EMAIL_FROM || 'dražbenik.si <obvestila@drazbenik.si>',
+        to: seller.email,
+        subject: `Predaja potrjena: ${auctionTitleText} - dražbenik.si`,
+        html: htmlContent
+      });
+    }
+  } catch (emErr: any) {
+    console.error('[completePickupHandover] Error sending email:', emErr.message);
+  }
 }
 
 async function finalizeAuctionPayment(params: {
@@ -6161,16 +6226,16 @@ app.get("/api/orders/:id/pickup-pin", async (req, res) => {
     }
 
     if (deliveryMethod !== 'pickup') {
-      return res.status(400).json({ error: "Za to naročilo prevzemna koda ni na voljo." });
+      return res.status(400).json({ error: "Za to naročilo koda za predajo ni na voljo." });
     }
 
     if (tx.status !== 'HELD_IN_ESCROW') {
-      return res.status(400).json({ error: "Prevzemna koda ni več veljavna." });
+      return res.status(400).json({ error: "Koda za predajo ni več veljavna." });
     }
 
-    const pin = await getOrCreatePickupPin(txDoc.id);
+    const secrets = await getOrCreatePickupSecrets(txDoc.id, tx.auction_id);
     res.setHeader('Cache-Control', 'no-store');
-    return res.json({ pin });
+    return res.json({ pin: secrets.pin, qrUrl: secrets.qrUrl });
   } catch (e: any) {
     console.error('[GET pickup-pin]', e);
     return res.status(500).json({ error: e.message });
@@ -6201,8 +6266,8 @@ app.post("/api/orders/:id/verify-pickup-pin", async (req, res) => {
 
     const tx = txDoc.data();
     // Nur der Verkaeufer der Bestellung darf den Abhol-PIN verifizieren
-    if (tx.seller_id !== userId) return res.status(403).json({ error: "Nimate pravic za to naročilo." });
-    if (tx.status === 'COMPLETED') return res.json({ success: true, message: "Prevzem je že potrjen." });
+    if (tx.seller_id !== userId) return res.status(403).json({ error: "Te dražbe ne morete potrditi s tem računom." });
+    if (tx.status === 'COMPLETED') return res.json({ success: true, message: "Predaja je že potrjena." });
     if (tx.payout_status === 'frozen' || tx.payout_status === 'refunded' || tx.status === 'DISPUTED') {
       return res.status(400).json({ error: "Naročila v trenutnem stanju ni mogoče potrditi." });
     }
@@ -6218,7 +6283,7 @@ app.post("/api/orders/:id/verify-pickup-pin", async (req, res) => {
       } catch (err: any) {}
     }
     if (deliveryMethod !== 'pickup') {
-      return res.status(400).json({ error: "Prevzemna koda je na voljo le za osebni prevzem." });
+      return res.status(400).json({ error: "Predaja je na voljo le za osebni prevzem." });
     }
 
     // PIN muss genau 6 Ziffern haben
@@ -6227,13 +6292,13 @@ app.post("/api/orders/:id/verify-pickup-pin", async (req, res) => {
     const secretRef = adminDb.collection('transaction_secrets').doc(txDoc.id);
     const secretDoc = await safeGetDoc(secretRef);
     const secret = secretDoc.exists() ? (secretDoc.data() || {}) : null;
-    if (!secret || !secret.pickup_pin) return res.status(400).json({ error: "Koda še ni bila ustvarjena. Kupec jo mora najprej odpreti v razdelku Moje zmage." });
+    if (!secret || !secret.pickup_pin) return res.status(400).json({ error: "Kupec kode še ni odprl v svojem računu." });
     const nowMs = Date.now();
     if (secret.locked_until && secret.locked_until > nowMs) {
       return res.status(429).json({ error: "Preveč napačnih poskusov. Poskusite znova čez nekaj minut." });
     }
     if ((secret.lock_count || 0) >= 3) {
-      return res.status(423).json({ error: "Vnos kode je zaklenjen. Prevzem naj potrdi kupec v aplikaciji." });
+      return res.status(423).json({ error: "Vnos kode je zaklenjen. Predajo naj potrdi kupec v aplikaciji." });
     }
     // Konstanter Zeitvergleich
     const a = Buffer.from(pin);
@@ -6250,56 +6315,98 @@ app.post("/api/orders/:id/verify-pickup-pin", async (req, res) => {
       await secretRef.set(update, { merge: true });
       return res.status(400).json({ error: "Napačna koda." });
     }
-    await secretRef.set({ failed_attempts: 0, verified_at: new Date().toISOString() }, { merge: true });
+    await secretRef.set({ failed_attempts: 0 }, { merge: true });
 
-    await completeTransactionAndPayout(txRef, txDoc.id, 'pickup_pin_confirmed');
+    await completePickupHandover(txRef, txDoc.id, tx, 'pickup_pin_confirmed');
 
-    // Uebergabe bestaetigt: Auktion als empfangen markieren und Bewertung freischalten
-    await adminDb.collection('auctions').doc(tx.auction_id).update({
-      buyer_received: true,
-      received_at: new Date().toISOString(),
-      receipt_confirmed_at: new Date().toISOString(),
-      post_auction_status: 'delivered',
-      review_enabled: true
-    });
-
-    try {
-      const sellerDoc = await safeGetDoc(adminDb.collection('users').doc(tx.seller_id));
-      const seller = sellerDoc.data();
-      const auctionDoc = await safeGetDoc(adminDb.collection('auctions').doc(tx.auction_id));
-      const auction = auctionDoc.data();
-
-      if (seller?.email && process.env.RESEND_API_KEY) {
-        const auctionTitleText = auction?.title?.SLO || auction?.title?.EN || 'Predmet dražbe';
-        const baseAppUrl = (process.env.APP_URL && !process.env.APP_URL.includes('drazbenik.si')) ? process.env.APP_URL : 'https://drazbe.eu';
-        const auctionUrl = `${baseAppUrl}/?drazba=${tx.auction_id}`;
-        
-        const htmlContent = await render(React.createElement(AuctionEmailTemplate, {
-          type: 'item_delivered_seller',
-          recipientName: seller.first_name || seller.name || 'prodajalec',
-          auctionTitle: auctionTitleText,
-          auctionImageUrl: auction?.images?.[0]?.url || auction?.images?.[0],
-          currentPrice: tx.item_price,
-          auctionUrl,
-          settingsUrl: `${baseAppUrl}/?tab=settings`
-        }));
-
-        const resendClient = new Resend(process.env.RESEND_API_KEY);
-        await resendClient.emails.send({
-          from: process.env.EMAIL_FROM || 'dražbenik.si <obvestila@drazbenik.si>',
-          to: seller.email,
-          subject: `Prevzem potrjen: ${auctionTitleText} - dražbenik.si`,
-          html: htmlContent
-        });
-      }
-    } catch (emErr: any) {
-      console.error('[verify-pickup-pin] Error sending email:', emErr.message);
-    }
-
-    res.json({ success: true, message: "Prevzem potrjen. Izplačilo je sproženo." });
+    return res.json({ success: true, message: "Predaja potrjena. Izplačilo je sproženo." });
   } catch (e: any) {
     console.error(e);
-    res.status(500).json({ error: e.message });
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+app.post("/api/orders/:id/verify-pickup-qr", async (req, res) => {
+  // Nutzer-ID ausschliesslich aus dem verifizierten Token
+  let userId: string;
+  try {
+    userId = await authenticateFirebaseUser(req);
+  } catch (authErr: any) {
+    return res.status(401).json({ error: authErr.message || 'Unauthorized' });
+  }
+
+  try {
+    const { id } = req.params;
+    let txRef = adminDb.collection('transactions').doc(id);
+    let txDoc = await safeGetDoc(txRef);
+    if (!txDoc.exists()) {
+      const qSnap = await safeGetDocs(adminDb.collection('transactions').where('auction_id', '==', id).limit(1));
+      if (!qSnap.empty) {
+        txDoc = qSnap.docs[0];
+        txRef = txDoc.ref;
+      }
+    }
+    if (!txDoc.exists()) return res.status(404).json({ error: "Naročilo ne obstaja." });
+
+    const tx = txDoc.data();
+    // Nur der Verkaeufer der Bestellung darf den QR-Token verifizieren
+    if (tx.seller_id !== userId) return res.status(403).json({ error: "Te dražbe ne morete potrditi s tem računom." });
+    if (tx.status === 'COMPLETED') return res.json({ success: true, message: "Predaja je že potrjena." });
+    if (tx.payout_status === 'frozen' || tx.payout_status === 'refunded' || tx.status === 'DISPUTED') {
+      return res.status(400).json({ error: "Naročila v trenutnem stanju ni mogoče potrditi." });
+    }
+    if (tx.status !== 'HELD_IN_ESCROW') return res.status(400).json({ error: "Naročilo ni v stanju HELD_IN_ESCROW." });
+
+    let deliveryMethod = tx.delivery_method;
+    if (!deliveryMethod && tx.auction_id) {
+      try {
+        const auctionDoc = await safeGetDoc(adminDb.collection('auctions').doc(tx.auction_id));
+        if (auctionDoc.exists()) {
+          deliveryMethod = auctionDoc.data()?.delivery_method;
+        }
+      } catch (err: any) {}
+    }
+    if (deliveryMethod !== 'pickup') {
+      return res.status(400).json({ error: "Predaja je na voljo le za osebni prevzem." });
+    }
+
+    const token = String(req.body?.token || '').trim();
+    if (!token) return res.status(400).json({ error: "Manjka potrditveni žeton." });
+
+    const secretRef = adminDb.collection('transaction_secrets').doc(txDoc.id);
+    const secretDoc = await safeGetDoc(secretRef);
+    const secret = secretDoc.exists() ? (secretDoc.data() || {}) : null;
+    if (!secret || !secret.pickup_qr_token) return res.status(400).json({ error: "Kupec kode še ni odprl v svojem računu." });
+    const nowMs = Date.now();
+    if (secret.locked_until && secret.locked_until > nowMs) {
+      return res.status(429).json({ error: "Preveč napačnih poskusov. Poskusite znova čez nekaj minut." });
+    }
+    if ((secret.lock_count || 0) >= 3) {
+      return res.status(423).json({ error: "Vnos kode je zaklenjen. Predajo naj potrdi kupec v aplikaciji." });
+    }
+
+    const a = Buffer.from(token);
+    const b = Buffer.from(String(secret.pickup_qr_token));
+    const ok = a.length === b.length && timingSafeEqual(a, b);
+    if (!ok) {
+      const failed = (secret.failed_attempts || 0) + 1;
+      const update: any = { failed_attempts: failed };
+      if (failed >= 5) {
+        update.failed_attempts = 0;
+        update.lock_count = (secret.lock_count || 0) + 1;
+        update.locked_until = nowMs + 15 * 60 * 1000;
+      }
+      await secretRef.set(update, { merge: true });
+      return res.status(400).json({ error: "Napačna koda." });
+    }
+    await secretRef.set({ failed_attempts: 0 }, { merge: true });
+
+    await completePickupHandover(txRef, txDoc.id, tx, 'pickup_qr_confirmed');
+
+    return res.json({ success: true, message: "Predaja potrjena. Izplačilo je sproženo." });
+  } catch (e: any) {
+    console.error(e);
+    return res.status(500).json({ error: e.message });
   }
 });
 

@@ -645,6 +645,7 @@ const WonAuctionItem: React.FC<{
               setReceiptConfirmModal={setReceiptConfirmModal}
               openReviewModal={openReviewModal}
               canLeaveReview={canLeaveReview}
+              onRefreshWonItems={fetchAuctions}
               onOpenMessages={(auctionId) => {
                 setActiveConversationId(auctionId);
                 setActiveView("messages");
@@ -1748,7 +1749,8 @@ const MainApp: React.FC = () => {
     isOpen: boolean;
     auctionId: string;
     sellerId: string;
-  }>({ isOpen: false, auctionId: "", sellerId: "" });
+    isPickup?: boolean;
+  }>({ isOpen: false, auctionId: "", sellerId: "", isPickup: false });
   // Status fuer Lade- und Erfolgsanimation der Empfangsbestaetigung
   const [receiptConfirmState, setReceiptConfirmState] = useState<'idle' | 'loading' | 'success'>('idle');
   // Ladezustand fuer die API-Anfrage der Empfangsbestaetigung
@@ -1772,6 +1774,40 @@ const MainApp: React.FC = () => {
   }>({ isOpen: false, auctionId: "" });
   const [pickupPinInput, setPickupPinInput] = useState("");
   const [verifyPinLoading, setVerifyPinLoading] = useState(false);
+  const [user, setUser] = useState<any>(auth.currentUser);
+  const [pendingPrevzemQr, setPendingPrevzemQr] = useState<{ auctionId: string; token: string } | null>(null);
+  const [prevzemModalOpen, setPrevzemModalOpen] = useState(false);
+  const [prevzemLoading, setPrevzemLoading] = useState(false);
+  const [prevzemAuctionTitle, setPrevzemAuctionTitle] = useState("");
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const prevzem = params.get('prevzem');
+    const tParam = params.get('t');
+    if (prevzem && tParam) {
+      setPendingPrevzemQr({ auctionId: prevzem, token: tParam });
+      const newUrl = window.location.pathname + window.location.hash;
+      window.history.replaceState({}, '', newUrl);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (pendingPrevzemQr && user) {
+      setPrevzemModalOpen(true);
+      fetch(`/api/auctions/${pendingPrevzemQr.auctionId}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data?.title) {
+            const titleText = typeof data.title === 'string' ? data.title : (data.title[language] || data.title['SLO'] || data.title['EN'] || '');
+            setPrevzemAuctionTitle(titleText);
+          }
+        })
+        .catch(() => {});
+    } else if (pendingPrevzemQr && !user) {
+      setAuthMode('login');
+      navigateTo('login');
+    }
+  }, [pendingPrevzemQr, user, language]);
   const [reviewModalData, setReviewModalData] = useState<{
     isOpen: boolean;
     auction: AuctionItem | null;
@@ -1780,7 +1816,7 @@ const MainApp: React.FC = () => {
 
   const openReviewModal = (auction: AuctionItem) => {
     if (!(auction as any).review_submitted && !canLeaveReview(auction)) {
-      toast.error("Oceno lahko oddate šele, ko je predmet predan in prejem potrjen.");
+      toast.error("Oceno lahko oddate šele, ko je predmet predan in predaja potrjena.");
       return;
     }
     const sId = auction.sellerId || (auction as any).seller_id;
@@ -1811,7 +1847,6 @@ const MainApp: React.FC = () => {
 
   const lastSessionCheckRef = useRef(0);
   const isCheckingSessionRef = useRef(false);
-  const [user, setUser] = useState<any>(auth.currentUser);
   const markNotificationReadRef = useRef<((id?: string, all?: boolean) => void) | null>(null);
 
   // Behandlung von Klicks auf Benachrichtigungen (DEL E)
@@ -4372,7 +4407,7 @@ const MainApp: React.FC = () => {
                               }}
                               className="bg-[#0A1128] text-white px-4 py-3.5 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all flex items-center justify-center gap-2 mt-2 shadow-lg"
                             >
-                              <Key size={16} /> Vnesi prevzemno kodo
+                              <Key size={16} /> Vnesi kodo za predajo
                             </button>
                           )}
                         </>
@@ -5508,7 +5543,7 @@ const MainApp: React.FC = () => {
         setReceiptConfirmState('success');
         setReceiptConfirmLoading(false);
         setTimeout(() => {
-          setReceiptConfirmModal({ isOpen: false, auctionId: "", sellerId: "" });
+          setReceiptConfirmModal({ isOpen: false, auctionId: "", sellerId: "", isPickup: false });
           setReceiptConfirmState('idle');
           fetchAuctions();
         }, 1500);
@@ -5928,7 +5963,7 @@ const MainApp: React.FC = () => {
               onClick={() => {
                 // Schließen des Modals nur erlauben, wenn kein Ladevorgang läuft
                 if (receiptConfirmState === 'idle' && !receiptConfirmLoading) {
-                  setReceiptConfirmModal({ isOpen: false, auctionId: "", sellerId: "" });
+                  setReceiptConfirmModal({ isOpen: false, auctionId: "", sellerId: "", isPickup: false });
                 }
               }}
             >
@@ -5943,6 +5978,7 @@ const MainApp: React.FC = () => {
                         isOpen: false,
                         auctionId: "",
                         sellerId: "",
+                        isPickup: false,
                       })
                     }
                     className="absolute top-8 right-8 text-slate-400 hover:text-[#0A1128] transition-colors"
@@ -5959,6 +5995,8 @@ const MainApp: React.FC = () => {
                 <p className="text-slate-500 font-bold mb-8 text-sm">
                   {receiptConfirmState === 'success'
                     ? "Izplačilo prodajalcu je sproženo."
+                    : receiptConfirmModal.isPickup
+                    ? "Sredstva bodo takoj sprejeta prodajalcu. Potrdite samo, če ste predmet že prejeli in preverili."
                     : "S potrditvijo prejema potrjujete, da ste predmet pregledali, da je skladen z opisom in vsemi podatki prodajalca ter da ga sprejemate. Posel je s tem zaključen in izplačilo prodajalcu se sprosti takoj. Nadaljujem?"}
                 </p>
                 {receiptConfirmState !== 'success' && (
@@ -5983,6 +6021,7 @@ const MainApp: React.FC = () => {
                           isOpen: false,
                           auctionId: "",
                           sellerId: "",
+                          isPickup: false,
                         })
                       }
                       disabled={receiptConfirmLoading}
@@ -6093,10 +6132,10 @@ const MainApp: React.FC = () => {
                   <Key size={40} className="text-amber-600" />
                 </div>
                 <h2 className="text-2xl font-black text-[#0A1128] uppercase tracking-tighter mb-3">
-                  Potrditev prevzema
+                  Potrditev predaje
                 </h2>
                 <p className="text-slate-500 font-bold mb-6 text-sm">
-                  Vnesite 6-mestno kodo, ki vam jo pokaže kupec po pregledu predmeta.
+                  Vnesite 6-mestno kodo, ki vam jo pokaže kupec ob predaji predmeta.
                 </p>
                 <form
                   onSubmit={async (e) => {
@@ -6119,7 +6158,7 @@ const MainApp: React.FC = () => {
                       });
                       const data = await res.json().catch(() => ({}));
                       if (res.ok && data?.success) {
-                        toast.success("Prevzem potrjen. Izplačilo je sproženo.");
+                        toast.success("Predaja potrjena. Izplačilo je sproženo.");
                         setVerifyPickupPinModal({ isOpen: false, auctionId: "" });
                         fetchAuctions();
                         refreshUserData();
@@ -6151,7 +6190,7 @@ const MainApp: React.FC = () => {
                       disabled={verifyPinLoading || pickupPinInput.length !== 6}
                       className="w-full bg-[#0A1128] text-white py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                     >
-                      {verifyPinLoading ? "Preverjanje..." : "Potrdi prevzem"}
+                      {verifyPinLoading ? "Preverjanje..." : "Potrdi predajo"}
                     </button>
                     <button
                       type="button"
@@ -6163,6 +6202,75 @@ const MainApp: React.FC = () => {
                     </button>
                   </div>
                 </form>
+              </div>
+            </div>
+          </Portal>
+        )}
+
+        {prevzemModalOpen && pendingPrevzemQr && (
+          <Portal>
+            <div className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-6 animate-in" onClick={(e) => e.stopPropagation()}>
+              <div className="bg-white w-full max-w-md rounded-[3rem] p-10 shadow-2xl relative text-center">
+                <div className="bg-amber-100 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <Key size={40} className="text-amber-600" />
+                </div>
+                <h2 className="text-2xl font-black text-[#0A1128] uppercase tracking-tighter mb-3">
+                  Potrditev predaje
+                </h2>
+                {prevzemAuctionTitle && (
+                  <p className="text-sm font-bold text-[#0A1128] mb-2 bg-slate-100 py-2 px-4 rounded-xl">
+                    {prevzemAuctionTitle}
+                  </p>
+                )}
+                <p className="text-slate-500 font-bold mb-6 text-sm">
+                  Potrdite samo, če ste predmet izročili kupcu.
+                </p>
+                <div className="flex flex-col gap-3">
+                  <button
+                    onClick={async () => {
+                      setPrevzemLoading(true);
+                      try {
+                        const token = await user?.getIdToken();
+                        const res = await fetch(`/api/orders/${pendingPrevzemQr.auctionId}/verify-pickup-qr`, {
+                          method: 'POST',
+                          headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                          },
+                          body: JSON.stringify({ token: pendingPrevzemQr.token })
+                        });
+                        const data = await res.json().catch(() => ({}));
+                        if (res.ok && data?.success) {
+                          toast.success("Predaja potrjena. Izplačilo je sproženo.");
+                          setPrevzemModalOpen(false);
+                          setPendingPrevzemQr(null);
+                          fetchAuctions();
+                          if (userData?.id) refreshUserData(userData.id);
+                        } else {
+                          toast.error(data?.error || "Napaka pri potrditvi predaje.");
+                        }
+                      } catch (err: any) {
+                        toast.error(err?.message || "Napaka pri potrditvi predaje.");
+                      } finally {
+                        setPrevzemLoading(false);
+                      }
+                    }}
+                    disabled={prevzemLoading}
+                    className="w-full bg-[#0A1128] text-white py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {prevzemLoading ? "Potrjevanje..." : "Potrdi predajo"}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setPrevzemModalOpen(false);
+                      setPendingPrevzemQr(null);
+                    }}
+                    disabled={prevzemLoading}
+                    className="w-full bg-slate-100 text-slate-600 py-3.5 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-slate-200 transition-all"
+                  >
+                    Prekliči
+                  </button>
+                </div>
               </div>
             </div>
           </Portal>

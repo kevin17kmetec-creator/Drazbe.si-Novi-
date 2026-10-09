@@ -5809,22 +5809,77 @@ app.post("/api/seller/request-payout", async (req, res) => {
     return res.status(500).json({ error: err.message || "Napaka pri obdelavi izpla\u010Dila." });
   }
 });
-async function getOrCreatePickupPin(txId) {
+async function getOrCreatePickupSecrets(txId, auctionId) {
   const secretRef = adminDb.collection("transaction_secrets").doc(txId);
   return adminDb.runTransaction(async (t) => {
     const snap = await t.get(secretRef);
     const existing = snap.exists ? snap.data() || {} : null;
-    if (existing && existing.pickup_pin) return String(existing.pickup_pin);
-    const pin = generatePickupPin();
-    t.set(secretRef, {
-      pickup_pin: pin,
-      failed_attempts: 0,
-      lock_count: 0,
-      locked_until: 0,
-      created_at: (/* @__PURE__ */ new Date()).toISOString()
-    }, { merge: true });
-    return pin;
+    let pin = existing && existing.pickup_pin ? String(existing.pickup_pin) : generatePickupPin();
+    let qrToken = existing && existing.pickup_qr_token ? String(existing.pickup_qr_token) : import_crypto2.default.randomBytes(32).toString("base64url");
+    if (!existing || !existing.pickup_pin || !existing.pickup_qr_token) {
+      t.set(secretRef, {
+        pickup_pin: pin,
+        pickup_qr_token: qrToken,
+        failed_attempts: existing?.failed_attempts || 0,
+        lock_count: existing?.lock_count || 0,
+        locked_until: existing?.locked_until || 0,
+        created_at: existing?.created_at || (/* @__PURE__ */ new Date()).toISOString()
+      }, { merge: true });
+    }
+    const baseAppUrl = process.env.APP_URL && !process.env.APP_URL.includes("drazbenik.si") ? process.env.APP_URL : "https://drazbe.eu";
+    const qrUrl = `${baseAppUrl}/?prevzem=${auctionId}&t=${qrToken}`;
+    return { pin, qrUrl };
   });
+}
+async function getOrCreatePickupPin(txId) {
+  const txDoc = await safeGetDoc(adminDb.collection("transactions").doc(txId));
+  const auctionId = txDoc.exists() ? txDoc.data()?.auction_id : txId;
+  const secrets = await getOrCreatePickupSecrets(txId, auctionId);
+  return secrets.pin;
+}
+async function completePickupHandover(txRef, txDocId, tx, source) {
+  await completeTransactionAndPayout(txRef, txDocId, source);
+  await adminDb.collection("auctions").doc(tx.auction_id).update({
+    buyer_received: true,
+    received_at: (/* @__PURE__ */ new Date()).toISOString(),
+    receipt_confirmed_at: (/* @__PURE__ */ new Date()).toISOString(),
+    post_auction_status: "delivered",
+    review_enabled: true
+  });
+  await adminDb.collection("transaction_secrets").doc(txDocId).set({
+    pickup_qr_token: null,
+    pickup_pin: null,
+    verified_at: (/* @__PURE__ */ new Date()).toISOString()
+  }, { merge: true });
+  try {
+    const sellerDoc = await safeGetDoc(adminDb.collection("users").doc(tx.seller_id));
+    const seller = sellerDoc.data();
+    const auctionDoc = await safeGetDoc(adminDb.collection("auctions").doc(tx.auction_id));
+    const auction = auctionDoc.data();
+    if (seller?.email && process.env.RESEND_API_KEY) {
+      const auctionTitleText = auction?.title?.SLO || auction?.title?.EN || "Predmet dra\u017Ebe";
+      const baseAppUrl = process.env.APP_URL && !process.env.APP_URL.includes("drazbenik.si") ? process.env.APP_URL : "https://drazbe.eu";
+      const auctionUrl = `${baseAppUrl}/?drazba=${tx.auction_id}`;
+      const htmlContent = await (0, import_render2.render)(import_react2.default.createElement(AuctionEmailTemplate, {
+        type: "item_delivered_seller",
+        recipientName: seller.first_name || seller.name || "prodajalec",
+        auctionTitle: auctionTitleText,
+        auctionImageUrl: auction?.images?.[0]?.url || auction?.images?.[0],
+        currentPrice: tx.item_price,
+        auctionUrl,
+        settingsUrl: `${baseAppUrl}/?tab=settings`
+      }));
+      const resendClient3 = new import_resend3.Resend(process.env.RESEND_API_KEY);
+      await resendClient3.emails.send({
+        from: process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>",
+        to: seller.email,
+        subject: `Predaja potrjena: ${auctionTitleText} - dra\u017Ebenik.si`,
+        html: htmlContent
+      });
+    }
+  } catch (emErr) {
+    console.error("[completePickupHandover] Error sending email:", emErr.message);
+  }
 }
 async function finalizeAuctionPayment(params) {
   const { auctionId, buyerId, sellerId, paymentRef, amountTotalCents, stripeSessionId } = params;
@@ -9594,14 +9649,14 @@ app.get("/api/orders/:id/pickup-pin", async (req, res) => {
       }
     }
     if (deliveryMethod !== "pickup") {
-      return res.status(400).json({ error: "Za to naro\u010Dilo prevzemna koda ni na voljo." });
+      return res.status(400).json({ error: "Za to naro\u010Dilo koda za predajo ni na voljo." });
     }
     if (tx.status !== "HELD_IN_ESCROW") {
-      return res.status(400).json({ error: "Prevzemna koda ni ve\u010D veljavna." });
+      return res.status(400).json({ error: "Koda za predajo ni ve\u010D veljavna." });
     }
-    const pin = await getOrCreatePickupPin(txDoc.id);
+    const secrets = await getOrCreatePickupSecrets(txDoc.id, tx.auction_id);
     res.setHeader("Cache-Control", "no-store");
-    return res.json({ pin });
+    return res.json({ pin: secrets.pin, qrUrl: secrets.qrUrl });
   } catch (e) {
     console.error("[GET pickup-pin]", e);
     return res.status(500).json({ error: e.message });
@@ -9627,8 +9682,8 @@ app.post("/api/orders/:id/verify-pickup-pin", async (req, res) => {
     }
     if (!txDoc.exists()) return res.status(404).json({ error: "Naro\u010Dilo ne obstaja." });
     const tx = txDoc.data();
-    if (tx.seller_id !== userId) return res.status(403).json({ error: "Nimate pravic za to naro\u010Dilo." });
-    if (tx.status === "COMPLETED") return res.json({ success: true, message: "Prevzem je \u017Ee potrjen." });
+    if (tx.seller_id !== userId) return res.status(403).json({ error: "Te dra\u017Ebe ne morete potrditi s tem ra\u010Dunom." });
+    if (tx.status === "COMPLETED") return res.json({ success: true, message: "Predaja je \u017Ee potrjena." });
     if (tx.payout_status === "frozen" || tx.payout_status === "refunded" || tx.status === "DISPUTED") {
       return res.status(400).json({ error: "Naro\u010Dila v trenutnem stanju ni mogo\u010De potrditi." });
     }
@@ -9644,20 +9699,20 @@ app.post("/api/orders/:id/verify-pickup-pin", async (req, res) => {
       }
     }
     if (deliveryMethod !== "pickup") {
-      return res.status(400).json({ error: "Prevzemna koda je na voljo le za osebni prevzem." });
+      return res.status(400).json({ error: "Predaja je na voljo le za osebni prevzem." });
     }
     const pin = String(req.body?.pin || "").trim();
     if (!/^\d{6}$/.test(pin)) return res.status(400).json({ error: "Vnesite 6-mestno kodo." });
     const secretRef = adminDb.collection("transaction_secrets").doc(txDoc.id);
     const secretDoc = await safeGetDoc(secretRef);
     const secret = secretDoc.exists() ? secretDoc.data() || {} : null;
-    if (!secret || !secret.pickup_pin) return res.status(400).json({ error: "Koda \u0161e ni bila ustvarjena. Kupec jo mora najprej odpreti v razdelku Moje zmage." });
+    if (!secret || !secret.pickup_pin) return res.status(400).json({ error: "Kupec kode \u0161e ni odprl v svojem ra\u010Dunu." });
     const nowMs = Date.now();
     if (secret.locked_until && secret.locked_until > nowMs) {
       return res.status(429).json({ error: "Preve\u010D napa\u010Dnih poskusov. Poskusite znova \u010Dez nekaj minut." });
     }
     if ((secret.lock_count || 0) >= 3) {
-      return res.status(423).json({ error: "Vnos kode je zaklenjen. Prevzem naj potrdi kupec v aplikaciji." });
+      return res.status(423).json({ error: "Vnos kode je zaklenjen. Predajo naj potrdi kupec v aplikaciji." });
     }
     const a = Buffer.from(pin);
     const b = Buffer.from(String(secret.pickup_pin));
@@ -9673,48 +9728,86 @@ app.post("/api/orders/:id/verify-pickup-pin", async (req, res) => {
       await secretRef.set(update, { merge: true });
       return res.status(400).json({ error: "Napa\u010Dna koda." });
     }
-    await secretRef.set({ failed_attempts: 0, verified_at: (/* @__PURE__ */ new Date()).toISOString() }, { merge: true });
-    await completeTransactionAndPayout(txRef, txDoc.id, "pickup_pin_confirmed");
-    await adminDb.collection("auctions").doc(tx.auction_id).update({
-      buyer_received: true,
-      received_at: (/* @__PURE__ */ new Date()).toISOString(),
-      receipt_confirmed_at: (/* @__PURE__ */ new Date()).toISOString(),
-      post_auction_status: "delivered",
-      review_enabled: true
-    });
-    try {
-      const sellerDoc = await safeGetDoc(adminDb.collection("users").doc(tx.seller_id));
-      const seller = sellerDoc.data();
-      const auctionDoc = await safeGetDoc(adminDb.collection("auctions").doc(tx.auction_id));
-      const auction = auctionDoc.data();
-      if (seller?.email && process.env.RESEND_API_KEY) {
-        const auctionTitleText = auction?.title?.SLO || auction?.title?.EN || "Predmet dra\u017Ebe";
-        const baseAppUrl = process.env.APP_URL && !process.env.APP_URL.includes("drazbenik.si") ? process.env.APP_URL : "https://drazbe.eu";
-        const auctionUrl = `${baseAppUrl}/?drazba=${tx.auction_id}`;
-        const htmlContent = await (0, import_render2.render)(import_react2.default.createElement(AuctionEmailTemplate, {
-          type: "item_delivered_seller",
-          recipientName: seller.first_name || seller.name || "prodajalec",
-          auctionTitle: auctionTitleText,
-          auctionImageUrl: auction?.images?.[0]?.url || auction?.images?.[0],
-          currentPrice: tx.item_price,
-          auctionUrl,
-          settingsUrl: `${baseAppUrl}/?tab=settings`
-        }));
-        const resendClient3 = new import_resend3.Resend(process.env.RESEND_API_KEY);
-        await resendClient3.emails.send({
-          from: process.env.EMAIL_FROM || "dra\u017Ebenik.si <obvestila@drazbenik.si>",
-          to: seller.email,
-          subject: `Prevzem potrjen: ${auctionTitleText} - dra\u017Ebenik.si`,
-          html: htmlContent
-        });
-      }
-    } catch (emErr) {
-      console.error("[verify-pickup-pin] Error sending email:", emErr.message);
-    }
-    res.json({ success: true, message: "Prevzem potrjen. Izpla\u010Dilo je spro\u017Eeno." });
+    await secretRef.set({ failed_attempts: 0 }, { merge: true });
+    await completePickupHandover(txRef, txDoc.id, tx, "pickup_pin_confirmed");
+    return res.json({ success: true, message: "Predaja potrjena. Izpla\u010Dilo je spro\u017Eeno." });
   } catch (e) {
     console.error(e);
-    res.status(500).json({ error: e.message });
+    return res.status(500).json({ error: e.message });
+  }
+});
+app.post("/api/orders/:id/verify-pickup-qr", async (req, res) => {
+  let userId;
+  try {
+    userId = await authenticateFirebaseUser(req);
+  } catch (authErr) {
+    return res.status(401).json({ error: authErr.message || "Unauthorized" });
+  }
+  try {
+    const { id } = req.params;
+    let txRef = adminDb.collection("transactions").doc(id);
+    let txDoc = await safeGetDoc(txRef);
+    if (!txDoc.exists()) {
+      const qSnap = await safeGetDocs(adminDb.collection("transactions").where("auction_id", "==", id).limit(1));
+      if (!qSnap.empty) {
+        txDoc = qSnap.docs[0];
+        txRef = txDoc.ref;
+      }
+    }
+    if (!txDoc.exists()) return res.status(404).json({ error: "Naro\u010Dilo ne obstaja." });
+    const tx = txDoc.data();
+    if (tx.seller_id !== userId) return res.status(403).json({ error: "Te dra\u017Ebe ne morete potrditi s tem ra\u010Dunom." });
+    if (tx.status === "COMPLETED") return res.json({ success: true, message: "Predaja je \u017Ee potrjena." });
+    if (tx.payout_status === "frozen" || tx.payout_status === "refunded" || tx.status === "DISPUTED") {
+      return res.status(400).json({ error: "Naro\u010Dila v trenutnem stanju ni mogo\u010De potrditi." });
+    }
+    if (tx.status !== "HELD_IN_ESCROW") return res.status(400).json({ error: "Naro\u010Dilo ni v stanju HELD_IN_ESCROW." });
+    let deliveryMethod = tx.delivery_method;
+    if (!deliveryMethod && tx.auction_id) {
+      try {
+        const auctionDoc = await safeGetDoc(adminDb.collection("auctions").doc(tx.auction_id));
+        if (auctionDoc.exists()) {
+          deliveryMethod = auctionDoc.data()?.delivery_method;
+        }
+      } catch (err) {
+      }
+    }
+    if (deliveryMethod !== "pickup") {
+      return res.status(400).json({ error: "Predaja je na voljo le za osebni prevzem." });
+    }
+    const token = String(req.body?.token || "").trim();
+    if (!token) return res.status(400).json({ error: "Manjka potrditveni \u017Eeton." });
+    const secretRef = adminDb.collection("transaction_secrets").doc(txDoc.id);
+    const secretDoc = await safeGetDoc(secretRef);
+    const secret = secretDoc.exists() ? secretDoc.data() || {} : null;
+    if (!secret || !secret.pickup_qr_token) return res.status(400).json({ error: "Kupec kode \u0161e ni odprl v svojem ra\u010Dunu." });
+    const nowMs = Date.now();
+    if (secret.locked_until && secret.locked_until > nowMs) {
+      return res.status(429).json({ error: "Preve\u010D napa\u010Dnih poskusov. Poskusite znova \u010Dez nekaj minut." });
+    }
+    if ((secret.lock_count || 0) >= 3) {
+      return res.status(423).json({ error: "Vnos kode je zaklenjen. Predajo naj potrdi kupec v aplikaciji." });
+    }
+    const a = Buffer.from(token);
+    const b = Buffer.from(String(secret.pickup_qr_token));
+    const ok = a.length === b.length && (0, import_crypto2.timingSafeEqual)(a, b);
+    if (!ok) {
+      const failed = (secret.failed_attempts || 0) + 1;
+      const update = { failed_attempts: failed };
+      if (failed >= 5) {
+        update.failed_attempts = 0;
+        update.lock_count = (secret.lock_count || 0) + 1;
+        update.locked_until = nowMs + 15 * 60 * 1e3;
+      }
+      await secretRef.set(update, { merge: true });
+      return res.status(400).json({ error: "Napa\u010Dna koda." });
+    }
+    await secretRef.set({ failed_attempts: 0 }, { merge: true });
+    await completePickupHandover(txRef, txDoc.id, tx, "pickup_qr_confirmed");
+    return res.json({ success: true, message: "Predaja potrjena. Izpla\u010Dilo je spro\u017Eeno." });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ error: e.message });
   }
 });
 app.post("/api/orders/:id/mark-as-shipped", async (req, res) => {

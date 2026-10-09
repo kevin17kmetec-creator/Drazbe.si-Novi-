@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { MessageSquare, Key, CheckCircle2, Star, FileText, Clock } from 'lucide-react';
 import { toast } from '@/src/lib/toast';
+import { QRCodeSVG } from 'qrcode.react';
 
 export interface WinnerActionsProps {
   wonItem: any;
@@ -16,6 +17,7 @@ export interface WinnerActionsProps {
   onOpenDetail?: (item: any) => void;
   onOpenTimeline?: (auctionId: string) => void;
   onOpenDeliveryChooser?: (auctionId: string) => void;
+  onRefreshWonItems?: () => void;
   className?: string;
 }
 
@@ -32,19 +34,36 @@ export const WinnerActions: React.FC<WinnerActionsProps> = ({
   onOpenDetail,
   onOpenTimeline,
   onOpenDeliveryChooser,
+  onRefreshWonItems,
   className = ""
 }) => {
-  const [pickupPin, setPickupPin] = useState<string | null>(null);
+  const [pickupData, setPickupData] = useState<{ pin: string; qrUrl: string } | null>(null);
   const [pinLoading, setPinLoading] = useState(false);
 
   // Deutscher Kommentar: Prueft auf Abholung unter Beruecksichtigung von delivery_method und selected_delivery
   const isPickup = Boolean(wonItem?.delivery_method === "pickup" || wonItem?.selected_delivery === "pickup");
   const isDeliveryUnset = Boolean(!wonItem?.delivery_method && !wonItem?.selected_delivery);
 
-  // Hilfsfunktion zum Abrufen oder Umschalten des Abholcodes
+  // Deutscher Kommentar: Regelmaessiges Abrufen der Auktionsdaten alle 20 Sekunden, solange das PIN-Panel geoeffnet ist und der Artikel noch nicht empfangen wurde
+  useEffect(() => {
+    if (!pickupData || wonItem?.buyer_received) return;
+    const interval = setInterval(() => {
+      onRefreshWonItems?.();
+    }, 20000);
+    return () => clearInterval(interval);
+  }, [pickupData, wonItem?.buyer_received, onRefreshWonItems]);
+
+  // Deutscher Kommentar: PIN-Panel schliessen, sobald der Artikel empfangen wurde
+  useEffect(() => {
+    if (wonItem?.buyer_received && pickupData) {
+      setPickupData(null);
+    }
+  }, [wonItem?.buyer_received, pickupData]);
+
+  // Hilfsfunktion zum Abrufen oder Umschalten des Abholcodes und QR-Codes
   const togglePickupPin = async () => {
-    if (pickupPin) {
-      setPickupPin(null);
+    if (pickupData) {
+      setPickupData(null);
       return;
     }
     setPinLoading(true);
@@ -55,7 +74,7 @@ export const WinnerActions: React.FC<WinnerActionsProps> = ({
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data?.pin) {
-        setPickupPin(data.pin);
+        setPickupData({ pin: data.pin, qrUrl: data.qrUrl });
       } else {
         toast.error(data.error || "Napaka pri pridobivanju prevzemne kode.");
       }
@@ -140,19 +159,19 @@ export const WinnerActions: React.FC<WinnerActionsProps> = ({
                 <div className="text-green-500 font-bold text-[10px] uppercase flex items-center gap-1 w-full justify-center bg-green-50 py-2 rounded-xl border border-green-100 h-[42px]">
                   <CheckCircle2 size={12} /> Predmet prejet
                 </div>
-              ) : (
-                <>
-                  {isPickup && isPaid && (
-                    <button
-                      type="button"
-                      onClick={togglePickupPin}
-                      disabled={pinLoading}
-                      className="bg-amber-100 text-[#0A1128] border-2 border-[#FEBA4F] px-4 py-2 rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-[#FEBA4F] transition-all w-full h-[42px] flex items-center justify-center gap-1.5"
-                    >
-                      <Key size={14} className="text-[#0A1128]" />
-                      {pinLoading ? "Nalaganje..." : pickupPin ? "Skrij kodo" : "Pokaži prevzemno kodo"}
-                    </button>
-                  )}
+              ) : isDeliveryUnset ? (
+                null
+              ) : isPickup && isPaid ? (
+                <div className="flex flex-col items-center w-full gap-1">
+                  <button
+                    type="button"
+                    onClick={togglePickupPin}
+                    disabled={pinLoading}
+                    className="bg-amber-100 text-[#0A1128] border-2 border-[#FEBA4F] px-4 py-2 rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-[#FEBA4F] transition-all w-full h-[42px] flex items-center justify-center gap-1.5"
+                  >
+                    <Key size={14} className="text-[#0A1128]" />
+                    {pinLoading ? "Nalaganje..." : pickupData ? "Skrij kodo" : "Pokaži prevzemno kodo"}
+                  </button>
                   <button
                     type="button"
                     onClick={() => {
@@ -160,14 +179,30 @@ export const WinnerActions: React.FC<WinnerActionsProps> = ({
                         isOpen: true,
                         auctionId: wonItem.id,
                         sellerId: wonItem.sellerId || wonItem.seller_id,
+                        isPickup: true,
                       });
                     }}
-                    className="bg-white border-2 border-slate-200 text-[#0A1128] px-4 py-2 rounded-xl font-bold text-[10px] uppercase tracking-widest hover:border-[#FEBA4F] transition-all w-full h-[42px] flex items-center justify-center"
+                    className="text-xs text-slate-500 hover:text-slate-700 underline cursor-pointer text-center mt-1 bg-transparent border-0 p-0"
                   >
-                    Potrdi prejem
+                    Koda ne deluje? Potrdi prevzem brez kode
                   </button>
-                </>
-              )}
+                </div>
+              ) : isPaid ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setReceiptConfirmModal({
+                      isOpen: true,
+                      auctionId: wonItem.id,
+                      sellerId: wonItem.sellerId || wonItem.seller_id,
+                      isPickup: false,
+                    });
+                  }}
+                  className="bg-white border-2 border-slate-200 text-[#0A1128] px-4 py-2 rounded-xl font-bold text-[10px] uppercase tracking-widest hover:border-[#FEBA4F] transition-all w-full h-[42px] flex items-center justify-center"
+                >
+                  Potrdi prejem
+                </button>
+              ) : null}
             </div>
           </div>
 
@@ -208,18 +243,25 @@ export const WinnerActions: React.FC<WinnerActionsProps> = ({
         </div>
 
         {/* Abholcode-Feld fuer den Kaeufer */}
-        {pickupPin && (
-          <div className="w-full bg-amber-50 border-2 border-[#FEBA4F] rounded-2xl p-4 mt-3 flex flex-col items-center text-center gap-2">
-            <span className="text-xs font-black uppercase text-slate-500 tracking-wider">Prevzemna koda za prodajalca</span>
-            <div className="font-mono text-3xl font-black tracking-[0.3em] text-[#0A1128] py-1 select-all">
-              {pickupPin}
+        {pickupData && !wonItem.buyer_received && (
+          <div className="w-full bg-amber-50 border-2 border-[#FEBA4F] rounded-2xl p-4 mt-3 flex flex-col items-center text-center gap-3">
+            <span className="text-xs font-black uppercase text-slate-500 tracking-wider">Prevzemna koda in QR koda za prodajalca</span>
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-6 w-full">
+              <div className="font-mono text-3xl font-black tracking-[0.3em] text-[#0A1128] py-1 select-all">
+                {pickupData.pin}
+              </div>
+              {pickupData.qrUrl && (
+                <div className="bg-white p-3 rounded-2xl shadow-sm border border-amber-200">
+                  <QRCodeSVG value={pickupData.qrUrl} size={110} level="M" includeMargin={false} />
+                </div>
+              )}
             </div>
             <p className="text-xs text-slate-600 font-bold max-w-md">
-              Kodo pokažite prodajalcu šele po pregledu predmeta. Z razkritjem kode potrjujete, da je predmet skladen z opisom, in prodajalec prejme izplačilo.
+              Prodajalec lahko kodo skenira s kamero telefona ali vnese 6-mestno kodo. Kodo pokažite prodajalcu šele po pregledu predmeta. Z razkritjem kode potrjujete, da je predmet skladen z opisom, in prodajalec prejme izplačilo.
             </p>
             <button
               type="button"
-              onClick={() => setPickupPin(null)}
+              onClick={() => setPickupData(null)}
               className="text-xs font-bold text-slate-500 underline hover:text-[#0A1128] mt-1"
             >
               Skrij kodo
@@ -276,19 +318,19 @@ export const WinnerActions: React.FC<WinnerActionsProps> = ({
           <div className="text-green-600 font-bold text-[11px] uppercase flex items-center gap-1.5 px-3 py-2 rounded-xl bg-green-50 border border-green-200 h-[40px]">
             <CheckCircle2 size={14} /> Predmet prejet
           </div>
-        ) : (
-          <>
-            {isPickup && isPaid && (
-              <button
-                type="button"
-                onClick={togglePickupPin}
-                disabled={pinLoading}
-                className="bg-amber-100 text-[#0A1128] border-2 border-[#FEBA4F] px-3.5 py-2 rounded-xl font-bold text-[11px] uppercase tracking-wider hover:bg-[#FEBA4F] transition-all h-[40px] flex items-center justify-center gap-1.5"
-              >
-                <Key size={14} className="text-[#0A1128]" />
-                {pinLoading ? "Nalaganje..." : pickupPin ? "Skrij kodo" : "Pokaži prevzemno kodo"}
-              </button>
-            )}
+        ) : isDeliveryUnset ? (
+          null
+        ) : isPickup && isPaid ? (
+          <div className="flex flex-col items-center gap-1">
+            <button
+              type="button"
+              onClick={togglePickupPin}
+              disabled={pinLoading}
+              className="bg-amber-100 text-[#0A1128] border-2 border-[#FEBA4F] px-3.5 py-2 rounded-xl font-bold text-[11px] uppercase tracking-wider hover:bg-[#FEBA4F] transition-all h-[40px] flex items-center justify-center gap-1.5"
+            >
+              <Key size={14} className="text-[#0A1128]" />
+              {pinLoading ? "Nalaganje..." : pickupData ? "Skrij kodo" : "Pokaži prevzemno kodo"}
+            </button>
             <button
               type="button"
               onClick={() => {
@@ -296,14 +338,30 @@ export const WinnerActions: React.FC<WinnerActionsProps> = ({
                   isOpen: true,
                   auctionId: wonItem.id,
                   sellerId: wonItem.sellerId || wonItem.seller_id,
+                  isPickup: true,
                 });
               }}
-              className="bg-white border-2 border-slate-200 text-[#0A1128] px-3.5 py-2 rounded-xl font-bold text-[11px] uppercase tracking-wider hover:border-[#FEBA4F] transition-all h-[40px] flex items-center justify-center"
+              className="text-xs text-slate-500 hover:text-slate-700 underline cursor-pointer text-center mt-1 bg-transparent border-0 p-0"
             >
-              Potrdi prejem
+              Koda ne deluje? Potrdi prevzem brez kode
             </button>
-          </>
-        )}
+          </div>
+        ) : isPaid ? (
+          <button
+            type="button"
+            onClick={() => {
+              setReceiptConfirmModal({
+                isOpen: true,
+                auctionId: wonItem.id,
+                sellerId: wonItem.sellerId || wonItem.seller_id,
+                isPickup: false,
+              });
+            }}
+            className="bg-white border-2 border-slate-200 text-[#0A1128] px-3.5 py-2 rounded-xl font-bold text-[11px] uppercase tracking-wider hover:border-[#FEBA4F] transition-all h-[40px] flex items-center justify-center"
+          >
+            Potrdi prejem
+          </button>
+        ) : null}
 
         {/* Bewertung des Verkaeufers */}
         {(wonItem as any).review_submitted ? (
@@ -339,19 +397,26 @@ export const WinnerActions: React.FC<WinnerActionsProps> = ({
         )}
       </div>
 
-      {/* Prevzemna koda Anzeige-Panel */}
-      {pickupPin && (
-        <div className="w-full bg-amber-50 border-2 border-[#FEBA4F] rounded-2xl p-4 mt-2 flex flex-col items-center text-center gap-2">
-          <span className="text-xs font-black uppercase text-slate-500 tracking-wider">Prevzemna koda za prodajalca</span>
-          <div className="font-mono text-3xl font-black tracking-[0.3em] text-[#0A1128] py-1 select-all">
-            {pickupPin}
+      {/* Abholcode-Feld fuer den Kaeufer */}
+      {pickupData && !wonItem.buyer_received && (
+        <div className="w-full bg-amber-50 border-2 border-[#FEBA4F] rounded-2xl p-4 mt-2 flex flex-col items-center text-center gap-3">
+          <span className="text-xs font-black uppercase text-slate-500 tracking-wider">Prevzemna koda in QR koda za prodajalca</span>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-6 w-full">
+            <div className="font-mono text-3xl font-black tracking-[0.3em] text-[#0A1128] py-1 select-all">
+              {pickupData.pin}
+            </div>
+            {pickupData.qrUrl && (
+              <div className="bg-white p-3 rounded-2xl shadow-sm border border-amber-200">
+                <QRCodeSVG value={pickupData.qrUrl} size={110} level="M" includeMargin={false} />
+              </div>
+            )}
           </div>
           <p className="text-xs text-slate-600 font-bold max-w-md">
-            Kodo pokažite prodajalcu šele po pregledu predmeta. Z razkritjem kode potrjujete, da je predmet skladen z opisom, in prodajalec prejme izplačilo.
+            Prodajalec lahko kodo skenira s kamero telefona ali vnese 6-mestno kodo. Kodo pokažite prodajalcu šele po pregledu predmeta. Z razkritjem kode potrjujete, da je predmet skladen z opisom, in prodajalec prejme izplačilo.
           </p>
           <button
             type="button"
-            onClick={() => setPickupPin(null)}
+            onClick={() => setPickupData(null)}
             className="text-xs font-bold text-slate-500 underline hover:text-[#0A1128] mt-1"
           >
             Skrij kodo
